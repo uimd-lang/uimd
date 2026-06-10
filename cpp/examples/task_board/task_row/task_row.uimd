@@ -1,0 +1,91 @@
+# Task Row
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Reusable task row with editable controls."
+tags: [component, example]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+task_title:
+  type: label
+  text: "Task"
+  description: "Task title."
+
+meta:
+  type: label
+  text: "Status / assignee / priority"
+  description: "Task status, assignee, and priority."
+
+done:
+  type: checkbox
+  title: Done
+  value: false
+  description: "Whether the task is done."
+
+spacer:
+  type: label
+  text: ""
+  description: "Flexible row spacer before task actions."
+  expose: false
+
+open_btn:
+  type: button
+  title: Open
+  description: "Open this task in the edit dialog."
+
+delete_btn:
+  type: button
+  title: Delete
+  description: "Ask for confirmation and delete this task."
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+@card:
+  background: "#172033"
+  padding: 1, 1, 1, 1
+@task_title:
+  color: "#f8fafc"
+  user-select: text
+@meta:
+  color: "#93c5fd"
+  user-select: text
+checkbox:
+  color: "#cbd5e1"
+  focus-color: "#facc15"
+  checked-color: "#22c55e"
+  unchecked-color: "#94a3b8"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@delete_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+```
+
+## User Interface
+
+```ui
++-card-**---------------------------------------+
+| task_title..**....... meta................... |
+| done.... spacer..**.. open_btn.. delete_btn.. |
++-----------------------------------------------+
+```

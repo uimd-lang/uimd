@@ -1,0 +1,112 @@
+- name: calculator
+  app: python/examples/calculator/calculator.py
+  tests:
+    - tool: activate_element
+      arguments:
+        element_id: ac
+    - tool: activate_element
+      arguments:
+        element_id: n1
+    - tool: activate_element
+      arguments:
+        element_id: n2
+    - tool: activate_element
+      arguments:
+        element_id: ad
+    - tool: activate_element
+      arguments:
+        element_id: n3
+    - tool: activate_element
+      arguments:
+        element_id: sb
+    - tool: get_element
+      arguments:
+        element_id: display
+      assert:
+        value: "15"
+    - tool: activate_element
+      arguments:
+        element_id: ac
+    - tool: press_key
+      arguments:
+        key: "7"
+    - tool: press_key
+      arguments:
+        key: "*"
+    - tool: press_key
+      arguments:
+        key: "6"
+    - tool: press_key
+      arguments:
+        key: "="
+    - tool: get_element
+      arguments:
+        element_id: display
+      assert:
+        value: "42"
+    - tool: activate_element
+      arguments:
+        element_id: ac
+    - tool: activate_element
+      arguments:
+        element_id: n1
+    - tool: activate_element
+      arguments:
+        element_id: dt
+    - tool: activate_element
+      arguments:
+        element_id: n5
+    - tool: activate_element
+      arguments:
+        element_id: ad
+    - tool: activate_element
+      arguments:
+        element_id: n2
+    - tool: activate_element
+      arguments:
+        element_id: dt
+    - tool: activate_element
+      arguments:
+        element_id: n5
+    - tool: activate_element
+      arguments:
+        element_id: sb
+    - tool: get_element
+      arguments:
+        element_id: display
+      assert:
+        value: "4"
+    - tool: activate_element
+      arguments:
+        element_id: ac
+    - tool: activate_element
+      arguments:
+        element_id: n9
+    - tool: activate_element
+      arguments:
+        element_id: n9
+    - tool: activate_element
+      arguments:
+        element_id: dl
+    - tool: get_element
+      arguments:
+        element_id: display
+      assert:
+        value: "9"
+    - tool: activate_element
+      arguments:
+        element_id: ac
+    - tool: activate_element
+      arguments:
+        element_id: n5
+    - tool: activate_element
+      arguments:
+        element_id: n0
+    - tool: activate_element
+      arguments:
+        element_id: pr
+    - tool: get_element
+      arguments:
+        element_id: display
+      assert:
+        value: "0.5"

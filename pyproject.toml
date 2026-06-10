@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uimd"
+version = "0.3.0"
+description = "User Interface Markdown. Define app interfaces in Markdown and generate UI and agent access."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0",
+]
+license = { file = "LICENSE" }
+authors = [
+    { name = "Marek Dubovsky" }
+]
+keywords = ["markdown", "ui", "mcp", "code-generation", "terminal-ui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: C++",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: User Interfaces",
+]
+
+[project.urls]
+Homepage = "https://github.com/uimd-lang/uimd"
+Source = "https://github.com/uimd-lang/uimd"
+Issues = "https://github.com/uimd-lang/uimd/issues"
+
+[project.scripts]
+uimd-mcp-test = "uimd.testing.mcp_tester_launcher:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+uimd = [
+    "themes/*.uimd",
+    "specs/*.md",
+    "ir/*.md",
+    "dialogs/*.uimd",
+    "testing/*.uimd",
+]

@@ -1,0 +1,48 @@
+# Activity Feed Panel
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Reusable scroll view for activity feed items."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - ../activity_item/activity_item
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#00000000"
+@panel:
+  gap: 1
+  padding: 1, 0, 1, 0
+  background: "#00000000"
+```
+
+## User Interface
+
+```ui
++-panel-**---------------------------------------------+
+|                                                      |
+|                                                      |
+|                                                      |
+|                                                      |
+|                                                      |
+*                                                      |
+*                                                      |
+*                                                      |
+|                                                      |
++------------------------------------------------------+
+```

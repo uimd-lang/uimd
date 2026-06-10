@@ -1,0 +1,192 @@
+- name: widget_gallery
+  app: python/examples/widget_gallery/widget_gallery.py
+  tests:
+    - tool: get_element
+      arguments:
+        element_id: header
+      assert:
+        value: Widget Gallery
+    - tool: get_element
+      arguments:
+        element_id: close_btn
+      assert:
+        value: Quit
+    - tool: get_element
+      arguments:
+        element_id: plain_label
+      assert:
+        value: Plain label with inherited theme colors.
+    - tool: get_element
+      arguments:
+        element_id: selectable_label
+      assert:
+        value: Select this text with the mouse to test label selection.
+    - tool: get_element
+      arguments:
+        element_id: spans
+      assert:
+        value: SpanLabel can mix foreground and background colors.
+    - tool: get_element
+      arguments:
+        element_id: animation
+      assert:
+        value: Animated label shows gradient-based rendering.
+    - tool: get_element
+      arguments:
+        element_id: name_label
+      assert:
+        value: Name
+    - tool: get_element
+      arguments:
+        element_id: count_label
+      assert:
+        value: Count
+    - tool: get_element
+      arguments:
+        element_id: theme_label
+      assert:
+        value: Theme
+    - tool: get_element
+      arguments:
+        element_id: mode_label
+      assert:
+        value: Mode
+    - tool: get_element
+      arguments:
+        element_id: name_input
+      assert:
+        value: Ada Lovelace
+    - tool: get_element
+      arguments:
+        element_id: count_input
+      assert:
+        value: 3
+    - tool: get_element
+      arguments:
+        element_id: enabled_check
+      assert:
+        value: true
+    - tool: get_element
+      arguments:
+        element_id: theme_combo
+      assert:
+        value: Dark
+    - tool: get_element
+      arguments:
+        element_id: mode_list
+      assert:
+        value: ["Preview"]
+    - tool: get_element
+      arguments:
+        element_id: summary
+      assert:
+        value: "values:\n  name: Ada Lovelace\n  count: 3\n  theme: Dark\n  mode: Preview\n  enabled: True"
+    - tool: set_text
+      arguments:
+        element_id: name_input
+        text: Grace Hopper
+      assert:
+        value: Grace Hopper
+    - tool: set_cursor
+      arguments:
+        element_id: name_input
+        offset: 0
+      assert:
+        cursor: 0
+    - tool: type_text
+      arguments:
+        element_id: name_input
+        text: "Dr. "
+      assert:
+        value: Dr. Grace Hopper
+    - tool: select_text
+      arguments:
+        element_id: name_input
+        start: 4
+        end: 9
+      assert:
+        start: 4
+        end: 9
+        text: Grace
+    - tool: copy_selection
+      arguments:
+        element_id: name_input
+      assert:
+        text: Grace
+    - tool: replace_selection
+      arguments:
+        element_id: name_input
+        text: Admiral
+      assert:
+        value: Dr. Admiral Hopper
+    - tool: set_text
+      arguments:
+        element_id: name_input
+        text: Grace Hopper
+      assert:
+        value: Grace Hopper
+    - tool: set_text
+      arguments:
+        element_id: count_input
+        text: 7
+      assert:
+        value: 7
+    - tool: enter_edit_mode
+      arguments:
+        element_id: theme_combo
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: theme_combo
+      assert:
+        value: Solarized
+    - tool: enter_edit_mode
+      arguments:
+        element_id: mode_list
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: exit_edit_mode
+    - tool: get_element
+      arguments:
+        element_id: mode_list
+      assert:
+        value: ["Publish"]
+    - tool: activate_element
+      arguments:
+        element_id: enabled_check
+      assert:
+        value: false
+    - tool: click_element
+      arguments:
+        element_id: apply_btn
+    - tool: get_element
+      arguments:
+        element_id: summary
+      assert:
+        value: "values:\n  name: Grace Hopper\n  count: 7\n  theme: Solarized\n  mode: Publish\n  enabled: False"
+    - tool: activate_element
+      arguments:
+        element_id: reset_btn
+    - tool: get_element
+      arguments:
+        element_id: summary
+      assert:
+        value: "values:\n  name: Ada Lovelace\n  count: 3\n  theme: Dark\n  mode: Preview\n  enabled: True"
+    - tool: activate_element
+      arguments:
+        element_id: close_btn

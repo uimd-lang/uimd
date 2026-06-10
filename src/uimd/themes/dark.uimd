@@ -1,0 +1,106 @@
+# Dark Theme
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: theme
+status: stable
+description: "Dark Theme UI source."
+tags: [theme]
+```
+
+## Style
+
+```yaml
+this:
+  background: #162033
+  border-color: transparent
+  border-width: 0
+label:
+  background: transparent
+  color: "#cbd5e1"
+  cursor-background: "#b8d7ff"
+  cursor-color: "#000000"
+@dialog_header:
+  text-align: center
+  background: "#1d314c"
+@window_header:
+  text-align: center
+  background: "#1d314c"
+infolabel:
+  background: transparent
+  color: "#b8c4d8"
+textinput:
+  background: #0d1524
+  color: "#e5e7eb"
+  disabled-background: "#0b1220"
+  disabled-color: "#64748b"
+  focus-background: #243a5c
+  focus-color: "#ffffff"
+  edit-background: #2d456d
+  edit-color: "#ffffff"
+  cursor-background: "#ffffff"
+  cursor-color: "#0e1117"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+numberinput:
+  background: #0d1524
+  color: "#e5e7eb"
+  disabled-background: "#0b1220"
+  disabled-color: "#64748b"
+  focus-background: #243a5c
+  focus-color: "#ffffff"
+  edit-background: #2d456d
+  edit-color: "#ffffff"
+  cursor-background: "#ffffff"
+  cursor-color: "#0e1117"
+combobox:
+  background: #0d1524
+  color: "#e5e7eb"
+  disabled-background: "#0b1220"
+  disabled-color: "#64748b"
+  focus-background: #243a5c
+  focus-color: "#ffffff"
+  edit-background: #2d456d
+  edit-color: "#e5e7eb"
+  selected-background: #2563eb
+  selected-color: "#ffffff"
+listbox:
+  background: #0d1524
+  color: "#cbd5e1"
+  disabled-color: "#64748b"
+  focus-background: #1d2f4d
+  focus-color: "#ffffff"
+  edit-background: #243a5c
+  edit-color: "#cbd5e1"
+  selected-background: #2563eb
+  selected-color: "#ffffff"
+uielement:
+  focus-background: "#ffffff14"
+  edit-background: "#ffffff18"
+  selected-background: "#ffffff26"
+  selected-color: "#ffffff"
+uiscrollview:
+  focus-background: "#ffffff14"
+  edit-background: "#ffffff18"
+  selected-background: "#ffffff26"
+  selected-color: "#ffffff"
+checkbox:
+  background: transparent
+  color: "#b8c4d8"
+  disabled-color: "#64748b"
+  focus-background: "#ffffff44"
+  focus-color: "#ffffff"
+  checked-background: transparent
+  checked-color: "#44cc88"
+  unchecked-background: transparent
+button:
+  background: #334155
+  color: "#e2e8f0"
+  disabled-background: "#1f2937"
+  disabled-color: "#64748b"
+  focus-background: #2b5f9f
+  focus-color: "#ffffff"
+```

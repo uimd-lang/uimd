@@ -1,0 +1,125 @@
+- name: markdown_viewer
+  app: python/examples/markdown_viewer/markdown_viewer.py
+  tests:
+    - tool: get_element
+      arguments:
+        element_id: docs
+      assert:
+        value: ["overview.markdown"]
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "overview.markdown - 47 blocks - arrows preview"
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: docs
+      assert:
+        value: ["styles.markdown"]
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "styles.markdown - 46 blocks - arrows preview"
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: docs
+      assert:
+        value: ["tables.markdown"]
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "tables.markdown - 32 blocks - arrows preview"
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: docs
+      assert:
+        value: ["code.markdown"]
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "code.markdown - 29 blocks - arrows preview"
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: down_btn
+    - tool: activate_element
+      arguments:
+        element_id: up_btn
+    - tool: activate_element
+      arguments:
+        element_id: up_btn
+    - tool: activate_element
+      arguments:
+        element_id: up_btn
+    - tool: activate_element
+      arguments:
+        element_id: up_btn
+    - tool: activate_element
+      arguments:
+        element_id: up_btn
+    - tool: enter_edit_mode
+      arguments:
+        element_id: viewer
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: get_text_snapshot

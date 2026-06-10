@@ -1,0 +1,59 @@
+Algoritmus renderovania buniek.
+
+input: ui_root
+
+let EXPANDED = 0x1fffffff
+
+render(ui_root, window.width, window.height)
+
+func draw_borders(ref output, node)
+	output[node.y][node.x] = '+'
+	for x in node.x + 1, node.x + node.width
+		output[node.y][x] = '-'
+	for y in node.y + 1, node.y + node.height
+		output[y][node.x] = '|'
+
+func render(parent, width, height)
+	if is_empty(parent.tables)
+		draw_borders(ref window.output, parent)
+	else
+		is_vert = 1 < length(parent.tables) and parent.tables[0].y < parent.tables[1].y
+		is_horiz = 1 < length(parent.tables) and parent.tables[0].x < parent.tables[1].x
+		if is_vert
+			sum_height = 0
+			num_of_expanded = 0
+			foreach child in parent.tables
+				if child.height == EXPANDED
+					num_of_expanded++
+				else
+					sum_height += child.height
+			
+			avg_expanded_height = 0
+			if 0 < num_of_expanded
+				avg_expanded_height = (height - sum_height) / num_of_expanded
+				
+			foreach child in parent.tables
+				if child.height == EXPANDED
+					render(child, width, avg_expanded_height)
+				else
+					render(child, width, child.height)
+		else if is_horiz
+			sum_width = 0
+			num_of_expanded = 0
+			foreach child in parent.tables
+				if child.width == EXPANDED
+					num_of_expanded++
+				else
+					sum_width += child.width
+			
+			avg_expanded_width = 0
+			if 0 < num_of_expanded
+				avg_expanded_width = (width - sum_width) / num_of_expanded
+				
+			foreach child in parent.tables
+				if child.width == EXPANDED
+					render(child, avg_expanded_width, height)
+				else
+					render(child, child.width, height)
+		else
+			render(parent.tables[0], width, height)

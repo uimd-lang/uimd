@@ -1,0 +1,61 @@
+# Code Block
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: stable
+description: "Code Block UI source."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+lang:
+  type: label
+  text: code
+
+code:
+  type: spanlabel
+  text: ""
+```
+
+## Style
+
+```yaml
+this:
+  background: "#00000000"
+  border-width: 0
+@head:
+  background: "#1d314c"
+@body:
+  background: "#0c1a2d"
+@lang:
+  color: "#93c5fd"
+@code:
+  color: "#d1d5db"
+  word-wrap: false
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-head-**----------------------------------------+
+| lang..**...................................... |
++-body-**----------------------------------------+
+| code..**...................................... |
+| .............................................. |
+# #............................................ |
+# #............................................ |
++------------------------------------------------+
+```

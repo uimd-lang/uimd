@@ -1,0 +1,349 @@
+- name: text_editor
+  app: python/examples/text_editor/text_editor.py
+  env:
+    UI_TEXT_EDITOR_NOTES_DIR: tests/mcp/.tmp/text_editor_notes/{platform}
+    UI_TEXT_EDITOR_DEFAULT_NOTE: welcome.txt
+    UI_TEXT_EDITOR_BROWSER_ROOT_DIR: tests/mcp/.tmp/text_editor_notes/{platform}
+    UI_TEXT_EDITOR_BROWSER_DIR: tests/mcp/.tmp/text_editor_notes/{platform}
+  setup:
+    - tester: remove
+      path: tests/mcp/.tmp/text_editor_notes
+    - tester: mkdir
+      path: tests/mcp/.tmp/text_editor_notes/{platform}
+    - tester: mkdir
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/example_subdir
+    - tester: write_file
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/welcome.txt
+      content: "Original note\n"
+    - tester: write_file
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/example_subdir/nested_example.txt
+      content: "Nested note\nSecond nested line\n"
+    - tester: write_file
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/open_target.txt
+      content: "Opened target\n"
+    - tester: write_file
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/overwrite_target.txt
+      content: "Old overwrite\n"
+  tests:
+    - tool: get_element
+      arguments:
+        element_id: editor
+      assert:
+        value: "Original note\n"
+    - tool: set_text
+      arguments:
+        element_id: editor
+        text: Draft before cancel.
+      assert:
+        value: Draft before cancel.
+    - tool: activate_element
+      arguments:
+        element_id: new_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNoCancel
+        title: Message Box
+    - tool: get_element
+      arguments:
+        element_id: dialog_header
+      assert:
+        value: Unsaved Changes
+    - tool: get_element
+      arguments:
+        element_id: message
+      assert:
+        value: Save current file before continuing?
+    - tool: activate_element
+      arguments:
+        element_id: cancel_btn
+    - tool: get_window
+      assert:
+        class: TextEditor
+        title: Text Editor
+    - tool: get_element
+      arguments:
+        element_id: editor
+      assert:
+        value: Draft before cancel.
+    - tool: activate_element
+      arguments:
+        element_id: new_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNoCancel
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tool: get_element
+      arguments:
+        element_id: filename
+      assert:
+        value: untitled.txt
+    - tool: get_element
+      arguments:
+        element_id: editor
+      assert:
+        value: ""
+    - tool: set_text
+      arguments:
+        element_id: editor
+        text: "Created through Save As.\nSecond line."
+      assert:
+        value: "Created through Save As.\nSecond line."
+    - tool: activate_element
+      arguments:
+        element_id: save_as_btn
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: get_element
+      arguments:
+        element_id: dialog_header
+      assert:
+        value: Save As
+    - tool: get_element
+      arguments:
+        element_id: open_btn
+      assert:
+        value: Save
+    - tool: set_text
+      arguments:
+        element_id: filename
+        text: created.txt
+      assert:
+        value: created.txt
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tester: assert_file_content
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/created.txt
+      content: "Created through Save As.\nSecond line."
+    - tool: set_text
+      arguments:
+        element_id: editor
+        text: Dirty before opening existing.
+      assert:
+        value: Dirty before opening existing.
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNoCancel
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: get_element
+      arguments:
+        element_id: dialog_header
+      assert:
+        value: Open File
+    - tool: get_element
+      arguments:
+        element_id: open_btn
+      assert:
+        value: Open
+    - tool: get_element
+      arguments:
+        element_id: entries
+      assert:
+        value:
+          - ..
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: entries
+      assert:
+        value:
+          - example_subdir/
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: get_element
+      arguments:
+        element_id: entries
+      assert:
+        value:
+          - ..
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: entries
+      assert:
+        value:
+          - nested_example.txt
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_window
+      assert:
+        class: TextEditor
+        title: Text Editor
+    - tool: get_element
+      arguments:
+        element_id: editor
+      assert:
+        value: "Nested note\nSecond nested line\n"
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: set_text
+      arguments:
+        element_id: filename
+        text: open_target.txt
+      assert:
+        value: open_target.txt
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_element
+      arguments:
+        element_id: editor
+      assert:
+        value: "Opened target\n"
+    - tool: set_text
+      arguments:
+        element_id: editor
+        text: Save before open choice.
+      assert:
+        value: Save before open choice.
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNoCancel
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: yes_btn
+    - tester: assert_file_content
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/open_target.txt
+      content: Save before open choice.
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: set_text
+      arguments:
+        element_id: filename
+        text: welcome.txt
+      assert:
+        value: welcome.txt
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_element
+      arguments:
+        element_id: editor
+      assert:
+        value: "Original note\n"
+    - tool: set_text
+      arguments:
+        element_id: editor
+        text: Saved over welcome.
+      assert:
+        value: Saved over welcome.
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+    - tester: assert_file_content
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/welcome.txt
+      content: Saved over welcome.
+    - tool: activate_element
+      arguments:
+        element_id: save_as_btn
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: set_text
+      arguments:
+        element_id: filename
+        text: overwrite_target.txt
+      assert:
+        value: overwrite_target.txt
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: get_element
+      arguments:
+        element_id: dialog_header
+      assert:
+        value: Overwrite File
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tester: assert_file_content
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/overwrite_target.txt
+      content: "Old overwrite\n"
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: yes_btn
+    - tester: assert_file_content
+      path: tests/mcp/.tmp/text_editor_notes/{platform}/overwrite_target.txt
+      content: Saved over welcome.
+    - tool: set_text
+      arguments:
+        element_id: editor
+        text: Quit should be cancelled.
+      assert:
+        value: Quit should be cancelled.
+    - tool: activate_element
+      arguments:
+        element_id: quit_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNoCancel
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: cancel_btn
+    - tool: get_window
+      assert:
+        class: TextEditor
+        title: Text Editor
+    - tool: get_element
+      arguments:
+        element_id: editor
+      assert:
+        value: Quit should be cancelled.
+  cleanup:
+    - tester: remove
+      path: tests/mcp/.tmp/text_editor_notes
+    - tester: assert_missing
+      path: tests/mcp/.tmp/text_editor_notes

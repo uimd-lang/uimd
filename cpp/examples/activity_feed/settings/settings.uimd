@@ -1,0 +1,104 @@
+# Activity Feed Settings
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: draft
+description: "Settings dialog for activity feed auto-scroll, timestamps, and default activity type."
+tags: [example]
+```
+
+## Members
+
+```yaml
+header_title:
+  type: label
+  text: "Activity Feed Settings"
+  description: "Dialog title."
+  expose: false
+
+auto_scroll:
+  type: checkbox
+  title: "Auto-scroll to newest"
+  value: 1
+  description: "Toggle whether new activity items scroll into view."
+
+show_timestamps:
+  type: checkbox
+  title: "Show timestamps"
+  value: 1
+  description: "Toggle whether newly added activity items include timestamps."
+
+default_type_label:
+  type: label
+  text: "Default type"
+  description: "Label for the default activity type selector."
+  expose: false
+
+default_type:
+  type: combobox
+  options: [Info, Task, Warning, Deploy, Note]
+  selected_item: Info
+  description: "Default activity type used by the main window."
+
+save_button:
+  type: button
+  title: Save
+  description: "Apply settings and close the dialog."
+
+cancel_button:
+  type: button
+  title: Cancel
+  description: "Close the dialog without applying settings."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@header:
+  background: "#1f2937"
+@header_title:
+  text-align: center
+  color: "#ffffff"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+combobox:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+checkbox:
+  color: "#d1d5db"
+  checked-color: "#22c55e"
+  unchecked-color: "#f97316"
+@buttons:
+  padding: 0, 2, 1, 2
+```
+
+## User Interface
+
+```ui
++-header-----------------------------------+
+|header_title..**..........................|
++-content----------------------------------+
+|                                          |
+|  auto_scroll...........................  |
+|                                          |
+|  show_timestamps.......................  |
+|                                          |
+|  default_type_label..  default_type....  |
+|                                          |
++-buttons----------------------------------+
+|  save_button......  cancel_button......  |
++------------------------------------------+
+```

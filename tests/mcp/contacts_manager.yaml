@@ -1,0 +1,295 @@
+- name: contacts_manager
+  app: python/examples/contacts_manager/contacts_manager.py
+  env:
+    UI_CONTACTS_MANAGER_DATA_PATH: tests/mcp/.tmp/contacts_manager/{platform}/contacts.csv
+  setup:
+    - tester: remove
+      path: tests/mcp/.tmp/contacts_manager
+    - tester: mkdir
+      path: tests/mcp/.tmp/contacts_manager/{platform}
+    - tester: write_file
+      path: tests/mcp/.tmp/contacts_manager/{platform}/contacts.csv
+      lines:
+        - id,first_name,last_name,email,phone,company,city,category,active,notes
+  tests:
+    - tool: get_element
+      arguments:
+        element_id: header
+      assert:
+        value: "Contacts Manager - 0 records"
+    - tool: get_element
+      arguments:
+        element_id: detail
+      assert:
+        value: No contact selected.
+
+    - tool: activate_element
+      arguments:
+        element_id: add_btn
+    - tool: set_text
+      arguments:
+        element_id: first_name
+        text: Ada
+    - tool: set_text
+      arguments:
+        element_id: last_name
+        text: Lovelace
+    - tool: set_text
+      arguments:
+        element_id: email
+        text: ada@example.com
+    - tool: set_text
+      arguments:
+        element_id: company
+        text: Analytical Engines
+    - tool: set_text
+      arguments:
+        element_id: city
+        text: London
+    - tool: set_text
+      arguments:
+        element_id: notes
+        text: Initial contact
+    - tool: get_element
+      arguments:
+        element_id: category
+      assert:
+        value: Client
+    - tool: get_element
+      arguments:
+        element_id: active
+      assert:
+        value: true
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+
+    - tool: activate_element
+      arguments:
+        element_id: add_btn
+    - tool: set_text
+      arguments:
+        element_id: first_name
+        text: Grace
+    - tool: set_text
+      arguments:
+        element_id: last_name
+        text: Hopper
+    - tool: set_text
+      arguments:
+        element_id: email
+        text: grace@example.com
+    - tool: set_text
+      arguments:
+        element_id: company
+        text: Navy
+    - tool: set_text
+      arguments:
+        element_id: city
+        text: Arlington
+    - tool: enter_edit_mode
+      arguments:
+        element_id: category
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: category
+      assert:
+        value: Vendor
+    - tool: set_text
+      arguments:
+        element_id: notes
+        text: Compiler pioneer
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+
+    - tool: activate_element
+      arguments:
+        element_id: add_btn
+    - tool: set_text
+      arguments:
+        element_id: first_name
+        text: Katherine
+    - tool: set_text
+      arguments:
+        element_id: last_name
+        text: Johnson
+    - tool: set_text
+      arguments:
+        element_id: email
+        text: katherine@example.com
+    - tool: set_text
+      arguments:
+        element_id: company
+        text: NASA
+    - tool: set_text
+      arguments:
+        element_id: city
+        text: Hampton
+    - tool: enter_edit_mode
+      arguments:
+        element_id: category
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: category
+      assert:
+        value: Partner
+    - tool: activate_element
+      arguments:
+        element_id: active
+      assert:
+        value: false
+    - tool: set_text
+      arguments:
+        element_id: notes
+        text: Orbital calculations
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+    - tool: get_element
+      arguments:
+        element_id: header
+      assert:
+        value: "Contacts Manager - 3 records"
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+    - tester: assert_file_contains
+      path: tests/mcp/.tmp/contacts_manager/{platform}/contacts.csv
+      content: 3,Katherine,Johnson,katherine@example.com,,NASA,Hampton,Partner,false,Orbital calculations
+
+    - tool: activate_element
+      arguments:
+        element_id: edit_btn
+    - tool: set_text
+      arguments:
+        element_id: company
+        text: NASA Langley
+    - tool: set_text
+      arguments:
+        element_id: city
+        text: Hampton VA
+    - tool: set_text
+      arguments:
+        element_id: notes
+        text: Updated orbital notes
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+    - tester: assert_file_contains
+      path: tests/mcp/.tmp/contacts_manager/{platform}/contacts.csv
+      content: 3,Katherine,Johnson,katherine@example.com,,NASA Langley,Hampton VA,Partner,false,Updated orbital notes
+
+    - tool: enter_edit_mode
+      arguments:
+        element_id: contacts
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: exit_edit_mode
+    - tool: activate_element
+      arguments:
+        element_id: delete_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: yes_btn
+    - tool: get_element
+      arguments:
+        element_id: header
+      assert:
+        value: "Contacts Manager - 2 records"
+
+    - tool: activate_element
+      arguments:
+        element_id: reload_btn
+    - tool: get_element
+      arguments:
+        element_id: header
+      assert:
+        value: "Contacts Manager - 3 records"
+    - tool: get_element
+      arguments:
+        element_id: detail
+      assert:
+        value: "Ada Lovelace\nEmail: ada@example.com\nPhone: \nCompany: Analytical Engines\nCity: London\nCategory: Client (active)\n\nInitial contact"
+
+    - tool: activate_element
+      arguments:
+        element_id: edit_btn
+    - tool: set_text
+      arguments:
+        element_id: city
+        text: Cancelled City
+    - tool: set_text
+      arguments:
+        element_id: notes
+        text: This edit should be cancelled.
+    - tool: activate_element
+      arguments:
+        element_id: cancel_btn
+    - tool: get_window
+      assert:
+        class: ContactsManager
+        title: Contacts Manager
+    - tool: get_element
+      arguments:
+        element_id: detail
+      assert:
+        value: "Ada Lovelace\nEmail: ada@example.com\nPhone: \nCompany: Analytical Engines\nCity: London\nCategory: Client (active)\n\nInitial contact"
+
+    - tool: activate_element
+      arguments:
+        element_id: edit_btn
+    - tool: set_text
+      arguments:
+        element_id: city
+        text: London UK
+    - tool: set_text
+      arguments:
+        element_id: notes
+        text: Saved after reload
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+    - tool: get_element
+      arguments:
+        element_id: detail
+      assert:
+        value: "Ada Lovelace\nEmail: ada@example.com\nPhone: \nCompany: Analytical Engines\nCity: London UK\nCategory: Client (active)\n\nSaved after reload"
+    - tool: activate_element
+      arguments:
+        element_id: save_btn
+    - tester: assert_file_content
+      path: tests/mcp/.tmp/contacts_manager/{platform}/contacts.csv
+      lines:
+        - id,first_name,last_name,email,phone,company,city,category,active,notes
+        - 1,Ada,Lovelace,ada@example.com,,Analytical Engines,London UK,Client,true,Saved after reload
+        - 2,Grace,Hopper,grace@example.com,,Navy,Arlington,Vendor,true,Compiler pioneer
+        - 3,Katherine,Johnson,katherine@example.com,,NASA Langley,Hampton VA,Partner,false,Updated orbital notes
+  cleanup:
+    - tester: remove
+      path: tests/mcp/.tmp/contacts_manager
+    - tester: assert_missing
+      path: tests/mcp/.tmp/contacts_manager

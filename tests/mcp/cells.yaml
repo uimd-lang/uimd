@@ -1,0 +1,21 @@
+- name: cells
+  app: python/examples/cells/cells.py
+  tests:
+    - tool: get_element
+      arguments:
+        element_id: b1
+      assert:
+        value: BBB
+    - tool: focus_element
+      arguments:
+        element_id: c5
+      assert:
+        id: c5
+    - tool: get_focused_element
+      assert:
+        id: c5
+    - tool: activate_element
+      arguments:
+        element_id: f3
+      assert:
+        id: f3

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+NATIVE_UIMD="$ROOT_DIR/cpp/build/tools/uimd/uimd"
+
+if [ ! -x "$NATIVE_UIMD" ]; then
+    echo "error: native UIMD launcher is not built: $NATIVE_UIMD" >&2
+    echo "run: cmake --build cpp/build --target uimd" >&2
+    exit 127
+fi
+
+exec "$NATIVE_UIMD" "$@"

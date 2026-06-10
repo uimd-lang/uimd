@@ -1,0 +1,13 @@
+- include: calculator.yaml
+- include: cells.yaml
+- include: special_elements.yaml
+- include: formular.yaml
+- include: widget_gallery.yaml
+- include: activity_feed.yaml
+- include: image_browser_compare.yaml
+- include: image_gallery_compare.yaml
+- include: markdown_viewer.yaml
+- include: text_editor.yaml
+- include: contacts_manager.yaml
+- include: task_board_compare.yaml
+- include: expense_tracker_compare.yaml

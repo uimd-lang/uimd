@@ -1,0 +1,23 @@
+name: C++
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S cpp -B cpp/build
+
+      - name: Build
+        run: cmake --build cpp/build --parallel
+
+      - name: Test
+        run: ctest --test-dir cpp/build --output-on-failure

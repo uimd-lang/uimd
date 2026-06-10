@@ -1,0 +1,17 @@
+- name: special_elements
+  app: python/examples/special_elements/special_elements.py
+  tests:
+    - tool: get_window
+      assert:
+        title: Special Elements Demo
+    - tool: get_element
+      arguments:
+        element_id: status_label
+      assert:
+        value: "Status: Idle"
+    - tool: get_element
+      arguments:
+        element_id: info_complete
+      assert:
+        value: "Operation completed successfully!"
+    - tool: get_text_snapshot

@@ -1,0 +1,45 @@
+# Gallery Scroll
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+description: "Scrollable container for gallery image items."
+tags: [example, image, gallery]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - gallery_item
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+@panel:
+  gap: 1
+  background: "#030712"
+```
+
+## User Interface
+
+```ui
++-panel-**-------------------------------+
+|                                        |
+*                                        |
+*                                        |
+|                                        |
+|                                        |
+|                                        |
+|                                        |
++----------------------------------------+
+```

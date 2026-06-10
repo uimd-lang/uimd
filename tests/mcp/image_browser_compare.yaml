@@ -1,0 +1,206 @@
+- name: image_browser
+  app: python/examples/image_browser/image_browser.py
+  env:
+    UIMD_DETERMINISTIC_IMAGE_FALLBACK: "1"
+  tests:
+    - tool: get_window
+      assert:
+        title: Image Browser
+    - tool: get_element
+      arguments:
+        element_id: camera_thumb
+      assert:
+        focused: true
+    - tool: get_element
+      arguments:
+        element_id: mode_select
+      assert:
+        value: Normal
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: astro_thumb
+    - tool: get_element
+      arguments:
+        element_id: main.caption
+      assert:
+        value: Astronaut
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: coffee_thumb
+    - tool: get_element
+      arguments:
+        element_id: main.caption
+      assert:
+        value: Coffee
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: image_list_btn
+    - tool: get_element
+      arguments:
+        element_id: main.items
+      assert:
+        visible: true
+    - tool: activate_element
+      arguments:
+        element_id: main.items[0].show_btn
+    - tool: get_window
+      assert:
+        title: Image Show Dialog
+    - tool: get_element
+      arguments:
+        element_id: photo
+      assert:
+        visible: true
+    - tool: get_element
+      arguments:
+        element_id: close_btn
+      assert:
+        visible: true
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: close_btn
+    - tool: get_window
+      assert:
+        title: Image Browser
+    - tool: scroll
+      arguments:
+        element_id: main.items
+        delta: -20
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: gallery_mosaic
+    - tool: get_element
+      arguments:
+        element_id: main.gallery_scroll
+      assert:
+        visible: true
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Right
+    - tool: get_element
+      arguments:
+        element_id: main.gallery_scroll
+      assert:
+        focused: true
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: main.gallery_scroll
+      assert:
+        focused: true
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: press_key
+      arguments:
+        key: Left
+    - tool: get_element
+      arguments:
+        element_id: main.gallery_scroll
+      assert:
+        focused: false
+    - tool: get_render_snapshot
+    - tool: scroll
+      arguments:
+        element_id: main.gallery_scroll
+        delta: -20
+    - tool: get_render_snapshot
+    - tool: scroll
+      arguments:
+        element_id: main.gallery_scroll
+        delta: 10
+    - tool: get_render_snapshot
+    - tool: ui.select_option
+      arguments:
+        element_id: mode_select
+        value: Fallback
+      assert:
+        value: Fallback
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: camera_thumb
+    - tool: get_element
+      arguments:
+        element_id: main.caption
+      assert:
+        value: Camera
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: astro_thumb
+    - tool: get_element
+      arguments:
+        element_id: main.caption
+      assert:
+        value: Astronaut
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: coffee_thumb
+    - tool: get_element
+      arguments:
+        element_id: main.caption
+      assert:
+        value: Coffee
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: image_list_btn
+    - tool: get_element
+      arguments:
+        element_id: main.items
+      assert:
+        visible: true
+    - tool: activate_element
+      arguments:
+        element_id: main.items[5].show_btn
+    - tool: get_window
+      assert:
+        title: Image Show Dialog
+    - tool: get_element
+      arguments:
+        element_id: photo
+      assert:
+        visible: true
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: close_btn
+    - tool: get_window
+      assert:
+        title: Image Browser
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: gallery_mosaic
+    - tool: get_element
+      arguments:
+        element_id: main.gallery_scroll
+      assert:
+        visible: true
+    - tool: get_render_snapshot
+    - tool: scroll
+      arguments:
+        element_id: main.gallery_scroll
+        delta: -20
+    - tool: get_render_snapshot
+    - tool: scroll
+      arguments:
+        element_id: main.gallery_scroll
+        delta: 10
+    - tool: get_render_snapshot

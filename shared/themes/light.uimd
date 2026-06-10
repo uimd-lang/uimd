@@ -1,0 +1,92 @@
+# Light Theme
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: theme
+status: stable
+description: "Light Theme UI source."
+tags: [theme]
+```
+
+## Style
+
+```yaml
+this:
+  background: #f2f3f8
+  border-color: transparent
+  border-width: 0
+label:
+  background: transparent
+  color: "#333344"
+  cursor-background: "#b8d7ff"
+  cursor-color: "#000000"
+@dialog_header:
+  text-align: center
+  background: "#dbe7f6"
+@window_header:
+  text-align: center
+  background: "#dbe7f6"
+textinput:
+  background: #ffffff
+  color: "#222233"
+  focus-background: #e8f0ff
+  focus-color: "#001166"
+  edit-background: #cce0ff
+  edit-color: "#000044"
+  cursor-background: "#3366cc"
+  cursor-color: "#ffffff"
+  selected-background: "#5588dd"
+  selected-color: "#ffffff"
+numberinput:
+  background: #ffffff
+  color: "#222233"
+  focus-background: #e8f0ff
+  focus-color: "#001166"
+  edit-background: #cce0ff
+  edit-color: "#000044"
+  cursor-background: "#3366cc"
+  cursor-color: "#ffffff"
+combobox:
+  background: #ffffff
+  color: "#222233"
+  focus-background: #e8f0ff
+  focus-color: "#001166"
+  edit-background: #fff3cf
+  edit-color: "#000044"
+  selected-background: #3366cc
+  selected-color: "#ffffff"
+listbox:
+  background: #ffffff
+  color: "#222233"
+  focus-background: #e8f0ff
+  focus-color: "#001166"
+  edit-background: #cce0ff
+  edit-color: "#000044"
+  selected-background: #3366cc
+  selected-color: "#ffffff"
+uielement:
+  focus-background: "#00000014"
+  edit-background: "#00000018"
+  selected-background: "#00000026"
+  selected-color: "#000000"
+uiscrollview:
+  focus-background: "#00000014"
+  edit-background: "#00000018"
+  selected-background: "#00000026"
+  selected-color: "#000000"
+checkbox:
+  background: transparent
+  color: "#333344"
+  focus-color: "#0044cc"
+  checked-background: transparent
+  checked-color: "#0055cc"
+  unchecked-background: transparent
+button:
+  background: #d4ddf8
+  color: "#223377"
+  focus-background: #3366cc
+  focus-color: "#ffffff"
+```

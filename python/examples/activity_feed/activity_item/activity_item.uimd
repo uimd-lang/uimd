@@ -1,0 +1,81 @@
+# Activity Item
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Reusable activity feed item with timestamp, event type, and message text."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+timestamp:
+  type: label
+  text: "10:42"
+  description: "Optional activity timestamp."
+
+event_type:
+  type: label
+  text: Info
+  description: "Activity category label."
+
+message:
+  type: label
+  text: "Activity message"
+  description: "Selectable activity message body."
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+@marker:
+  background-texture: "▐"
+  background-texture-color: "#38bdf8"
+@marker_info:
+  background-texture-color: "#38bdf8"
+@marker_task:
+  background-texture-color: "#a78bfa"
+@marker_warning:
+  background-texture-color: "#facc15"
+@marker_deploy:
+  background-texture-color: "#22c55e"
+@marker_note:
+  background-texture-color: "#fb7185"
+@body:
+  background: "#1f2e46"
+@timestamp:
+  color: "#94a3b8"
+  user-select: text
+@event_type:
+  color: "#bfdbfe"
+  user-select: text
+@message:
+  color: "#ffffff"
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-marker-1-+-body-**----------------------------------+
+|          | timestamp.. event_type..**               |
+|          | message..**                              |
+|          | ........................................ |
+|          | ........................................ |
+#          # #                                        |
+#          # #                                        |
++----------+------------------------------------------+
+```

@@ -1,0 +1,175 @@
+precitaj si AGENTS.md a implementuj pre parsovanie cells nasledujuci algoritmus ktory ti prikladam, respektive je to novsia verzia toho ktory si uz aplikoval, len pridava exrakciu dalsich informacii o hranach. Algoritmus si testuj na chat_window a okrem zobrazenia chat_window nech vidim aj tie width a height pre jednotlive hrany cells, tak isto nech vidim chars_width a chars_height, vsetko toto zobraz v nejakej tabulke.
+
+Algoritmus parsovania buniek.
+
+input: ui_code
+
+let EXPANDED = 0x1fffffff
+
+# get width and height of ui_code
+let code_width = 0
+let code_height = 0
+for i in len(ui_code)
+	if ui_code[i] == '\n'
+		code_width = i
+		break
+for i in len(ui_code)
+	if ui_code[i] == '\n'
+		code_height++
+
+# convert ui_code to array[][]
+let code_lines[code_height][code_width]
+let y_counter = 0
+let x_counter = 0
+for i in len(ui_code)
+	c = ui_code[i]
+	if c == '\n'
+		while x_counter < code_width
+			code_lines[y_counter][x_counter] = ' '
+			x_counter++
+		y_counter++
+		x_counter = 0
+	else
+		code_lines[y_counter][x_counter] = c
+		x_counter++
+
+# parse separately cells
+let cells = []
+for y in 0,code_height
+	for x in 0,code_width-1
+		let c = code_lines[y][x]
+		let rightC = x < code_width - 1 ? code_lines[y][x + 1] : 0
+		let bottomC = y < code_height - 1 ? code_lines[y + 1][x]
+		if c == '+' and rightC == '-' and bottomC == '|'
+			chars_width = 0
+			chars_height = 0
+			cell_width = 0
+			cell_height = 0
+			for offset_y in y+1,code_height
+				c = code_lines[offset_y][x]
+				rightC = x < code_width - 1 ? code_lines[offset_y][x + 1] : 0
+				bottomC = offset_y < code_height - 1 ? code_lines[offset_y][x]
+				if c == '+' and rightC == '-'
+					chars_height = offset_y - y
+					break
+				else if is_digit(c)
+					num_str = ""
+					for offset_y2 in offset_y,code_height
+						c = code_lines[offset_y2][x]
+						if !is_digit(c)
+							break
+						num_str = num_str + c
+					cell_height = int(num_str)
+				else if c == '*' and bottomC == '*'
+					cell_height = EXPANDED
+			for offset_x in x+1,code_width
+				c = code_lines[y][offset_x]
+				rightC = offset_x < code_width - 1 ? code_lines[y][offset_x] : 0
+				bottomC = y < code_height - 1 ? code_lines[y + 1][offset_x]
+				if c == '+' and bottomC == '|'
+					chars_width = offset_x - x
+					break
+				else if is_digit(c)
+					num_str = ""
+					for offset_x2 in offset_x,code_width
+						c = code_lines[y][offset_x2]
+						if !is_digit(c)
+							break
+						num_str = num_str + c
+					cell_width = int(num_str)
+				else if c == '*' and rightC == '*'
+					cell_width = EXPANDED
+			
+			elements = []
+			for offset_y in y+1,code_height
+				for offset_x in x+1,code_width
+					c = code_lines[offset_y][offset_x]
+					if is_digit(c)
+						name_or_text = ""
+						element_chars_width = 0
+						let offset_x2 = offset_x
+						while offset_x2 < x + chars_width
+							c = code_lines[offset_y][offset_x2]
+							if is_digit(c)
+								name_or_text = name_or_text + c
+							else if c == '.'
+								if element_chars_width != EXPANDED
+									element_chars_width = offset_x2 - offset_x
+							else if c == '*'
+								element_chars_width = EXPANDED
+							offset_x2++
+						element_margin_right = 0
+						if element_chars_width == EXPANDED
+							while offset_x2 < x + chars_width
+								element_margin_right++
+								offset_x2++
+							
+						element_chars_height = 0
+						offset_y2 = offset_y + 1
+						while offset_y2 < y + chars_height
+							c = code_lines[offset_y2][offset_x]
+							if c == '.'
+								if element_chars_height != EXPANDED
+									element_chars_height = offset_y2 - offset_y
+							else if c == '*'
+								element_chars_height = EXPANDED
+							offset_y2++
+						element_margin_bottom = 0
+						if element_chars_height == EXPANDED
+							while offset_y2 < y + chars_height
+								element_margin_bottom++
+								offset_y2++
+						
+						elem = {
+								x: offset_x,
+								y: offset_y,
+								width: element_chars_width,
+								height: element_chars_height,
+								margin_right: element_margin_right,
+								margin_bottom: element_margin_bottom,
+								name_or_text: name_or_text
+							}
+						elements.append(elem)
+			
+		cell = {x: x, y: y, width: cell_width, height: cell_height, chars_width: chars_width, chars_height: chars_height, elements: elements}
+		cells.append(cell)
+
+# parse cells
+let tables = []
+foreach cell in cells
+	tables = {tables: [cell], x: cell.x, y: cell.y, width: cell.width, height: cell.height, chars_width: cell.chars_width, chars_height: cell.chars_height} 
+
+while 1 < len(tables)
+	for i in 0, len(tables)-1
+		for j in i+1,len(tables)-1
+			if tables[i].x + tables[i].chars_width == tables[j].x and
+			   tables[i].y == tables[j].y and
+			   tables[i].chars_height == tables[j].chars_height
+				tables[i].chars_width += tables[j].chars_width
+				tables[i].tables.push(tables[j])
+				tables.removeAt(j)
+				j--
+			if tables[i].y + tables[i].chars_height == tables[j].y and
+			   tables[i].x == tables[j].x and
+			   tables[i].chars_width == tables[j].chars_width
+				tables[i].tables.push(tables[j])
+				tables[i].chars_height += tables[j].chars_height
+				tables.removeAt(j)
+				j--
+
+ui_root = tables[0]
+
+func fill_empty_width_and_height(parent)
+	if child.width == 0
+		child.width = child.chars_width
+	if child.height == 0
+		child.height = child.chars_height
+	foreach child in parent.tables
+		fill_empty_width_and_height(child)
+
+fill_empty_width_and_height(ui_root)
+
+				
+			
+
+

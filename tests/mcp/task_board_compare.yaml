@@ -1,0 +1,397 @@
+- name: task_board
+  app: python/examples/task_board/task_board.py
+  tests:
+    - tool: get_window
+      assert:
+        title: Task Board
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "14 visible / 14 total"
+    - tool: get_render_snapshot
+    - tool: click_element
+      arguments:
+        element_id: board[0].done
+      assert:
+        value: true
+    - tool: click_element
+      arguments:
+        element_id: board[0].done
+      assert:
+        value: false
+
+    - tool: focus_element
+      arguments:
+        element_id: board
+      assert:
+        id: board
+    - tool: get_focused_element
+      assert:
+        id: board
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: get_focused_element
+      assert:
+        id: board[0].done
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: board[1].done
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: board[2].done
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: board[3].done
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: board[4].done
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: board[5].done
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: get_focused_element
+      assert:
+        id: board[4].done
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: get_focused_element
+      assert:
+        id: board[3].done
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_focused_element
+      assert:
+        id: board
+
+    - tool: query_tasks
+      arguments:
+        title: Retry failed imports
+      assert:
+        tasks:
+          - id: t-112
+            title: Retry failed imports
+            status: Blocked
+            assignee: Ava
+            priority: Urgent
+            description: Needs import worker patch before rerun.
+            done: false
+    - tool: get_task
+      arguments:
+        id: t-112
+      assert:
+        task:
+          id: t-112
+          title: Retry failed imports
+          status: Blocked
+          assignee: Ava
+          priority: Urgent
+          description: Needs import worker patch before rerun.
+          done: false
+
+    - tool: set_text
+      arguments:
+        element_id: search
+        text: Clean
+      assert:
+        value: Clean
+    - tool: ui.set_value
+      arguments:
+        element_id: status_filter
+        value: Todo
+    - tool: get_element
+      arguments:
+        element_id: status_filter
+      assert:
+        value: Todo
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "2 visible / 14 total"
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: reset_filters_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "14 visible / 14 total"
+
+    - tool: scroll
+      arguments:
+        element_id: board
+        delta: -3
+    - tool: activate_element
+      arguments:
+        element_id: board[5].done
+      assert:
+        value: true
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Updated Fix API contract tests
+    - tool: get_render_snapshot
+    - tool: focus_element
+      arguments:
+        element_id: status_filter
+    - tool: ui.set_value
+      arguments:
+        element_id: status_filter
+        value: Done
+    - tool: get_element
+      arguments:
+        element_id: status_filter
+      assert:
+        value: Done
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "3 visible / 14 total"
+    - tool: get_render_snapshot
+    - tool: activate_element
+      arguments:
+        element_id: reset_filters_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "14 visible / 14 total"
+
+    - tool: activate_element
+      arguments:
+        element_id: new_task_btn
+    - tool: set_text
+      arguments:
+        element_id: name
+        text: QA smoke scenario
+      assert:
+        value: QA smoke scenario
+    - tool: ui.set_value
+      arguments:
+        element_id: project_status
+        value: Doing
+    - tool: get_element
+      arguments:
+        element_id: project_status
+      assert:
+        value: Doing
+    - tool: ui.set_value
+      arguments:
+        element_id: owner
+        value: Chen
+    - tool: get_element
+      arguments:
+        element_id: owner
+      assert:
+        value: Chen
+    - tool: ui.set_value
+      arguments:
+        element_id: priority
+        value: High
+    - tool: get_element
+      arguments:
+        element_id: priority
+      assert:
+        value: High
+    - tool: set_text
+      arguments:
+        element_id: note
+        text: Created by the compare test.
+      assert:
+        value: Created by the compare test.
+    - tool: activate_element
+      arguments:
+        element_id: add_btn
+    - tool: set_text
+      arguments:
+        element_id: search
+        text: QA smoke scenario
+      assert:
+        value: QA smoke scenario
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "1 visible / 15 total"
+    - tool: activate_element
+      arguments:
+        element_id: reset_filters_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "15 visible / 15 total"
+    - tool: get_render_snapshot
+
+    - tool: set_text
+      arguments:
+        element_id: search
+        text: QA smoke scenario
+      assert:
+        value: QA smoke scenario
+    - tool: activate_element
+      arguments:
+        element_id: board[0].open_btn
+    - tool: set_text
+      arguments:
+        element_id: name
+        text: QA smoke scenario edited
+      assert:
+        value: QA smoke scenario edited
+    - tool: ui.set_value
+      arguments:
+        element_id: project_status
+        value: Blocked
+    - tool: get_element
+      arguments:
+        element_id: project_status
+      assert:
+        value: Blocked
+    - tool: ui.set_value
+      arguments:
+        element_id: owner
+        value: Dana
+    - tool: get_element
+      arguments:
+        element_id: owner
+      assert:
+        value: Dana
+    - tool: set_text
+      arguments:
+        element_id: note
+        text: Edited through the Open button.
+      assert:
+        value: Edited through the Open button.
+    - tool: activate_element
+      arguments:
+        element_id: add_btn
+    - tool: set_text
+      arguments:
+        element_id: search
+        text: QA smoke scenario edited
+      assert:
+        value: QA smoke scenario edited
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "1 visible / 15 total"
+    - tool: get_render_snapshot
+
+    - tool: set_text
+      arguments:
+        element_id: search
+        text: QA smoke scenario edited
+      assert:
+        value: QA smoke scenario edited
+    - tool: activate_element
+      arguments:
+        element_id: board[0].delete_btn
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Action canceled.
+    - tool: set_text
+      arguments:
+        element_id: search
+        text: QA smoke scenario edited
+      assert:
+        value: QA smoke scenario edited
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "1 visible / 15 total"
+    - tool: activate_element
+      arguments:
+        element_id: board[0].delete_btn
+    - tool: activate_element
+      arguments:
+        element_id: yes_btn
+    - tool: set_text
+      arguments:
+        element_id: search
+        text: QA smoke scenario edited
+      assert:
+        value: QA smoke scenario edited
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "0 visible / 14 total"
+    - tool: get_render_snapshot
+
+    - tool: update_task
+      arguments:
+        id: t-112
+        priority: Low
+        description: Tool API update coverage.
+      assert:
+        task:
+          id: t-112
+          title: Retry failed imports
+          status: Blocked
+          assignee: Ava
+          priority: Low
+          description: Tool API update coverage.
+          done: false
+    - tool: query_tasks
+      arguments:
+        priority: Low
+        assignee: Ava
+      assert:
+        tasks:
+          - id: t-112
+            title: Retry failed imports
+            status: Blocked
+            assignee: Ava
+            priority: Low
+            description: Tool API update coverage.
+            done: false
+    - tool: delete_task
+      arguments:
+        id: t-112
+      assert:
+        deleted: true
+    - tool: get_task
+      arguments:
+        id: t-112
+      assert:
+        task: null

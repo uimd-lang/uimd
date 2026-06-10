@@ -1,0 +1,168 @@
+# Task Dialog
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: dialog
+status: draft
+description: "Dialog form for creating or editing a task."
+tags: [example, dialog]
+```
+
+## Members
+
+```yaml
+header:
+  type: label
+  text: Task
+  description: "Dialog title."
+  expose: false
+
+name_label:
+  type: label
+  text: Title
+  description: "Label for task title."
+  expose: false
+
+name:
+  type: textinput
+  value: ""
+  maxlength: 60
+  description: "Required task title."
+
+status_label:
+  type: label
+  text: Status
+  description: "Label for task status."
+  expose: false
+
+project_status:
+  type: combobox
+  options: [Todo, Doing, Blocked, Done]
+  selected_item: Todo
+  description: "Task status."
+
+owner_label:
+  type: label
+  text: Assignee
+  description: "Label for task assignee."
+  expose: false
+
+owner:
+  type: combobox
+  options: [Ava, Bruno, Chen, Dana]
+  selected_item: Ava
+  description: "Task assignee."
+
+priority_label:
+  type: label
+  text: Priority
+  description: "Label for task priority."
+  expose: false
+
+priority:
+  type: combobox
+  options: [Low, Med, High, Urgent]
+  selected_item: Med
+  description: "Task priority."
+
+note_label:
+  type: label
+  text: Description
+  description: "Label for task description."
+  expose: false
+
+note:
+  type: textarea
+  value: ""
+  maxlength: 160
+  description: "Task description."
+
+message:
+  type: label
+  text: ""
+  description: "Validation message."
+
+add_btn:
+  type: button
+  title: Save task
+  description: "Save the task and close the dialog."
+
+cancel_btn:
+  type: button
+  title: Cancel
+  description: "Close the dialog without saving the task."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@header:
+  text-align: center
+  background: "#1f2937"
+  color: "#ffffff"
+textinput:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+textarea:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+combobox:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@add_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+@message:
+  color: "#fbbf24"
+```
+
+## User Interface
+
+```ui
++------------------------------------------------------+
+|header................................................|
++------------------------------------------------------+
+|                                                      |
+|  name_label      name.............................   |
+|                                                      |
+|  status_label    project_status...................   |
+|                                                      |
+|  owner_label     owner............................   |
+|                                                      |
+|  priority_label  priority.........................   |
+|                                                      |
+|  note_label.     note.............................   |
+|                  ...............................     |
+|                  ...............................     |
+|                  ...............................     |
+|                  ...............................     |
+|                                                      |
+|  message..........................................   |
+|                                                      |
++------------------------------------------------------+
+|  add_btn................  cancel_btn..............   |
+|                                                      |
++------------------------------------------------------+
+```

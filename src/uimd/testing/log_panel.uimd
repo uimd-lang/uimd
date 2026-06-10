@@ -1,0 +1,71 @@
+# Log Panel
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: stable
+description: "Log Panel UI source."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: transparent
+@panel:
+  background: transparent
+  gap: 0
+@log_normal:
+  background: transparent
+  color: "#dddddd"
+  user-select: text
+  word-wrap: false
+@log_assert_ok:
+  background: transparent
+  color: "#15803d"
+  user-select: text
+  word-wrap: false
+@log_assert_fail:
+  background: transparent
+  color: "#b91c1c"
+  user-select: text
+  word-wrap: false
+@log_result_ok:
+  background: transparent
+  color: "#22c55e"
+  user-select: text
+  word-wrap: false
+@log_result_fail:
+  background: transparent
+  color: "#ef4444"
+  user-select: text
+  word-wrap: false
+```
+
+## User Interface
+
+```ui
++-panel-**------------------------------------------------------------------------------+
+|                                                                                       |
+|                                                                                       |
+|                                                                                       |
+|                                                                                       |
+|                                                                                       |
+|                                                                                       |
+|                                                                                       |
+|                                                                                       |
+|                                                                                       |
+*                                                                                       |
++---------------------------------------------------------------------------------------+
+```

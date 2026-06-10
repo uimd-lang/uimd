@@ -1,0 +1,195 @@
+# Special Elements Demo
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "Demonstration window for static labels, multiline labels, animated text color gradients, and raw terminal-sensitive text."
+tags: [example]
+```
+
+## Members
+
+```yaml
+header_label:
+  type: label
+  text: "Special UI Elements"
+  description: "Window title."
+
+info_processing:
+  type: label
+  text: "Processing request..."
+  color: "#ff0000"
+  description: "Animated processing status label."
+
+info_loading:
+  type: label
+  text: "Loading data from server..."
+  color: "#00ff00"
+  description: "Animated loading status label."
+
+info_complete:
+  type: label
+  text: "Operation completed successfully!"
+  color: "#0000ff"
+  description: "Animated completed status label."
+
+info_warning:
+  type: label
+  text: "Warning: Low disk space detected"
+  color: "#ffffff"
+  description: "Animated warning status label."
+
+info_multiline:
+  type: label
+  text: "Line one of animated text\nLine two with different phase\nLine three final row"
+  description: "Multiline animated label with different text rows."
+
+status_label:
+  type: label
+  text: "Status: Idle"
+  description: "Current status text."
+
+normal_info:
+  type: label
+  text: "Regular static label for comparison"
+  description: "Regular static comparison label."
+
+speed_label:
+  type: label
+  text: "Fast animation speed demo"
+  description: "Fast animation speed demonstration label."
+
+raw_label:
+  type: label
+  text: "Label tab\tcontrol\x1b bell\x07 combining e\u0301 wide\u4e2d"
+  user-select: text
+  description: "Label containing tab, control, combining, and wide characters."
+
+raw_button:
+  type: button
+  title: "Button\tESC\x1bWide\u4e2d"
+  description: "Button title containing raw terminal-sensitive characters."
+
+raw_combo:
+  type: combobox
+  options: ["Plain option", "Tab\toption", "Esc\x1boption", "Wide\u4e2doption"]
+  selected_item: "Tab\toption"
+  description: "ComboBox options containing raw terminal-sensitive characters."
+
+raw_list:
+  type: listbox
+  options: ["Plain row", "Tab\trow", "Esc\x1brow", "Wide\u4e2drow"]
+  selected_items: ["Tab\trow"]
+  description: "ListBox options containing raw terminal-sensitive characters."
+
+raw_input:
+  type: textinput
+  value: "Input\tvalue\x1bwide\u4e2d"
+  maxlength: 80
+  description: "Text input containing raw terminal-sensitive characters."
+
+raw_area:
+  type: textarea
+  value: "Python tabs example:\ndef hello(name):\n\tif name:\n\t\tprint(\"Hello, \" + name)\n\telse:\n\t\tprint(\"Hello, world!\")\n\nControl\x1bplaceholder\nWide\u4e2dplaceholder"
+  maxlength: 240
+  description: "Text area containing multiline raw terminal-sensitive characters."
+```
+
+## Style
+
+```yaml
+include: dark
+@info_processing:
+  text-color-gradient:
+    interval: 70
+    step: 1
+    segment-size: 1
+    colors: ["#00000099", "#00000066", "#00000033", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000033", "#00000066", "#00000099"]
+@info_loading:
+  text-color-gradient:
+    interval: 70
+    step: 1
+    segment-size: 1
+    colors: ["#00000099", "#00000066", "#00000033", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000033", "#00000066", "#00000099"]
+@info_complete:
+  text-color-gradient:
+    interval: 70
+    step: 1
+    segment-size: 1
+    colors: ["#00000099", "#00000066", "#00000033", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000033", "#00000066", "#00000099"]
+@info_warning:
+  text-color-gradient:
+    interval: 70
+    step: 1
+    segment-size: 1
+    colors: ["#00000099", "#00000066", "#00000033", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000033", "#00000066", "#00000099"]
+@info_multiline:
+  text-color-gradient:
+    interval: 70
+    step: 1
+    segment-size: 1
+    colors: ["#00000099", "#00000066", "#00000033", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000033", "#00000066", "#00000099"]
+@speed_label:
+  text-color-gradient:
+    interval: 35
+    step: 1
+    segment-size: 1
+    colors: ["#00000099", "#00000066", "#00000033", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000033", "#00000066", "#00000099"]
+textinput:
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+textarea:
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+combobox:
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+listbox:
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+```
+
+## User Interface
+
+```ui
++--------------------------------------------------------------------+
+|                                                                    |
+|  header_label....................................................  |
+|                                                                    |
+|  info_processing................  info_loading...................  |
+|  info_complete..................  info_warning...................  |
+|                                                                    |
+|  "Multiline animated text:"                                         |
+|  info_multiline..................................................  |
+|  ................................................................  |
+|  ................................................................  |
+|                                                                    |
+|  status_label...................  normal_info....................  |
+|  speed_label.....................................................  |
+|                                                                    |
+|  "Raw read-only text:"                                             |
+|  raw_label.......................................................  |
+|                                                                    |
+|  "Raw button:" raw_button................                          |
+|                                                                    |
+|  "Raw combo:"  raw_combo......................                     |
+|                                                                    |
+|  "Raw list:"                                                       |
+|  raw_list........................................................  |
+|  ................................................................  |
+|  ................................................................  |
+|                                                                    |
+|  "Text input:" raw_input.........................................  |
+|                                                                    |
+|  "Text area:"                                                      |
+|  raw_area........................................................  |
+|  ................................................................  |
+|  ................................................................  |
+|  ................................................................  |
+|                                                                    |
++--------------------------------------------------------------------+
+```

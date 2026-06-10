@@ -1,0 +1,122 @@
+# FormApp
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "FormApp UI source."
+tags: [example]
+```
+
+## Members
+
+```yaml
+title_label:
+  type: label
+  text: "User profile"
+  expose: false
+
+name_label:
+  type: label
+  text: Name
+
+name_input:
+  type: textinput
+  value: ""
+
+email_label:
+  type: label
+  text: Email
+
+email_input:
+  type: textinput
+  value: ""
+
+age_label:
+  type: label
+  text: Age
+
+age_input:
+  type: numberinput
+
+description_input:
+  type: textarea
+
+country_label:
+  type: label
+  text: Country
+
+country_combo:
+  type: combobox
+  options: [Slovakia, "Czech Republic", Poland, Hungary, Austria]
+  selected_item: Slovakia
+
+role_label:
+  type: label
+  text: Role
+
+role_listbox:
+  type: listbox
+  options: [Developer, Designer, Manager, QA, DevOps, Tester, Hacker]
+  selected_items: [Developer]
+  multiple: "true"
+
+notify_check:
+  type: checkbox
+  title: "Email notifications"
+
+terms_check:
+  type: checkbox
+  title: "I accept the terms and conditions"
+
+save_btn:
+  type: button
+  title: Save
+
+cancel_btn:
+  type: button
+  title: Cancel
+```
+
+## Style
+
+```yaml
+@title_label:
+  text-align: center
+```
+
+## User Interface
+
+```ui
++----------------------------------------------------+
+|                                                    |
+|  title_label.....................................  |
+|                                                    |
+|  name_label       name_input.....................  |
+|                                                    |
+|  email_label      email_input....................  |
+|                                                    |
+|  age_label        age_input......................  |
+|                                                    |
+|  country_label    country_combo..................  |
+|                                                    |
+|  "Description"    description_input..............  |
+|                  ..............................    |
+|                  ..............................    |
+|                  ..............................    |
+|                                                    |
+|  role_label       role_listbox...................  |
+|                  ..............................    |
+|                  ..............................    |
+|                  ..............................    |
+|                                                    |
+|  notify_check....................................  |
+|  terms_check.....................................  |
+|                                                    |
+|       save_btn......      cancel_btn.......        |
+|                                                    |
++----------------------------------------------------+
+```

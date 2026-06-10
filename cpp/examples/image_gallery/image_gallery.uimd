@@ -1,0 +1,216 @@
+# Image Gallery
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+description: "Manual validation surface for the Image element, Sixel rendering, fallback rendering, and sizing modes."
+tags: [example, image]
+```
+
+## Members
+
+```yaml
+header:
+  type: label
+  text: "Image Gallery"
+  description: "Window title."
+  expose: false
+
+close_btn:
+  type: button
+  title: Quit
+  description: "Close the image gallery."
+
+fallback_label:
+  type: label
+  text: "Fallback cover"
+  description: "Fallback row label."
+
+sixel_label:
+  type: label
+  text: "Sixel contain"
+  description: "Sixel contain row label."
+
+stretch_label:
+  type: label
+  text: "Sixel stretch"
+  description: "Sixel stretch row label."
+
+camera_fb:
+  type: image
+  source: "shared/assets/image_samples/camera.png"
+  alt: "camera fallback"
+  fit: cover
+  render_mode: fallback
+  description: "Camera image forced through fallback rendering."
+
+astro_fb:
+  type: image
+  source: "shared/assets/image_samples/astronaut.png"
+  alt: "astronaut fallback"
+  fit: cover
+  render_mode: fallback
+  description: "Astronaut image forced through fallback rendering."
+
+coffee_fb:
+  type: image
+  source: "shared/assets/image_samples/coffee.png"
+  alt: "coffee fallback"
+  fit: cover
+  render_mode: fallback
+  description: "Coffee image forced through fallback rendering."
+
+coins_fb:
+  type: image
+  source: "shared/assets/image_samples/coins.png"
+  alt: "coins fallback"
+  fit: cover
+  render_mode: fallback
+  description: "Coins image forced through fallback rendering."
+
+camera_ctn:
+  type: image
+  source: "shared/assets/image_samples/camera.png"
+  alt: "camera sixel"
+  fit: contain
+  render_mode: sixel
+  description: "Camera image in forced Sixel contain mode."
+
+astro_ctn:
+  type: image
+  source: "shared/assets/image_samples/astronaut.png"
+  alt: "astronaut sixel"
+  fit: contain
+  render_mode: sixel
+  description: "Astronaut image in forced Sixel contain mode."
+
+coffee_ctn:
+  type: image
+  source: "shared/assets/image_samples/coffee.png"
+  alt: "coffee sixel"
+  fit: contain
+  render_mode: sixel
+  description: "Coffee image in forced Sixel contain mode."
+
+coins_ctn:
+  type: image
+  source: "shared/assets/image_samples/coins.png"
+  alt: "coins sixel"
+  fit: contain
+  render_mode: sixel
+  description: "Coins image in forced Sixel contain mode."
+
+camera_str:
+  type: image
+  source: "shared/assets/image_samples/camera.png"
+  alt: "camera stretch"
+  fit: stretch
+  render_mode: sixel
+  description: "Camera image in forced Sixel stretch mode."
+
+astro_str:
+  type: image
+  source: "shared/assets/image_samples/astronaut.png"
+  alt: "astronaut stretch"
+  fit: stretch
+  render_mode: sixel
+  description: "Astronaut image in forced Sixel stretch mode."
+
+coffee_str:
+  type: image
+  source: "shared/assets/image_samples/coffee.png"
+  alt: "coffee stretch"
+  fit: stretch
+  render_mode: sixel
+  description: "Coffee image in forced Sixel stretch mode."
+
+coins_str:
+  type: image
+  source: "shared/assets/image_samples/coins.png"
+  alt: "coins stretch"
+  fit: stretch
+  render_mode: sixel
+  description: "Coins image in forced Sixel stretch mode."
+
+status:
+  type: label
+  text: "Rows: fallback cover, forced Sixel contain, forced Sixel stretch."
+  description: "Current image validation status."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+@header:
+  text-align: center
+  background: "#1f2937"
+  color: "#ffffff"
+@close_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+  color: "#ffffff"
+@fallback_label:
+  color: "#93c5fd"
+@sixel_label:
+  color: "#93c5fd"
+@stretch_label:
+  color: "#93c5fd"
+image:
+  background: transparent
+  color: "#d1d5db"
+@status:
+  color: "#93c5fd"
+```
+
+## User Interface
+
+```ui
++--------------------------------------------------------------------------------------+
+| header.................................................................. close_btn.. |
+|                                                                                      |
+| fallback_label...................................................................... |
+|  camera_fb........... astro_fb............ coffee_fb........... coins_fb............. |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|                                                                                      |
+| sixel_label......................................................................... |
+|  camera_ctn.......... astro_ctn........... coffee_ctn.......... coins_ctn........... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|                                                                                      |
+| stretch_label....................................................................... |
+|  camera_str.......... astro_str........... coffee_str.......... coins_str........... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|  .................... .................... .................... .................... |
+|                                                                                      |
+| status.............................................................................. |
++--------------------------------------------------------------------------------------+
+```

@@ -1,0 +1,47 @@
+# Paragraph
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: stable
+description: "Paragraph UI source."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+text:
+  type: label
+  text: ""
+```
+
+## Style
+
+```yaml
+this:
+  background: "#00000000"
+  border-width: 0
+@text:
+  color: "#cbd5e1"
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-body-**----------------------------------------+
+| text..**...................................... |
+| .............................................. |
+# #............................................ |
++------------------------------------------------+
+```

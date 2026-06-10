@@ -1,0 +1,7 @@
+id,first_name,last_name,email,phone,company,city,category,active,notes
+1,Anna,Kovac,anna.kovac@example.com,+421900111222,Northwind,Bratislava,Client,true,Primary contact for spring project
+2,Martin,Hrasko,martin.hrasko@example.com,+421900333444,Acme,Kosice,Vendor,false,Prefers email communication
+3,Lucia,Benda,lucia.benda@example.com,+421900555666,Bluebird,Trnava,Partner,true,Met at developer meetup
+4,Peter,Novak,peter.novak@example.com,+421900777888,Freelance,Zilina,Personal,true,Send documentation preview
+5,Jozko,Vasko,jozkovasko@gmail.com,+421987654,Vasko Company,Presov,Client,true,"blahblah..
+123456"

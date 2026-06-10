@@ -1,0 +1,25 @@
+- name: image_gallery
+  app: python/examples/image_gallery/image_gallery.py
+  env:
+    UIMD_DISABLE_SIXEL: "1"
+    UIMD_DETERMINISTIC_IMAGE_FALLBACK: "1"
+  tests:
+    - tool: get_window
+      assert:
+        title: Image Gallery
+    - tool: get_element
+      arguments:
+        element_id: camera_fb
+      assert:
+        type: image
+    - tool: get_element
+      arguments:
+        element_id: coins_ctn
+      assert:
+        type: image
+    - tool: get_element
+      arguments:
+        element_id: astro_str
+      assert:
+        type: image
+    - tool: get_render_snapshot

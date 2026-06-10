@@ -1,0 +1,87 @@
+- name: activity_feed
+  app: python/examples/activity_feed/activity_feed.py
+  tests:
+    - tool: get_window
+      assert:
+        title: Activity Feed
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "2 activities"
+    - tool: set_text
+      arguments:
+        element_id: message
+        text: Manual MCP event
+      assert:
+        value: Manual MCP event
+    - tool: activate_element
+      arguments:
+        element_id: add_button
+    - tool: get_element
+      arguments:
+        element_id: message
+      assert:
+        value: ""
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "3 activities"
+    - tool: activate_element
+      arguments:
+        element_id: seed_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "9 activities"
+    - tool: activate_element
+      arguments:
+        element_id: clear_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Feed cleared
+    - tool: activate_element
+      arguments:
+        element_id: settings_button
+    - tool: get_window
+      assert:
+        title: Activity Feed Settings
+    - tool: activate_element
+      arguments:
+        element_id: show_timestamps
+      assert:
+        value: false
+    - tool: enter_edit_mode
+      arguments:
+        element_id: default_type
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: default_type
+      assert:
+        value: Task
+    - tool: activate_element
+      arguments:
+        element_id: save_button
+    - tool: get_window
+      assert:
+        class: ActivityFeed
+    - tool: get_element
+      arguments:
+        element_id: activity_type
+      assert:
+        value: Task
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Settings saved

@@ -1,0 +1,72 @@
+# Image List Button
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+description: "Clickable image-list preview tile with three thumbnails."
+tags: [example, image, button, list]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+focusable: true
+```
+
+## Members
+
+```yaml
+prw_1:
+  type: image
+  source: "shared/assets/image_samples/camera.png"
+  alt: "Preview image 1"
+  fit: cover
+  render_mode: auto
+  description: "List preview slot 1. Click to open image items."
+
+prw_2:
+  type: image
+  source: "shared/assets/image_samples/astronaut.png"
+  alt: "Preview image 2"
+  fit: cover
+  render_mode: auto
+  description: "List preview slot 2. Click to open image items."
+
+prw_3:
+  type: image
+  source: "shared/assets/image_samples/coffee.png"
+  alt: "Preview image 3"
+  fit: cover
+  render_mode: auto
+  description: "List preview slot 3. Click to open image items."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#172033"
+cell:
+  padding: 1, 0, 1, 0
+  background: "#172033"
+image:
+  background: transparent
+  color: "#d1d5db"
+  focus-background: "#25364f"
+```
+
+## User Interface
+
+```ui
++-view-**-----------------+
+| prw_1.. prw_2.. prw_3.. |
+| ....... ....... ....... |
+| ....... ....... ....... |
++-------------------------+
+```

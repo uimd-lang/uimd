@@ -1,0 +1,52 @@
+# Document View
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: stable
+description: "Reusable scroll view that contains rendered markdown blocks such as paragraphs, headings, code blocks, and tables."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - blocks/paragraph
+  - blocks/heading
+  - blocks/code_block
+  - blocks/table_block
+```
+
+## Style
+
+```yaml
+this:
+  background: "#00000000"
+  border-width: 0
+@panel:
+  gap: 1
+  background: "#00000000"
+  padding: 1, 2, 1, 2
+```
+
+## User Interface
+
+```ui
++-panel-**---------------------------------------------+
+|                                                      |
+|                                                      |
+|                                                      |
+|                                                      |
+|                                                      |
+*                                                      |
+*                                                      |
+*                                                      |
+*                                                      |
+|                                                      |
++------------------------------------------------------+
+```

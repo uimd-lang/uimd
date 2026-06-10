@@ -1,0 +1,215 @@
+- name: expense_tracker
+  app: python/examples/expense_tracker/expense_tracker.py
+  tests:
+    - tool: get_window
+      assert:
+        title: Expense Tracker
+    - tool: get_element
+      arguments:
+        element_id: main.item_input
+      assert:
+        value: ""
+    - tool: set_text
+      arguments:
+        element_id: main.item_input
+        text: Coffee
+      assert:
+        value: Coffee
+    - tool: set_text
+      arguments:
+        element_id: main.amount_input
+        text: 3.5
+      assert:
+        value: 3.5
+    - tool: ui.select_option
+      arguments:
+        element_id: main.category_input
+        value: Food
+      assert:
+        value: Food
+    - tool: activate_element
+      arguments:
+        element_id: main.add_expense_btn
+    - tool: get_element
+      arguments:
+        element_id: main.expenses[0].item
+      assert:
+        value: Coffee
+    - tool: click_element
+      arguments:
+        element_id: main.expenses[0].paid
+      assert:
+        value: true
+    - tool: click_element
+      arguments:
+        element_id: main.expenses[0].category
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: main.expenses[0].category
+      assert:
+        value: Transport
+    - tool: ui.set_checked
+      arguments:
+        element_id: main.expenses[0].paid
+        checked: true
+      assert:
+        value: true
+    - tool: ui.select_option
+      arguments:
+        element_id: main.expenses[0].category
+        value: Home
+      assert:
+        value: Home
+    - tool: click_element
+      arguments:
+        element_id: main.expenses[0].delete_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: yes_btn
+    - tool: get_window
+      assert:
+        title: Expense Tracker
+    - tool: scroll
+      arguments:
+        element_id: main.expenses
+        delta: -20
+    - tool: get_render_snapshot
+    - tool: get_element
+      arguments:
+        element_id: main.expenses[6].item
+      assert:
+        value: Team lunch
+    - tool: click_element
+      arguments:
+        element_id: main.expenses[6].paid
+      assert:
+        value: true
+    - tool: click_element
+      arguments:
+        element_id: main.expenses[6].category
+    - tool: mouse_click
+      arguments:
+        x: 5
+        y: 5
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: main.expenses[6].category
+      assert:
+        value: Food
+    - tool: click_element
+      arguments:
+        element_id: main.expenses[6].delete_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tool: get_window
+      assert:
+        title: Expense Tracker
+    - tool: activate_element
+      arguments:
+        element_id: categories_btn
+    - tool: ui.get_options
+      arguments:
+        element_id: main.categories
+      assert:
+        options: ["Food", "Transport", "Home", "Health", "Other"]
+    - tool: set_text
+      arguments:
+        element_id: main.category_name
+        text: Pets
+      assert:
+        value: Pets
+    - tool: activate_element
+      arguments:
+        element_id: main.add_category_btn
+    - tool: ui.get_options
+      arguments:
+        element_id: main.categories
+      assert:
+        options: ["Food", "Transport", "Home", "Health", "Other", "Pets"]
+    - tool: get_element
+      arguments:
+        element_id: main.categories
+      assert:
+        value: ["Pets"]
+    - tool: ui.select_option
+      arguments:
+        element_id: main.categories
+        value: Pets
+      assert:
+        value: ["Pets"]
+    - tool: activate_element
+      arguments:
+        element_id: main.remove_category_btn
+    - tool: ui.get_options
+      arguments:
+        element_id: main.categories
+      assert:
+        options: ["Food", "Transport", "Home", "Health", "Other"]
+    - tool: activate_element
+      arguments:
+        element_id: settings_btn
+    - tool: ui.select_option
+      arguments:
+        element_id: main.currency
+        value: USD
+      assert:
+        value: USD
+    - tool: activate_element
+      arguments:
+        element_id: expenses_btn
+    - tool: get_element
+      arguments:
+        element_id: main.currency_label
+      assert:
+        value: USD
+    - tool: activate_element
+      arguments:
+        element_id: settings_btn
+    - tool: ui.set_checked
+      arguments:
+        element_id: main.show_paid
+        checked: false
+      assert:
+        value: false
+    - tool: set_text
+      arguments:
+        element_id: main.monthly_limit
+        text: 750
+      assert:
+        value: 750.0
+    - tool: activate_element
+      arguments:
+        element_id: expenses_btn
+    - tool: activate_element
+      arguments:
+        element_id: settings_btn
+    - tool: get_element
+      arguments:
+        element_id: main.show_paid
+      assert:
+        value: false
+    - tool: get_element
+      arguments:
+        element_id: main.monthly_limit
+      assert:
+        value: 750.0
+    - tool: get_render_snapshot

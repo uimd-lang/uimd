@@ -1,0 +1,49 @@
+# Gallery View
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+description: "Gallery view hosting a scrollable list of full-size images."
+tags: [example, image, gallery, viewhost]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+uses:
+  - gallery_scroll
+```
+
+## Members
+
+```yaml
+gallery_scroll:
+  type: gallery_scroll
+  description: "Scrollable image list."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+```
+
+## User Interface
+
+```ui
++-view-**-------------------+
+| gallery_scroll..**....... |
+| ......................... |
+| *........................ |
+| *........................ |
+| ......................... |
+| ......................... |
++---------------------------+
+```

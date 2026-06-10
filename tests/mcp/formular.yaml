@@ -1,0 +1,263 @@
+- name: formular
+  app: python/examples/formular/formular.py
+  tests:
+    - tool: set_text
+      arguments:
+        element_id: name_input
+        text: Test User
+      assert:
+        value: Test User
+    - tool: set_text
+      arguments:
+        element_id: email_input
+        text: test.user@example.com
+      assert:
+        value: test.user@example.com
+    - tool: set_text
+      arguments:
+        element_id: age_input
+        text: 34
+      assert:
+        value: 34
+    - tool: enter_edit_mode
+      arguments:
+        element_id: country_combo
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: country_combo
+      assert:
+        value: Czech Republic
+    - tool: click_element
+      arguments:
+        element_id: country_combo
+    - tool: mouse_click
+      arguments:
+        x: 53
+        y: 17
+    - tool: get_element
+      arguments:
+        element_id: country_combo
+      assert:
+        value: Hungary
+    - tool: set_text
+      arguments:
+        element_id: description_input
+        text: Profile entered by MCP tester.
+      assert:
+        value: Profile entered by MCP tester.
+    - tool: enter_edit_mode
+      arguments:
+        element_id: description_input
+    - tool: type_text
+      arguments:
+        element_id: description_input
+        text: " Escape path."
+      assert:
+        value: Profile entered by MCP tester. Escape path.
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: description_input
+      assert:
+        value: Profile entered by MCP tester. Escape path.
+    - tool: enter_edit_mode
+      arguments:
+        element_id: role_listbox
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: exit_edit_mode
+    - tool: get_element
+      arguments:
+        element_id: role_listbox
+      assert:
+        value: ["Designer"]
+    - tool: set_text
+      arguments:
+        element_id: name_input
+        text: Outside Name
+      assert:
+        value: Outside Name
+    - tool: enter_edit_mode
+      arguments:
+        element_id: name_input
+    - tool: mouse_click
+      arguments:
+        x: 45
+        y: 6
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: name_input
+      assert:
+        value: Outside Name
+    - tool: set_text
+      arguments:
+        element_id: age_input
+        text: 35
+      assert:
+        value: 35
+    - tool: enter_edit_mode
+      arguments:
+        element_id: age_input
+    - tool: mouse_click
+      arguments:
+        x: 45
+        y: 6
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: age_input
+      assert:
+        value: 35
+    - tool: enter_edit_mode
+      arguments:
+        element_id: description_input
+    - tool: mouse_click
+      arguments:
+        x: 45
+        y: 6
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: description_input
+      assert:
+        value: Profile entered by MCP tester. Escape path.
+    - tool: click_element
+      arguments:
+        element_id: country_combo
+    - tool: mouse_click
+      arguments:
+        x: 45
+        y: 6
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: country_combo
+      assert:
+        value: Hungary
+    - tool: enter_edit_mode
+      arguments:
+        element_id: role_listbox
+    - tool: mouse_click
+      arguments:
+        x: 45
+        y: 6
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: role_listbox
+      assert:
+        value: ["Designer"]
+    - tool: activate_element
+      arguments:
+        element_id: notify_check
+      assert:
+        value: true
+    - tool: activate_element
+      arguments:
+        element_id: terms_check
+      assert:
+        value: true
+    - tool: ui.select_option
+      arguments:
+        element_id: country_combo
+        value: Austria
+      assert:
+        value: Austria
+    - tool: ui.select_option
+      arguments:
+        element_id: role_listbox
+        value: Manager
+      assert:
+        value: ["Manager"]
+    - tool: scroll
+      arguments:
+        element_id: role_listbox
+        delta: -2
+      assert:
+        value: ["Manager"]
+    - tool: scroll
+      arguments:
+        element_id: role_listbox
+        delta: 2
+      assert:
+        value: ["Manager"]
+    - tool: ui.set_checked
+      arguments:
+        element_id: notify_check
+        checked: false
+      assert:
+        value: false
+    - tool: ui.uncheck
+      arguments:
+        element_id: terms_check
+      assert:
+        value: false
+    - tool: ui.check
+      arguments:
+        element_id: terms_check
+      assert:
+        value: true
+    - tool: ui.set_value
+      arguments:
+        element_id: email_input
+        value: direct.value@example.com
+      assert:
+        value: direct.value@example.com
+    - tool: ui.set_value
+      arguments:
+        element_id: country_combo
+        value: Slovakia
+      assert:
+        value: Slovakia
+    - tool: ui.set_value
+      arguments:
+        element_id: role_listbox
+        value: ["QA"]
+      assert:
+        value: ["QA"]
+    - tool: ui.set_value
+      arguments:
+        element_id: notify_check
+        value: true
+      assert:
+        value: true
+    - tool: ui.get_options
+      arguments:
+        element_id: role_listbox
+      assert:
+        options: ["Developer", "Designer", "Manager", "QA", "DevOps", "Tester", "Hacker"]
+    - tool: ui.get_value
+      arguments:
+        element_id: role_listbox
+      assert:
+        value: ["QA"]
+    - tool: ui.set_selection
+      arguments:
+        element_id: role_listbox
+        values: ["Developer", "QA"]
+      assert:
+        value: ["Developer", "QA"]
+    - tool: ui.get_schema

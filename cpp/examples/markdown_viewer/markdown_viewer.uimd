@@ -1,0 +1,128 @@
+# Markdown Viewer
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "Markdown viewer for selecting example documents, scrolling rendered content, and switching between overview, styles, tables, and code documents."
+tags: [example]
+```
+
+## Definition
+
+```yaml
+uses:
+  - document_view
+```
+
+## Members
+
+```yaml
+header:
+  type: label
+  text: "Markdown Viewer"
+  description: "Application title."
+  expose: false
+
+docs_label:
+  type: label
+  text: Documents
+  description: "Label for the document list."
+
+docs:
+  type: listbox
+  options: [overview.markdown, styles.markdown, tables.markdown, code.markdown]
+  selected_items: [overview.markdown]
+  multiple: "false"
+  description: "Document listbox used to select the markdown document to render."
+
+up_btn:
+  type: button
+  title: up
+  description: "Scroll the rendered document upward."
+
+down_btn:
+  type: button
+  title: down
+  description: "Scroll the rendered document downward."
+
+viewer:
+  type: document_view
+  cpp-class: "markdown_viewer_example::DocumentView"
+  cpp-header: document_view/document_view.hpp
+  description: "Scrollable rendered markdown document area."
+
+close_btn:
+  type: button
+  title: Quit
+  width: 9
+  description: "Close the markdown viewer."
+
+status:
+  type: label
+  text: Ready
+  description: "Shows the current document and scroll state."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@header:
+  text-align: center
+  color: "#ffffff"
+@title:
+  background: "#223a5a"
+@sidebar:
+  background: "#101a2b"
+@content:
+  background: "#000000"
+@viewer:
+  background: "#000000"
+  padding: 1, 2, 1, 2
+@docs:
+  background: "#ffffff11"
+  color: "#cbd5e1"
+  focus-background: "#ffffff22"
+  edit-background: "#00000000"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2b5f9f"
+@close_btn:
+  background: "#7f1d1d"
+  color: "#e2e8f0"
+  focus-background: "#dc2626"
+@status:
+  color: "#93c5fd"
+  background: "#111827"
+```
+
+## User Interface
+
+```ui
++-title-**----------------------------------------------------------+
+|header..**................................................close_btn|
++-sidebar------------------+-content-**-----------------------------+
+|                          |viewer..**..............................|
+| docs_label...**......... |........................................|
+| docs.........**......... |*.......................................|
+| ........................ |*.......................................|
+| #....................... |........................................|
+| #....................... |........................................|
+|                          |........................................|
+| up_btn.... down_btn..... |........................................|
+*                          |........................................|
+*                          |........................................|
+|                          |........................................|
++--------------------------+----------------------------------------+
+| status..**....................................................... |
++-------------------------------------------------------------------+
+```

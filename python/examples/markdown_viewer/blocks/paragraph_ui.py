@@ -1,0 +1,181 @@
+"""Auto-generated UI code for paragraph_ui.py - DO NOT EDIT MANUALLY."""
+
+from uimd.runtime import UIControl
+
+
+
+class ParagraphUI(UIControl):
+    """Generated UI window from markdown definition."""
+
+    _mcp_enabled = True
+    _mcp_source_md = '# Paragraph\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: stable\ndescription: "Reusable markdown paragraph block."\ntags: [component]\n```\n\n## Definition\n\n```yaml\nextends: uicontrol\n```\n\n## Members\n\n```yaml\ntext:\n  type: label\n  text: ""\n  description: "Rendered paragraph text with mouse selection enabled."\n```\n\n## Style\n\n```yaml\nthis:\n  background: "#00000000"\n  border-width: 0\n@text:\n  color: "#cbd5e1"\n  user-select: text\n```\n\n## User Interface\n\n```ui\n+-body-**----------------------------------------+\n| text..**...................................... |\n| .............................................. |\n# #............................................ |\n+------------------------------------------------+\n```\n'
+    _mcp_agent_metadata = {'window': {'description': 'Reusable markdown paragraph block.'}, 'elements': {'text': {'role': 'text', 'description': 'Rendered paragraph text with mouse selection enabled.', 'expose': True}}}
+    _mcp_app_tools = {}
+
+    def __init__(self):
+        super().__init__(
+            title="Paragraph",
+            layout=COMPILED_LAYOUT,
+            members=COMPILED_MEMBERS,
+            style=COMPILED_STYLE
+        )
+        self.focusable = False
+        self._metadata_kind = 'component'
+        if self._metadata_kind == "dialog":
+            self.mode = "dialog"
+
+        self.text = self.create_element("text", "label", text='')
+
+
+    def _dispatch_element_changed(self, element, value):
+        pass
+        super()._dispatch_element_changed(element, value)
+
+    def _dispatch_confirmed(self, element, value):
+        pass
+        super()._dispatch_confirmed(element, value)
+
+    def _dispatch_selection_changed(self, element, value):
+        pass
+        super()._dispatch_selection_changed(element, value)
+
+
+COMPILED_MEMBERS = {
+    "text": {
+        "type": 'label',
+        "text": '',
+        "description": 'Rendered paragraph text with mouse selection enabled.',
+    },
+}
+
+COMPILED_STYLE = {
+    "this": {
+        "background": '#00000000',
+        "border-color": 'transparent',
+        "border-width": 0,
+    },
+    "label": {
+        "background": 'transparent',
+        "color": '#cbd5e1',
+        "cursor-background": '#b8d7ff',
+        "cursor-color": '#000000',
+    },
+    "@dialog_header": {
+        "text-align": 'center',
+        "background": '#1d314c',
+    },
+    "@window_header": {
+        "text-align": 'center',
+        "background": '#1d314c',
+    },
+    "infolabel": {
+        "background": 'transparent',
+        "color": '#b8c4d8',
+    },
+    "textinput": {
+        "background": '#0d1524',
+        "color": '#e5e7eb',
+        "disabled-background": '#0b1220',
+        "disabled-color": '#64748b',
+        "focus-background": '#243a5c',
+        "focus-color": '#ffffff',
+        "edit-background": '#2d456d',
+        "edit-color": '#ffffff',
+        "cursor-background": '#ffffff',
+        "cursor-color": '#0e1117',
+        "selected-background": '#2563eb',
+        "selected-color": '#ffffff',
+    },
+    "numberinput": {
+        "background": '#0d1524',
+        "color": '#e5e7eb',
+        "disabled-background": '#0b1220',
+        "disabled-color": '#64748b',
+        "focus-background": '#243a5c',
+        "focus-color": '#ffffff',
+        "edit-background": '#2d456d',
+        "edit-color": '#ffffff',
+        "cursor-background": '#ffffff',
+        "cursor-color": '#0e1117',
+    },
+    "combobox": {
+        "background": '#0d1524',
+        "color": '#e5e7eb',
+        "disabled-background": '#0b1220',
+        "disabled-color": '#64748b',
+        "focus-background": '#243a5c',
+        "focus-color": '#ffffff',
+        "edit-background": '#2d456d',
+        "edit-color": '#e5e7eb',
+        "selected-background": '#2563eb',
+        "selected-color": '#ffffff',
+    },
+    "listbox": {
+        "background": '#0d1524',
+        "color": '#cbd5e1',
+        "disabled-color": '#64748b',
+        "focus-background": '#1d2f4d',
+        "focus-color": '#ffffff',
+        "edit-background": '#243a5c',
+        "edit-color": '#cbd5e1',
+        "selected-background": '#2563eb',
+        "selected-color": '#ffffff',
+    },
+    "uielement": {
+        "focus-background": '#ffffff14',
+        "edit-background": '#ffffff18',
+        "selected-background": '#ffffff26',
+        "selected-color": '#ffffff',
+    },
+    "uiscrollview": {
+        "focus-background": '#ffffff14',
+        "edit-background": '#ffffff18',
+        "selected-background": '#ffffff26',
+        "selected-color": '#ffffff',
+    },
+    "checkbox": {
+        "background": 'transparent',
+        "color": '#b8c4d8',
+        "disabled-color": '#64748b',
+        "focus-background": '#ffffff44',
+        "focus-color": '#ffffff',
+        "checked-background": 'transparent',
+        "checked-color": '#44cc88',
+        "unchecked-background": 'transparent',
+    },
+    "button": {
+        "background": '#334155',
+        "color": '#e2e8f0',
+        "disabled-background": '#1f2937',
+        "disabled-color": '#64748b',
+        "focus-background": '#2b5f9f',
+        "focus-color": '#ffffff',
+    },
+    "@text": {
+        "color": '#cbd5e1',
+        "user-select": 'text',
+    },
+}
+
+COMPILED_LAYOUT = [
+    {
+        'row': 0,
+        'col': 1,
+        'relative_col': 1,
+        'cell_row': 0,
+        'cell_col': 0,
+        'cell_chars_width': 48,
+        'cell_chars_height': 3,
+        'cell_name': 'body',
+        'cell_height': 3,
+        'cell_width_mode': 'expanded',
+        'cell_height_mode': 'auto',
+        'width_mode': 'expanded',
+        'chars_width': 46,
+        'chars_height': 3,
+        'margin_right': 1,
+        'height': 3,
+        'type': 'label',
+        'name': 'text'
+    }
+]

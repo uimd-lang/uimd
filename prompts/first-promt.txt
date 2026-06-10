@@ -1,0 +1,481 @@
+Vytvor jednoduchu compilator ktory z preddefinovaneho md suboru s navrhnutym ui-ckom vytvori jednoduche terminalove rozhranie s interaktivnymi prvkami.
+Rozhranie okna si nadefinujem pomocou znakovej reprezentacie vid nasledujuci priklad:
+
++-------**-------+----20----+
+| "Chat"         |          |
+| chat..**...... | tokens.. |
+| .............. |          |
+| .............. +----------+
+* *............. | info.... |
+* *............. | ........ |
+| .............. | ........ |
+|                |          |
++----------------+          |
+|                |          |
+3 prompt         | about... |
+|                |          |
++----------------+----------+
+
+kde si definujem vzdycky tabulku pomocou znakov +|- ktore definuju hranice medzi bunkami a hrany tabulky a pomocou ciselnych hodnot alebo pomocou ** ktore sa nachadzaju vnutri tychto hran si definujem rozmery jednotlivych stran. Rozmery su dane cislom v hrane, ak namiesto cisla su 2 za sebou iduce * (**) tak sa dana strana roztahuje. Rozmery a aj ** sa mozu nachadzat v horizontalnych aj vertikalnych hranach.
+Pomocou textu vnutri si definujem miesto odkial bude sa zobrazovat dany interaktivny alebo staticky element ktory sa zobrazuje v podobe mena a zaciatocny znak toho mena urcuje poziciu odkial sa bude zobrazovat. V pripade textu v uvodzovkach sa jedna o label ktory ma uz nastaveny text.
+Kazdy interaktivny element je jedinecny, nemozu sa vyskytovat viacere elementy s rovnakym menom.
+Kazdy element ma defaultne definovanu velkost jedneho riadka a na sirku od prveho znaku po posledny volny znak v bunke tabulky. Pokial element ma za sebou alebo vedla seba znaky v podobe bodky tak sa urcuje presne velkost danej plochy v pocte tychto bodiek. Ak sa nachadazdaju v horizontalnej podobe ** medzi bodkami tak sa dana plocha roztahuje po okraj definovany poslednou bodkou, ktora urci hranicu od hrany bunky. To iste plati pre vertikalne ** .
+Kazdy element je text, ktory ked presiahne svoju velkost tak sa scroluje (posuva zprava do lava) tak ze prve znaky sa skyju aby bolo vidiet posledne pisane znaky.
+Ak je element viacriadkovy tak sa text zalomuje na dalsi riadok.
+
+Elementy sa rozdeluju na nasledujuce typy:
+- label - obycajny neinteraktivny text, podla bodiek sa moze urcovat velkost na sirku, na vysku (moze sa definovat viacriadkovy text)
+- textinput - textovy input do ktoreho moze uzivatel napisat, skopirovat, editovat text, podla bodiek sa moze urcovat velkost na sirku, na vysku (moze sa definovat viacriadkovy textinput). Ked text je viacriadkovy a nezmesti sa do svojej preddefinovaje plochy tak sa vertikalne scroluje a po pravej strane sa zobrazi scrollbar v podobe farebne odliseneho pozadia ktore ma rovnaku farbu ako text
+
+- numberinput - ciselny input kde uzivatel pise len ciselnu hodnotu, moze ju editovat ale sipkami hore a dole posuvat po hodnotach
+- button - tlacitko
+- combobox - combobobx s moznostami vyberu
+- listbox - lisbox s moznostou vyberu
+- checbox - checbox
+- uielement - custom UI rozhranie ktore ma vlastny zdrojovy subor, vlastne definovane UI rozhranie definovane rovnako ako rozhranie okna. uielement je urcenu na viacnasobne pouzitie.
+s
+
+Vsetky inputy maju podporu copy/cut/paste/selectall pomocou klavesovych skratiek (na Macu aj cmd), a maju podporu prechadzania sipkami vsetkymi smermi s vynimkou numberinput ktory ma sipkami hore a dole si meni hodnotu o stepsize. Taktiez je podpora oznacovania viacerych znakov pomocou shift.
+
+Kazdy element s vynimkou label, moze mat vlastny focus ktorym prebera kontrolu nad klavesnicou. Defaultne ma focus okno, a vtedy sa sipkami uzivatel posuvaa nad jednotlive elementy a ked stlaci enter nad danym elementom tak ten potom ziska focus, a rovnako enterom staca focus s vynimkou ked bol podrzany alt (option na macu) s potvrdenim zmien, a naopak pomocou ESC straca bez potvrdenia zmeny, a v pripade stlacenia enteru focus dany element.
+V pripade tlacitka enter vyvola stlaenie tlacitka.
+V pripade comboboxu enter vyvola zobrazenie zoznamu z ktoreho si pomocou sipok vybera uzivatel danu polozku a enterom ju potvrdzuje a zatvara menu, alebo esc zatvara menu bez potvrdenia.
+V pripade listboxu enter-om vstupuje do vyberu polozky z listu kde si sipkami vybera polozku a enter potvrdzuje vyber a listbox straca focus, alebo esc rusi vyber a straca focus. 
+
+Kazdy element moze mat vlastne stylovanie definujuce farbu textu, farbu pozadia, popripade farebnu animaciu jednotlivych znakov, alebo v pripade textinput a numberinput aj styly pre zle zadany vstup (ked ma text napisany nepovoleny format). Taktiez moze mat ine stylovanie pre to ked ma element focus.
+Defaultne su vsetky text biele ma ju cierne pozadie, afocusovane tety maju pozadie #444.
+Taktiez mozu mat elementy padding urceny poctom znakov pre kazdu stranu.
+
+Kazde okno moze mat vlastne styly ktorym urcuje farbu hran, farbu pozadia, farbutextu ktoru defaultne zdedia ostatne texty a velkost paddingu.
+Kazde okno a kazdy uielement ma vlastnu triedu v pythone vo vlastnom subore.
+
+Okno nech dedi z uiwindow a uielement nech dedi z rovnomennej triedy uielement.
+Obe triedy uielement aj uiwindow nech dedia z uiinstance ktora ma nasledovne virtualne metody ktore si mozu overridnut:
+- open - ked sa okno otvori alebo uielement vytvori
+- save - ked sa potvrdia zmeny
+- close - ked sa okno zatvori alebo uielment zrusi
+- focus - ked okno ziska spat focus, cize element ktory mal focus tak ked hos strati tak ho spat preberie okno
+- blur - ked okno straca focus, napr. ked focus ziskava iny element
+- resize(width,height)
+- elementchanged(element,value) - univerzalny event pre detekciu zmien hodnot a selekcii vsetkych elementov
+- focused(element,value) - univerzalny event pre detekciu zmien focusov vsetkych elementov
+- enabled(element,value) - univerzalny event pre detekciu zmien hodnot a selekcii vsetkych elementov
+- render - nech sluzi na prepisanie obsahu okna
+
+Dalej nech maju properties (getter / setter) nasledovne:
+uiinstance:
+- title - titulok okna
+- focused
+label:
+- text - text okna
+button:
+- title
+- enabled
+- focused
+textinput
+- value
+- enabled
+- focused
+numberinput
+- value
+- enabled
+- focused
+checkbox
+- value
+- enabled
+- focused
+listbox
+- selected_item
+- enabled
+- focused
+combobox
+- selected_item - prvy zo selectovanych v pripade getter, v pripade setter selectne iba jeden
+- selected_items - pole selectnutych
+- enabled
+- focused
+button:
+- title
+- enabled
+- focused
+
+Aplikacia ma minimalne jedno okno, a v pripade otvorenia dalsieho okna, ma to dalsie okno focus az od svojho zatvorenia, a zobrazuje sa v popredi nad hlavnym oknom. Moze sa zobrazovat v dvoch modoch:
+- fullscreen - ktory sa automaticky aktivuje ak su oba rozmery okna expandujuce (pomocou **), v takom pripade sa hlavne okno vobec nezobrazuje
+- dialog - kedy ma fixny aspon jeden rozmer, sprava sa ako dialogove okno vycentroane uprostred hlavneho okna, kde na pozadi je hlavne okno ktore je stmavnute cca o 40%.
+
+Vsetky elementy definovane nazvami v ui-cku maju vlastnu clensku premennu v ramci okna akebo uielementu ku ktoremu patria, a typ urcujuci bud ako string alebo ako int alebo floating number.
+
+Jednotlive elementy mozu mat preddefinovane formaty, vymedzene minimalne a maximalne hodnoty, a niektore dalsie nasledujuce nastavenia:
+- textinput
+	- format - regularny vyraz vyjadrujuci akceptovanay format, v pripade zadaneho nepovoleneho formatu sa aplikuju specialne styly pre dany textinput, a nepovoli sa enterom ulozit zmeny
+	- maxlength - maximalna velkost
+	- password - true v pripade passwordu, vtedy sa namiesto znakov zobrazuju znaky ***
+- numberinput
+	- format - v podobe zobrazenia desatinnych miest (0.00)
+	- stepsize - velkost kroku
+	- minvalue - minimalna hodnota
+	- maxvalue - maximalna hodnota
+- listbox
+	- multiple - moznost zvolit viacere moznosti
+	- minitems - minimalny pocet zvolenych moznosti
+	- maxitems - maximanlny pocet zvolenych moznosti 
+	
+Uicko okna a uielement-u nech je definovane v md subore tak ako je to v nasledovnom priklade (chat.md):
+
+---
+title: Chat Window
+members:
+  chat:
+    type: uielement
+  tokens:
+    type: label
+  prompt:
+    type: textinput
+    maxlength: 32000
+  info:
+    type: label
+  about:
+    type: label
+style:
+  this:
+    background: #222
+	color: #aaa
+  label:
+    color: #fff
+---
+
+```ui
++-------**-+---9-----+-**---+
+|          | "Agent" |      |
++----------+-----+---+-20---+
+|                |          |
+| chat..**...... | tokens.. |
+| .............. |          |
+| .............. +----------+
+* *............. | info.... |
+* *............. | ........ |
+| .............. | ........ |
+|                |          |
++-------**-------+          |
+|                |          |
+3 prompt         | about... |
+|                |          |
++----------------+----------+
+```
+
+v pripade uielementu info takto (info.md):
+---
+title:
+members:
+  user:
+    type: label
+    malength: 16
+  time:
+    type: label
+  subagents:
+    type: label
+style:
+  this:
+    background: #222
+  label:
+    color: #999
+  members:
+    user:
+      color: #ccc
+    time:
+      color: #ccc
+---
+
+```ui
++-----**------+
+|             |
+| user....... |
+|             |
+| time....... |
+|             |
++-------------+
+| subagents.. |
+| ........... |
+| ........... |
+* *.......... |
+* *.......... |
+| ........... |
+| ........... |
+| ....**..... |
++-------------+
+```
+
+V pripade dialogoveho okna by to vypadalo takto (settings.md):
+---
+title: Settings
+members:
+  user_name:
+    type: textinput
+    format: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+  llm_list:
+    type: listbox
+  max_context:
+    type: numberinput
+  use_system_promt:
+    type: chechbox
+    title: Use system promt	
+  system_prompt:
+    type: textinput
+  save_button:
+    type: button
+    title: Save
+  close_button:
+    type: button
+    title: Close
+style:
+  this:
+    background: #222
+	padding: 5,10,5,10
+	border-color: transparent
+  textinput:
+    background: #111
+	color: #ccc
+  textinput-focus:
+    background: #333
+	color: #aaa
+  numberinput:
+    background: #111
+	color: #ccc
+	padding: 1,2,1,2
+  numberinput-focus:
+    background: #333
+	color: #aaa
+  checkbox:
+    background: #111
+	color: #ccc
+	padding: 1,2,1,2
+  checkbox-focus:
+    background: #333
+	color: #aaa
+  checkbox-indicator-checked:
+	color: #0f0
+  checkbox-indicator-unchecked:
+	color: #f00
+  combobox:
+    background: #111
+	color: #ccc
+	padding: 1,2,1,2
+  combobox-menu:
+    background: #555
+	color: #aaa
+	padding: 1
+  combobox-menu-item:
+	padding: 1
+  listbox-menu-item-selected:
+    color: #fff
+  combobox-menu-checkmark:
+    color: #0a0
+	padding: 0,1,0,2
+  listbox:
+    background: #111
+	color: #ccc
+	padding: 1
+  listbox-focus:
+    background: #333
+  listbox-item:
+	padding: 1
+  listbox-item-selected:
+    color: #fff
+  listbox-checkmark:
+    color: #0a0
+	padding: 0,1,0,2
+  button:
+    background: #aaa
+	color: #000
+	padding: 1,2,1,2
+  button-focus:
+    background: #ccc
+  members:
+    user_name-error:
+      color: #f00
+    time:
+      color: #ccc
+---
+
+```ui
++----------100-------------------------+
+|                                      |
+3 "user:"        user_name...          |
+0 "max context:" max_context           |
+| "LLM list:"                          |
+| llm_list...**.......                 |
+| ....................                 |
+| *...................                 |
+| *...................                 |
+| ....................                 |
++--------------------------------------+
+| use_system_promt                     |
+| "system prompt:"                     |
+| system_prompt...**.................. |
+1 .................................... |
+0 *................................... |
+0 *................................... |
+| .................................... |
+| .................................... |
++----+-------------+--------------+----+
+|    | save_button | close_button |    |
++-**-+------16-----+------16------+-**-+
+```
+
+Kompilator vezme dane md subory a pre kazdy skompiluje vysledny python subor s nazvom totoznym s menom md subora a triedou totoznou s nazvom subora.
+# Doplnenie promptu: napojenie Python aplikácie na skompilované UI
+
+Vygenerovaný python súbor nesmie obsahovať iba statickú reprezentáciu UI, ale musí byť priamo použiteľný z aplikačného python kódu.
+
+Pre každý `.md` súbor kompilátor vygeneruje python triedu, ktorá:
+
+- dedí z `UIWindow` alebo `UIElement` podľa toho, či ide o hlavné/dialogové okno alebo znovupoužiteľný UI element,
+- v konštruktore zavolá rodičovský konštruktor a odovzdá mu skompilovanú definíciu layoutu, štýlov a členov,
+- vytvorí členské premenné pre všetky pomenované elementy z `members`,
+- umožní aplikácii meniť hodnoty elementov cez properties alebo priamo cez členské premenné,
+- umožní aplikácii reagovať na udalosti pomocou override metód `open`, `save`, `close`, `focus`, `blur`, `resize`, `elementchanged`, `focused`, `enabled` a `render`.
+
+Aplikačný kód potom používa vygenerované UI tak, že importuje vygenerovanú triedu a vytvorí jej inštanciu. Napríklad zo súboru `chat.md` vznikne súbor `chat_ui.py` s triedou `ChatWindow`:
+
+```python
+from build.chat_ui import ChatWindow
+from ui.runtime import UIApplication
+
+
+class MyChatWindow(ChatWindow):
+	def open(self):
+		self.tokens.text = "0 tokens"
+		self.info.text = "Ready"
+
+	def elementchanged(self, element, value):
+		if element == self.prompt:
+			self.tokens.text = str(len(value)) + " chars"
+
+	def save(self):
+		message = self.prompt.value
+		self.chat.add_message("user", message)
+		self.prompt.value = ""
+
+
+app = UIApplication()
+window = MyChatWindow()
+app.open(window)
+app.run()
+```
+
+Vygenerovaná trieda teda slúži ako základná UI trieda a aplikačný programátor si môže vytvoriť vlastnú triedu, ktorá z nej dedí a doplní aplikačnú logiku. Kompilátor nesmie pri opätovnom preklade prepísať aplikačný súbor používateľa. Preto sa odporúča generovať iba súbory do samostatného adresára, napríklad `build/`, a aplikačnú logiku písať mimo tohto adresára.
+
+Príklad odporúčanej štruktúry projektu:
+
+```text
+project/
+  examples/
+    chat.md
+    info.md
+    settings.md
+
+build/
+    chat_ui.py
+
+    info_ui.py
+
+    settings_ui.py
+
+  examples/chat/
+    chat.md
+    chat_ui.py
+    chat.py
+
+  ui/
+    runtime.py
+    uiinstance.py
+    uiwindow.py
+    uielement.py
+    elements.py
+```
+
+Súbory v `build/` sú generované automaticky a môžu byť kedykoľvek prepísané kompilátorom. Súbory v `examples/chat/` obsahujú ručne písanú aplikačnú logiku a nikdy ich nesmie kompilátor prepísať.
+
+Vygenerovaný súbor má obsahovať iba:
+
+- importy runtime tried,
+- skompilovanú dátovú štruktúru layoutu,
+- skompilované štýly,
+- definíciu members,
+- triedu s rovnakým názvom ako md súbor prevedeným do PascalCase,
+- inicializáciu všetkých UI elementov ako členských premenných.
+
+Príklad vygenerovaného súboru `build/chat_ui.py`:
+
+```python
+from ui.runtime import UIWindow
+
+
+class ChatWindow(UIWindow):
+	def __init__(self):
+		super().__init__(
+			title="Chat Window",
+			layout=COMPILED_LAYOUT,
+			members=COMPILED_MEMBERS,
+			style=COMPILED_STYLE
+		)
+
+		self.chat = self.get_element("chat")
+		self.tokens = self.get_element("tokens")
+		self.prompt = self.get_element("prompt")
+		self.info = self.get_element("info")
+		self.about = self.get_element("about")
+
+
+COMPILED_MEMBERS = {
+	"chat": {
+		"type": "uielement"
+	},
+	"tokens": {
+		"type": "label"
+	},
+	"prompt": {
+		"type": "textinput",
+		"maxlength": 32000
+	},
+	"info": {
+		"type": "label"
+	},
+	"about": {
+		"type": "label"
+	}
+}
+
+COMPILED_STYLE = {
+	"this": {
+		"background": "#222",
+		"color": "#aaa"
+	},
+	"label": {
+		"color": "#fff"
+	}
+}
+
+COMPILED_LAYOUT = {
+	# Internal compiled representation of the parsed ui grid.
+}
+```
+
+Runtime aplikácie musí byť navrhnutý tak, že `UIApplication` drží stack otvorených okien. Aktívne je vždy posledné otvorené okno. Keď sa otvorí nové okno, predchádzajúce okno stratí focus. Keď sa nové okno zatvorí, focus sa vráti predchádzajúcemu oknu. V prípade dialogového okna runtime vykreslí pôvodné okno stmavené na pozadí a nové okno vycentruje nad neho. V prípade fullscreen okna runtime vykreslí iba nové okno.
+
+Aplikačný kód musí vedieť:
+
+- otvoriť hlavné okno pomocou `app.open(window)`,
+- otvoriť ďalšie okno pomocou `app.open(dialog_window)`,
+- zatvoriť aktívne okno pomocou `app.close_current()`,
+- pristupovať k elementom cez členské premenné, napríklad `self.prompt.value`,
+- meniť texty labelov, napríklad `self.info.text = "Loading..."`,
+- meniť enabled/focused stav, napríklad `self.save_button.enabled = False`,
+- reagovať na zmeny cez `elementchanged(self, element, value)`,
+- ručne prekresliť okno cez `self.invalidate()` alebo `self.render()`.
+
+Kompilátor má teda generovať iba UI vrstvu a prepojenie na runtime. Samotná biznis logika aplikácie sa píše ručne v triedach, ktoré dedia z vygenerovaných tried.
+
+A pouzi prislusne priklady md ktore boli prilozene v tomto prompte na tvorbu konkretneho example.
+
+Ak nebudes vediet si rady s parsovanim gridov tak tu je rada:
+Poradim ti ako vyriesit problem s tym ze parser najde iba max jednu bunku. Ty sa pokus najst rozdeilt si komplikovanu velku tabulku na mensie. Konkretne si rekurzivne budes prehladavat jednotlive bunky a ich pozicie. Ked najdes bunky tak medzi nimi hladas suvislost, ci su v rovnakom horizontalnom alebo vertikalnom celku ktory tvori obdlzni a ak ano, tak ich spojis do jednej tabulky, a pokracujes. Potom ked si pospajal vsetky bunky do vlastnych tabuliek, tak mas zoznam tabuliek medzi ktorymi zase hladas suvislost, ktore tabulky sa daju spojit do vacsich tabuliek tak aby tvorili obdlznik. Ked sa ti to podari co sa musi podarit, tak mas mensiu mnozinu tabuliek a s nimi urobis to iste, az kym nemas jeden obdlznik / tabulku v ktorej su vnorene jednotlive tabulky a bunky. Chapes? Proste budes mat vo vysledku tabulku roznych tabuliek a buniek. Mozes si to predstavit ako stromovu strukturu.

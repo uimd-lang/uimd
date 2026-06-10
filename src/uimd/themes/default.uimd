@@ -1,0 +1,18 @@
+# Default Theme
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: theme
+status: stable
+description: "Default Theme UI source."
+tags: [theme]
+```
+
+## Style
+
+```yaml
+include: dark
+```

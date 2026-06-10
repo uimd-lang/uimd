@@ -1,0 +1,48 @@
+# Paragraph
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: stable
+description: "Reusable markdown paragraph block."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+text:
+  type: label
+  text: ""
+  description: "Rendered paragraph text with mouse selection enabled."
+```
+
+## Style
+
+```yaml
+this:
+  background: "#00000000"
+  border-width: 0
+@text:
+  color: "#cbd5e1"
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-body-**----------------------------------------+
+| text..**...................................... |
+| .............................................. |
+# #............................................ |
++------------------------------------------------+
+```

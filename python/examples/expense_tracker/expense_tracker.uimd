@@ -1,0 +1,101 @@
+# Expense Tracker
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: experimental
+description: "Simple expense tracker with sidebar navigation and dynamic expenses hosted in a ViewHost."
+tags: [example, viewhost, expenses]
+```
+
+## Definition
+
+```yaml
+uses:
+  - expenses_view
+  - categories_view
+  - settings_view
+```
+
+## Members
+
+```yaml
+app_title:
+  type: label
+  text: "Expense Tracker"
+
+quit_btn:
+  type: button
+  title: Quit
+
+nav_title:
+  type: label
+  text: Expenses
+
+expenses_btn:
+  type: button
+  title: Expenses
+
+categories_btn:
+  type: button
+  title: Categories
+
+settings_btn:
+  type: button
+  title: Settings
+
+main:
+  type: viewhost
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+cell:
+  padding: 1
+@header:
+  background: "#1f2937"
+  padding: 0
+@app_title:
+  color: "#ffffff"
+  text-align: center
+@nav:
+  background: "#172033"
+@content:
+  background: "#030712"
+@nav_title:
+  color: "#ffffff"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@quit_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+viewhost:
+  background: "#030712"
+```
+
+## User Interface
+
+```ui
++--header-**------------------------------------------+
+| app_title..**.......................... quit_btn... |
++--nav------------------+--content-**-----------------+
+| nav_title............ | main..**................... |
+|                       | *.......................... |
+| expenses_btn......... | *.......................... |
+|                       | ........................... |
+| categories_btn....... | ........................... |
+|                       | ........................... |
+| settings_btn......... | ........................... |
+*                       * ........................... |
+*                       * ........................... |
++-----------------------+-----------------------------+
+```

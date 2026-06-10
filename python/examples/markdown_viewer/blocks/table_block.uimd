@@ -1,0 +1,61 @@
+# Table Block
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: stable
+description: "Reusable markdown table block with a small header and message table content."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+kind:
+  type: label
+  text: "markdown table"
+  description: "Header label identifying the block as a markdown table."
+
+table:
+  type: messagetable
+  text: ""
+  description: "Rendered markdown table content."
+```
+
+## Style
+
+```yaml
+this:
+  background: "#00000000"
+  border-width: 0
+@head:
+  background: "#1d314c"
+@body:
+  background: "#0c1a2d"
+@kind:
+  color: "#93c5fd"
+@table:
+  color: "#e5e7eb"
+```
+
+## User Interface
+
+```ui
++-head-**----------------------------------------+
+| kind..**...................................... |
++-body-**----------------------------------------+
+| table..**..................................... |
+| .............................................. |
+# #............................................ |
+# #............................................ |
++------------------------------------------------+
+```
