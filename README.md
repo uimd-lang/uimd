@@ -15,37 +15,50 @@ more native runtimes.
 
 ## Install
 
-From PyPI, once published:
+UIMD is currently an alpha project. The only validated development platform
+today is macOS on Intel (`x86_64`). macOS Apple Silicon support is next; Windows
+x64 support is planned after that.
+
+There is no public PyPI package, Homebrew package, GitHub Release, or packaged
+SDK installer yet. Do not use `pip install uimd`, `pip install uimd-sdk`,
+`brew install uimd-sdk`, or release download commands until the first public
+release exists.
+
+Current alpha setup is a source checkout build:
 
 ```bash
-python3 -m pip install uimd
+git clone https://github.com/uimd-lang/uimd.git
+cd uimd
+git switch sdk-work
+cmake -S cpp -B cpp/build
+cmake --build cpp/build --target uimd
+./uimd doctor
 ```
 
-From GitHub:
+The `./uimd` script is the source-checkout entry point. It expects the native
+SDK-facing binary at `cpp/build/tools/uimd/uimd`; build that target before
+running `./uimd`.
+
+To build the local SDK bootstrapper as well:
 
 ```bash
-python3 -m pip install git+https://github.com/uimd-lang/uimd.git
+cmake --build cpp/build --target uimd_init
 ```
 
-For isolated project development:
+The local SDK Store work exists for development and testing, but it is not a
+public installer flow yet. To exercise it from a source checkout:
 
 ```bash
-mkdir hello-ui
-cd hello-ui
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install uimd
+UIMD_HOME=/tmp/uimd-home \
+UIMD_INIT_UIMD_BINARY=$PWD/cpp/build/tools/uimd/uimd \
+  cpp/build/tools/uimd_init/uimd-init --no-shell-config --json
+/tmp/uimd-home/bin/uimd doctor --json
 ```
 
-On Windows PowerShell:
-
-```powershell
-mkdir hello-ui
-cd hello-ui
-py -m venv .venv
-.venv\Scripts\Activate.ps1
-py -m pip install uimd
-```
+This creates a local SDK Store under `UIMD_HOME` and installs the development
+launcher plus a versioned SDK binary. Network downloads, release asset
+verification, target payload downloads, and package-manager recipes are still
+future release work.
 
 Apps that use non-fallback `Image` rendering need Sixel support. Python apps
 use the `libsixel-python` package; C++ apps dynamically load the system
@@ -53,6 +66,8 @@ use the `libsixel-python` package; C++ apps dynamically load the system
 automatically. See `docs/installation.md` for details.
 
 ## Hello World
+
+After building the native source-checkout CLI:
 
 ```bash
 ./uimd new hello
@@ -74,6 +89,35 @@ During development:
 python3 hello.py
 ```
 
+## SDK Model
+
+The intended SDK model is:
+
+```text
+package manager installs uimd-init
+uimd-init creates or repairs ~/.uimd/
+~/.uimd/bin/uimd delegates to ~/.uimd/sdk/<version>/bin/uimd
+project commands select SDK versions from root .uimd sdk-version metadata
+```
+
+The implementation currently supports the local/offline foundation:
+
+```bash
+./uimd sdk home
+./uimd sdk install 0.x.y --release-root /path/to/releases
+./uimd sdk install-target cpp
+./uimd sdk use 0.x.y
+./uimd sdk list --json
+./uimd sdk update --release-root /path/to/releases --json
+./uimd sdk prune --json
+./uimd doctor --json
+UIMD_HOME=/tmp/uimd-home ./uimd self uninstall --json
+```
+
+These commands are available from the native binary, but public release assets
+and package-manager installation are not available yet. See `docs/sdk-store.md`
+for the current implementation status.
+
 ## CLI
 
 ```bash
@@ -86,14 +130,14 @@ python3 hello.py
 ```
 
 `uimd` is the native SDK-facing tool. In a source checkout, use the repo wrapper
-`./uimd`; installed SDKs provide a native `uimd` binary on `PATH`. The Python
-package provides the Python runtime and tester helpers, not the compiler CLI.
+`./uimd`. Packaged SDKs will later provide a native `uimd` binary on `PATH`.
+The future Python package will provide the Python runtime and tester helpers,
+not the compiler CLI.
 
-The visual MCP tester is also installed for projects that use UIMD:
+The visual MCP tester is available through the source-checkout CLI:
 
 ```bash
 ./uimd mcp-test hello.py tests/mcp/hello.yaml
-uimd-mcp-test hello.py tests/mcp/hello.yaml
 ```
 
 The tested app must be a generated UIMD app or compatible executable that
@@ -154,7 +198,9 @@ The C++ runtime is available through CMake targets:
 target_link_libraries(my_app PRIVATE uimd::runtime)
 ```
 
-The repository currently keeps the C++ backend under `cpp/`.
+The repository currently keeps the C++ backend under `cpp/`. The generated
+CMake GitHub `FetchContent` fallback depends on a future public release tag;
+until then, use a local source checkout or installed CMake package.
 
 ## Repository
 
@@ -191,5 +237,6 @@ cmake --build cpp/build
 ctest --test-dir cpp/build --output-on-failure
 ```
 
-This repository currently uses SVN for local development. Do not assume Git
-workflow inside this checkout.
+This GitHub repository uses `main` as the stable public snapshot branch and
+`sdk-work` for active SDK and publishing work. Alpha development should happen
+on `sdk-work`.

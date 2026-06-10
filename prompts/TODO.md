@@ -171,25 +171,25 @@ Date: 2026-06-05
 
 ## Repository And Publishing
 
-- [ ] **GitHub repository bootstrap / continue here after folder rename**. The
-  GitHub organization `uimd-lang` exists and the public repository
-  `uimd-lang/uimd` currently shows the GitHub "Quick setup" screen, meaning it
-  is empty and has no initialized branch or code yet. The user plans to stop
-  this session, rename the current SVN checkout
-  `/Users/marekdubovsky/Projects/uimd` to
-  `/Users/marekdubovsky/Projects/uimd-svn`, and create a new
-  `/Users/marekdubovsky/Projects/uimd` directory for the GitHub working copy.
-  Continue by preserving the SVN checkout as the source of truth and
-  bootstrapping GitHub separately: create/init the new Git working directory,
-  copy or export the project contents from `uimd-svn` without `.svn`, audit
-  which generated/build/cache/debug files should be excluded before publishing,
-  create the public `main` branch as the stable user-facing snapshot, then
-  create and push a working branch named `sdk-work` for partial SDK/publishing
-  checkpoints. Do not put WIP commits on `main`; users should get only `main`,
-  tags, or GitHub Releases unless they explicitly choose `sdk-work`. Do not
-  create `.git` inside the SVN checkout. Before pushing, decide and document the
-  Git ignore/exclusion rules without violating the current SVN workflow rules.
-  The intended remote is `https://github.com/uimd-lang/uimd.git`.
+- [x] **GitHub repository bootstrap**. The public repository
+  `uimd-lang/uimd` has been bootstrapped from the preserved SVN checkout at
+  `/Users/marekdubovsky/Projects/uimd-svn` into the separate Git working copy
+  at `/Users/marekdubovsky/Projects/uimd`. The initial import excludes `.svn`,
+  `.DS_Store`, build/cache output, MCP temporary snapshots, `.opencode`
+  dependencies, and local Claude settings via the root `.gitignore`. The stable
+  public `main` branch and the working `sdk-work` branch were both pushed to
+  `https://github.com/uimd-lang/uimd.git` at initial import commit `7f2419d`;
+  future SDK/publishing checkpoints should continue on `sdk-work`, not `main`.
+  Validation passed: `find . -name .svn -type d -o -name .DS_Store -type f`
+  returned no files, `git status --short --branch` was clean, and
+  `git ls-remote --heads origin` showed `main` and `sdk-work`.
+- [x] **README alpha install status correction**. Update the public README to
+  avoid advertising unreleased PyPI, Homebrew, GitHub Release, or packaged SDK
+  install flows. The current README now describes the project as alpha,
+  documents macOS Intel (`x86_64`) as the only validated platform for now,
+  points users to the source-checkout native build (`cmake -S cpp -B
+  cpp/build`, `cmake --build cpp/build --target uimd`, `./uimd doctor`), and
+  records that macOS Apple Silicon and Windows x64 support are planned later.
 - [ ] Validate native `uimd` release artifacts on macOS arm64 separately from
   the Windows/Linux platform migration work. The local macOS Intel/x86_64
   source-checkout flow is already validated; this task must prove the native
