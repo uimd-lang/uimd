@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         workspace = Path(tmp)
         failures.extend(check_new(native_binary, workspace))
         failures.extend(check_generate(native_binary, workspace))
+        failures.extend(check_installed_sdk_theme_lookup(native_binary, workspace))
         failures.extend(check_run(native_binary, workspace))
         failures.extend(check_mcp_test(native_binary))
         failures.extend(check_sdk(native_binary, workspace))
@@ -263,6 +264,44 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
     return failures
 
 
+def check_installed_sdk_theme_lookup(native_binary: Path, workspace: Path) -> list[str]:
+    failures: list[str] = []
+    binary_name = "uimd.exe" if os.name == "nt" else "uimd"
+    version_root = workspace / "installed_theme_sdk" / "sdk" / "9.9.9"
+    installed_binary = version_root / "bin" / binary_name
+    installed_binary.parent.mkdir(parents=True)
+    shutil.copy2(native_binary, installed_binary)
+    installed_binary.chmod(EXECUTABLE_FILE_MODE)
+
+    package_root = version_root / "targets" / "python" / "uimd"
+    package_root.mkdir(parents=True)
+    shutil.copytree(ROOT / "src" / "uimd" / "themes", package_root / "themes")
+    (package_root / "__init__.py").write_text('__version__ = "9.9.9"\n', encoding="utf-8")
+
+    env = os.environ.copy()
+    env["UIMD_SOURCE_ROOT"] = str(workspace / "missing_source_checkout")
+    env.pop("UIMD_SDK_PYTHON_TARGET", None)
+
+    cases = (
+        ("python", "hello_ui.py"),
+        ("cpp", "hello_ui.cpp"),
+    )
+    for target, generated_file in cases:
+        target_dir = workspace / f"installed_theme_{target}"
+        target_dir.mkdir()
+        (target_dir / "hello.uimd").write_text(HELLO_UIMD, encoding="utf-8")
+        result = run_command(native_cli(installed_binary, "generate", "hello.uimd", "--target", target), target_dir, env=env)
+        failures.extend(expect_success(f"installed SDK theme lookup {target}", result))
+        generated_path = target_dir / generated_file
+        failures.extend(expect_file(f"installed SDK theme lookup {target}", generated_path))
+        if generated_path.exists():
+            generated = generated_path.read_text(encoding="utf-8")
+            if "#0d1524" not in generated or "#334155" not in generated:
+                failures.append(f"installed SDK theme lookup {target}: generated styles do not include dark theme colors")
+
+    return failures
+
+
 def check_run(native_binary: Path, workspace: Path) -> list[str]:
     run_dir = workspace / "run"
     run_dir.mkdir()
@@ -302,6 +341,11 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_success("sdk home", home))
     if str(sdk_home) not in home.stdout:
         failures.append("sdk home: output does not include UIMD_HOME")
+
+    sdk_help = run_command(native_cli(native_binary, "sdk", "--help"), workspace, env=env)
+    failures.extend(expect_success("sdk --help", sdk_help))
+    if "usage: uimd sdk <command> [args]" not in sdk_help.stdout or "list" not in sdk_help.stdout:
+        failures.append("sdk --help: output does not describe SDK commands")
 
     empty_doctor = run_command(native_cli(native_binary, "doctor", "--json"), workspace, env=env)
     failures.extend(expect_success("doctor --json before sdk install", empty_doctor))

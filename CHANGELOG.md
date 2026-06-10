@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 - Unreleased
+## 0.3.2 - Unreleased
 
 - Add a cross-platform `Image` element with Sixel rendering and an ANSI
   character-based fallback in Python and C++.

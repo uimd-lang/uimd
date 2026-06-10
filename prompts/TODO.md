@@ -169,6 +169,20 @@ Date: 2026-06-05
   `UIMD_HOME=/private/tmp/uimd-ghdownload-smoke-20260610-2
   /private/tmp/uimd-ghdownload-smoke-20260610-2/bin/uimd doctor --json`, and
   `python3 tools/native_uimd_parity.py`.
+- [x] **SDK help command UX fix**. Make `uimd sdk`, `uimd sdk --help`,
+  `uimd sdk -h`, and `uimd sdk help` print SDK command help instead of failing
+  with `error: unknown sdk command: --help`. Implemented in
+  `cpp/tools/uimd/main.cpp` with smoke coverage in
+  `tools/native_uimd_parity.py`.
+- [x] **Installed SDK theme lookup fix**. When `uimd new` / `uimd generate` /
+  `uimd run` are executed from an installed SDK outside a source checkout,
+  `include: dark` and default theme resolution must load packaged themes from
+  the installed SDK instead of silently generating only local styles. Parity
+  decision: this is native generator behavior shared by Python and C++ targets,
+  so both `NativePythonGenerator` and `NativeCppGenerator` must search the same
+  installed SDK theme path. Implemented with an internal
+  `UIMD_SDK_PYTHON_TARGET` environment bridge set by the native launcher before
+  generation.
 - [ ] **Windows validation**: verify the new `image_button` control and the
   updated `image_browser` build and run on Windows for both Python and C++,
   confirming padding, centering, square sizing, click selection, and render-mode
@@ -212,6 +226,18 @@ Date: 2026-06-05
   points users to the source-checkout native build (`cmake -S cpp -B
   cpp/build`, `cmake --build cpp/build --target uimd`, `./uimd doctor`), and
   records that macOS Apple Silicon and Windows x64 support are planned later.
+- [ ] **Public install command and PATH UX cleanup**. Update the public README,
+  release notes, and install docs for the real `v0.3.1` GitHub Release install
+  flow. Document the safe default command
+  `curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.1/install.sh | sh`,
+  explain that it installs into `~/.uimd` but does not modify `PATH`, and show
+  both immediate usage via `~/.uimd/bin/uimd` and human-friendly setup via
+  `sh -s -- --modify-shell` followed by a new shell or `source ~/.zshrc`.
+  Decide whether `install.sh`/`uimd-init` should print these next steps when
+  `shell config: unchanged`. Do not advertise
+  `releases/latest/download/install.sh` as the primary command until the
+  prerelease/latest policy is verified; keep the versioned URL canonical for
+  now.
 - [x] **macOS Intel local release artifact packaging slice**. Add
   `tools/package_sdk_release.py` to generate a local `dist/sdk-release` root
   for `macos-x86_64` from `cpp/build-release` with

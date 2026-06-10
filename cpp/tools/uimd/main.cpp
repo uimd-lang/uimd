@@ -54,6 +54,7 @@ const std::string REQUIRE_SDK_VERSION_ENV = "UIMD_REQUIRE_SDK_VERSION";
 const std::string NO_AUTO_INSTALL_ENV = "UIMD_NO_AUTO_INSTALL";
 const std::string RELEASE_ROOT_ENV = "UIMD_RELEASE_ROOT";
 const std::string SDK_PATH_ENV = "UIMD_SDK_PATH";
+const std::string SDK_PYTHON_TARGET_ENV = "UIMD_SDK_PYTHON_TARGET";
 const std::string RELEASE_MANIFEST_PREFIX = "uimd-sdk-";
 const std::string RELEASE_MANIFEST_SUFFIX = ".manifest";
 const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp"};
@@ -1751,6 +1752,7 @@ void configurePythonRuntimePath(const std::filesystem::path& executablePath = {}
     if (!installedTarget.empty())
     {
         pythonPaths.push_back(installedTarget);
+        setEnvironment(SDK_PYTHON_TARGET_ENV, pathString(installedTarget));
     }
 
     const std::filesystem::path root = sourceRoot();
@@ -1994,6 +1996,25 @@ int printHelp(const char* program)
     return EXIT_USAGE;
 }
 
+int printSdkHelp()
+{
+    std::cout
+        << "usage: uimd sdk <command> [args]\n"
+        << "\n"
+        << "Inspect and manage UIMD SDK installs.\n"
+        << "\n"
+        << "commands:\n"
+        << "  home            Print the SDK home directory\n"
+        << "  list            List installed SDK versions\n"
+        << "  install         Install an SDK version from a local binary or release root\n"
+        << "  install-target  Install a target marker for an SDK version\n"
+        << "  use             Select the active SDK version\n"
+        << "  update          Select or install the latest available patch\n"
+        << "  remove          Remove an installed SDK version\n"
+        << "  prune           Remove older SDK patch versions\n";
+    return EXIT_OK;
+}
+
 std::string jsonEscape(const std::string& text)
 {
     std::string escaped;
@@ -2157,12 +2178,16 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
 {
     if (args.empty())
     {
-        std::cerr << "error: sdk command is required\n";
-        return EXIT_USAGE;
+        return printSdkHelp();
     }
 
     const std::string command = args.front();
     const std::filesystem::path home = sdkHome();
+
+    if (command == "--help" || command == "-h" || command == "help")
+    {
+        return printSdkHelp();
+    }
 
     if (command == "install")
     {
@@ -2853,7 +2878,7 @@ int runNew(const std::vector<std::string>& args)
     return EXIT_OK;
 }
 
-int runGenerate(const std::vector<std::string>& args)
+int runGenerate(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
     if (args.empty())
     {
@@ -2935,6 +2960,7 @@ int runGenerate(const std::vector<std::string>& args)
 
     try
     {
+        configurePythonRuntimePath(executablePath);
         std::vector<std::filesystem::path> generated;
         if (target == "cpp")
         {
@@ -3033,6 +3059,7 @@ int runRun(const std::vector<std::string>& args, const std::filesystem::path& ex
         uimd::tool::NativeGenerateOptions options;
         options.compileDependencies = compileDependencies;
         options.mcpEnabled = mcpEnabled;
+        configurePythonRuntimePath(executablePath);
         (void)uimd::tool::generatePythonSources(sourcePath, options);
     }
     catch (const std::exception& exc)
@@ -3296,7 +3323,7 @@ int main(int argc, char** argv)
     }
     if (command == "generate")
     {
-        return runGenerate(args);
+        return runGenerate(args, executable);
     }
     if (command == "run")
     {

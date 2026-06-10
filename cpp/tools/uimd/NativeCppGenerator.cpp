@@ -708,6 +708,11 @@ YamlMap loadIncludedStyle(const std::string& name, const std::filesystem::path& 
         searchDirs.push_back(root / "src" / "shared" / "themes");
         searchDirs.push_back(root / "src" / "uimd" / "themes");
     }
+    const char* sdkPythonTarget = std::getenv("UIMD_SDK_PYTHON_TARGET");
+    if (sdkPythonTarget != nullptr && *sdkPythonTarget != '\0')
+    {
+        searchDirs.push_back(std::filesystem::path{sdkPythonTarget} / "uimd" / "themes");
+    }
 
     for (const std::filesystem::path& directory : searchDirs)
     {
