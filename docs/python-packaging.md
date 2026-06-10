@@ -81,13 +81,18 @@ UIMD uses SemVer.
 
 Before the public API is stable, versions use the `0.x.y` form:
 
-- Bump `x` for public contract changes: CLI behavior, `.uimd` format,
-  generated code contracts, runtime API, C++ package API, or compatibility
-  changes.
-- Bump `y` for compatible bug fixes, internal improvements, documentation
-  updates, and packaging fixes after a version has already been released.
-- Keep the current unreleased version for initial-release preparation unless
-  the planned first release scope is deliberately reset.
+- Bump `y` for the normal development flow: bug fixes, performance tuning,
+  small refactors, compatible behavior changes, documentation updates,
+  packaging fixes, and ordinary new functionality.
+- Evaluate `x` only immediately before a `main` push. Bump it only when
+  explicitly choosing a larger release line or when a larger batch of
+  functionality has accumulated since the last `main` push, such as a new
+  supported platform, a new UI element, a major SDK installation milestone, or a
+  substantial change to existing functionality.
+- Do not bump `x` just because one ordinary feature was added.
+- When `x` is bumped, reset `y` to `0`.
+- Keep unreleased SDK installation docs aligned with the actual supported
+  installer/release-artifact state.
 
 When the version changes, do not edit version surfaces by hand. Run:
 

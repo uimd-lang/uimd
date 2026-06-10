@@ -151,8 +151,11 @@ python3 tools/native_uimd_parity.py --compile-examples
 ```bash
 python3 tools/package_sdk_release.py --build --output dist/sdk-release
 UIMD_HOME=/tmp/uimd-home \
-  cpp/build-release/tools/uimd/uimd sdk install 0.3.0 --release-root dist/sdk-release
+  cpp/build-release/tools/uimd/uimd sdk install 0.3.1 --release-root dist/sdk-release
 UIMD_HOME=/tmp/uimd-home /tmp/uimd-home/bin/uimd doctor --json
+UIMD_HOME=/tmp/uimd-home-from-script \
+UIMD_RELEASE_BASE_URL=file://$PWD/dist/sdk-release \
+  sh dist/sdk-release/install.sh --no-shell-config --json
 ```
 
 ## Python App MCP Tests

@@ -98,7 +98,10 @@ artifacts from a source checkout:
 ```bash
 python3 tools/package_sdk_release.py --build --output dist/sdk-release
 UIMD_HOME=/tmp/uimd-home \
-  cpp/build-release/tools/uimd/uimd sdk install 0.3.0 --release-root dist/sdk-release
+  cpp/build-release/tools/uimd/uimd sdk install 0.3.1 --release-root dist/sdk-release
+UIMD_HOME=/tmp/uimd-home-from-script \
+UIMD_RELEASE_BASE_URL=file://$PWD/dist/sdk-release \
+  sh dist/sdk-release/install.sh --no-shell-config --json
 UIMD_HOME=/tmp/uimd-home /tmp/uimd-home/bin/uimd doctor --json
 ```
 
@@ -107,7 +110,7 @@ contains:
 
 ```text
 dist/sdk-release/
-├── 0.3.0/
+├── 0.3.1/
 │   ├── manifest.txt
 │   └── payload/
 │       ├── bin/uimd
@@ -115,14 +118,17 @@ dist/sdk-release/
 │       ├── targets/cpp/
 │       └── examples/
 ├── checksums.txt
-├── uimd-init-0.3.0-macos-x86_64
-└── uimd-sdk-0.3.0-macos-x86_64.tar.gz
+├── install.sh
+├── uimd-init-0.3.1-macos-x86_64
+└── uimd-sdk-0.3.1-macos-x86_64.tar.gz
 ```
 
 `manifest.txt` is the local installer contract consumed by `uimd sdk install
---release-root`. The tarball and standalone `uimd-init` binary are
-upload-friendly outputs for a future GitHub Release, but there is still no
-public release download or package-manager installer flow.
+--release-root`. `install.sh` downloads and verifies the standalone
+`uimd-init` asset; `uimd-init` downloads `checksums.txt` plus the matching SDK
+tarball, verifies SHA-256, extracts the payload, and installs it into the SDK
+Store. These are upload-friendly outputs for a future GitHub Release, but there
+is still no published public release or package-manager installer flow.
 
 `pip install uimd` remains the Python runtime package. It does not create or
 repair this store. Package managers should eventually install `uimd-sdk`, whose
@@ -148,7 +154,8 @@ Current implementation status:
 - `uimd sdk install <version> --release-root <path>` installs from a local
   manifest and verifies SHA-256 checksums before copying payload files.
 - `tools/package_sdk_release.py` creates the current local macOS Intel release
-  root, the matching tarball, standalone `uimd-init`, and SHA-256 checksums.
+  root, the matching tarball, standalone `uimd-init`, `install.sh`, and SHA-256
+  checksums.
 - `uimd sdk prune` removes old local SDK patch versions, keeping the newest two
   patches per minor series and preserving the current SDK selection.
 - `uimd sdk update` selects the newest available patch in the current minor

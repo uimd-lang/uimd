@@ -147,6 +147,28 @@ Date: 2026-06-05
   `cmake --build cpp/build --target uimd_init`,
   `python3 -m py_compile tools/native_uimd_parity.py`, and
   `python3 tools/native_uimd_parity.py`.
+- [x] **Minimal GitHub Release SDK download slice**. Implement the smallest
+  public-install path on top of the local macOS Intel release artifact work:
+  generate a versioned `install.sh` release asset, let it download and verify
+  `uimd-init-<version>-macos-x86_64` from a GitHub Release asset set, and teach
+  `uimd-init` to download `checksums.txt` plus
+  `uimd-sdk-<version>-macos-x86_64.tar.gz`, verify SHA-256, extract the SDK
+  payload, install it into `UIMD_HOME`/default SDK Store, write the launcher and
+  current version, and keep the existing `--modify-shell` / `--no-shell-config`
+  behavior. Keep this slice platform-scoped to macOS Intel; Homebrew, PyPI
+  `uimd-sdk`, Windows install script, signatures, latest-version discovery,
+  and package-manager recipes remain later tasks. Implemented in
+  `cpp/tools/uimd_init/main.cpp` with `curl`, `tar`, and SHA-256 verification
+  via `shasum` for the current macOS Intel slice; `tools/package_sdk_release.py`
+  now emits `install.sh` and includes it in `checksums.txt`. Validation passed:
+  `cmake --build cpp/build --target uimd_init`,
+  `python3 tools/package_sdk_release.py --build --output dist/sdk-release`,
+  `UIMD_HOME=/private/tmp/uimd-ghdownload-smoke-20260610-2
+  UIMD_RELEASE_BASE_URL=file:///Users/marekdubovsky/Projects/uimd/dist/sdk-release
+  sh dist/sdk-release/install.sh --no-shell-config --json`,
+  `UIMD_HOME=/private/tmp/uimd-ghdownload-smoke-20260610-2
+  /private/tmp/uimd-ghdownload-smoke-20260610-2/bin/uimd doctor --json`, and
+  `python3 tools/native_uimd_parity.py`.
 - [ ] **Windows validation**: verify the new `image_button` control and the
   updated `image_browser` build and run on Windows for both Python and C++,
   confirming padding, centering, square sizing, click selection, and render-mode

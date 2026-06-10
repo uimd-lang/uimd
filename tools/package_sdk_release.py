@@ -199,6 +199,109 @@ def write_checksums(output_root: Path, artifacts: list[Path]) -> Path:
     return checksums_path
 
 
+def install_script_text(version: str, platform_label: str) -> str:
+    init_asset = f"uimd-init-{version}-{platform_label}"
+    return f"""#!/bin/sh
+set -eu
+
+UIMD_VERSION="${{UIMD_VERSION:-{version}}}"
+UIMD_PLATFORM="${{UIMD_PLATFORM:-}}"
+
+detect_platform() {{
+    os="$(uname -s)"
+    arch="$(uname -m)"
+    case "${{os}}:${{arch}}" in
+        Darwin:x86_64)
+            printf '%s\\n' 'macos-x86_64'
+            ;;
+        *)
+            printf '%s\\n' "unsupported platform: ${{os}} ${{arch}}" >&2
+            exit 1
+            ;;
+    esac
+}}
+
+if [ -z "${{UIMD_PLATFORM}}" ]; then
+    UIMD_PLATFORM="$(detect_platform)"
+fi
+
+if [ "${{UIMD_PLATFORM}}" != "{platform_label}" ]; then
+    printf '%s\\n' "unsupported release platform: ${{UIMD_PLATFORM}}" >&2
+    exit 1
+fi
+
+BASE_URL="${{UIMD_RELEASE_BASE_URL:-https://github.com/uimd-lang/uimd/releases/download/v${{UIMD_VERSION}}}}"
+BASE_URL="${{BASE_URL%/}}"
+INIT_ASSET="uimd-init-${{UIMD_VERSION}}-${{UIMD_PLATFORM}}"
+
+if [ "${{INIT_ASSET}}" != "{init_asset}" ]; then
+    printf '%s\\n' "install.sh was packaged for {init_asset}, got ${{INIT_ASSET}}" >&2
+    exit 1
+fi
+
+tmpdir="$(mktemp -d "${{TMPDIR:-/tmp}}/uimd-install.XXXXXX")"
+cleanup() {{
+    rm -rf "$tmpdir"
+}}
+trap cleanup EXIT INT TERM
+
+download() {{
+    url="$1"
+    output="$2"
+    curl -fsSL --retry 3 -o "$output" "$url"
+}}
+
+sha256_file() {{
+    if command -v shasum >/dev/null 2>&1; then
+        LC_ALL=C shasum -a 256 "$1" | awk '{{print $1}}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{{print $1}}'
+    else
+        printf '%s\\n' 'missing shasum or sha256sum for checksum verification' >&2
+        exit 1
+    fi
+}}
+
+checksum_for() {{
+    awk -v asset="$1" '$2 == asset {{print $1; exit}}' "$tmpdir/checksums.txt"
+}}
+
+download "$BASE_URL/checksums.txt" "$tmpdir/checksums.txt"
+download "$BASE_URL/$INIT_ASSET" "$tmpdir/$INIT_ASSET"
+
+expected="$(checksum_for "$INIT_ASSET")"
+if [ -z "$expected" ]; then
+    printf '%s\\n' "missing checksum for $INIT_ASSET" >&2
+    exit 1
+fi
+actual="$(sha256_file "$tmpdir/$INIT_ASSET")"
+if [ "$actual" != "$expected" ]; then
+    printf '%s\\n' "checksum mismatch for $INIT_ASSET" >&2
+    printf '%s\\n' "expected: $expected" >&2
+    printf '%s\\n' "actual:   $actual" >&2
+    exit 1
+fi
+
+chmod +x "$tmpdir/$INIT_ASSET"
+exec "$tmpdir/$INIT_ASSET" "$@"
+"""
+
+
+def write_install_script(output_root: Path, version: str, platform_label: str) -> Path:
+    script_path = output_root / "install.sh"
+    script_path.write_text(install_script_text(version, platform_label), encoding="utf-8")
+    script_path.chmod(
+        stat.S_IRUSR
+        | stat.S_IWUSR
+        | stat.S_IXUSR
+        | stat.S_IRGRP
+        | stat.S_IXGRP
+        | stat.S_IROTH
+        | stat.S_IXOTH
+    )
+    return script_path
+
+
 def stage_cpp_install(root: Path, build_dir: Path, stage_dir: Path) -> None:
     remove_path(stage_dir)
     stage_dir.mkdir(parents=True, exist_ok=True)
@@ -255,10 +358,11 @@ def package_release(
     init_asset = output_root / f"uimd-init-{version}-{platform_label}"
     copy_file(init_binary, init_asset, executable=True)
     archive_path = create_tarball(output_root, release_dir, version, platform_label)
-    checksums_path = write_checksums(output_root, [manifest_path, archive_path, init_asset])
+    install_script = write_install_script(output_root, version, platform_label)
+    checksums_path = write_checksums(output_root, [manifest_path, archive_path, init_asset, install_script])
 
     remove_path(output_root / ".stage")
-    return [manifest_path, archive_path, init_asset, checksums_path]
+    return [manifest_path, archive_path, init_asset, install_script, checksums_path]
 
 
 def parse_args() -> argparse.Namespace:
