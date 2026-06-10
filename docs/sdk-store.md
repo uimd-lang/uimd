@@ -90,6 +90,40 @@ verification. Paths must be relative and may not contain `..`; `bin/uimd`
 (`bin/uimd.exe` on Windows) is installed executable. This is the offline fixture
 contract that future GitHub Release assets should satisfy.
 
+## macOS Intel Local Artifacts
+
+The first real packaging slice generates local macOS Intel (`x86_64`) SDK
+artifacts from a source checkout:
+
+```bash
+python3 tools/package_sdk_release.py --build --output dist/sdk-release
+UIMD_HOME=/tmp/uimd-home \
+  cpp/build-release/tools/uimd/uimd sdk install 0.3.0 --release-root dist/sdk-release
+UIMD_HOME=/tmp/uimd-home /tmp/uimd-home/bin/uimd doctor --json
+```
+
+The generated `dist/sdk-release` directory is intentionally not committed. It
+contains:
+
+```text
+dist/sdk-release/
+├── 0.3.0/
+│   ├── manifest.txt
+│   └── payload/
+│       ├── bin/uimd
+│       ├── targets/python/
+│       ├── targets/cpp/
+│       └── examples/
+├── checksums.txt
+├── uimd-init-0.3.0-macos-x86_64
+└── uimd-sdk-0.3.0-macos-x86_64.tar.gz
+```
+
+`manifest.txt` is the local installer contract consumed by `uimd sdk install
+--release-root`. The tarball and standalone `uimd-init` binary are
+upload-friendly outputs for a future GitHub Release, but there is still no
+public release download or package-manager installer flow.
+
 `pip install uimd` remains the Python runtime package. It does not create or
 repair this store. Package managers should eventually install `uimd-sdk`, whose
 only job is to provide `uimd-init`; `uimd-init` then verifies and repairs the
@@ -113,6 +147,8 @@ Current implementation status:
   binary.
 - `uimd sdk install <version> --release-root <path>` installs from a local
   manifest and verifies SHA-256 checksums before copying payload files.
+- `tools/package_sdk_release.py` creates the current local macOS Intel release
+  root, the matching tarball, standalone `uimd-init`, and SHA-256 checksums.
 - `uimd sdk prune` removes old local SDK patch versions, keeping the newest two
   patches per minor series and preserving the current SDK selection.
 - `uimd sdk update` selects the newest available patch in the current minor

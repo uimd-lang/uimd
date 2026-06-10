@@ -20,6 +20,7 @@ option(UI_CPP_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizer
 option(UIMD_BUILD_EXAMPLES "Build UIMD C++ examples" ON)
 option(UIMD_BUILD_TESTS "Build UIMD C++ tests" ON)
 option(UIMD_INSTALL "Install UIMD C++ targets" ON)
+option(UIMD_EMBED_SOURCE_ROOT "Embed the source checkout path in the native uimd tool" ON)
 
 add_library(ui_cpp_runtime STATIC
     src/app/Application.cpp
@@ -110,9 +111,13 @@ add_executable(uimd
     tools/uimd/NativePythonGenerator.cpp
 )
 
+set(UIMD_NATIVE_SOURCE_ROOT_VALUE "")
+if(UIMD_EMBED_SOURCE_ROOT)
+    set(UIMD_NATIVE_SOURCE_ROOT_VALUE "${CMAKE_CURRENT_SOURCE_DIR}/..")
+endif()
 target_compile_definitions(uimd PRIVATE
     UIMD_VERSION="${PROJECT_VERSION}"
-    UIMD_NATIVE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+    UIMD_NATIVE_SOURCE_ROOT="${UIMD_NATIVE_SOURCE_ROOT_VALUE}"
 )
 target_compile_features(uimd PRIVATE cxx_std_17)
 set_target_properties(uimd

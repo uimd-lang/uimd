@@ -1709,18 +1709,72 @@ std::string pythonExecutable()
     return pythonOverride.empty() ? "python3" : pythonOverride;
 }
 
-void configurePythonRuntimePath()
+std::filesystem::path installedSdkPythonTargetFromExecutable(const std::filesystem::path& executablePath)
 {
+    if (executablePath.empty())
+    {
+        return {};
+    }
+
+    const std::filesystem::path executable = normalizedAbsolutePath(executablePath);
+    if (executable.filename() != uimdExecutableName())
+    {
+        return {};
+    }
+
+    const std::filesystem::path binDirectory = executable.parent_path();
+    if (binDirectory.filename() != SDK_BIN_DIR)
+    {
+        return {};
+    }
+
+    const std::filesystem::path versionRoot = binDirectory.parent_path();
+    const std::filesystem::path targetRoot = versionRoot / SDK_TARGETS_DIR / SDK_PYTHON_TARGET_DIR;
+    if (std::filesystem::is_regular_file(targetRoot / "uimd" / "__init__.py"))
+    {
+        return targetRoot;
+    }
+
+    const std::filesystem::path sourceStyleRoot = targetRoot / "src";
+    if (std::filesystem::is_regular_file(sourceStyleRoot / "uimd" / "__init__.py"))
+    {
+        return sourceStyleRoot;
+    }
+    return {};
+}
+
+void configurePythonRuntimePath(const std::filesystem::path& executablePath = {})
+{
+    std::vector<std::filesystem::path> pythonPaths;
+
+    const std::filesystem::path installedTarget = installedSdkPythonTargetFromExecutable(executablePath);
+    if (!installedTarget.empty())
+    {
+        pythonPaths.push_back(installedTarget);
+    }
+
     const std::filesystem::path root = sourceRoot();
-    if (root.empty())
+    if (!root.empty())
+    {
+        pythonPaths.push_back(root / "src");
+        pythonPaths.push_back(root / "python");
+        pythonPaths.push_back(root);
+    }
+
+    if (pythonPaths.empty())
     {
         return;
     }
 
     std::ostringstream pythonPath;
-    pythonPath << pathString(root / "src") << pathSeparator()
-               << pathString(root / "python") << pathSeparator()
-               << pathString(root);
+    for (std::size_t index = 0; index < pythonPaths.size(); ++index)
+    {
+        if (index != 0)
+        {
+            pythonPath << pathSeparator();
+        }
+        pythonPath << pathString(pythonPaths[index]);
+    }
     const std::string existingPythonPath = envValue("PYTHONPATH");
     if (!existingPythonPath.empty())
     {
@@ -2915,7 +2969,7 @@ int runGenerate(const std::vector<std::string>& args)
     return EXIT_OK;
 }
 
-int runRun(const std::vector<std::string>& args)
+int runRun(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
     bool compileDependencies = true;
     bool mcpEnabled = true;
@@ -2996,7 +3050,7 @@ int runRun(const std::vector<std::string>& args)
         return EXIT_ERROR;
     }
 
-    configurePythonRuntimePath();
+    configurePythonRuntimePath(executablePath);
     std::vector<std::string> command{pythonExecutable(), pathString(appPath)};
     command.insert(command.end(), appArgs.begin(), appArgs.end());
     return runProcess(std::move(command));
@@ -3129,7 +3183,7 @@ bool wantsMcpHelp(const std::vector<std::string>& args)
         std::find(args.begin(), args.end(), "--help") != args.end();
 }
 
-int runCppMcpTester(const std::vector<std::string>& args)
+int runCppMcpTester(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
     const std::filesystem::path root = mcpProjectRoot();
     const std::filesystem::path binary = root / MCP_CPP_TESTER_RELATIVE_PATH;
@@ -3141,21 +3195,21 @@ int runCppMcpTester(const std::vector<std::string>& args)
         return MCP_CPP_TESTER_MISSING_EXIT_CODE;
     }
 
-    configurePythonRuntimePath();
+    configurePythonRuntimePath(executablePath);
     std::vector<std::string> command{pathString(binary)};
     command.insert(command.end(), args.begin(), args.end());
     return runProcess(std::move(command), root);
 }
 
-int runPythonMcpTester(const std::vector<std::string>& args)
+int runPythonMcpTester(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
-    configurePythonRuntimePath();
+    configurePythonRuntimePath(executablePath);
     std::vector<std::string> command{pythonExecutable(), "-m", "uimd.testing.mcp_tester"};
     command.insert(command.end(), args.begin(), args.end());
     return runProcess(std::move(command));
 }
 
-int runMcpTest(const std::vector<std::string>& args)
+int runMcpTest(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
     std::string backend;
     std::vector<std::string> forwarded;
@@ -3175,9 +3229,9 @@ int runMcpTest(const std::vector<std::string>& args)
     }
     if (backend == MCP_BACKEND_PYTHON)
     {
-        return runPythonMcpTester(forwarded);
+        return runPythonMcpTester(forwarded, executablePath);
     }
-    return runCppMcpTester(forwarded);
+    return runCppMcpTester(forwarded, executablePath);
 }
 
 }  // namespace
@@ -3246,11 +3300,11 @@ int main(int argc, char** argv)
     }
     if (command == "run")
     {
-        return runRun(args);
+        return runRun(args, executable);
     }
     if (command == "mcp-test")
     {
-        return runMcpTest(args);
+        return runMcpTest(args, executable);
     }
 
     std::cerr << "error: unknown command: " << command << "\n";

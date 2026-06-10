@@ -190,6 +190,19 @@ Date: 2026-06-05
   points users to the source-checkout native build (`cmake -S cpp -B
   cpp/build`, `cmake --build cpp/build --target uimd`, `./uimd doctor`), and
   records that macOS Apple Silicon and Windows x64 support are planned later.
+- [x] **macOS Intel local release artifact packaging slice**. Add
+  `tools/package_sdk_release.py` to generate a local `dist/sdk-release` root
+  for `macos-x86_64` from `cpp/build-release` with
+  `-DUIMD_EMBED_SOURCE_ROOT=OFF`, `manifest.txt`, payload files, standalone
+  `uimd-init-<version>-macos-x86_64`, `uimd-sdk-<version>-macos-x86_64.tar.gz`,
+  and SHA-256 `checksums.txt`. The payload installs through the existing
+  `uimd sdk install <version> --release-root <path>` manifest path and includes
+  `bin/uimd`, `targets/python`, `targets/cpp`, and examples. The native
+  launcher also recognizes installed `sdk/<version>/targets/python` as a
+  Python runtime path when project commands are executed from a versioned SDK
+  binary. This is a local maintainer/development artifact only; public GitHub
+  Release downloads, signatures, package-manager recipes, and cross-platform
+  release validation remain separate tasks.
 - [ ] Validate native `uimd` release artifacts on macOS arm64 separately from
   the Windows/Linux platform migration work. The local macOS Intel/x86_64
   source-checkout flow is already validated; this task must prove the native
