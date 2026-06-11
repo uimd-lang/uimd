@@ -65,7 +65,7 @@ class TestUIWindow(unittest.TestCase):
         app.open(dialog)
         dialog.set_focus(button)
 
-        with patch("runtime.UIBase.time.sleep") as sleep:
+        with patch("uimd.runtime.UIBase.time.sleep") as sleep:
             dialog.handle_key("Enter")
 
         sleep.assert_called_once_with(DIALOG_BUTTON_CLOSE_DELAY_SECONDS)

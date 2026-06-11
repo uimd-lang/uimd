@@ -103,6 +103,28 @@ def _stable_mcp_tester_log_lines(path):
 
 
 class TestMcpTesterConfig(unittest.TestCase):
+    def _temporary_compare_example_roots(self):
+        os.makedirs(PARITY_TMP_ROOT, exist_ok=True)
+        temp_dir = tempfile.TemporaryDirectory(prefix="compare_examples_", dir=PARITY_TMP_ROOT)
+        self.addCleanup(temp_dir.cleanup)
+        python_root = os.path.join(temp_dir.name, "python", "examples")
+        cpp_root = os.path.join(temp_dir.name, "cpp", "build", "examples")
+        scripts = _load_yaml_test_scripts(
+            PROJECT_ROOT,
+            os.path.join(PROJECT_ROOT, "tests", "mcp", "all_examples.yaml"),
+        )
+        for script in scripts:
+            name = next(iter(script.apps))
+            python_app_dir = os.path.join(python_root, name)
+            cpp_app_dir = os.path.join(cpp_root, name)
+            os.makedirs(python_app_dir, exist_ok=True)
+            os.makedirs(cpp_app_dir, exist_ok=True)
+            with open(os.path.join(python_app_dir, f"{name}.py"), "w", encoding="utf-8") as handle:
+                handle.write("# test fixture\n")
+            with open(os.path.join(cpp_app_dir, name), "w", encoding="utf-8") as handle:
+                handle.write("# test fixture\n")
+        return python_root, cpp_root
+
     def test_config_argument_is_required(self):
         with self.assertRaises(SystemExit):
             parse_args([])
@@ -351,10 +373,12 @@ class TestMcpTesterConfig(unittest.TestCase):
         )
 
     def test_compare_examples_roots_replace_each_included_script_app_path(self):
+        python_root, cpp_root = self._temporary_compare_example_roots()
+
         config = parse_args([
             "--compare",
-            "python/examples",
-            "cpp/build/examples",
+            python_root,
+            cpp_root,
             "tests/mcp/all_examples.yaml",
         ])
 
@@ -363,16 +387,16 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(
             config.scripts[0].apps,
             {
-                "python": os.path.join(config.root, "python/examples/calculator/calculator.py"),
-                "cpp": os.path.join(config.root, "cpp/build/examples/calculator/calculator"),
+                "python": os.path.join(python_root, "calculator", "calculator.py"),
+                "cpp": os.path.join(cpp_root, "calculator", "calculator"),
             },
         )
         self.assertEqual(config.scripts[0].steps[0]["target"], "*")
         self.assertEqual(
             config.scripts[-1].apps,
             {
-                "python": os.path.join(config.root, "python/examples/expense_tracker/expense_tracker.py"),
-                "cpp": os.path.join(config.root, "cpp/build/examples/expense_tracker/expense_tracker"),
+                "python": os.path.join(python_root, "expense_tracker", "expense_tracker.py"),
+                "cpp": os.path.join(cpp_root, "expense_tracker", "expense_tracker"),
             },
         )
 
@@ -387,11 +411,13 @@ class TestMcpTesterConfig(unittest.TestCase):
         )
 
     def test_all_compare_uses_examples_roots(self):
+        python_root, cpp_root = self._temporary_compare_example_roots()
+
         config = parse_args([
             "--all",
             "--compare",
-            "python/examples",
-            "cpp/build/examples",
+            python_root,
+            cpp_root,
         ])
 
         self.assertTrue(config.compare_mode)
@@ -399,8 +425,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(
             config.scripts[0].apps,
             {
-                "python": os.path.join(config.root, "python/examples/calculator/calculator.py"),
-                "cpp": os.path.join(config.root, "cpp/build/examples/calculator/calculator"),
+                "python": os.path.join(python_root, "calculator", "calculator.py"),
+                "cpp": os.path.join(cpp_root, "calculator", "calculator"),
             },
         )
 

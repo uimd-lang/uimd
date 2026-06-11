@@ -6,9 +6,11 @@ import re
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import unittest
+from unittest.mock import patch
 from runtime.elements import (Label, TextInput, TextArea, NumberInput, Button, CheckBox,
                                   ComboBox, ListBox, UIElementReusable, ViewHost,
                                   FrameBufferView)
+import runtime.image as image_module
 from runtime.image import Image, terminal_supports_sixel
 from runtime.rendering import TerminalCell
 from runtime.UIBase import UIBase
@@ -79,7 +81,9 @@ class TestImage(unittest.TestCase):
             image.width = 2
             image.height = 1
 
-            rows = image.render_cells()
+            with patch.object(image_module, "require_sixel_for_image_rendering"), \
+                 patch.object(Image, "_sixel_payload", return_value="\x1bPqmock\x1b\\"):
+                rows = image.render_cells()
 
             self.assertTrue(rows[0][0].raw.startswith("\x1bPq"))
             self.assertEqual(rows[0][0].raw_width, 2)
@@ -93,6 +97,23 @@ class TestImage(unittest.TestCase):
                 os.environ.pop("UIMD_DISABLE_SIXEL", None)
             else:
                 os.environ["UIMD_DISABLE_SIXEL"] = old_disable
+
+    def test_image_sixel_encoder_uses_libsixel_when_available(self):
+        if not image_module._load_libsixel():
+            self.skipTest("libsixel Python binding is not installed")
+
+        image = Image(
+            name="sample",
+            source="shared/assets/image_samples/camera.png",
+            alt="camera",
+            render_mode="sixel",
+        )
+        image.width = 2
+        image.height = 1
+
+        rows = image.render_cells()
+
+        self.assertTrue(rows[0][0].raw.startswith("\x1bPq"))
 
     def test_image_sixel_mode_can_be_disabled_for_fallback(self):
         os.environ["UIMD_DISABLE_SIXEL"] = "1"

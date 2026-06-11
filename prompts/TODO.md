@@ -4,6 +4,21 @@
 
 Date: 2026-06-05
 
+- [x] **GitHub CI failures after the v0.4.0 main/tag push**. Fix the
+  GitHub-hosted Python workflow failures without deleting local tests: keep
+  sixel image coverage while handling the optional `libsixel` dependency
+  explicitly in CI or through a correct skip condition, make MCP tester config
+  tests independent of an existing local `cpp/build/examples` directory, and
+  patch dialog-delay mocking through the canonical import path so the test
+  passes on both Python 3.10 and 3.12. This is test/CI behavior only; no
+  runtime parity behavior should change unless the investigation finds a real
+  runtime bug. Implemented by keeping a required mocked UIMD sixel render-path
+  test plus an optional real `libsixel` integration test, creating temporary
+  Python/C++ example roots inside the MCP tester config tests, and patching
+  `uimd.runtime.UIBase.time.sleep` in the dialog-delay test. Validation passed:
+  `PATH=/private/tmp/uimd-ci-fix-venv/bin:$PATH
+  /private/tmp/uimd-ci-fix-venv/bin/python -m pytest python/tests` with
+  `427 passed, 14 skipped`.
 - [x] **Automatic release signing key discovery**. Remove repetitive release
   signing setup from the normal packaging flow by teaching
   `tools/package_sdk_release.py` to discover the minisign private key from a

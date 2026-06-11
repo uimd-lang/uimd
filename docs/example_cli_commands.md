@@ -120,6 +120,7 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_calculator.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_dialogs.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_image_sixel_encoder_uses_libsixel_when_available
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_transports.py
