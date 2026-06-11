@@ -1,51 +1,98 @@
 # Installation
 
-UIMD currently installs as a Python package and provides the `uimd` console
-command. The repository also builds a native `uimd` binary as the SDK-facing
-tool surface; public package-manager bootstrap is being split so end-user SDK
-installs use the native binary while `pip install uimd` remains the Python
-runtime package.
+UIMD has two install surfaces:
 
-## Recommended Project Install
+- The SDK installer provides the native `uimd` compiler/launcher and installs
+  into the SDK Store.
+- The future `pip install uimd` package is only the Python runtime package; it
+  does not bootstrap or repair the SDK Store.
+
+## SDK Install
+
+Use the versioned GitHub Release URL after the matching release assets are
+published and smoke-tested. Do not use `releases/latest/download/install.sh`
+as the primary command until the prerelease/latest policy is verified.
 
 macOS/Linux:
 
 ```bash
-mkdir hello-ui
-cd hello-ui
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install uimd
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh
+~/.uimd/bin/uimd doctor
 ```
 
 Windows PowerShell:
 
 ```powershell
-mkdir hello-ui
-cd hello-ui
-py -m venv .venv
-.venv\Scripts\Activate.ps1
-py -m pip install uimd
+Invoke-WebRequest -UseBasicParsing https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.ps1 -OutFile install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+& "$env:LOCALAPPDATA\uimd\bin\uimd.exe" doctor
 ```
 
-Supported development platforms are macOS, Linux, and Windows. The current
-runtime targets terminal applications, so terminal color, keyboard, mouse, and
-PTY behavior can vary by terminal emulator.
+The default install location is:
 
-## GitHub Install
+```text
+macOS/Linux: ~/.uimd
+Windows:     %LOCALAPPDATA%\uimd
+Override:    UIMD_HOME
+```
+
+The installer does not modify shell startup files by default. For immediate
+use, call the launcher directly:
 
 ```bash
-python3 -m pip install git+https://github.com/uimd-lang/uimd.git
+~/.uimd/bin/uimd run hello.uimd
 ```
 
-## Global CLI Install
-
-Use `pipx` when you want the `uimd` command available globally but isolated
-from system Python packages:
+For human PATH setup, opt in explicitly:
 
 ```bash
-pipx install uimd
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --modify-shell
 ```
+
+Then open a new shell or source the updated shell profile, for example:
+
+```bash
+source ~/.zshrc
+uimd doctor
+```
+
+For agents and CI, keep startup files untouched:
+
+```bash
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --no-shell-config
+~/.uimd/bin/uimd doctor --json
+```
+
+After PATH setup, update an installed SDK launcher through the normal `uimd`
+command:
+
+```bash
+uimd self update
+```
+
+When an installed project command needs a missing target such as `cpp`, the
+launcher auto-installs it from release assets unless offline mode is enabled.
+`UIMD_RELEASE_ROOT` and `UIMD_RELEASE_BASE_URL` are development/CI overrides,
+not the normal user path.
+
+The current packaged SDK flow is validated first on macOS Intel (`x86_64`).
+The release tooling also emits macOS Apple Silicon, Linux, and Windows
+platform labels plus a Windows `install.ps1`, but those release assets still
+need platform validation before being advertised as supported public installs.
+
+## Python Runtime Package
+
+`pip install uimd` is reserved for the Python runtime package. It is for users
+running Python UIMD applications that report missing UIMD Python libraries; it
+is not the compiler/SDK installer.
+
+Package-manager bootstrap packages such as `uimd-sdk` for Homebrew, PyPI,
+winget, or apt are not published yet. Their future job is to install
+`uimd-init`; `uimd-init` then creates or repairs the SDK Store.
+
+To remove a per-user SDK Store, run `uimd self uninstall` before uninstalling
+any future package-manager shim. It removes UIMD-owned PATH marker blocks from
+supported shell profiles and deletes the SDK Store after safety checks.
 
 ## Native Binary From Source
 
@@ -120,27 +167,28 @@ installations.
 
 ## Installed Files
 
-The Python runtime is installed into the active Python environment, usually
-under a path like:
+The SDK installer writes the native launcher and versioned SDK under the SDK
+Store:
+
+```text
+~/.uimd/bin/uimd
+~/.uimd/current
+~/.uimd/sdk/0.3.2/bin/uimd
+~/.uimd/sdk/0.3.2/targets/python/
+~/.uimd/sdk/0.3.2/targets/cpp/
+```
+
+On Windows the SDK Store lives under:
+
+```text
+%LOCALAPPDATA%\uimd
+```
+
+The Python runtime package is installed into the active Python environment,
+usually under a path like:
 
 ```text
 .../site-packages/uimd/runtime/
-```
-
-For `pip install uimd`, the `uimd` command is a Python console script generated
-by pip. On macOS/Linux it is installed into the environment `bin/` directory,
-for example:
-
-```text
-.venv/bin/uimd
-~/.local/bin/uimd
-```
-
-On Windows it is installed into the environment `Scripts\` directory, for
-example:
-
-```text
-.venv\Scripts\uimd.exe
 ```
 
 For source builds, the native command is produced at:

@@ -4,185 +4,81 @@
 
 Date: 2026-06-05
 
-- [x] **Priority next / restart here: SDK Store/Launcher local installation
-  slice**. Implement the local/offline foundation before platform validation or
-  release downloads: `UIMD_HOME`/default store layout, versioned
-  `sdk/<version>/bin/uimd`, local launcher delegation via `exec()`, basic
-  `uimd sdk list/install/use/remove`, and `uimd doctor --json` diagnostics
-  against a temporary SDK Store in tests. The detailed product model remains in
-  the Repository And Publishing SDK Store task below. Implemented in the native
-  C++ SDK-facing CLI only (`cpp/tools/uimd/main.cpp`) with matching
-  bootstrapper layout creation in `cpp/tools/uimd_init/main.cpp`; no Python
-  compiler/CLI oracle was added. `tools/native_uimd_parity.py` now validates
-  install/use/remove, `doctor --json`, `uimd-init` layout creation, and POSIX
-  launcher delegation against a temporary `UIMD_HOME`. Validation passed:
-  `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`, and
+- [x] **Automatic release signing key discovery**. Remove repetitive release
+  signing setup from the normal packaging flow by teaching
+  `tools/package_sdk_release.py` to discover the minisign private key from a
+  stable encrypted-USB convention such as
+  `/Volumes/*/projects-signing/uimd/uimd-release.key`, while still supporting
+  explicit `--signing-key` and `UIMD_RELEASE_SIGNING_KEY` overrides. The
+  private key must stay outside the repository; only the path discovery logic is
+  automated. Implemented explicit/env/config/volume discovery in
+  `tools/package_sdk_release.py`; validation passed with a temporary HOME
+  config file and no explicit `--signing-key`.
+- [x] **Network-backed `uimd sdk update`, SDK auto-install, and uninstall shell
+  cleanup**. Complete the remaining SDK manager convenience gaps in the native
+  CLI: `uimd sdk update` should use GitHub Release assets by default just like
+  `uimd self update`, launcher delegation should auto-install a missing
+  required SDK version from release assets before target checks, while retaining
+  `--release-root`/environment overrides for tests and CI; `uimd self
+  uninstall` should remove UIMD-owned PATH marker blocks from supported shell
+  profiles instead of leaving manual cleanup.
+  Parity decision: this is native SDK-facing installer/CLI behavior in
+  `cpp/tools/uimd` and native smoke coverage; no Python compiler/CLI
+  implementation is involved. Implemented in `cpp/tools/uimd/main.cpp` with
+  default release-asset downloads for `uimd sdk update`, missing required SDK
+  auto-install before launcher delegation, and marker-block shell cleanup for
+  `uimd self uninstall`; smoke coverage in `tools/native_uimd_parity.py`
+  exercises these paths through `UIMD_RELEASE_BASE_URL=file://...` and a
+  temporary shell profile. Validation passed: `cmake --build cpp/build --target
+  uimd uimd_init` and `python3 tools/native_uimd_parity.py`.
+- [x] **Network-backed default SDK update flow**. Make ordinary user commands
+  work without `UIMD_RELEASE_ROOT`: `uimd self update` should discover the
+  latest same-minor SDK patch from GitHub Release checksums, download and
+  verify the matching platform SDK tarball, install it, and refresh the
+  launcher; missing target auto-install should similarly download the selected
+  SDK version by default unless offline mode is enabled. `UIMD_RELEASE_ROOT`
+  and `UIMD_RELEASE_BASE_URL` should remain test/CI/development overrides, not
+  the normal user path. Implemented in `cpp/tools/uimd/main.cpp` with release
+  checksum parsing, platform archive download/extract/install, default
+  `uimd self update`, and default target auto-install. Smoke coverage in
+  `tools/native_uimd_parity.py` uses `UIMD_RELEASE_BASE_URL=file://...` to
+  exercise the network-style code path without requiring internet access.
+  Validation passed: `cmake --build cpp/build --target uimd uimd_init` and
   `python3 tools/native_uimd_parity.py`.
-- [x] **SDK version selection and offline policy slice**. Implement the next
-  local SDK Store/Launcher layer in the native C++ CLI: read root `.uimd`
-  `sdk-version` metadata, choose the highest installed compatible SDK version,
-  warn for missing root SDK metadata unless strict mode is enabled, support
-  `--require-sdk-version`/`UIMD_REQUIRE_SDK_VERSION=1`, support
-  `--offline`/`UIMD_NO_AUTO_INSTALL=1` fail-fast behavior when the required SDK
-  is not installed, and validate the launcher behavior against temporary
-  `UIMD_HOME` stores in `tools/native_uimd_parity.py`. Parity decision:
-  compiler/launcher behavior is native `cpp/tools/uimd` only; no Python
-  compiler/CLI implementation should be added. Implemented in
-  `cpp/tools/uimd/main.cpp`; `tools/native_uimd_parity.py` now validates
-  `sdk-version` selection, cross-minor warnings, legacy fallback warnings,
-  strict missing-metadata failure, and offline missing-SDK failure. Validation
-  passed: `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
+- [x] **SDK self update and target auto-install slice**. Implement the next
+  practical SDK manager layer in the native CLI: `uimd self update` should
+  update the SDK Store launcher/current SDK from an installed newer patch or
+  a local release root, project commands should auto-install missing supported
+  targets from the current SDK release manifest when not offline. Parity
+  decision: this is native SDK-facing installer/CLI behavior under
+  `cpp/tools/uimd` and native smoke tests only; no Python compiler/CLI
+  implementation is involved. Implemented with `uimd self update
+  [--release-root <path>] [--json]`, target auto-install before launcher
+  delegation for `generate --target`, `new --target`, and `run`, and smoke
+  coverage in `tools/native_uimd_parity.py`. Validation passed:
+  `cmake --build cpp/build --target uimd uimd_init` and
   `python3 tools/native_uimd_parity.py`.
-- [x] **SDK target installation slice**. Implement local/offline
-  `uimd sdk install-target <target>` support in the native C++ CLI for
-  versioned SDK targets, starting with `python` and `cpp` target directories,
-  JSON/plain diagnostics that show installed targets, `doctor --json` target
-  status, and temporary `UIMD_HOME` smoke coverage. Release artifact download
-  and real target payload population remain a later packaging task; this slice
-  should fail fast for unsupported or missing-version target installs rather
-  than adding network behavior. Implemented in `cpp/tools/uimd/main.cpp` with
-  `uimd sdk install-target <target> [--version <version>]`, per-version target
-  lists in `uimd sdk list --json`, and current target diagnostics in
-  `uimd doctor --json`. `tools/native_uimd_parity.py` validates `cpp` target
-  installation, unsupported target failure, JSON target maps, and doctor target
-  status against a temporary `UIMD_HOME`. Validation passed:
-  `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK local release manifest slice**. Implement the GitHub-independent
-  release artifact contract and local installer path before network downloads:
-  line-oriented manifest fixtures under a local release root, SHA-256
-  verification for every manifest file, `uimd sdk install <version>
-  --release-root <path>` support, payload copy into `sdk/<version>/...`, and
-  native smoke coverage for successful install plus checksum mismatch failure.
-  This slice must not add GitHub/network access; it prepares the exact artifact
-  shape that future GitHub Releases will publish. Implemented in
-  `cpp/tools/uimd/main.cpp` with local manifests at
-  `<release-root>/<version>/manifest.txt` or
-  `<release-root>/uimd-sdk-<version>.manifest`, safe relative path validation,
-  SHA-256 verification, executable install for `bin/uimd`, payload copy for
-  target files, and `UIMD_RELEASE_ROOT`/`--release-root` support. Smoke coverage
-  in `tools/native_uimd_parity.py` validates successful manifest install and
-  checksum mismatch failure. Validation passed:
-  `cmake --build cpp/build --target uimd`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **uimd-init shell profile mutation slice**. Implement the GitHub-free
-  bootstrapper shell configuration step: `uimd-init --modify-shell` should
-  idempotently add the SDK launcher directory to the appropriate shell profile
-  under the active user home, `--no-shell-config` must leave profiles untouched,
-  JSON output should report the selected shell action, and native smoke tests
-  must validate the behavior against a temporary `HOME`/`USERPROFILE`.
-  Implemented in `cpp/tools/uimd_init/main.cpp` with POSIX zsh/bash/profile,
-  Fish, and Windows PowerShell profile selection; quoted PATH mutation;
-  `shell_profile`, `shell_status`, and `shell_changed` JSON diagnostics; and
-  no mutation during `--check` or `--no-shell-config`. Smoke coverage in
-  `tools/native_uimd_parity.py` validates `--no-shell-config` profile
-  isolation and repeated `--modify-shell` idempotence against temporary homes.
-  Validation passed: `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK prune local retention slice**. Implement the GitHub-free
-  `uimd sdk prune` manager command in the native C++ SDK CLI. It should keep
-  the newest two patch versions per minor series, preserve the current SDK
-  version even if it would otherwise be pruned, remove only safe version
-  directories under the local SDK Store, support plain and JSON diagnostics,
-  and add temporary `UIMD_HOME` smoke coverage. Implemented in
-  `cpp/tools/uimd/main.cpp` with safe per-version removal, JSON diagnostics,
-  current-version preservation, and retention by minor series. Smoke coverage
-  in `tools/native_uimd_parity.py` validates pruning an older patch while
-  keeping the selected older current SDK plus the newest two patches.
-  Validation passed: `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK self uninstall local slice**. Implement the GitHub-free
-  `uimd self uninstall` launcher command in the native C++ SDK CLI. It should
-  run locally from `UIMD_HOME/bin/uimd`, remove only the selected SDK Store
-  root after safety checks, support JSON diagnostics, leave package-manager
-  uninstall as a separate user step, and validate the behavior against a
-  temporary `UIMD_HOME` smoke fixture. Implemented in `cpp/tools/uimd/main.cpp`
-  as a launcher-handled top-level `self uninstall` command with safe SDK Store
-  root checks, absent-store idempotence, and JSON/plain diagnostics. Smoke
-  coverage in `tools/native_uimd_parity.py` installs a temporary SDK Store,
-  invokes `UIMD_HOME/bin/uimd self uninstall --json`, and verifies that the
-  store is removed. Validation passed:
-  `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK update local release-root slice**. Implement the GitHub-free
-  `uimd sdk update` manager command in the native C++ SDK CLI for local release
-  fixtures. It should update the current SDK to the newest available patch in
-  the same minor series from installed versions and/or `--release-root` /
-  `UIMD_RELEASE_ROOT`, keep network downloads unimplemented, support JSON
-  diagnostics, and validate the behavior against temporary release manifests.
-  Implemented in `cpp/tools/uimd/main.cpp` with local release manifest
-  discovery for `<release-root>/<version>/manifest.txt` and
-  `<release-root>/uimd-sdk-<version>.manifest`, same-minor latest-patch
-  selection, installed-only update selection, release-root installation, and
-  JSON/plain diagnostics. Smoke coverage in `tools/native_uimd_parity.py`
-  validates updating from `3.4.0` to local release `3.4.2` while ignoring
-  `3.5.0`, then selecting already installed `3.4.3` without a release root.
-  Validation passed: `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK development override slice**. Implement the GitHub-free
-  `UIMD_SDK_PATH` launcher override in the native C++ SDK CLI. When set, the
-  installed launcher should bypass SDK Store version resolution for project
-  commands and execute the configured local SDK binary/path directly, while
-  still handling `sdk`, `self`, and `doctor` locally. Add temporary launcher
-  smoke coverage. Implemented in `cpp/tools/uimd/main.cpp` with direct binary,
-  SDK root `bin/uimd`, source-checkout native build, and source-checkout wrapper
-  resolution, plus recursion protection when the override points back to the
-  launcher. Smoke coverage in `tools/native_uimd_parity.py` validates project
-  command delegation to the override binary and local handling of `sdk list`.
-  Validation passed: `cmake --build cpp/build --target uimd`,
-  `cmake --build cpp/build --target uimd_init`,
-  `python3 -m py_compile tools/native_uimd_parity.py`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **Minimal GitHub Release SDK download slice**. Implement the smallest
-  public-install path on top of the local macOS Intel release artifact work:
-  generate a versioned `install.sh` release asset, let it download and verify
-  `uimd-init-<version>-macos-x86_64` from a GitHub Release asset set, and teach
-  `uimd-init` to download `checksums.txt` plus
-  `uimd-sdk-<version>-macos-x86_64.tar.gz`, verify SHA-256, extract the SDK
-  payload, install it into `UIMD_HOME`/default SDK Store, write the launcher and
-  current version, and keep the existing `--modify-shell` / `--no-shell-config`
-  behavior. Keep this slice platform-scoped to macOS Intel; Homebrew, PyPI
-  `uimd-sdk`, Windows install script, signatures, latest-version discovery,
-  and package-manager recipes remain later tasks. Implemented in
-  `cpp/tools/uimd_init/main.cpp` with `curl`, `tar`, and SHA-256 verification
-  via `shasum` for the current macOS Intel slice; `tools/package_sdk_release.py`
-  now emits `install.sh` and includes it in `checksums.txt`. Validation passed:
-  `cmake --build cpp/build --target uimd_init`,
+- [x] **SDK install MVP hardening slice**. Complete the practical installer
+  layer for comfortable UIMD installation before package-manager recipes:
+  `uimd-init` must validate and repair the installed Python target, release
+  download platform detection must cover macOS/Linux/Windows labels instead of
+  only macOS Intel, release packaging must emit the matching macOS/Linux
+  `install.sh` and Windows `install.ps1` bootstrap assets with SHA-256
+  verification, and docs must describe the versioned GitHub Release install
+  commands plus `--modify-shell` / `--no-shell-config` behavior. Parity
+  decision: this is native SDK-facing installer/CLI behavior under
+  `cpp/tools/uimd_init`, `cpp/tools/uimd`, and release tooling only; no Python
+  compiler/CLI implementation is involved. Implemented in
+  `cpp/tools/uimd_init/main.cpp`, `cpp/tools/uimd/main.cpp`,
+  `tools/package_sdk_release.py`, `tools/native_uimd_parity.py`, `README.md`,
+  `docs/installation.md`, and `docs/sdk-store.md`. Validation passed:
+  `python3 -m py_compile tools/package_sdk_release.py
+  tools/native_uimd_parity.py`, `cmake --build cpp/build --target uimd
+  uimd_init`, `python3 tools/native_uimd_parity.py`,
   `python3 tools/package_sdk_release.py --build --output dist/sdk-release`,
-  `UIMD_HOME=/private/tmp/uimd-ghdownload-smoke-20260610-2
-  UIMD_RELEASE_BASE_URL=file:///Users/marekdubovsky/Projects/uimd/dist/sdk-release
-  sh dist/sdk-release/install.sh --no-shell-config --json`,
-  `UIMD_HOME=/private/tmp/uimd-ghdownload-smoke-20260610-2
-  /private/tmp/uimd-ghdownload-smoke-20260610-2/bin/uimd doctor --json`, and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK help command UX fix**. Make `uimd sdk`, `uimd sdk --help`,
-  `uimd sdk -h`, and `uimd sdk help` print SDK command help instead of failing
-  with `error: unknown sdk command: --help`. Implemented in
-  `cpp/tools/uimd/main.cpp` with smoke coverage in
-  `tools/native_uimd_parity.py`.
-- [x] **Installed SDK theme lookup fix**. When `uimd new` / `uimd generate` /
-  `uimd run` are executed from an installed SDK outside a source checkout,
-  `include: dark` and default theme resolution must load packaged themes from
-  the installed SDK instead of silently generating only local styles. Parity
-  decision: this is native generator behavior shared by Python and C++ targets,
-  so both `NativePythonGenerator` and `NativeCppGenerator` must search the same
-  installed SDK theme path. Implemented with an internal
-  `UIMD_SDK_PYTHON_TARGET` environment bridge set by the native launcher before
-  generation.
+  local `install.sh` smoke with `UIMD_RELEASE_BASE_URL=file://...` and
+  `--no-shell-config --json`, installed launcher `doctor --json`, and plain
+  `uimd-init --no-shell-config` next-steps output.
 - [ ] **Windows validation**: verify the new `image_button` control and the
   updated `image_browser` build and run on Windows for both Python and C++,
   confirming padding, centering, square sizing, click selection, and render-mode
@@ -207,29 +103,10 @@ Date: 2026-06-05
 
 ## Repository And Publishing
 
-- [x] **GitHub repository bootstrap**. The public repository
-  `uimd-lang/uimd` has been bootstrapped from the preserved SVN checkout at
-  `/Users/marekdubovsky/Projects/uimd-svn` into the separate Git working copy
-  at `/Users/marekdubovsky/Projects/uimd`. The initial import excludes `.svn`,
-  `.DS_Store`, build/cache output, MCP temporary snapshots, `.opencode`
-  dependencies, and local Claude settings via the root `.gitignore`. The stable
-  public `main` branch and the working `sdk-work` branch were both pushed to
-  `https://github.com/uimd-lang/uimd.git` at initial import commit `7f2419d`;
-  future SDK/publishing checkpoints should continue on `sdk-work`, not `main`.
-  Validation passed: `find . -name .svn -type d -o -name .DS_Store -type f`
-  returned no files, `git status --short --branch` was clean, and
-  `git ls-remote --heads origin` showed `main` and `sdk-work`.
-- [x] **README alpha install status correction**. Update the public README to
-  avoid advertising unreleased PyPI, Homebrew, GitHub Release, or packaged SDK
-  install flows. The current README now describes the project as alpha,
-  documents macOS Intel (`x86_64`) as the only validated platform for now,
-  points users to the source-checkout native build (`cmake -S cpp -B
-  cpp/build`, `cmake --build cpp/build --target uimd`, `./uimd doctor`), and
-  records that macOS Apple Silicon and Windows x64 support are planned later.
-- [ ] **Public install command and PATH UX cleanup**. Update the public README,
-  release notes, and install docs for the real `v0.3.1` GitHub Release install
+- [x] **Public install command and PATH UX cleanup**. Update the public README,
+  release notes, and install docs for the real `v0.3.2` GitHub Release install
   flow. Document the safe default command
-  `curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.1/install.sh | sh`,
+  `curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh`,
   explain that it installs into `~/.uimd` but does not modify `PATH`, and show
   both immediate usage via `~/.uimd/bin/uimd` and human-friendly setup via
   `sh -s -- --modify-shell` followed by a new shell or `source ~/.zshrc`.
@@ -237,20 +114,8 @@ Date: 2026-06-05
   `shell config: unchanged`. Do not advertise
   `releases/latest/download/install.sh` as the primary command until the
   prerelease/latest policy is verified; keep the versioned URL canonical for
-  now.
-- [x] **macOS Intel local release artifact packaging slice**. Add
-  `tools/package_sdk_release.py` to generate a local `dist/sdk-release` root
-  for `macos-x86_64` from `cpp/build-release` with
-  `-DUIMD_EMBED_SOURCE_ROOT=OFF`, `manifest.txt`, payload files, standalone
-  `uimd-init-<version>-macos-x86_64`, `uimd-sdk-<version>-macos-x86_64.tar.gz`,
-  and SHA-256 `checksums.txt`. The payload installs through the existing
-  `uimd sdk install <version> --release-root <path>` manifest path and includes
-  `bin/uimd`, `targets/python`, `targets/cpp`, and examples. The native
-  launcher also recognizes installed `sdk/<version>/targets/python` as a
-  Python runtime path when project commands are executed from a versioned SDK
-  binary. This is a local maintainer/development artifact only; public GitHub
-  Release downloads, signatures, package-manager recipes, and cross-platform
-  release validation remain separate tasks.
+  now. Implemented in `README.md`, `docs/installation.md`, `docs/sdk-store.md`,
+  `CHANGELOG.md`, and `uimd-init` plain output.
 - [ ] Validate native `uimd` release artifacts on macOS arm64 separately from
   the Windows/Linux platform migration work. The local macOS Intel/x86_64
   source-checkout flow is already validated; this task must prove the native
@@ -262,6 +127,23 @@ Date: 2026-06-05
   and Windows arm64 where toolchains are available. This should include package
   install/bootstrap behavior, C++-only usage without Python installed, native
   `generate`, `doctor`, `sdk`, `inspect`, and MCP/rebuild smoke checks.
+- [x] **Release signature hardening**. Pick a production signature scheme and
+  implement signed release verification beyond SHA-256 checksums. Required
+  decisions: signature format (`minisign`/`signify`, Ed25519, or another
+  portable verifier), offline private-key custody, embedded public verification
+  key distribution for `install.sh`, `install.ps1`, `uimd-init`, and
+  `uimd self update`, `checksums.txt.minisig` publication, required-vs-optional
+  verification policy during alpha, key rotation, and emergency revocation.
+  Implemented the current alpha policy with minisign/Ed25519 signatures:
+  `tools/package_sdk_release.py` requires `--signing-key` or
+  `UIMD_RELEASE_SIGNING_KEY`, emits `checksums.txt.minisig`, embeds
+  `signing/uimd-release.pub` into generated `install.sh`/`install.ps1`, and
+  native `uimd`/`uimd-init` verify the signed checksum file before SHA-256
+  asset checks. Test-only public-key overrides are available for fixture
+  generation. Validation passed: `cmake --build cpp/build --target uimd
+  uimd_init`, `python3 tools/native_uimd_parity.py`, signed
+  `tools/package_sdk_release.py` smoke with a temporary minisign key, and local
+  signed `install.sh --no-shell-config --json` smoke.
 - [ ] Design and implement the long-term UIMD SDK Store/Launcher installation
   model before public packaging hardens.
 
@@ -408,49 +290,9 @@ Date: 2026-06-05
   PYTHONPATH injection by the launcher; no pip dependency is needed at app
   runtime.
 
-  Current implementation work:
-  - Native `uimd-init` builds as `cpp/build/tools/uimd_init/uimd-init`,
-    supports `--check`, `--json`, `--no-shell-config`, and `--modify-shell`,
-    creates the `UIMD_HOME`/default SDK Store skeleton, installs `bin/uimd`,
-    installs versioned `sdk/<version>/bin/uimd`, creates the Python target
-    directory, and selects that version from `UIMD_INIT_UIMD_BINARY`.
-  - Native `uimd sdk home/install/use/list/list --json/remove` plus
-    `uimd doctor --json` expose SDK Store state for agents and CI.
-  - The local launcher at `UIMD_HOME/bin/uimd` handles `sdk`, `self`, and
-    `doctor` locally and delegates other commands via process replacement to
-    the selected versioned SDK binary.
-  - The launcher reads root `.uimd` `sdk-version` metadata for project
-    commands, selects the highest installed compatible SDK, supports strict
-    missing-metadata mode, supports offline fail-fast for missing required SDKs,
-    and warns when it falls back to a legacy project without `sdk-version`.
-  - Native `uimd sdk install-target <target> [--version <version>]` creates
-    local `targets/python` and `targets/cpp` directories for installed SDK
-    versions, and `sdk list --json` plus `doctor --json` expose installed
-    target state.
-  - Native `uimd sdk install <version> --release-root <path>` installs SDK
-    files from a local release manifest after SHA-256 verification, providing
-    the offline fixture contract for future GitHub Release assets.
-  - Native `uimd-init --modify-shell` idempotently adds the SDK launcher
-    directory to the active user's shell profile, while `--no-shell-config`
-    leaves shell startup files untouched.
-  - Native `uimd sdk prune` removes older local SDK patches while preserving
-    the current SDK selection and the newest two patches per minor series.
-  - Native `uimd sdk update` selects the newest available patch in the current
-    minor series from installed SDKs and/or a local release-root manifest
-    fixture; network downloads remain unimplemented.
-  - `UIMD_SDK_PATH` bypasses SDK Store version resolution for project commands
-    and delegates directly to a configured local SDK binary/path while leaving
-    `sdk`, `self`, and `doctor` local to the launcher.
-  - Native `uimd self uninstall` removes the local SDK Store after safety
-    checks; package-manager uninstall and shell profile cleanup remain separate
-    user steps.
-  - Remaining packaging gap: release asset downloads, checksum/signature
-    verification against network-fetched assets, target auto-install,
-    network-backed self-update, and package-manager recipes require real
-    release artifacts plus platform-specific validation. Uninstall-time shell
-    profile cleanup remains a separate cross-tool/platform cleanup so it can
-    share the `uimd-init` shell-profile logic instead of duplicating it.
-- [ ] Design GitHub Release based bootstrap scripts for UIMD SDK installation as
+  Remaining implementation gaps: package-manager recipes and cross-platform
+  validation.
+- [x] Design GitHub Release based bootstrap scripts for UIMD SDK installation as
   a separate packaging task. Initial bootstrap commands should not require a
   custom UIMD domain and can use release assets directly, for example
   `curl -sSf https://github.com/uimd-lang/uimd/releases/latest/download/install.sh | sh`
@@ -460,7 +302,9 @@ Date: 2026-06-05
   checksums/signatures for downloaded binaries, avoid raw branch URLs such as
   `raw.githubusercontent.com/.../main/...`, and remain compatible with a future
   friendly redirect such as `https://install.uimd.dev` if a domain/server is
-  later added.
+  later added. Implemented as generated versioned-release `install.sh` and
+  `install.ps1` assets with minisign verification of `checksums.txt.minisig`
+  before SHA-256 verification through `checksums.txt`.
 - [ ] Verify that the PyPI package name `uimd` is available before the first
   public release.
 - [ ] Confirm GitHub repository description is set to:
@@ -469,12 +313,8 @@ Date: 2026-06-05
 - [ ] Confirm GitHub repository topics are set:
   `markdown`, `ui`, `mcp`, `code-generation`, `terminal-ui`, `python`, `cpp`.
 - [ ] Decide how the current SVN source of truth maps to GitHub publication.
-- [ ] Add or document GitHub-specific ignore rules only when actually publishing
-  to GitHub, without violating the current SVN workflow rules.
 - [ ] Configure PyPI Trusted Publisher for repository `uimd-lang/uimd` once the
   package is ready to publish.
-- [ ] Publish the first GitHub release tag before relying on generated CMake
-  `FetchContent` fallback for external users.
 
 ## Layout Migration
 

@@ -15,16 +15,52 @@ more native runtimes.
 
 ## Install
 
-UIMD is currently an alpha project. The only validated development platform
-today is macOS on Intel (`x86_64`). macOS Apple Silicon support is next; Windows
-x64 support is planned after that.
+UIMD is currently an alpha project. The SDK installer flow uses versioned
+GitHub Release assets and installs into a per-user SDK Store. Once the matching
+`v0.3.2` release assets are published and smoke-tested, use the versioned
+release URL below.
 
-There is no public PyPI package, Homebrew package, GitHub Release, or packaged
-SDK installer yet. Do not use `pip install uimd`, `pip install uimd-sdk`,
-`brew install uimd-sdk`, or release download commands until the first public
-release exists.
+macOS/Linux:
 
-Current alpha setup is a source checkout build:
+```bash
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh
+~/.uimd/bin/uimd doctor
+```
+
+Windows PowerShell:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.ps1 -OutFile install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+& "$env:LOCALAPPDATA\uimd\bin\uimd.exe" doctor
+```
+
+By default the installer does not edit shell startup files. Use the full
+launcher path above, or opt in to PATH setup:
+
+```bash
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --modify-shell
+uimd doctor
+```
+
+For agents and CI, keep shell config untouched and call the launcher directly:
+
+```bash
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --no-shell-config
+~/.uimd/bin/uimd doctor --json
+```
+
+Do not use `releases/latest/download/install.sh` as the primary command until
+the prerelease/latest policy is verified. Use the versioned URL.
+
+The current packaged SDK work is validated first on macOS Intel (`x86_64`).
+macOS Apple Silicon, Linux, and Windows release assets have matching installer
+support in the tooling, but still need platform validation before they should
+be treated as supported public installs. Package-manager installs such as
+`brew install uimd-sdk`, `pip install uimd-sdk`, `winget`, and `apt` are not
+published yet.
+
+For source checkout development:
 
 ```bash
 git clone https://github.com/uimd-lang/uimd.git
@@ -56,9 +92,7 @@ UIMD_INIT_UIMD_BINARY=$PWD/cpp/build/tools/uimd/uimd \
 ```
 
 This creates a local SDK Store under `UIMD_HOME` and installs the development
-launcher plus a versioned SDK binary. Network downloads, release asset
-verification, target payload downloads, and package-manager recipes are still
-future release work.
+launcher plus a versioned SDK binary.
 
 Apps that use non-fallback `Image` rendering need Sixel support. Python apps
 use the `libsixel-python` package; C++ apps dynamically load the system
@@ -108,15 +142,19 @@ The implementation currently supports the local/offline foundation:
 ./uimd sdk install-target cpp
 ./uimd sdk use 0.x.y
 ./uimd sdk list --json
-./uimd sdk update --release-root /path/to/releases --json
+./uimd sdk update --json
 ./uimd sdk prune --json
 ./uimd doctor --json
 UIMD_HOME=/tmp/uimd-home ./uimd self uninstall --json
 ```
 
 These commands are available from the native binary, but public release assets
-and package-manager installation are not available yet. See `docs/sdk-store.md`
-for the current implementation status.
+and package-manager installation are not available yet. Installed launchers can
+also use `uimd self update`; `uimd sdk update`, missing project SDK versions,
+and missing `python`/`cpp` targets download from release assets by default
+before project command delegation. Release downloads verify signed
+`checksums.txt.minisig` files before SHA-256 asset checks. See
+`docs/sdk-store.md` for the current implementation status.
 
 ## CLI
 

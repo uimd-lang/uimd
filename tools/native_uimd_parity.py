@@ -7,9 +7,11 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -88,6 +90,24 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def release_platform_label() -> str:
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "darwin" and machine in {"x86_64", "amd64"}:
+        return "macos-x86_64"
+    if system == "darwin" and machine in {"arm64", "aarch64"}:
+        return "macos-arm64"
+    if system == "linux" and machine in {"x86_64", "amd64"}:
+        return "linux-x86_64"
+    if system == "linux" and machine in {"arm64", "aarch64"}:
+        return "linux-arm64"
+    if system == "windows" and machine in {"x86_64", "amd64"}:
+        return "windows-x86_64"
+    if system == "windows" and machine in {"arm64", "aarch64"}:
+        return "windows-arm64"
+    return f"{system}-{machine}"
+
+
 def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = False) -> None:
     release_dir = root / version
     (release_dir / "payload" / "targets" / "python").mkdir(parents=True)
@@ -119,6 +139,66 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
         ),
         encoding="utf-8",
     )
+
+
+def create_test_signing_key(root: Path) -> tuple[Path, str]:
+    key_dir = root / "release_signing"
+    key_dir.mkdir(parents=True, exist_ok=True)
+    public_key_path = key_dir / "uimd-test-release.pub"
+    private_key_path = key_dir / "uimd-test-release.key"
+    subprocess.run(
+        [
+            "minisign",
+            "-G",
+            "-f",
+            "-W",
+            "-p",
+            str(public_key_path),
+            "-s",
+            str(private_key_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    public_lines = [line.strip() for line in public_key_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(public_lines) < 2:
+        raise RuntimeError(f"invalid minisign test public key: {public_key_path}")
+    return private_key_path, public_lines[1]
+
+
+def sign_checksums_fixture(checksums_path: Path, signing_key: Path) -> Path:
+    signature_path = checksums_path.with_name("checksums.txt.minisig")
+    subprocess.run(
+        [
+            "minisign",
+            "-S",
+            "-s",
+            str(signing_key),
+            "-m",
+            str(checksums_path),
+            "-x",
+            str(signature_path),
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return signature_path
+
+
+def write_release_archive_fixture(root: Path, version: str, signing_key: Path) -> None:
+    platform_label = release_platform_label()
+    release_dir = root / version
+    write_release_fixture(root, version)
+    archive_stem = f"uimd-sdk-{version}-{platform_label}"
+    archive_path = root / f"{archive_stem}.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(release_dir / "manifest.txt", arcname=f"{archive_stem}/manifest.txt")
+        archive.add(release_dir / "payload", arcname=f"{archive_stem}/payload")
+    checksums = root / "checksums.txt"
+    checksums.write_text(f"{file_sha256(archive_path)}  {archive_path.name}\n", encoding="utf-8")
+    sign_checksums_fixture(checksums, signing_key)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -333,9 +413,15 @@ def check_mcp_test(native_binary: Path) -> list[str]:
 
 def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures: list[str] = []
+    binary_name = "uimd.exe" if os.name == "nt" else "uimd"
+    try:
+        release_signing_key, release_public_key = create_test_signing_key(workspace)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        return [f"release signing test key setup failed: {exc}"]
     sdk_home = workspace / "uimd_home"
     env = runtime_env()
     env["UIMD_HOME"] = str(sdk_home)
+    env["UIMD_RELEASE_PUBLIC_KEY"] = release_public_key
 
     home = run_command(native_cli(native_binary, "sdk", "home"), workspace, env=env)
     failures.extend(expect_success("sdk home", home))
@@ -360,7 +446,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     for version in ("0.3.0", "0.4.1"):
         install_result = run_command(native_cli(native_binary, "sdk", "install", version), workspace, env=env)
         failures.extend(expect_success(f"sdk install {version}", install_result))
-        failures.extend(expect_file(f"sdk install {version}", sdk_home / "sdk" / version / "bin" / "uimd"))
+        failures.extend(expect_file(f"sdk install {version}", sdk_home / "sdk" / version / "bin" / binary_name))
         failures.extend(expect_file(f"sdk install {version}", sdk_home / "sdk" / version / "targets" / "python"))
 
     use_result = run_command(native_cli(native_binary, "sdk", "use", "0.3.0"), workspace, env=env)
@@ -423,14 +509,14 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
         failures.extend(expect_success("sdk install --from newer", fake_install_newer))
         fake_use = run_command(native_cli(native_binary, "sdk", "use", "0.5.0"), workspace, env=env)
         failures.extend(expect_success("sdk use fake", fake_use))
-        delegated = run_command([str(sdk_home / "bin" / "uimd"), "delegated", "one", "two"], workspace, env=env)
+        delegated = run_command([str(sdk_home / "bin" / binary_name), "delegated", "one", "two"], workspace, env=env)
         failures.extend(expect_success("launcher delegation", delegated))
         if "DELEGATED:delegated one two" not in delegated.stdout:
             failures.append("launcher delegation: expected output from versioned SDK binary")
 
         versioned_source = workspace / "sdk_versioned.uimd"
         versioned_source.write_text(hello_uimd_with_sdk_version("0.5.0"), encoding="utf-8")
-        selected_by_metadata = run_command([str(sdk_home / "bin" / "uimd"), "generate", str(versioned_source)], workspace, env=env)
+        selected_by_metadata = run_command([str(sdk_home / "bin" / binary_name), "generate", str(versioned_source)], workspace, env=env)
         failures.extend(expect_success("launcher sdk-version selection", selected_by_metadata))
         if "DELEGATED:generate" not in selected_by_metadata.stdout:
             failures.append("launcher sdk-version selection: expected delegation to versioned SDK binary")
@@ -439,7 +525,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
 
         legacy_source = workspace / "legacy_no_sdk.uimd"
         legacy_source.write_text(HELLO_UIMD, encoding="utf-8")
-        legacy_delegated = run_command([str(sdk_home / "bin" / "uimd"), "generate", str(legacy_source)], workspace, env=env)
+        legacy_delegated = run_command([str(sdk_home / "bin" / binary_name), "generate", str(legacy_source)], workspace, env=env)
         failures.extend(expect_success("launcher legacy sdk fallback", legacy_delegated))
         if "DELEGATED:generate" not in legacy_delegated.stdout:
             failures.append("launcher legacy sdk fallback: expected delegation to latest installed SDK binary")
@@ -451,18 +537,18 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
         override_binary.chmod(EXECUTABLE_FILE_MODE)
         override_env = env.copy()
         override_env["UIMD_SDK_PATH"] = str(override_binary)
-        override_delegated = run_command([str(sdk_home / "bin" / "uimd"), "generate", str(legacy_source)], workspace, env=override_env)
+        override_delegated = run_command([str(sdk_home / "bin" / binary_name), "generate", str(legacy_source)], workspace, env=override_env)
         failures.extend(expect_success("launcher UIMD_SDK_PATH override", override_delegated))
         if "OVERRIDE:generate" not in override_delegated.stdout:
             failures.append("launcher UIMD_SDK_PATH override: expected delegation to override binary")
         if "has no UIMD SDK version" in override_delegated.stderr:
             failures.append("launcher UIMD_SDK_PATH override: should bypass sdk-version fallback warnings")
-        override_sdk_list = run_command([str(sdk_home / "bin" / "uimd"), "sdk", "list"], workspace, env=override_env)
+        override_sdk_list = run_command([str(sdk_home / "bin" / binary_name), "sdk", "list"], workspace, env=override_env)
         failures.extend(expect_success("launcher UIMD_SDK_PATH local sdk command", override_sdk_list))
         if "OVERRIDE:" in override_sdk_list.stdout:
             failures.append("launcher UIMD_SDK_PATH local sdk command: sdk command was delegated")
 
-        strict_missing = run_command([str(sdk_home / "bin" / "uimd"), "--require-sdk-version", "generate", str(legacy_source)], workspace, env=env)
+        strict_missing = run_command([str(sdk_home / "bin" / binary_name), "--require-sdk-version", "generate", str(legacy_source)], workspace, env=env)
         if strict_missing.returncode == 0:
             failures.append("launcher --require-sdk-version: expected failure for missing sdk-version")
         if "has no UIMD SDK version" not in strict_missing.stderr:
@@ -470,7 +556,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
 
         missing_required = workspace / "missing_required_sdk.uimd"
         missing_required.write_text(hello_uimd_with_sdk_version("9.0.0"), encoding="utf-8")
-        offline_missing = run_command([str(sdk_home / "bin" / "uimd"), "--offline", "generate", str(missing_required)], workspace, env=env)
+        offline_missing = run_command([str(sdk_home / "bin" / binary_name), "--offline", "generate", str(missing_required)], workspace, env=env)
         if offline_missing.returncode == 0:
             failures.append("launcher --offline missing SDK: expected failure for missing required SDK")
         if "offline mode is enabled" not in offline_missing.stderr:
@@ -483,7 +569,6 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     write_release_fixture(release_root, "0.7.0")
     release_install = run_command(native_cli(native_binary, "sdk", "install", "0.7.0", "--release-root", str(release_root)), workspace, env=env)
     failures.extend(expect_success("sdk install --release-root", release_install))
-    binary_name = "uimd.exe" if os.name == "nt" else "uimd"
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "bin" / binary_name))
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "python" / "runtime.txt"))
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "cpp" / "runtime.txt"))
@@ -499,6 +584,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     update_home = workspace / "update_home"
     update_env = runtime_env()
     update_env["UIMD_HOME"] = str(update_home)
+    update_env["UIMD_RELEASE_PUBLIC_KEY"] = release_public_key
     update_install = run_command(native_cli(native_binary, "sdk", "install", "3.4.0"), workspace, env=update_env)
     failures.extend(expect_success("sdk update fixture install", update_install))
     update_release_root = workspace / "update_release_root"
@@ -522,8 +608,38 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "bin" / binary_name))
     failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "targets" / "cpp" / "runtime.txt"))
 
+    network_update_home = workspace / "network_update_home"
+    network_update_env = runtime_env()
+    network_update_env["UIMD_HOME"] = str(network_update_home)
+    network_update_env["UIMD_RELEASE_PUBLIC_KEY"] = release_public_key
+    network_update_install = run_command(native_cli(native_binary, "sdk", "install", "7.4.0"), workspace, env=network_update_env)
+    failures.extend(expect_success("sdk update network fixture install", network_update_install))
+    network_update_release_base = workspace / "network_update_release_base"
+    write_release_archive_fixture(network_update_release_base, "7.4.1", release_signing_key)
+    network_update_env["UIMD_RELEASE_BASE_URL"] = f"file://{network_update_release_base}"
+    network_update_result = run_command(
+        native_cli(native_binary, "sdk", "update", "--json"),
+        workspace,
+        env=network_update_env,
+    )
+    failures.extend(expect_success("sdk update network --json", network_update_result))
+    try:
+        network_update_payload = json.loads(network_update_result.stdout)
+    except json.JSONDecodeError as exc:
+        failures.append(f"sdk update network --json: invalid JSON: {exc}")
+    else:
+        if network_update_payload.get("current") != "7.4.0" or network_update_payload.get("selected") != "7.4.1":
+            failures.append("sdk update network --json: expected update from 7.4.0 to 7.4.1")
+        if network_update_payload.get("updated") is not True or network_update_payload.get("installed") is not True:
+            failures.append("sdk update network --json: expected updated and installed true")
+    failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "bin" / binary_name))
+    failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "targets" / "cpp" / "runtime.txt"))
+
     update_install_newer = run_command(native_cli(native_binary, "sdk", "install", "3.4.3"), workspace, env=update_env)
     failures.extend(expect_success("sdk update installed-newer fixture", update_install_newer))
+    update_installed_release_base = workspace / "update_installed_release_base"
+    write_release_archive_fixture(update_installed_release_base, "3.4.3", release_signing_key)
+    update_env["UIMD_RELEASE_BASE_URL"] = f"file://{update_installed_release_base}"
     update_installed_result = run_command(native_cli(native_binary, "sdk", "update", "--json"), workspace, env=update_env)
     failures.extend(expect_success("sdk update installed newer --json", update_installed_result))
     try:
@@ -535,6 +651,100 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
             failures.append("sdk update installed newer --json: expected selected 3.4.3")
         if update_installed_payload.get("installed") is not False:
             failures.append("sdk update installed newer --json: expected installed false for already-installed SDK")
+
+    self_update_home = workspace / "self_update_home"
+    self_update_env = runtime_env()
+    self_update_env["UIMD_HOME"] = str(self_update_home)
+    self_update_env["UIMD_RELEASE_PUBLIC_KEY"] = release_public_key
+    self_update_install = run_command(native_cli(native_binary, "sdk", "install", "4.2.0"), workspace, env=self_update_env)
+    failures.extend(expect_success("self update fixture install", self_update_install))
+    self_update_release_base = workspace / "self_update_release_base"
+    write_release_archive_fixture(self_update_release_base, "4.2.1", release_signing_key)
+    self_update_env["UIMD_RELEASE_BASE_URL"] = f"file://{self_update_release_base}"
+    self_update_result = run_command(
+        [str(self_update_home / "bin" / binary_name), "self", "update", "--json"],
+        workspace,
+        env=self_update_env,
+    )
+    failures.extend(expect_success("self update --json", self_update_result))
+    try:
+        self_update_payload = json.loads(self_update_result.stdout)
+    except json.JSONDecodeError as exc:
+        failures.append(f"self update --json: invalid JSON: {exc}")
+    else:
+        if self_update_payload.get("current") != "4.2.0" or self_update_payload.get("selected") != "4.2.1":
+            failures.append("self update --json: expected update from 4.2.0 to 4.2.1")
+        if self_update_payload.get("updated") is not True or self_update_payload.get("installed") is not True:
+            failures.append("self update --json: expected updated and installed true")
+    failures.extend(expect_file("self update", self_update_home / "sdk" / "4.2.1" / "bin" / binary_name))
+    current_file = self_update_home / "current"
+    if current_file.exists() and current_file.read_text(encoding="utf-8").strip() != "4.2.1":
+        failures.append("self update --release-root: current file was not updated")
+
+    auto_target_home = workspace / "auto_target_home"
+    auto_target_env = runtime_env()
+    auto_target_env["UIMD_HOME"] = str(auto_target_home)
+    auto_target_env["UIMD_RELEASE_PUBLIC_KEY"] = release_public_key
+    auto_target_install = run_command(native_cli(native_binary, "sdk", "install", "6.1.0"), workspace, env=auto_target_env)
+    failures.extend(expect_success("target auto-install fixture install", auto_target_install))
+    auto_target_release_base = workspace / "auto_target_release_base"
+    write_release_archive_fixture(auto_target_release_base, "6.1.0", release_signing_key)
+    auto_target_env["UIMD_RELEASE_BASE_URL"] = f"file://{auto_target_release_base}"
+    auto_source = workspace / "auto_target.uimd"
+    auto_source.write_text(hello_uimd_with_sdk_version("6.1.0"), encoding="utf-8")
+    auto_target_result = run_command(
+        [str(auto_target_home / "bin" / binary_name), "generate", str(auto_source), "--target", "cpp"],
+        workspace,
+        env=auto_target_env,
+    )
+    failures.extend(expect_success("target auto-install generate cpp", auto_target_result))
+    if "RELEASE:generate" not in auto_target_result.stdout:
+        failures.append("target auto-install generate cpp: expected delegation to release SDK binary")
+    if "Installing UIMD SDK target cpp" not in auto_target_result.stderr:
+        failures.append("target auto-install generate cpp: expected auto-install diagnostic")
+    failures.extend(expect_file("target auto-install generate cpp", auto_target_home / "sdk" / "6.1.0" / "targets" / "cpp" / "runtime.txt"))
+
+    auto_sdk_home = workspace / "auto_sdk_home"
+    auto_sdk_env = runtime_env()
+    auto_sdk_env["UIMD_HOME"] = str(auto_sdk_home)
+    auto_sdk_env["UIMD_RELEASE_PUBLIC_KEY"] = release_public_key
+    auto_sdk_install = run_command(native_cli(native_binary, "sdk", "install", "8.3.0"), workspace, env=auto_sdk_env)
+    failures.extend(expect_success("SDK auto-install fixture install", auto_sdk_install))
+    auto_sdk_release_base = workspace / "auto_sdk_release_base"
+    write_release_archive_fixture(auto_sdk_release_base, "8.3.1", release_signing_key)
+    auto_sdk_env["UIMD_RELEASE_BASE_URL"] = f"file://{auto_sdk_release_base}"
+    auto_sdk_source = workspace / "auto_sdk.uimd"
+    auto_sdk_source.write_text(hello_uimd_with_sdk_version("8.3.1"), encoding="utf-8")
+    auto_sdk_result = run_command(
+        [str(auto_sdk_home / "bin" / binary_name), "generate", str(auto_sdk_source), "--target", "cpp"],
+        workspace,
+        env=auto_sdk_env,
+    )
+    failures.extend(expect_success("SDK auto-install generate cpp", auto_sdk_result))
+    if "RELEASE:generate" not in auto_sdk_result.stdout:
+        failures.append("SDK auto-install generate cpp: expected delegation to release SDK binary")
+    if "Installing UIMD SDK 8.3.1 from release assets" not in auto_sdk_result.stderr:
+        failures.append("SDK auto-install generate cpp: expected SDK auto-install diagnostic")
+    failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "bin" / binary_name))
+    failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "targets" / "cpp" / "runtime.txt"))
+
+    offline_target_home = workspace / "offline_target_home"
+    offline_target_env = runtime_env()
+    offline_target_env["UIMD_HOME"] = str(offline_target_home)
+    offline_target_env["UIMD_NO_AUTO_INSTALL"] = "1"
+    offline_target_install = run_command(native_cli(native_binary, "sdk", "install", "6.2.0"), workspace, env=offline_target_env)
+    failures.extend(expect_success("target auto-install offline fixture install", offline_target_install))
+    offline_source = workspace / "offline_target.uimd"
+    offline_source.write_text(hello_uimd_with_sdk_version("6.2.0"), encoding="utf-8")
+    offline_target_result = run_command(
+        [str(offline_target_home / "bin" / binary_name), "generate", str(offline_source), "--target", "cpp"],
+        workspace,
+        env=offline_target_env,
+    )
+    if offline_target_result.returncode == 0:
+        failures.append("target auto-install offline: expected failure for missing target")
+    if "offline mode is enabled" not in offline_target_result.stderr:
+        failures.append("target auto-install offline: expected offline target failure")
 
     for version in ("1.2.0", "1.2.1", "1.2.2", "1.2.3"):
         prune_install = run_command(native_cli(native_binary, "sdk", "install", version), workspace, env=env)
@@ -575,6 +785,13 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     self_home = workspace / "self_uninstall_home"
     self_env = runtime_env()
     self_env["UIMD_HOME"] = str(self_home)
+    self_profile = configure_shell_test_env(self_env, workspace / "self_uninstall_user")
+    self_profile.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        self_path_line = f"$env:Path = '{self_home / 'bin'};' + $env:Path"
+    else:
+        self_path_line = f"export PATH='{self_home / 'bin'}':\"$PATH\""
+    self_profile.write_text(f"keep-before\n# UIMD SDK\n{self_path_line}\nkeep-after\n", encoding="utf-8")
     self_install = run_command(native_cli(native_binary, "sdk", "install", "2.0.0"), workspace, env=self_env)
     failures.extend(expect_success("self uninstall fixture install", self_install))
     failures.extend(expect_file("self uninstall fixture launcher", self_home / "bin" / binary_name))
@@ -587,8 +804,17 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     else:
         if self_payload.get("removed") is not True or self_payload.get("status") != "ok":
             failures.append("self uninstall --json: expected removed true with ok status")
+        if self_payload.get("shell_changed") is not True:
+            failures.append("self uninstall --json: expected shell_changed true")
+        if str(self_profile) not in self_payload.get("shell_profiles", []):
+            failures.append("self uninstall --json: expected shell profile path in payload")
     if self_home.exists():
         failures.append("self uninstall --json: SDK home still exists after uninstall")
+    self_profile_text = self_profile.read_text(encoding="utf-8")
+    if "# UIMD SDK" in self_profile_text or self_path_line in self_profile_text:
+        failures.append("self uninstall --json: shell profile still contains UIMD PATH block")
+    if "keep-before" not in self_profile_text or "keep-after" not in self_profile_text:
+        failures.append("self uninstall --json: shell profile cleanup removed unrelated content")
     return failures
 
 
@@ -627,6 +853,7 @@ def check_inspect(native_binary: Path, workspace: Path) -> list[str]:
 
 def check_init(native_binary: Path, native_init_binary: Path, workspace: Path) -> list[str]:
     failures: list[str] = []
+    binary_name = "uimd.exe" if os.name == "nt" else "uimd"
     sdk_home = workspace / "init_home"
     env = runtime_env()
     env["UIMD_HOME"] = str(sdk_home)
@@ -663,7 +890,7 @@ def check_init(native_binary: Path, native_init_binary: Path, workspace: Path) -
     check_payload = json.loads(check_result.stdout)
     if init_payload["status"] != "ok" or check_payload["status"] != "ok":
         failures.append("uimd-init did not produce an ok SDK Store")
-    failures.extend(expect_file("uimd-init", sdk_home / "bin" / "uimd"))
+    failures.extend(expect_file("uimd-init", sdk_home / "bin" / binary_name))
     if init_payload.get("current_version") != init_payload.get("version"):
         failures.append("uimd-init did not select its own SDK version")
     current_binary_value = init_payload.get("current_binary", "")
@@ -683,8 +910,42 @@ def check_init(native_binary: Path, native_init_binary: Path, workspace: Path) -
         if doctor_payload.get("sdk", {}).get("status") != "ok":
             failures.append("doctor --json after uimd-init did not report an ok SDK Store")
 
-    launcher_result = run_command([str(sdk_home / "bin" / "uimd"), "--version"], workspace, env=env)
+    launcher_result = run_command([str(sdk_home / "bin" / binary_name), "--version"], workspace, env=env)
     failures.extend(expect_success("uimd-init launcher --version", launcher_result))
+
+    python_target = sdk_home / "sdk" / init_payload["version"] / "targets" / "python"
+    if not python_target.exists():
+        failures.append("uimd-init repair fixture: Python target was missing before corruption step")
+    else:
+        shutil.rmtree(python_target)
+        broken_check_result = subprocess.run(
+            [str(native_init_binary), "--check", "--json"],
+            cwd=workspace,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if broken_check_result.returncode == 0:
+            failures.append("uimd-init --check after removing Python target: expected incomplete status")
+        try:
+            broken_payload = json.loads(broken_check_result.stdout)
+        except json.JSONDecodeError as exc:
+            failures.append(f"uimd-init --check after removing Python target: invalid JSON: {exc}")
+        else:
+            if broken_payload.get("status") != "incomplete":
+                failures.append("uimd-init --check after removing Python target: expected incomplete JSON status")
+
+        repair_result = subprocess.run(
+            [str(native_init_binary), "--no-shell-config", "--json"],
+            cwd=workspace,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        failures.extend(expect_success("uimd-init repair missing Python target", repair_result))
+        failures.extend(expect_file("uimd-init repair missing Python target", python_target))
 
     shell_sdk_home = workspace / "init_shell_home"
     shell_env = runtime_env()

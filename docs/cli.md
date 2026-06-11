@@ -51,20 +51,22 @@ uimd sdk use 0.x.y
 uimd sdk list --json
 uimd sdk remove 0.x.y
 uimd sdk prune --json
+uimd sdk update --json
 uimd sdk update --release-root /path/to/releases --json
 ```
 
 Manage local SDK Store entries under `UIMD_HOME` or the platform default store.
-`uimd sdk install` is currently a local/offline copy install; pass
+`uimd sdk install` supports local/offline copy installs; pass
 `--from /path/to/uimd` to install a specific local binary into
 `sdk/<version>/bin/uimd`, or pass `--release-root /path/to/releases` to install
 from a local manifest fixture with SHA-256 verification. `uimd sdk
-install-target` currently creates the local target directory for an installed
-SDK version; network release downloads are a later packaging step. `uimd sdk
-prune` keeps the newest two patch versions per minor series and preserves the
-current SDK version. `uimd sdk update` selects the newest available patch in
-the current minor series from already installed SDKs and, with `--release-root`,
-can install that patch from a local manifest fixture.
+install-target` creates a local target directory for an installed SDK version.
+Project command delegation auto-installs missing required SDK versions and
+missing supported targets from release assets unless offline mode is enabled.
+`uimd sdk prune` keeps the newest two patch versions per minor series and
+preserves the current SDK version. `uimd sdk update` selects the newest
+available patch in the current minor series from installed SDKs or release
+assets; `--release-root` remains a development/CI fixture override.
 
 ```bash
 uimd --require-sdk-version generate hello.uimd
@@ -96,7 +98,8 @@ uimd self uninstall --json
 ```
 
 Remove the local SDK Store under `UIMD_HOME` or the platform default store.
-Package-manager uninstall and shell profile cleanup remain separate user steps.
+It removes UIMD-owned PATH marker blocks from supported shell profiles before
+deleting the store. Package-manager uninstall remains a separate user step.
 
 ## Native Launcher
 

@@ -20,6 +20,18 @@
   downloads and verifies `uimd-init`, and `uimd-init` downloads, verifies,
   extracts, and installs the matching SDK tarball. Published release assets and
   package-manager installers are still future work.
+- Harden the SDK installer MVP with cross-platform release labels, generated
+  Windows `install.ps1`, platform-aware `uimd-init` download/extract helpers,
+  and repair detection for missing Python SDK targets.
+- Add default `uimd self update` from release assets, with local release-root
+  override support for CI, and launcher-side auto-install for missing installed
+  SDK targets before project command delegation.
+- Add default `uimd sdk update` from release assets, launcher-side auto-install
+  for missing project SDK versions, and removal of UIMD-owned shell profile
+  PATH blocks during `uimd self uninstall`.
+- Add minisign signature hardening for release downloads: package
+  `checksums.txt.minisig`, embed the public release key in bootstrap scripts
+  and native tools, and verify signatures before SHA-256 asset checks.
 
 ## 0.2.0 - Unreleased
 

@@ -53,8 +53,14 @@ const std::string SDK_VERSION_METADATA_KEY = "sdk-version";
 const std::string REQUIRE_SDK_VERSION_ENV = "UIMD_REQUIRE_SDK_VERSION";
 const std::string NO_AUTO_INSTALL_ENV = "UIMD_NO_AUTO_INSTALL";
 const std::string RELEASE_ROOT_ENV = "UIMD_RELEASE_ROOT";
+const std::string RELEASE_BASE_URL_ENV = "UIMD_RELEASE_BASE_URL";
 const std::string SDK_PATH_ENV = "UIMD_SDK_PATH";
 const std::string SDK_PYTHON_TARGET_ENV = "UIMD_SDK_PYTHON_TARGET";
+const std::string RELEASE_PUBLIC_KEY_ENV = "UIMD_RELEASE_PUBLIC_KEY";
+const std::string SHELL_CONFIG_MARKER{"# UIMD SDK"};
+const std::string RELEASE_CHECKSUMS_FILE{"checksums.txt"};
+const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
+const std::string RELEASE_PUBLIC_KEY{"RWR71aDOUx1vHQeAYhBjmL71qWnPzCp3kXGe2HLHPORARHbM2Al77AsD"};
 const std::string RELEASE_MANIFEST_PREFIX = "uimd-sdk-";
 const std::string RELEASE_MANIFEST_SUFFIX = ".manifest";
 const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp"};
@@ -90,6 +96,14 @@ struct ReleaseManifest
     std::vector<ReleaseManifestFile> files;
 };
 
+struct ShellCleanupResult
+{
+    bool ok = true;
+    bool changed = false;
+    std::vector<std::filesystem::path> changedProfiles;
+    std::vector<std::string> errors;
+};
+
 std::string runtimeVersion()
 {
     return UIMD_VERSION;
@@ -103,6 +117,8 @@ std::string envValue(const char* name)
 
 char pathSeparator();
 std::string jsonEscape(const std::string& text);
+bool versionGreaterOrEqual(const std::string& version, const std::string& required);
+bool sameMinorSeries(const std::string& left, const std::string& right);
 
 bool hasSourceCheckoutMarker(const std::filesystem::path& root)
 {
@@ -674,8 +690,494 @@ std::vector<std::string> splitWhitespace(const std::string& line)
     return parts;
 }
 
+std::string trimTrailingSlashes(std::string value)
+{
+    while (!value.empty() && value.back() == '/')
+    {
+        value.pop_back();
+    }
+    return value;
+}
+
+#ifdef _WIN32
+std::string powershellSingleQuote(const std::string& value)
+{
+    std::string quoted{"'"};
+    for (char ch : value)
+    {
+        if (ch == '\'')
+        {
+            quoted += "''";
+        }
+        else
+        {
+            quoted += ch;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+#else
+std::string posixSingleQuote(const std::string& value)
+{
+    std::string quoted{"'"};
+    for (char ch : value)
+    {
+        if (ch == '\'')
+        {
+            quoted += "'\\''";
+        }
+        else
+        {
+            quoted += ch;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+#endif
+
+bool runShellCommand(const std::string& command)
+{
+    return std::system(command.c_str()) == 0;
+}
+
+std::filesystem::path userHomeDirectory()
+{
+#ifdef _WIN32
+    const std::string userProfile = envValue("USERPROFILE");
+    if (!userProfile.empty())
+    {
+        return std::filesystem::path{userProfile};
+    }
+#else
+    const std::string home = envValue("HOME");
+    if (!home.empty())
+    {
+        return std::filesystem::path{home};
+    }
+#endif
+    return {};
+}
+
+void appendUniquePath(std::vector<std::filesystem::path>& paths, const std::filesystem::path& path)
+{
+    if (path.empty())
+    {
+        return;
+    }
+    const std::filesystem::path normalized = path.lexically_normal();
+    for (const std::filesystem::path& existing : paths)
+    {
+        if (existing.lexically_normal() == normalized)
+        {
+            return;
+        }
+    }
+    paths.push_back(normalized);
+}
+
+void appendUniqueString(std::vector<std::string>& values, const std::string& value)
+{
+    if (value.empty() || std::find(values.begin(), values.end(), value) != values.end())
+    {
+        return;
+    }
+    values.push_back(value);
+}
+
+std::vector<std::filesystem::path> shellProfileCandidates()
+{
+    std::vector<std::filesystem::path> profiles;
+    const std::filesystem::path home = userHomeDirectory();
+    if (home.empty())
+    {
+        return profiles;
+    }
+#ifdef _WIN32
+    appendUniquePath(profiles, home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1");
+    appendUniquePath(profiles, home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1");
+#else
+    appendUniquePath(profiles, home / ".zshrc");
+    appendUniquePath(profiles, home / ".bashrc");
+    appendUniquePath(profiles, home / ".profile");
+    appendUniquePath(profiles, home / ".config" / "fish" / "config.fish");
+#endif
+    return profiles;
+}
+
+std::string shellLineContent(std::string line)
+{
+    if (!line.empty() && line.back() == '\n')
+    {
+        line.pop_back();
+    }
+    if (!line.empty() && line.back() == '\r')
+    {
+        line.pop_back();
+    }
+    return line;
+}
+
+std::vector<std::string> splitLinesPreservingEndings(const std::string& text)
+{
+    std::vector<std::string> lines;
+    std::size_t start = 0;
+    while (start < text.size())
+    {
+        const std::size_t newline = text.find('\n', start);
+        if (newline == std::string::npos)
+        {
+            lines.push_back(text.substr(start));
+            break;
+        }
+        lines.push_back(text.substr(start, newline - start + 1));
+        start = newline + 1;
+    }
+    return lines;
+}
+
+std::vector<std::string> shellPathCommandsForLauncherDirectory(const std::filesystem::path& launcherDirectory)
+{
+    std::vector<std::string> commands;
+    const std::string launcher = launcherDirectory.lexically_normal().string();
+#ifdef _WIN32
+    appendUniqueString(commands, "$env:Path = " + powershellSingleQuote(launcher + ";") + " + $env:Path");
+#else
+    appendUniqueString(commands, "export PATH=" + posixSingleQuote(launcher) + ":\"$PATH\"");
+    appendUniqueString(commands, "set -gx PATH " + posixSingleQuote(launcher) + " $PATH");
+#endif
+    return commands;
+}
+
+std::vector<std::string> shellPathCommandsForSdkHome(const std::filesystem::path& home)
+{
+    std::vector<std::filesystem::path> launcherDirectories;
+    appendUniquePath(launcherDirectories, home / SDK_BIN_DIR);
+    appendUniquePath(launcherDirectories, normalizedAbsolutePath(home) / SDK_BIN_DIR);
+
+    std::vector<std::string> commands;
+    for (const std::filesystem::path& directory : launcherDirectories)
+    {
+        for (const std::string& command : shellPathCommandsForLauncherDirectory(directory))
+        {
+            appendUniqueString(commands, command);
+        }
+    }
+    return commands;
+}
+
+bool lineIsUimdShellCommand(const std::string& line, const std::vector<std::string>& commands)
+{
+    const std::string content = trim(shellLineContent(line));
+    return std::find(commands.begin(), commands.end(), content) != commands.end();
+}
+
+bool removeUimdShellBlocksFromProfile(
+    const std::filesystem::path& profile,
+    const std::vector<std::string>& commands,
+    bool& changed,
+    std::string& errorMessage
+)
+{
+    changed = false;
+    errorMessage.clear();
+    if (!std::filesystem::exists(profile))
+    {
+        return true;
+    }
+    if (!std::filesystem::is_regular_file(profile))
+    {
+        errorMessage = "shell profile is not a file: " + pathString(profile);
+        return false;
+    }
+
+    std::ifstream input(profile, std::ios::binary);
+    if (!input)
+    {
+        errorMessage = "cannot read shell profile " + pathString(profile);
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    const std::vector<std::string> lines = splitLinesPreservingEndings(buffer.str());
+
+    std::string output;
+    for (std::size_t index = 0; index < lines.size();)
+    {
+        const bool markerLine = trim(shellLineContent(lines[index])) == SHELL_CONFIG_MARKER;
+        if (markerLine)
+        {
+            const bool hasCommand = index + 1 < lines.size() && lineIsUimdShellCommand(lines[index + 1], commands);
+            const bool orphanMarker = index + 1 >= lines.size();
+            if (hasCommand || orphanMarker)
+            {
+                changed = true;
+                index += hasCommand ? 2U : 1U;
+                continue;
+            }
+        }
+        output += lines[index];
+        ++index;
+    }
+
+    if (!changed)
+    {
+        return true;
+    }
+    std::ofstream written(profile, std::ios::binary | std::ios::trunc);
+    if (!written)
+    {
+        errorMessage = "cannot write shell profile " + pathString(profile);
+        return false;
+    }
+    written << output;
+    return true;
+}
+
+ShellCleanupResult cleanupShellProfilesForSdkHome(const std::filesystem::path& home)
+{
+    ShellCleanupResult result;
+    const std::vector<std::string> commands = shellPathCommandsForSdkHome(home);
+    if (commands.empty())
+    {
+        return result;
+    }
+
+    for (const std::filesystem::path& profile : shellProfileCandidates())
+    {
+        bool profileChanged = false;
+        std::string errorMessage;
+        if (!removeUimdShellBlocksFromProfile(profile, commands, profileChanged, errorMessage))
+        {
+            result.ok = false;
+            result.errors.push_back(errorMessage);
+            continue;
+        }
+        if (profileChanged)
+        {
+            result.changed = true;
+            appendUniquePath(result.changedProfiles, profile);
+        }
+    }
+    return result;
+}
+
+std::string releasePlatform()
+{
+#if defined(__APPLE__) && (defined(__x86_64__) || defined(_M_X64))
+    return "macos-x86_64";
+#elif defined(__APPLE__) && (defined(__aarch64__) || defined(_M_ARM64))
+    return "macos-arm64";
+#elif defined(__linux__) && (defined(__x86_64__) || defined(_M_X64))
+    return "linux-x86_64";
+#elif defined(__linux__) && (defined(__aarch64__) || defined(_M_ARM64))
+    return "linux-arm64";
+#elif defined(_WIN32) && defined(_M_ARM64)
+    return "windows-arm64";
+#elif defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    return "windows-x86_64";
+#else
+    return {};
+#endif
+}
+
+std::string releaseVersionBaseUrl(const std::string& version)
+{
+    const std::string overrideBase = envValue(RELEASE_BASE_URL_ENV.c_str());
+    if (!overrideBase.empty())
+    {
+        return trimTrailingSlashes(overrideBase);
+    }
+    return "https://github.com/uimd-lang/uimd/releases/download/v" + version;
+}
+
+std::string releaseLatestBaseUrl()
+{
+    const std::string overrideBase = envValue(RELEASE_BASE_URL_ENV.c_str());
+    if (!overrideBase.empty())
+    {
+        return trimTrailingSlashes(overrideBase);
+    }
+    return "https://github.com/uimd-lang/uimd/releases/latest/download";
+}
+
+std::string releaseArchiveAssetName(const std::string& version)
+{
+    const std::string platform = releasePlatform();
+    if (platform.empty())
+    {
+        return {};
+    }
+    return "uimd-sdk-" + version + "-" + platform + ".tar.gz";
+}
+
+std::string releaseArchiveDirectoryName(const std::string& version)
+{
+    const std::string platform = releasePlatform();
+    if (platform.empty())
+    {
+        return {};
+    }
+    return "uimd-sdk-" + version + "-" + platform;
+}
+
+bool downloadFile(const std::string& url, const std::filesystem::path& destination)
+{
+    std::error_code error;
+    std::filesystem::create_directories(destination.parent_path(), error);
+    if (error)
+    {
+        std::cerr << "error: cannot create " << pathString(destination.parent_path()) << ": " << error.message() << "\n";
+        return false;
+    }
+#ifdef _WIN32
+    const std::string command =
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"$ProgressPreference = 'SilentlyContinue'; "
+        "Invoke-WebRequest -UseBasicParsing -Uri " + powershellSingleQuote(url) +
+        " -OutFile " + powershellSingleQuote(pathString(destination)) + "\"";
+#else
+    const std::string command = "curl -fsSL --retry 3 -o " +
+        posixSingleQuote(pathString(destination)) + " " + posixSingleQuote(url);
+#endif
+    if (!runShellCommand(command))
+    {
+        std::cerr << "error: failed to download " << url << "\n";
+        return false;
+    }
+    return std::filesystem::is_regular_file(destination);
+}
+
+std::string releasePublicKey()
+{
+    const std::string overrideKey = trim(envValue(RELEASE_PUBLIC_KEY_ENV.c_str()));
+    return overrideKey.empty() ? RELEASE_PUBLIC_KEY : overrideKey;
+}
+
+bool verifyChecksumsSignature(const std::filesystem::path& checksumsPath, const std::filesystem::path& signaturePath)
+{
+    const std::string publicKey = releasePublicKey();
+    if (publicKey.empty())
+    {
+        std::cerr << "error: release public key is not configured\n";
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(checksumsPath))
+    {
+        std::cerr << "error: checksums file is missing: " << pathString(checksumsPath) << "\n";
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(signaturePath))
+    {
+        std::cerr << "error: checksums signature is missing: " << pathString(signaturePath) << "\n";
+        return false;
+    }
+#ifdef _WIN32
+    const std::string command =
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"minisign -Vq -P " + powershellSingleQuote(publicKey) +
+        " -m " + powershellSingleQuote(pathString(checksumsPath)) +
+        " -x " + powershellSingleQuote(pathString(signaturePath)) + "\"";
+#else
+    const std::string command =
+        "minisign -Vq -P " + posixSingleQuote(publicKey) +
+        " -m " + posixSingleQuote(pathString(checksumsPath)) +
+        " -x " + posixSingleQuote(pathString(signaturePath));
+#endif
+    if (!runShellCommand(command))
+    {
+        std::cerr << "error: failed to verify " << RELEASE_CHECKSUMS_FILE
+                  << " signature; install minisign or check release integrity\n";
+        return false;
+    }
+    return true;
+}
+
+bool extractTarball(const std::filesystem::path& archive, const std::filesystem::path& destination)
+{
+    std::error_code error;
+    std::filesystem::remove_all(destination, error);
+    error.clear();
+    std::filesystem::create_directories(destination, error);
+    if (error)
+    {
+        std::cerr << "error: cannot create " << pathString(destination) << ": " << error.message() << "\n";
+        return false;
+    }
+#ifdef _WIN32
+    const std::string command =
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"tar -xzf " + powershellSingleQuote(pathString(archive)) +
+        " -C " + powershellSingleQuote(pathString(destination)) + "\"";
+#else
+    const std::string command = "LC_ALL=C tar -xzf " + posixSingleQuote(pathString(archive)) +
+        " -C " + posixSingleQuote(pathString(destination));
+#endif
+    if (!runShellCommand(command))
+    {
+        std::cerr << "error: failed to extract " << pathString(archive) << "\n";
+        return false;
+    }
+    return true;
+}
+
+std::string checksumForAsset(const std::filesystem::path& checksumsPath, const std::string& assetName)
+{
+    std::ifstream input(checksumsPath);
+    if (!input)
+    {
+        return {};
+    }
+    std::string line;
+    while (std::getline(input, line))
+    {
+        const std::vector<std::string> parts = splitWhitespace(line);
+        if (parts.size() >= 2U && parts[1] == assetName && looksLikeSha256(parts[0]))
+        {
+            return lower(parts[0]);
+        }
+    }
+    return {};
+}
+
+bool verifyDownloadedAsset(const std::filesystem::path& checksumsPath, const std::filesystem::path& assetPath)
+{
+    const std::string assetName = assetPath.filename().string();
+    const std::string expected = checksumForAsset(checksumsPath, assetName);
+    if (expected.empty())
+    {
+        std::cerr << "error: missing checksum for " << assetName << " in " << pathString(checksumsPath) << "\n";
+        return false;
+    }
+    std::string actual;
+    try
+    {
+        actual = sha256File(assetPath);
+    }
+    catch (const std::exception& exc)
+    {
+        std::cerr << "error: " << exc.what() << "\n";
+        return false;
+    }
+    if (actual != expected)
+    {
+        std::cerr
+            << "error: checksum mismatch for " << assetName
+            << ": expected " << expected
+            << ", got " << actual << "\n";
+        return false;
+    }
+    return true;
+}
+
 std::filesystem::path localReleaseManifestPath(const std::filesystem::path& releaseRoot, const std::string& version)
 {
+    const std::filesystem::path directManifest = releaseRoot / "manifest.txt";
+    if (std::filesystem::is_regular_file(directManifest))
+    {
+        return directManifest;
+    }
     const std::filesystem::path versionManifest = releaseRoot / version / "manifest.txt";
     if (std::filesystem::is_regular_file(versionManifest))
     {
@@ -687,6 +1189,16 @@ std::filesystem::path localReleaseManifestPath(const std::filesystem::path& rele
 bool localReleaseManifestExists(const std::filesystem::path& releaseRoot, const std::string& version)
 {
     return std::filesystem::is_regular_file(localReleaseManifestPath(releaseRoot, version));
+}
+
+std::filesystem::path releaseRootFromEnvironment()
+{
+    const std::string releaseRootEnv = envValue(RELEASE_ROOT_ENV.c_str());
+    if (releaseRootEnv.empty())
+    {
+        return {};
+    }
+    return std::filesystem::path{releaseRootEnv};
 }
 
 std::vector<std::string> localReleaseVersions(const std::filesystem::path& releaseRoot)
@@ -856,6 +1368,119 @@ bool installReleaseManifest(const std::filesystem::path& home, const std::filesy
         }
     }
     return true;
+}
+
+bool installReleaseDownload(const std::filesystem::path& home, const std::string& version, const std::string& baseUrl)
+{
+    const std::string asset = releaseArchiveAssetName(version);
+    const std::string directoryName = releaseArchiveDirectoryName(version);
+    if (asset.empty() || directoryName.empty())
+    {
+        std::cerr << "error: SDK downloads are not supported on this platform\n";
+        return false;
+    }
+
+    const std::filesystem::path workRoot = home / "tmp" / ("uimd-update-" + version);
+    const std::filesystem::path checksumsPath = workRoot / RELEASE_CHECKSUMS_FILE;
+    const std::filesystem::path signaturePath = workRoot / RELEASE_SIGNATURE_FILE;
+    const std::filesystem::path archivePath = workRoot / asset;
+    const std::filesystem::path extractRoot = workRoot / "extract";
+
+    std::error_code error;
+    std::filesystem::remove_all(workRoot, error);
+    error.clear();
+    std::filesystem::create_directories(workRoot, error);
+    if (error)
+    {
+        std::cerr << "error: cannot create " << pathString(workRoot) << ": " << error.message() << "\n";
+        return false;
+    }
+
+    const std::string normalizedBase = trimTrailingSlashes(baseUrl);
+    const bool installed =
+        downloadFile(normalizedBase + "/" + RELEASE_CHECKSUMS_FILE, checksumsPath) &&
+        downloadFile(normalizedBase + "/" + RELEASE_SIGNATURE_FILE, signaturePath) &&
+        verifyChecksumsSignature(checksumsPath, signaturePath) &&
+        downloadFile(normalizedBase + "/" + asset, archivePath) &&
+        verifyDownloadedAsset(checksumsPath, archivePath) &&
+        extractTarball(archivePath, extractRoot) &&
+        installReleaseManifest(home, extractRoot / directoryName, version);
+
+    if (installed)
+    {
+        std::filesystem::remove_all(workRoot, error);
+    }
+    return installed;
+}
+
+std::string sdkVersionFromReleaseAsset(const std::string& assetName)
+{
+    const std::string platform = releasePlatform();
+    if (platform.empty())
+    {
+        return {};
+    }
+    const std::string prefix = "uimd-sdk-";
+    const std::string suffix = "-" + platform + ".tar.gz";
+    if (!assetName.starts_with(prefix) || !assetName.ends_with(suffix))
+    {
+        return {};
+    }
+    const std::string version = assetName.substr(prefix.size(), assetName.size() - prefix.size() - suffix.size());
+    return isVersionNameSafe(version) ? version : std::string{};
+}
+
+std::string latestNetworkSdkUpdateCandidate(
+    const std::filesystem::path& home,
+    const std::string& currentVersion,
+    const std::string& baseUrl
+)
+{
+    const std::filesystem::path workRoot = home / "tmp" / "uimd-update-index";
+    const std::filesystem::path checksumsPath = workRoot / RELEASE_CHECKSUMS_FILE;
+    const std::filesystem::path signaturePath = workRoot / RELEASE_SIGNATURE_FILE;
+
+    std::error_code error;
+    std::filesystem::remove_all(workRoot, error);
+    error.clear();
+    std::filesystem::create_directories(workRoot, error);
+    if (error)
+    {
+        std::cerr << "error: cannot create " << pathString(workRoot) << ": " << error.message() << "\n";
+        return {};
+    }
+    const std::string normalizedBase = trimTrailingSlashes(baseUrl);
+    if (!downloadFile(normalizedBase + "/" + RELEASE_CHECKSUMS_FILE, checksumsPath) ||
+        !downloadFile(normalizedBase + "/" + RELEASE_SIGNATURE_FILE, signaturePath) ||
+        !verifyChecksumsSignature(checksumsPath, signaturePath))
+    {
+        return {};
+    }
+
+    std::ifstream input(checksumsPath);
+    if (!input)
+    {
+        std::cerr << "error: cannot read " << pathString(checksumsPath) << "\n";
+        return {};
+    }
+
+    std::string candidate = currentVersion;
+    std::string line;
+    while (std::getline(input, line))
+    {
+        const std::vector<std::string> parts = splitWhitespace(line);
+        if (parts.size() < 2U || !looksLikeSha256(parts[0]))
+        {
+            continue;
+        }
+        const std::string version = sdkVersionFromReleaseAsset(parts[1]);
+        if (!version.empty() && sameMinorSeries(version, currentVersion) && versionGreaterOrEqual(version, candidate))
+        {
+            candidate = version;
+        }
+    }
+    std::filesystem::remove_all(workRoot, error);
+    return candidate;
 }
 
 bool ensureSdkStoreDirectories(const std::filesystem::path& home)
@@ -1147,6 +1772,70 @@ std::string latestSdkUpdateCandidate(
     return candidate;
 }
 
+bool autoInstallRequiredSdkVersion(
+    const std::filesystem::path& home,
+    const std::string& requiredVersion,
+    std::string& installedVersion,
+    std::string& error
+)
+{
+    installedVersion.clear();
+    error.clear();
+
+    const std::filesystem::path releaseRoot = releaseRootFromEnvironment();
+    if (!releaseRoot.empty())
+    {
+        if (!std::filesystem::is_directory(releaseRoot))
+        {
+            error = "error: release root is not a directory: " + pathString(releaseRoot);
+            return false;
+        }
+
+        const std::string targetVersion = latestSdkUpdateCandidate(home, releaseRoot, requiredVersion);
+        if (targetVersion.empty() || versionLess(targetVersion, requiredVersion) || !localReleaseManifestExists(releaseRoot, targetVersion))
+        {
+            error = "error: required UIMD SDK " + requiredVersion + " is not installed and release root does not contain a compatible patch";
+            return false;
+        }
+
+        std::cerr << "Installing UIMD SDK " << targetVersion << " from " << pathString(releaseRoot) << "\n";
+        if (!ensureSdkVersionDirectories(home, targetVersion) || !installReleaseManifest(home, releaseRoot, targetVersion))
+        {
+            error = "error: failed to install required UIMD SDK " + targetVersion;
+            return false;
+        }
+        if (!std::filesystem::is_regular_file(sdkVersionBinary(home, targetVersion)))
+        {
+            error = "error: release manifest did not install " + pathString(SDK_BIN_DIR / uimdExecutableName());
+            return false;
+        }
+        installedVersion = targetVersion;
+        return true;
+    }
+
+    std::string targetVersion = latestNetworkSdkUpdateCandidate(home, requiredVersion, releaseLatestBaseUrl());
+    if (targetVersion.empty())
+    {
+        targetVersion = requiredVersion;
+    }
+
+    std::cerr << "Installing UIMD SDK " << targetVersion << " from release assets\n";
+    if (!installReleaseDownload(home, targetVersion, releaseLatestBaseUrl()) &&
+        !installReleaseDownload(home, targetVersion, releaseVersionBaseUrl(targetVersion)))
+    {
+        error = "error: failed to install required UIMD SDK " + targetVersion + " from release assets";
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(sdkVersionBinary(home, targetVersion)))
+    {
+        error = "error: release download did not install " + pathString(SDK_BIN_DIR / uimdExecutableName());
+        return false;
+    }
+
+    installedVersion = targetVersion;
+    return true;
+}
+
 std::string highestInstalledSdkAtLeast(const std::filesystem::path& home, const std::string& required)
 {
     std::string result;
@@ -1260,6 +1949,117 @@ std::filesystem::path commandSourceArgument(const std::vector<std::string>& args
     return {};
 }
 
+std::string commandOptionValue(
+    const std::vector<std::string>& args,
+    const std::string& option,
+    const std::string& fallback
+)
+{
+    bool passthrough = false;
+    for (std::size_t index = 1; index < args.size(); ++index)
+    {
+        const std::string& arg = args[index];
+        if (passthrough)
+        {
+            continue;
+        }
+        if (arg == "--")
+        {
+            passthrough = true;
+            continue;
+        }
+        if (arg == option)
+        {
+            if (index + 1 < args.size())
+            {
+                return args[index + 1];
+            }
+            return fallback;
+        }
+    }
+    return fallback;
+}
+
+std::string requiredSdkTargetForCommand(const std::vector<std::string>& args)
+{
+    if (args.empty())
+    {
+        return {};
+    }
+    const std::string& command = args.front();
+    if (command == "run")
+    {
+        return "python";
+    }
+    if (command == "generate" || command == "new")
+    {
+        const std::string target = commandOptionValue(args, "--target", "python");
+        return isSupportedSdkTarget(target) ? target : std::string{};
+    }
+    return {};
+}
+
+bool ensureSdkTargetAvailableForLaunch(
+    const std::filesystem::path& home,
+    const std::string& version,
+    const std::string& target,
+    const GlobalOptions& options
+)
+{
+    if (target.empty() || std::filesystem::is_directory(sdkTargetRoot(home, version, target)))
+    {
+        return true;
+    }
+    if (options.offline)
+    {
+        std::cerr
+            << "error: UIMD SDK target " << target << " for " << version
+            << " is not installed and offline mode is enabled; run `uimd sdk install-target "
+            << target << " --version " << version << "` before retrying\n";
+        return false;
+    }
+
+    const std::filesystem::path releaseRoot = releaseRootFromEnvironment();
+    if (!releaseRoot.empty())
+    {
+        if (!std::filesystem::is_directory(releaseRoot))
+        {
+            std::cerr << "error: release root is not a directory: " << pathString(releaseRoot) << "\n";
+            return false;
+        }
+        if (!localReleaseManifestExists(releaseRoot, version))
+        {
+            std::cerr
+                << "error: release root does not contain SDK " << version
+                << "; cannot auto-install target " << target << "\n";
+            return false;
+        }
+
+        std::cerr << "Installing UIMD SDK target " << target << " for " << version << " from " << pathString(releaseRoot) << "\n";
+        if (!installReleaseManifest(home, releaseRoot, version))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        std::cerr << "Installing UIMD SDK target " << target << " for " << version << " from GitHub Releases\n";
+        if (!installReleaseDownload(home, version, releaseVersionBaseUrl(version)))
+        {
+            return false;
+        }
+    }
+
+    if (!std::filesystem::is_directory(sdkTargetRoot(home, version, target)))
+    {
+        std::cerr
+            << "error: release manifest did not install target "
+            << target << " for " << version << "\n";
+        return false;
+    }
+    return true;
+}
+
 std::string sdkVersionMetadata(const std::filesystem::path& source)
 {
     const uimd::tool::NativeDocument document = uimd::tool::parseDocumentFile(pathString(source));
@@ -1359,9 +2159,17 @@ bool resolveSdkForLaunch(
             }
             else
             {
-                error = "error: required UIMD SDK " + resolution.requiredVersion + " is not installed; release downloads are not implemented in this build, run `uimd sdk install " + resolution.requiredVersion + "` first";
+                std::string installedVersion;
+                if (!autoInstallRequiredSdkVersion(home, resolution.requiredVersion, installedVersion, error))
+                {
+                    return false;
+                }
+                resolution.version = installedVersion;
             }
-            return false;
+            if (resolution.version.empty())
+            {
+                return false;
+            }
         }
         resolution.crossedMinorSeries = !sameMinorSeries(resolution.requiredVersion, resolution.version);
         return true;
@@ -1960,6 +2768,12 @@ int delegateToSelectedSdk(
     }
     printSdkResolutionWarnings(resolution);
 
+    const std::string requiredTarget = requiredSdkTargetForCommand(args);
+    if (!ensureSdkTargetAvailableForLaunch(home, resolution.version, requiredTarget, options))
+    {
+        return EXIT_ERROR;
+    }
+
     const std::filesystem::path binary = sdkVersionBinary(home, resolution.version);
     if (!std::filesystem::is_regular_file(binary))
     {
@@ -2015,6 +2829,19 @@ int printSdkHelp()
     return EXIT_OK;
 }
 
+int printSelfHelp()
+{
+    std::cout
+        << "usage: uimd self <command> [args]\n"
+        << "\n"
+        << "Manage this UIMD SDK launcher install.\n"
+        << "\n"
+        << "commands:\n"
+        << "  update     Update the launcher/current SDK from installed SDKs or release assets\n"
+        << "  uninstall  Remove the local SDK Store\n";
+    return EXIT_OK;
+}
+
 std::string jsonEscape(const std::string& text)
 {
     std::string escaped;
@@ -2063,9 +2890,11 @@ int runDoctor(const std::vector<std::string>& args)
     const std::string currentVersion = selectedSdkVersion(sdkHomePath);
     const std::filesystem::path sdkLauncherPath = launcherPath(sdkHomePath);
     const std::filesystem::path currentBinaryPath = currentVersion.empty() ? std::filesystem::path{} : sdkVersionBinary(sdkHomePath, currentVersion);
+    const std::filesystem::path currentPythonTargetPath = currentVersion.empty() ? std::filesystem::path{} : sdkTargetRoot(sdkHomePath, currentVersion, SDK_PYTHON_TARGET_DIR.string());
     const bool launcherExists = std::filesystem::is_regular_file(sdkLauncherPath);
     const bool currentBinaryExists = !currentBinaryPath.empty() && std::filesystem::is_regular_file(currentBinaryPath);
-    const bool sdkUsable = launcherExists && currentBinaryExists;
+    const bool currentPythonTargetExists = !currentPythonTargetPath.empty() && std::filesystem::is_directory(currentPythonTargetPath);
+    const bool sdkUsable = launcherExists && currentBinaryExists && currentPythonTargetExists;
     const bool ok = sourceCheckoutAvailable || sdkUsable;
     const std::vector<std::string> currentTargets = currentVersion.empty() ? std::vector<std::string>{} : installedSdkTargets(sdkHomePath, currentVersion);
 
@@ -2108,6 +2937,10 @@ int runDoctor(const std::vector<std::string>& args)
             << jsonEscape(currentBinaryPath.empty() ? std::string{} : pathString(currentBinaryPath))
             << "\",\"current_binary_exists\":"
             << (currentBinaryExists ? "true" : "false")
+            << ",\"current_python_target\":\""
+            << jsonEscape(currentPythonTargetPath.empty() ? std::string{} : pathString(currentPythonTargetPath))
+            << "\",\"current_python_target_exists\":"
+            << (currentPythonTargetExists ? "true" : "false")
             << ",\"current_targets\":"
             << targetJson
             << ",\"versions\":"
@@ -2135,6 +2968,7 @@ int runDoctor(const std::vector<std::string>& args)
     if (!currentBinaryPath.empty())
     {
         std::cout << "  current binary: " << pathString(currentBinaryPath) << (currentBinaryExists ? "" : " (missing)") << "\n";
+        std::cout << "  Python target: " << pathString(currentPythonTargetPath) << (currentPythonTargetExists ? "" : " (missing)") << "\n";
         std::cout << "  current targets: ";
         if (currentTargets.empty())
         {
@@ -2233,11 +3067,7 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         }
         if (releaseRoot.empty())
         {
-            const std::string releaseRootEnv = envValue(RELEASE_ROOT_ENV.c_str());
-            if (!releaseRootEnv.empty())
-            {
-                releaseRoot = releaseRootEnv;
-            }
+            releaseRoot = releaseRootFromEnvironment();
         }
         if (releaseRoot.empty() && (source.empty() || !std::filesystem::is_regular_file(source)))
         {
@@ -2358,11 +3188,7 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         }
         if (releaseRoot.empty())
         {
-            const std::string releaseRootEnv = envValue(RELEASE_ROOT_ENV.c_str());
-            if (!releaseRootEnv.empty())
-            {
-                releaseRoot = releaseRootEnv;
-            }
+            releaseRoot = releaseRootFromEnvironment();
         }
         if (!releaseRoot.empty() && !std::filesystem::is_directory(releaseRoot))
         {
@@ -2377,8 +3203,16 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
             return EXIT_ERROR;
         }
 
-        const std::string targetVersion = latestSdkUpdateCandidate(home, releaseRoot, currentVersion);
-        if (targetVersion.empty() || targetVersion == currentVersion)
+        const bool useNetworkRelease = releaseRoot.empty();
+        const std::string targetVersion = useNetworkRelease
+            ? latestNetworkSdkUpdateCandidate(home, currentVersion, releaseLatestBaseUrl())
+            : latestSdkUpdateCandidate(home, releaseRoot, currentVersion);
+        if (targetVersion.empty())
+        {
+            std::cerr << "error: no SDK update candidate found\n";
+            return EXIT_ERROR;
+        }
+        if (targetVersion == currentVersion)
         {
             if (json)
             {
@@ -2398,27 +3232,38 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         bool installedFromRelease = false;
         if (!alreadyInstalled)
         {
-            if (releaseRoot.empty() || !localReleaseManifestExists(releaseRoot, targetVersion))
+            if (useNetworkRelease)
+            {
+                if (!installReleaseDownload(home, targetVersion, releaseLatestBaseUrl()))
+                {
+                    return EXIT_ERROR;
+                }
+                installedFromRelease = true;
+            }
+            else if (!localReleaseManifestExists(releaseRoot, targetVersion))
             {
                 std::cerr
                     << "error: UIMD SDK " << targetVersion
-                    << " is not installed; release downloads are not implemented in this build, pass --release-root or install it first\n";
+                    << " is not installed and release root does not contain it\n";
                 return EXIT_ERROR;
             }
-            if (!ensureLauncher(home, executablePath) || !ensureSdkVersionDirectories(home, targetVersion))
+            else
             {
-                return EXIT_ERROR;
+                if (!ensureLauncher(home, executablePath) || !ensureSdkVersionDirectories(home, targetVersion))
+                {
+                    return EXIT_ERROR;
+                }
+                if (!installReleaseManifest(home, releaseRoot, targetVersion))
+                {
+                    return EXIT_ERROR;
+                }
+                if (!std::filesystem::is_regular_file(sdkVersionBinary(home, targetVersion)))
+                {
+                    std::cerr << "error: release manifest did not install " << pathString(SDK_BIN_DIR / uimdExecutableName()) << "\n";
+                    return EXIT_ERROR;
+                }
+                installedFromRelease = true;
             }
-            if (!installReleaseManifest(home, releaseRoot, targetVersion))
-            {
-                return EXIT_ERROR;
-            }
-            if (!std::filesystem::is_regular_file(sdkVersionBinary(home, targetVersion)))
-            {
-                std::cerr << "error: release manifest did not install " << pathString(SDK_BIN_DIR / uimdExecutableName()) << "\n";
-                return EXIT_ERROR;
-            }
-            installedFromRelease = true;
         }
         if (!writeSelectedSdkVersion(home, targetVersion))
         {
@@ -2654,11 +3499,140 @@ int runSelf(const std::vector<std::string>& args)
 {
     if (args.empty())
     {
-        std::cerr << "error: self command is required\n";
-        return EXIT_USAGE;
+        return printSelfHelp();
     }
 
     const std::string command = args.front();
+    if (command == "--help" || command == "-h" || command == "help")
+    {
+        return printSelfHelp();
+    }
+
+    if (command == "update")
+    {
+        bool json = false;
+        std::filesystem::path releaseRoot;
+        for (std::size_t index = 1; index < args.size(); ++index)
+        {
+            const std::string& arg = args[index];
+            if (arg == "--json")
+            {
+                json = true;
+            }
+            else if (arg == "--release-root")
+            {
+                if (index + 1 >= args.size())
+                {
+                    std::cerr << "error: --release-root requires a path\n";
+                    return EXIT_USAGE;
+                }
+                releaseRoot = args[++index];
+            }
+            else
+            {
+                std::cerr << "error: unknown self update option: " << arg << "\n";
+                return EXIT_USAGE;
+            }
+        }
+        if (releaseRoot.empty())
+        {
+            releaseRoot = releaseRootFromEnvironment();
+        }
+        if (!releaseRoot.empty() && !std::filesystem::is_directory(releaseRoot))
+        {
+            std::cerr << "error: release root is not a directory: " << pathString(releaseRoot) << "\n";
+            return EXIT_USAGE;
+        }
+
+        const std::filesystem::path home = sdkHome();
+        const std::string currentVersion = selectedSdkVersion(home);
+        if (currentVersion.empty())
+        {
+            std::cerr << "error: no SDK version is selected; run `uimd sdk install " << runtimeVersion() << "` first\n";
+            return EXIT_ERROR;
+        }
+
+        const bool useNetworkRelease = releaseRoot.empty();
+        const std::string targetVersion = useNetworkRelease
+            ? latestNetworkSdkUpdateCandidate(home, currentVersion, releaseLatestBaseUrl())
+            : latestSdkUpdateCandidate(home, releaseRoot, currentVersion);
+        if (targetVersion.empty())
+        {
+            std::cerr << "error: no SDK update candidate found\n";
+            return EXIT_ERROR;
+        }
+
+        const bool alreadyInstalled = std::filesystem::is_regular_file(sdkVersionBinary(home, targetVersion));
+        bool installedFromRelease = false;
+        if (!alreadyInstalled)
+        {
+            if (useNetworkRelease)
+            {
+                if (!installReleaseDownload(home, targetVersion, releaseLatestBaseUrl()))
+                {
+                    return EXIT_ERROR;
+                }
+                installedFromRelease = true;
+            }
+            else if (!localReleaseManifestExists(releaseRoot, targetVersion))
+            {
+                std::cerr
+                    << "error: UIMD SDK " << targetVersion
+                    << " is not installed and release root does not contain it\n";
+                return EXIT_ERROR;
+            }
+            else
+            {
+                if (!ensureSdkStoreDirectories(home) || !ensureSdkVersionDirectories(home, targetVersion))
+                {
+                    return EXIT_ERROR;
+                }
+                if (!installReleaseManifest(home, releaseRoot, targetVersion))
+                {
+                    return EXIT_ERROR;
+                }
+                installedFromRelease = true;
+            }
+        }
+
+        const std::filesystem::path source = sdkVersionBinary(home, targetVersion);
+        if (!std::filesystem::is_regular_file(source))
+        {
+            std::cerr << "error: selected SDK binary is missing: " << pathString(source) << "\n";
+            return EXIT_ERROR;
+        }
+        if (!copyExecutableFile(source, launcherPath(home)))
+        {
+            return EXIT_ERROR;
+        }
+        if (!writeSelectedSdkVersion(home, targetVersion))
+        {
+            return EXIT_ERROR;
+        }
+
+        const bool versionChanged = targetVersion != currentVersion;
+        if (json)
+        {
+            std::cout
+                << "{\"current\":\"" << jsonEscape(currentVersion)
+                << "\",\"selected\":\"" << jsonEscape(targetVersion)
+                << "\",\"updated\":" << (versionChanged ? "true" : "false")
+                << ",\"installed\":" << (installedFromRelease ? "true" : "false")
+                << ",\"launcher\":\"" << jsonEscape(pathString(launcherPath(home)))
+                << "\",\"status\":\"ok\"}\n";
+            return EXIT_OK;
+        }
+        if (versionChanged)
+        {
+            std::cout << "Updated UIMD SDK launcher from " << currentVersion << " to " << targetVersion << "\n";
+        }
+        else
+        {
+            std::cout << "UIMD SDK launcher is already on " << targetVersion << "\n";
+        }
+        return EXIT_OK;
+    }
+
     if (command == "uninstall")
     {
         bool json = false;
@@ -2677,16 +3651,77 @@ int runSelf(const std::vector<std::string>& args)
 
         const std::filesystem::path home = sdkHome();
         const std::filesystem::path normalizedHome = normalizedAbsolutePath(home);
+        const ShellCleanupResult shellCleanup = cleanupShellProfilesForSdkHome(home);
+        const auto printShellProfiles = [&shellCleanup]() {
+            std::cout << "[";
+            for (std::size_t index = 0; index < shellCleanup.changedProfiles.size(); ++index)
+            {
+                if (index != 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "\"" << jsonEscape(pathString(shellCleanup.changedProfiles[index])) << "\"";
+            }
+            std::cout << "]";
+        };
+        const auto printShellErrors = [&shellCleanup]() {
+            std::cout << "[";
+            for (std::size_t index = 0; index < shellCleanup.errors.size(); ++index)
+            {
+                if (index != 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "\"" << jsonEscape(shellCleanup.errors[index]) << "\"";
+            }
+            std::cout << "]";
+        };
+        if (!shellCleanup.ok)
+        {
+            for (const std::string& errorMessage : shellCleanup.errors)
+            {
+                std::cerr << "error: " << errorMessage << "\n";
+            }
+            if (json)
+            {
+                std::cout
+                    << "{\"home\":\"" << jsonEscape(pathString(normalizedHome))
+                    << "\",\"removed\":false,\"shell_changed\":" << (shellCleanup.changed ? "true" : "false")
+                    << ",\"shell_profiles\":";
+                printShellProfiles();
+                std::cout << ",\"shell_errors\":";
+                printShellErrors();
+                std::cout << ",\"status\":\"shell-error\"}\n";
+            }
+            return EXIT_ERROR;
+        }
         if (!std::filesystem::exists(normalizedHome))
         {
             if (json)
             {
                 std::cout
                     << "{\"home\":\"" << jsonEscape(pathString(normalizedHome))
-                    << "\",\"removed\":false,\"status\":\"absent\"}\n";
+                    << "\",\"removed\":false,\"shell_changed\":" << (shellCleanup.changed ? "true" : "false")
+                    << ",\"shell_profiles\":";
+                printShellProfiles();
+                std::cout << ",\"status\":\"absent\"}\n";
             }
             else
             {
+                if (shellCleanup.changed)
+                {
+                    std::cout << "Removed UIMD PATH entries from shell profile";
+                    std::cout << (shellCleanup.changedProfiles.size() == 1U ? ": " : "s: ");
+                    for (std::size_t index = 0; index < shellCleanup.changedProfiles.size(); ++index)
+                    {
+                        if (index != 0)
+                        {
+                            std::cout << ", ";
+                        }
+                        std::cout << pathString(shellCleanup.changedProfiles[index]);
+                    }
+                    std::cout << "\n";
+                }
                 std::cout << "UIMD SDK Store is already absent at " << pathString(normalizedHome) << "\n";
             }
             return EXIT_OK;
@@ -2708,11 +3743,28 @@ int runSelf(const std::vector<std::string>& args)
         {
             std::cout
                 << "{\"home\":\"" << jsonEscape(pathString(normalizedHome))
-                << "\",\"removed\":true,\"status\":\"ok\"}\n";
+                << "\",\"removed\":true,\"shell_changed\":" << (shellCleanup.changed ? "true" : "false")
+                << ",\"shell_profiles\":";
+            printShellProfiles();
+            std::cout << ",\"status\":\"ok\"}\n";
             return EXIT_OK;
         }
 
         std::cout << "Removed UIMD SDK Store at " << pathString(normalizedHome) << "\n";
+        if (shellCleanup.changed)
+        {
+            std::cout << "Removed UIMD PATH entries from shell profile";
+            std::cout << (shellCleanup.changedProfiles.size() == 1U ? ": " : "s: ");
+            for (std::size_t index = 0; index < shellCleanup.changedProfiles.size(); ++index)
+            {
+                if (index != 0)
+                {
+                    std::cout << ", ";
+                }
+                std::cout << pathString(shellCleanup.changedProfiles[index]);
+            }
+            std::cout << "\n";
+        }
         std::cout << "Uninstall the uimd-sdk package manager package separately if needed.\n";
         return EXIT_OK;
     }

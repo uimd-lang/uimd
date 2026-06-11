@@ -144,6 +144,7 @@ cmake --build cpp/build --target uimd
 cmake --build cpp/build --target uimd_init
 python3 tools/native_uimd_parity.py
 python3 tools/native_uimd_parity.py --compile-examples
+# Includes SDK store, self-update, target auto-install, and uimd-init smoke checks.
 ```
 
 ## Local SDK Release Artifact
@@ -151,11 +152,12 @@ python3 tools/native_uimd_parity.py --compile-examples
 ```bash
 python3 tools/package_sdk_release.py --build --output dist/sdk-release
 UIMD_HOME=/tmp/uimd-home \
-  cpp/build-release/tools/uimd/uimd sdk install 0.3.1 --release-root dist/sdk-release
+  cpp/build-release/tools/uimd/uimd sdk install 0.3.2 --release-root dist/sdk-release
 UIMD_HOME=/tmp/uimd-home /tmp/uimd-home/bin/uimd doctor --json
 UIMD_HOME=/tmp/uimd-home-from-script \
 UIMD_RELEASE_BASE_URL=file://$PWD/dist/sdk-release \
   sh dist/sdk-release/install.sh --no-shell-config --json
+UIMD_HOME=/tmp/uimd-home-from-script /tmp/uimd-home-from-script/bin/uimd doctor --json
 ```
 
 ## Python App MCP Tests

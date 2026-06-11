@@ -29,7 +29,10 @@ const std::filesystem::path SDK_PYTHON_TARGET_DIR{"python"};
 const std::filesystem::path SDK_EXAMPLES_DIR{"examples"};
 const std::string SHELL_CONFIG_MARKER{"# UIMD SDK"};
 const std::string RELEASE_BASE_URL_ENV{"UIMD_RELEASE_BASE_URL"};
+const std::string RELEASE_PUBLIC_KEY_ENV{"UIMD_RELEASE_PUBLIC_KEY"};
 const std::string RELEASE_CHECKSUMS_FILE{"checksums.txt"};
+const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
+const std::string RELEASE_PUBLIC_KEY{"RWR71aDOUx1vHQeAYhBjmL71qWnPzCp3kXGe2HLHPORARHbM2Al77AsD"};
 
 struct ReleaseManifestFile
 {
@@ -169,8 +172,18 @@ bool safeRelativePath(const std::filesystem::path& path)
 
 std::string releasePlatform()
 {
-#if defined(__APPLE__) && defined(__x86_64__)
+#if defined(__APPLE__) && (defined(__x86_64__) || defined(_M_X64))
     return "macos-x86_64";
+#elif defined(__APPLE__) && (defined(__aarch64__) || defined(_M_ARM64))
+    return "macos-arm64";
+#elif defined(__linux__) && (defined(__x86_64__) || defined(_M_X64))
+    return "linux-x86_64";
+#elif defined(__linux__) && (defined(__aarch64__) || defined(_M_ARM64))
+    return "linux-arm64";
+#elif defined(_WIN32) && defined(_M_ARM64)
+    return "windows-arm64";
+#elif defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    return "windows-x86_64";
 #else
     return {};
 #endif
@@ -329,23 +342,18 @@ std::string shellPathCommand(const std::filesystem::path& launcherDirectory)
 
 bool runShellCommand(const std::string& command)
 {
-#ifdef _WIN32
-    (void)command;
-    return false;
-#else
     return std::system(command.c_str()) == 0;
-#endif
 }
 
 std::string readShellCommand(const std::string& command)
 {
 #ifdef _WIN32
-    (void)command;
-    return {};
+    FILE* pipe = _popen(command.c_str(), "r");
 #else
+    FILE* pipe = popen(command.c_str(), "r");
+#endif
     std::array<char, 256> buffer{};
     std::string output;
-    FILE* pipe = popen(command.c_str(), "r");
     if (pipe == nullptr)
     {
         return {};
@@ -354,23 +362,20 @@ std::string readShellCommand(const std::string& command)
     {
         output += buffer.data();
     }
+#ifdef _WIN32
+    const int status = _pclose(pipe);
+#else
     const int status = pclose(pipe);
+#endif
     if (status != 0)
     {
         return {};
     }
     return output;
-#endif
 }
 
 bool downloadFile(const std::string& url, const std::filesystem::path& destination)
 {
-#ifdef _WIN32
-    (void)url;
-    (void)destination;
-    std::cerr << "error: GitHub Release downloads are not implemented for Windows yet\n";
-    return false;
-#else
     std::error_code error;
     std::filesystem::create_directories(destination.parent_path(), error);
     if (error)
@@ -378,41 +383,94 @@ bool downloadFile(const std::string& url, const std::filesystem::path& destinati
         std::cerr << "error: cannot create " << pathString(destination.parent_path()) << ": " << error.message() << "\n";
         return false;
     }
+#ifdef _WIN32
+    const std::string command =
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"$ProgressPreference = 'SilentlyContinue'; "
+        "Invoke-WebRequest -UseBasicParsing -Uri " + powershellSingleQuote(url) +
+        " -OutFile " + powershellSingleQuote(pathString(destination)) + "\"";
+#else
     const std::string command = "curl -fsSL --retry 3 -o " +
         posixSingleQuote(pathString(destination)) + " " + posixSingleQuote(url);
+#endif
     if (!runShellCommand(command))
     {
         std::cerr << "error: failed to download " << url << "\n";
         return false;
     }
     return std::filesystem::is_regular_file(destination);
+}
+
+std::string releasePublicKey()
+{
+    const std::string overrideKey = trim(envValue(RELEASE_PUBLIC_KEY_ENV.c_str()));
+    return overrideKey.empty() ? RELEASE_PUBLIC_KEY : overrideKey;
+}
+
+bool verifyChecksumsSignature(const std::filesystem::path& checksumsPath, const std::filesystem::path& signaturePath)
+{
+    const std::string publicKey = releasePublicKey();
+    if (publicKey.empty())
+    {
+        std::cerr << "error: release public key is not configured\n";
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(checksumsPath))
+    {
+        std::cerr << "error: checksums file is missing: " << pathString(checksumsPath) << "\n";
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(signaturePath))
+    {
+        std::cerr << "error: checksums signature is missing: " << pathString(signaturePath) << "\n";
+        return false;
+    }
+#ifdef _WIN32
+    const std::string command =
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"minisign -Vq -P " + powershellSingleQuote(publicKey) +
+        " -m " + powershellSingleQuote(pathString(checksumsPath)) +
+        " -x " + powershellSingleQuote(pathString(signaturePath)) + "\"";
+#else
+    const std::string command =
+        "minisign -Vq -P " + posixSingleQuote(publicKey) +
+        " -m " + posixSingleQuote(pathString(checksumsPath)) +
+        " -x " + posixSingleQuote(pathString(signaturePath));
 #endif
+    if (!runShellCommand(command))
+    {
+        std::cerr << "error: failed to verify " << RELEASE_CHECKSUMS_FILE
+                  << " signature; install minisign or check release integrity\n";
+        return false;
+    }
+    return true;
 }
 
 std::string sha256File(const std::filesystem::path& path)
 {
 #ifdef _WIN32
-    (void)path;
-    return {};
+    const std::string command =
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"(Get-FileHash -Algorithm SHA256 -LiteralPath " +
+        powershellSingleQuote(pathString(path)) + ").Hash\"";
+    const std::string output = readShellCommand(command);
 #else
-    const std::string output = readShellCommand("LC_ALL=C shasum -a 256 " + posixSingleQuote(pathString(path)));
+    std::string output = readShellCommand("LC_ALL=C shasum -a 256 " + posixSingleQuote(pathString(path)));
+    if (trim(output).empty())
+    {
+        output = readShellCommand("LC_ALL=C sha256sum " + posixSingleQuote(pathString(path)));
+    }
+#endif
     const std::vector<std::string> parts = splitWhitespace(output);
     if (parts.empty())
     {
         return {};
     }
     return lower(parts.front());
-#endif
 }
 
 bool extractTarball(const std::filesystem::path& archive, const std::filesystem::path& destination)
 {
-#ifdef _WIN32
-    (void)archive;
-    (void)destination;
-    std::cerr << "error: SDK archive extraction is not implemented for Windows yet\n";
-    return false;
-#else
     std::error_code error;
     std::filesystem::remove_all(destination, error);
     error.clear();
@@ -422,15 +480,21 @@ bool extractTarball(const std::filesystem::path& archive, const std::filesystem:
         std::cerr << "error: cannot create " << pathString(destination) << ": " << error.message() << "\n";
         return false;
     }
+#ifdef _WIN32
+    const std::string command =
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        "\"tar -xzf " + powershellSingleQuote(pathString(archive)) +
+        " -C " + powershellSingleQuote(pathString(destination)) + "\"";
+#else
     const std::string command = "LC_ALL=C tar -xzf " + posixSingleQuote(pathString(archive)) +
         " -C " + posixSingleQuote(pathString(destination));
+#endif
     if (!runShellCommand(command))
     {
         std::cerr << "error: failed to extract " << pathString(archive) << "\n";
         return false;
     }
     return true;
-#endif
 }
 
 bool readTextFile(const std::filesystem::path& path, std::string& text)
@@ -781,6 +845,7 @@ bool installReleaseDownload(const std::filesystem::path& home)
     const std::string asset = releaseAssetName();
     const std::filesystem::path workRoot = home / "tmp" / ("uimd-init-" + std::string{UIMD_VERSION});
     const std::filesystem::path checksumsPath = workRoot / RELEASE_CHECKSUMS_FILE;
+    const std::filesystem::path signaturePath = workRoot / RELEASE_SIGNATURE_FILE;
     const std::filesystem::path archivePath = workRoot / asset;
     const std::filesystem::path extractRoot = workRoot / "extract";
 
@@ -795,6 +860,8 @@ bool installReleaseDownload(const std::filesystem::path& home)
     }
 
     if (!downloadFile(releaseAssetUrl(RELEASE_CHECKSUMS_FILE), checksumsPath) ||
+        !downloadFile(releaseAssetUrl(RELEASE_SIGNATURE_FILE), signaturePath) ||
+        !verifyChecksumsSignature(checksumsPath, signaturePath) ||
         !downloadFile(releaseAssetUrl(asset), archivePath) ||
         !verifyAssetChecksum(checksumsPath, archivePath) ||
         !extractTarball(archivePath, extractRoot))
@@ -873,6 +940,7 @@ bool storeValid(const std::filesystem::path& home)
            std::filesystem::is_directory(home / SDK_ROOT_DIR) &&
            std::filesystem::is_regular_file(launcherPath(home)) &&
            std::filesystem::is_regular_file(sdkVersionBinary(home)) &&
+           std::filesystem::is_directory(sdkVersionRoot(home) / SDK_TARGETS_DIR / SDK_PYTHON_TARGET_DIR) &&
            currentVersion == UIMD_VERSION;
 }
 
@@ -993,6 +1061,23 @@ int main(int argc, char** argv)
             std::cout << "  shell profile: " << shellConfig.profile.lexically_normal().string() << "\n";
         }
         std::cout << "Status: " << (success ? "ok" : (valid ? "shell-error" : "incomplete")) << "\n";
+        if (success)
+        {
+            std::cout << "\nNext steps:\n";
+            std::cout << "  " << launcherPath(home).lexically_normal().string() << " doctor\n";
+            if (modifyShell && shellConfig.changed)
+            {
+                std::cout << "  Open a new shell to use `uimd` from PATH.\n";
+            }
+            else if (modifyShell && shellConfig.state == "already-configured")
+            {
+                std::cout << "  `uimd` is already configured on PATH for new shells.\n";
+            }
+            else
+            {
+                std::cout << "  Use the launcher path above, or rerun with --modify-shell to add it to PATH.\n";
+            }
+        }
     }
 
     return success ? EXIT_OK : EXIT_ERROR;

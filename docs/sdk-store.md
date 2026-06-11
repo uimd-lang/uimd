@@ -23,6 +23,8 @@ uimd sdk remove 0.x.y
 uimd sdk prune
 uimd sdk update
 uimd sdk update --release-root /tmp/uimd-releases
+uimd self update
+uimd self update --release-root /tmp/uimd-releases
 uimd self uninstall
 uimd doctor --json
 ```
@@ -31,7 +33,12 @@ Project commands that run through `UIMD_HOME/bin/uimd` read `sdk-version` from
 the root `.uimd` Metadata. The launcher selects the highest installed SDK
 version that satisfies the requirement, warns when falling back for missing
 metadata, and supports `--require-sdk-version` and `--offline` for strict or
-network-free contexts.
+network-free contexts. If the required SDK version is missing, or a project
+command needs a supported target that is missing from the selected SDK, the
+launcher auto-installs the SDK or target from release assets before delegating.
+`--offline` / `UIMD_NO_AUTO_INSTALL=1` disables the auto-install attempt.
+`UIMD_RELEASE_ROOT` and
+`UIMD_RELEASE_BASE_URL` are development/CI overrides.
 
 For development, `UIMD_SDK_PATH=/path/to/uimd` or a local SDK/source checkout
 path bypasses SDK Store version resolution for project commands. The launcher
@@ -98,7 +105,7 @@ artifacts from a source checkout:
 ```bash
 python3 tools/package_sdk_release.py --build --output dist/sdk-release
 UIMD_HOME=/tmp/uimd-home \
-  cpp/build-release/tools/uimd/uimd sdk install 0.3.1 --release-root dist/sdk-release
+  cpp/build-release/tools/uimd/uimd sdk install 0.3.2 --release-root dist/sdk-release
 UIMD_HOME=/tmp/uimd-home-from-script \
 UIMD_RELEASE_BASE_URL=file://$PWD/dist/sdk-release \
   sh dist/sdk-release/install.sh --no-shell-config --json
@@ -110,7 +117,7 @@ contains:
 
 ```text
 dist/sdk-release/
-├── 0.3.1/
+├── 0.3.2/
 │   ├── manifest.txt
 │   └── payload/
 │       ├── bin/uimd
@@ -118,17 +125,27 @@ dist/sdk-release/
 │       ├── targets/cpp/
 │       └── examples/
 ├── checksums.txt
+├── checksums.txt.minisig
 ├── install.sh
-├── uimd-init-0.3.1-macos-x86_64
-└── uimd-sdk-0.3.1-macos-x86_64.tar.gz
+├── install.ps1
+├── uimd-init-0.3.2-<platform>
+└── uimd-sdk-0.3.2-<platform>.tar.gz
 ```
 
 `manifest.txt` is the local installer contract consumed by `uimd sdk install
---release-root`. `install.sh` downloads and verifies the standalone
-`uimd-init` asset; `uimd-init` downloads `checksums.txt` plus the matching SDK
-tarball, verifies SHA-256, extracts the payload, and installs it into the SDK
-Store. These are upload-friendly outputs for a future GitHub Release, but there
-is still no published public release or package-manager installer flow.
+--release-root`. `install.sh` detects macOS/Linux platform labels and
+downloads the matching standalone `uimd-init` asset. `install.ps1` does the
+same for Windows. `uimd-init` downloads `checksums.txt` plus the matching SDK
+tarball, verifies `checksums.txt.minisig` with minisign before using SHA-256,
+extracts the payload, and installs it into the SDK Store. These are
+upload-friendly outputs for GitHub Releases; package-manager installer flow
+remains separate.
+
+Supported release labels in the packaging/install tooling are
+`macos-x86_64`, `macos-arm64`, `linux-x86_64`, `linux-arm64`,
+`windows-x86_64`, and `windows-arm64`. The current validated public-install
+slice is still macOS Intel until the other platform artifacts are built and
+smoke-tested.
 
 `pip install uimd` remains the Python runtime package. It does not create or
 repair this store. Package managers should eventually install `uimd-sdk`, whose
@@ -144,6 +161,10 @@ Current implementation status:
   install `bin/uimd`, install the matching versioned
   `sdk/<version>/bin/uimd` from `UIMD_INIT_UIMD_BINARY`, create the Python
   target directory, and select that SDK through `current`.
+- `uimd-init --check` validates the launcher, selected versioned binary, and
+  Python target directory. A normal `uimd-init` run repairs a missing Python
+  target instead of treating the store as healthy only because the top-level
+  directory exists.
 - `uimd-init --modify-shell --json` idempotently adds `UIMD_HOME/bin` or the
   platform default SDK launcher directory to the active user's shell profile
   and reports `shell_profile`, `shell_status`, and `shell_changed` in JSON.
@@ -153,17 +174,24 @@ Current implementation status:
   binary.
 - `uimd sdk install <version> --release-root <path>` installs from a local
   manifest and verifies SHA-256 checksums before copying payload files.
-- `tools/package_sdk_release.py` creates the current local macOS Intel release
-  root, the matching tarball, standalone `uimd-init`, `install.sh`, and SHA-256
-  checksums.
+- `tools/package_sdk_release.py` creates the current release root, the
+  matching tarball, standalone `uimd-init`, `install.sh`, `install.ps1`, and
+  SHA-256 checksums for the selected platform label.
 - `uimd sdk prune` removes old local SDK patch versions, keeping the newest two
   patches per minor series and preserving the current SDK selection.
 - `uimd sdk update` selects the newest available patch in the current minor
-  series from already installed SDKs; with `--release-root` or
-  `UIMD_RELEASE_ROOT`, it can install that patch from a local manifest fixture.
-- `uimd self uninstall` removes the local SDK Store root after safety checks.
-  Package-manager uninstall and shell profile cleanup remain separate user
-  steps.
+  series from already installed SDKs or GitHub Release checksums. If the
+  selected patch is missing locally, it downloads and verifies the matching
+  platform tarball by default. `--release-root`, `UIMD_RELEASE_ROOT`, and
+  `UIMD_RELEASE_BASE_URL` remain development/CI overrides.
+- `uimd self update` updates the selected SDK and SDK Store launcher to the
+  newest available patch in the current minor series from GitHub Release
+  checksums and the matching platform tarball. `--release-root`,
+  `UIMD_RELEASE_ROOT`, and `UIMD_RELEASE_BASE_URL` remain development/CI
+  overrides.
+- `uimd self uninstall` removes UIMD-owned PATH marker blocks from supported
+  shell profiles and then removes the local SDK Store root after safety checks.
+  Package-manager uninstall remains a separate user step.
 - `uimd sdk list --json` includes installed targets per SDK version, and
   `uimd doctor --json` includes the current SDK target list.
 - When the native binary is invoked as `UIMD_HOME/bin/uimd`, it handles `sdk`,
@@ -171,16 +199,48 @@ Current implementation status:
   replacement to the selected `sdk/<version>/bin/uimd`. Project commands use
   root `.uimd` `sdk-version` metadata when available and otherwise fall back to
   the latest installed SDK with a reproducibility warning.
+- If project metadata requires a missing SDK version and offline mode is not
+  enabled, the launcher installs the newest compatible same-minor patch from
+  release assets before delegating. This does not change the user's selected
+  `current` SDK.
+- Before delegation, `generate --target <target>`, `new --target <target>`, and
+  `run` verify that the selected SDK has the needed target. Missing `python` or
+  `cpp` targets are installed from release assets when offline mode is not
+  enabled.
 - `UIMD_SDK_PATH` bypasses SDK Store version selection for project commands and
   delegates directly to a configured local SDK binary/path during development.
 - `python3 tools/native_uimd_parity.py` smoke-checks the native tool without
   using the removed Python compiler/CLI implementation.
 
-Network downloader, target auto-install, `uimd self update`, package-manager
-recipes, and signature verification are deliberately not implemented in this
-step because they depend on real release artifacts and platform packaging.
-Shell profile cleanup during uninstall remains a separate cross-tool cleanup so
-it can share the `uimd-init` shell-profile logic instead of duplicating it.
-If a required SDK is missing, the launcher reports the install command instead
-of downloading it. `uimd sdk install-target` creates the local target directory
-only; target payload downloads are still part of the release packaging work.
+Package-manager recipes are deliberately left for separate release hardening
+work. If offline mode is enabled and a required SDK or target is missing, the
+launcher reports the install command instead of downloading it.
+
+## Signature Hardening
+
+Release downloads verify two layers:
+
+- `checksums.txt.minisig` is a minisign/Ed25519 signature over
+  `checksums.txt`.
+- `checksums.txt` contains SHA-256 hashes for the release assets.
+
+The public verification key lives in `signing/uimd-release.pub` and is embedded
+into generated `install.sh`, generated `install.ps1`, `uimd-init`, and the
+native `uimd` updater. The private signing key must stay outside the repository,
+for example on an encrypted USB volume at:
+
+```text
+/Volumes/NAME/projects-signing/uimd/uimd-release.key
+```
+
+`tools/package_sdk_release.py` discovers that convention automatically on
+mounted volumes, so the normal release command stays short:
+
+```bash
+python3 tools/package_sdk_release.py --build --output dist/sdk-release
+```
+
+Explicit `--signing-key`, `UIMD_RELEASE_SIGNING_KEY`, or a one-line
+`~/.config/uimd/release-signing-key` config file can override discovery.
+`UIMD_RELEASE_PUBLIC_KEY` and `--public-key` exist only for tests and
+controlled fixture generation; production releases use `signing/uimd-release.pub`.
