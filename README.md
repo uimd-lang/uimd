@@ -17,21 +17,21 @@ more native runtimes.
 
 UIMD is currently an alpha project. The SDK installer flow uses versioned
 GitHub Release assets and installs into a per-user SDK Store. Once the matching
-`v0.3.2` release assets are published and smoke-tested, use the versioned
+`v0.4.0` release assets are published and smoke-tested, use the versioned
 release URL below. The validated macOS release artifact platforms are Intel
 (`x86_64`) and Apple Silicon (`arm64`).
 
 macOS/Linux:
 
 ```bash
-curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh
 ~/.uimd/bin/uimd doctor
 ```
 
 Windows PowerShell:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.ps1 -OutFile install.ps1
+Invoke-WebRequest -UseBasicParsing https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.ps1 -OutFile install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 & "$env:LOCALAPPDATA\uimd\bin\uimd.exe" doctor
 ```
@@ -40,14 +40,14 @@ By default the installer does not edit shell startup files. Use the full
 launcher path above, or opt in to PATH setup:
 
 ```bash
-curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --modify-shell
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh -s -- --modify-shell
 uimd doctor
 ```
 
 For agents and CI, keep shell config untouched and call the launcher directly:
 
 ```bash
-curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --no-shell-config
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh -s -- --no-shell-config
 ~/.uimd/bin/uimd doctor --json
 ```
 

@@ -106,7 +106,7 @@ labels are `macos-x86_64` and `macos-arm64`:
 ```bash
 python3 tools/package_sdk_release.py --build --output dist/sdk-release
 UIMD_HOME=/tmp/uimd-home \
-  cpp/build-release/tools/uimd/uimd sdk install 0.3.2 --release-root dist/sdk-release
+  cpp/build-release/tools/uimd/uimd sdk install 0.4.0 --release-root dist/sdk-release
 UIMD_HOME=/tmp/uimd-home-from-script \
 UIMD_RELEASE_BASE_URL=file://$PWD/dist/sdk-release \
   sh dist/sdk-release/install.sh --no-shell-config --json
@@ -118,7 +118,7 @@ contains:
 
 ```text
 dist/sdk-release/
-├── 0.3.2/
+├── 0.4.0/
 │   ├── manifest.txt
 │   └── payload/
 │       ├── bin/uimd
@@ -129,8 +129,8 @@ dist/sdk-release/
 ├── checksums.txt.minisig
 ├── install.sh
 ├── install.ps1
-├── uimd-init-0.3.2-<platform>
-└── uimd-sdk-0.3.2-<platform>.tar.gz
+├── uimd-init-0.4.0-<platform>
+└── uimd-sdk-0.4.0-<platform>.tar.gz
 ```
 
 `manifest.txt` is the local installer contract consumed by `uimd sdk install

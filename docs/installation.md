@@ -16,14 +16,14 @@ as the primary command until the prerelease/latest policy is verified.
 macOS/Linux:
 
 ```bash
-curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh
 ~/.uimd/bin/uimd doctor
 ```
 
 Windows PowerShell:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.ps1 -OutFile install.ps1
+Invoke-WebRequest -UseBasicParsing https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.ps1 -OutFile install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 & "$env:LOCALAPPDATA\uimd\bin\uimd.exe" doctor
 ```
@@ -46,7 +46,7 @@ use, call the launcher directly:
 For human PATH setup, opt in explicitly:
 
 ```bash
-curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --modify-shell
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh -s -- --modify-shell
 ```
 
 Then open a new shell or source the updated shell profile, for example:
@@ -59,7 +59,7 @@ uimd doctor
 For agents and CI, keep startup files untouched:
 
 ```bash
-curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh -s -- --no-shell-config
+curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh -s -- --no-shell-config
 ~/.uimd/bin/uimd doctor --json
 ```
 
@@ -173,9 +173,9 @@ Store:
 ```text
 ~/.uimd/bin/uimd
 ~/.uimd/current
-~/.uimd/sdk/0.3.2/bin/uimd
-~/.uimd/sdk/0.3.2/targets/python/
-~/.uimd/sdk/0.3.2/targets/cpp/
+~/.uimd/sdk/0.4.0/bin/uimd
+~/.uimd/sdk/0.4.0/targets/python/
+~/.uimd/sdk/0.4.0/targets/cpp/
 ```
 
 On Windows the SDK Store lives under:

@@ -103,10 +103,35 @@ Date: 2026-06-05
 
 ## Repository And Publishing
 
+- [x] **Prepare 0.4.0 main release candidate from sdk-work**. Before pushing
+  `sdk-work` to `main`, bump the release line from the already-tagged `v0.3.2`
+  main snapshot to `0.4.0`, keep public install docs aligned with the new
+  version, build signed macOS arm64 release assets from `sdk-work`, smoke-test
+  the installer flow from the generated assets, and record the validation
+  commands before any `main` push. Progress: version surfaces were bumped with
+  `python3 tools/set_version.py 0.4.0`, public install docs were updated to
+  `v0.4.0`, and validation passed: `python3 tools/set_version.py 0.4.0
+  --check`, `python3 -m py_compile tools/package_sdk_release.py
+  tools/native_uimd_parity.py`, `git diff --check`, `cmake --build cpp/build
+  --target uimd uimd_init`, and `python3 tools/native_uimd_parity.py`.
+  Signed release asset packaging found the production key at
+  `/Volumes/DUBOVSKY/projects-signing/uimd/uimd-release.key`; after the user
+  entered the private-key password interactively, `dist/sdk-release` contained
+  `install.sh`, `install.ps1`, `checksums.txt`, `checksums.txt.minisig`,
+  `uimd-init-0.4.0-macos-arm64`, and
+  `uimd-sdk-0.4.0-macos-arm64.tar.gz`. Installer smoke passed:
+  `UIMD_HOME=/private/tmp/uimd-040-smoke
+  UIMD_RELEASE_BASE_URL=file:///Users/marekdubovsky/Projects/uimd/dist/sdk-release
+  sh dist/sdk-release/install.sh --no-shell-config --json`,
+  `/private/tmp/uimd-040-smoke/bin/uimd doctor --json`, external-project
+  `uimd new hello`, `uimd generate hello.uimd --target python`, `uimd generate
+  hello.uimd --target cpp`, Python `py_compile`, and C++ configure/build
+  against installed `targets/cpp`. `file` confirmed arm64 Mach-O binaries for
+  the installed launcher and versioned SDK binary.
 - [x] **Public install command and PATH UX cleanup**. Update the public README,
-  release notes, and install docs for the real `v0.3.2` GitHub Release install
+  release notes, and install docs for the real `v0.4.0` GitHub Release install
   flow. Document the safe default command
-  `curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.3.2/install.sh | sh`,
+  `curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh`,
   explain that it installs into `~/.uimd` but does not modify `PATH`, and show
   both immediate usage via `~/.uimd/bin/uimd` and human-friendly setup via
   `sh -s -- --modify-shell` followed by a new shell or `source ~/.zshrc`.
