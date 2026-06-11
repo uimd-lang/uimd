@@ -116,12 +116,33 @@ Date: 2026-06-05
   prerelease/latest policy is verified; keep the versioned URL canonical for
   now. Implemented in `README.md`, `docs/installation.md`, `docs/sdk-store.md`,
   `CHANGELOG.md`, and `uimd-init` plain output.
-- [ ] Validate native `uimd` release artifacts on macOS arm64 separately from
-  the Windows/Linux platform migration work. The local macOS Intel/x86_64
-  source-checkout flow is already validated; this task must prove the native
-  binary builds, installs, generates Python/C++ outputs, runs C++-only flows
-  without Python compiler fallback, and passes the relevant MCP/rebuild smoke
-  checks on Apple Silicon.
+- [x] Validate native `uimd` release artifacts on macOS arm64 separately from
+  the Windows/Linux platform migration work. Implemented macOS arm64 release
+  artifact support in the native bootstrapper (`cpp/tools/uimd_init/main.cpp`)
+  and local packaging script (`tools/package_sdk_release.py`) while preserving
+  the existing `macos-x86_64` artifact path. Parity decision: this is native
+  SDK packaging/bootstrap behavior only; Python runtime behavior is unaffected,
+  and generated Python/C++ outputs are both validated from the installed arm64
+  SDK Store. Validation passed on Apple Silicon (`uname -m` = `arm64`):
+  `python3 tools/package_sdk_release.py --build --build-dir
+  cpp/build-release-arm64 --output dist/sdk-release-arm64`,
+  `env UIMD_HOME=/private/tmp/uimd-arm64-release-manifest-20260611
+  cpp/build-release-arm64/tools/uimd/uimd sdk install 0.3.2 --release-root
+  dist/sdk-release-arm64`,
+  `env UIMD_HOME=/private/tmp/uimd-arm64-release-script-20260611
+  UIMD_RELEASE_BASE_URL=file:///Users/marekdubovsky/Projects/uimd/dist/sdk-release-arm64
+  sh dist/sdk-release-arm64/install.sh --no-shell-config --json`,
+  `env UIMD_HOME=/private/tmp/uimd-arm64-release-script-20260611
+  /private/tmp/uimd-arm64-release-script-20260611/bin/uimd doctor --json`,
+  external-project `uimd new hello`, `uimd generate hello.uimd --target
+  python`, `uimd generate hello.uimd --target cpp`, Python `py_compile`,
+  C++ configure/build against installed `targets/cpp`, `python3
+  tools/native_uimd_parity.py --native-binary
+  cpp/build-release-arm64/tools/uimd/uimd --native-init-binary
+  cpp/build-release-arm64/tools/uimd_init/uimd-init`, and the same parity smoke
+  with `--compile-examples`. `file` confirmed arm64 Mach-O binaries for
+  packaged `uimd-init`, installed launcher, versioned SDK `bin/uimd`, and the
+  generated external C++ hello app.
 - [ ] Validate native `uimd` release artifacts as part of the Windows/Linux
   platform migration work, covering Linux x86_64, Linux arm64, Windows x86_64,
   and Windows arm64 where toolchains are available. This should include package

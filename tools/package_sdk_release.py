@@ -612,7 +612,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--platform",
         default=host_platform_label(),
-        help="Release platform label.",
+        help=f"Release platform label (supported: {', '.join(sorted(SUPPORTED_PLATFORMS))}).",
     )
     parser.add_argument(
         "--build",

@@ -174,7 +174,7 @@ std::string releasePlatform()
 {
 #if defined(__APPLE__) && (defined(__x86_64__) || defined(_M_X64))
     return "macos-x86_64";
-#elif defined(__APPLE__) && (defined(__aarch64__) || defined(_M_ARM64))
+#elif defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64))
     return "macos-arm64";
 #elif defined(__linux__) && (defined(__x86_64__) || defined(_M_X64))
     return "linux-x86_64";
@@ -838,7 +838,7 @@ bool installReleaseDownload(const std::filesystem::path& home)
     const std::string platform = releasePlatform();
     if (platform.empty())
     {
-        std::cerr << "error: GitHub Release SDK downloads currently support only macOS Intel (x86_64)\n";
+        std::cerr << "error: unsupported GitHub Release SDK download platform\n";
         return false;
     }
 

@@ -18,7 +18,8 @@ more native runtimes.
 UIMD is currently an alpha project. The SDK installer flow uses versioned
 GitHub Release assets and installs into a per-user SDK Store. Once the matching
 `v0.3.2` release assets are published and smoke-tested, use the versioned
-release URL below.
+release URL below. The validated macOS release artifact platforms are Intel
+(`x86_64`) and Apple Silicon (`arm64`).
 
 macOS/Linux:
 

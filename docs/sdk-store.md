@@ -97,10 +97,11 @@ verification. Paths must be relative and may not contain `..`; `bin/uimd`
 (`bin/uimd.exe` on Windows) is installed executable. This is the offline fixture
 contract that future GitHub Release assets should satisfy.
 
-## macOS Intel Local Artifacts
+## macOS Local Artifacts
 
-The first real packaging slice generates local macOS Intel (`x86_64`) SDK
-artifacts from a source checkout:
+The first real packaging slice generates local macOS SDK artifacts for the host
+architecture from a source checkout. The currently validated macOS artifact
+labels are `macos-x86_64` and `macos-arm64`:
 
 ```bash
 python3 tools/package_sdk_release.py --build --output dist/sdk-release
