@@ -4,6 +4,18 @@
 
 Date: 2026-06-05
 
+- [x] **Python 3.10 CI mock import regression after the workflow fix push**.
+  Fix the remaining `main` GitHub Actions failure on commit `51898cf`: Python
+  3.10 fails `test_dialog_button_activation_delays_action_for_visible_focus`
+  because `unittest.mock.patch("uimd.runtime.UIBase.time.sleep")` resolves
+  `uimd.runtime.UIBase` to the exported `UIBase` class from
+  `uimd.runtime.__init__` instead of the module. This is test-only CI
+  hardening; runtime behavior and Python/C++ parity are unaffected. Implemented
+  by importing the real `uimd.runtime.UIBase` module with `importlib` and using
+  `patch.object` against that module's `time.sleep`. Validation passed:
+  isolated dialog-delay pytest and `PATH=/private/tmp/uimd-ci-fix-venv/bin:$PATH
+  /private/tmp/uimd-ci-fix-venv/bin/python -m pytest python/tests` with
+  `430 passed, 11 skipped`.
 - [x] **GitHub CI failures after the v0.4.0 main/tag push**. Fix the
   GitHub-hosted Python workflow failures without deleting local tests: keep
   sixel image coverage while handling the optional `libsixel` dependency
