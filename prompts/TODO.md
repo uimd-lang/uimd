@@ -19,6 +19,29 @@ Date: 2026-06-05
   `PATH=/private/tmp/uimd-ci-fix-venv/bin:$PATH
   /private/tmp/uimd-ci-fix-venv/bin/python -m pytest python/tests` with
   `427 passed, 14 skipped`.
+- [x] **GitHub workflow failures after the CI test fix push**. Fix the next
+  `main` push failures on commit `ea2aa94`: `.github/workflows/generated.yml`
+  still calls removed legacy compiler wrappers (`compile.py` and
+  `tools/compile_cpp.py`), `.github/workflows/mcp.yml` launches the default
+  C++ MCP tester without building `uimd_mcp_tester`, and the Linux C++ workflow
+  fails because `cpp/src/generated/GeneratedWindowRuntime.cpp` uses
+  `std::nearbyint` without including `<cmath>`. While validating locally,
+  `ctest` also exposed that C++ image smoke tests require the optional
+  `libsixel` runtime library unless they explicitly force fallback mode. This
+  is CI/runtime portability cleanup only; keep canonical generation through the
+  native `./uimd` entry point and do not remove sixel coverage. Implemented by
+  switching generated-source CI to build the native `uimd` launcher and run
+  `./uimd generate ...`, pinning the MCP workflow to the Python backend it
+  installs, adding the missing C++ `<cmath>` include for Linux, forcing fallback
+  mode only for C++ image smoke tests that do not require system `libsixel`, and
+  correcting the stale `formular.yaml` dropdown click coordinate for `Hungary`.
+  Validation passed: local generated-source commands for Python and C++ targets,
+  `cmake -S cpp -B cpp/build`, `cmake --build cpp/build --parallel`,
+  `ctest --test-dir cpp/build --output-on-failure` with `26/26` tests passed,
+  isolated `formular.yaml` on both Python and C++ MCP backends, and
+  `python3 tools/mcp_tester/mcp_tester.py --backend python
+  tests/mcp/all_examples.yaml --exit-on-finish` with `305 asserts passed, 0
+  failed, 0 step failures`.
 - [x] **Automatic release signing key discovery**. Remove repetitive release
   signing setup from the normal packaging flow by teaching
   `tools/package_sdk_release.py` to discover the minisign private key from a

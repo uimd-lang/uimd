@@ -267,6 +267,12 @@ if(UIMD_BUILD_EXAMPLES)
         add_test(NAME example_text_editor_logic COMMAND text_editor --logic-test)
         add_test(NAME example_contacts_manager_logic COMMAND contacts_manager --logic-test)
         add_test(NAME example_markdown_viewer_logic COMMAND markdown_viewer --logic-test)
+        set_tests_properties(
+            example_image_browser
+            example_image_gallery
+            example_image_gallery_logic
+            PROPERTIES ENVIRONMENT "UIMD_DISABLE_SIXEL=1"
+        )
     endif()
 endif()
 

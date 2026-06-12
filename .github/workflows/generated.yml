@@ -22,15 +22,22 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
-      - name: Regenerate Python UI sources
-        run: |
-          python3 compile.py python/examples
-          python3 compile.py python/dialogs
-
-      - name: Regenerate C++ UI sources
-        run: find cpp/dialogs cpp/examples -name '*.md' -exec python3 tools/compile_cpp.py {} \;
-
-      - name: Build C++ examples
+      - name: Build native UIMD launcher
         run: |
           cmake -S cpp -B cpp/build
-          cmake --build cpp/build --parallel
+          cmake --build cpp/build --target uimd --parallel
+
+      - name: Regenerate Python UI sources
+        run: |
+          ./uimd generate python/dialogs --target python
+          ./uimd generate python/examples --target python
+          ./uimd generate src/uimd/dialogs --target python
+          ./uimd generate src/uimd/testing --target python
+
+      - name: Regenerate C++ UI sources
+        run: |
+          ./uimd generate cpp/dialogs --target cpp
+          ./uimd generate cpp/examples --target cpp
+
+      - name: Build C++ examples
+        run: cmake --build cpp/build --parallel

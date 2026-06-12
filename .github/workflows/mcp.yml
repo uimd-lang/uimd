@@ -25,4 +25,4 @@ jobs:
           python -m pip install -e .
 
       - name: Run MCP example scripts
-        run: python3 tools/mcp_tester/mcp_tester.py tests/mcp/all_examples.yaml --exit-on-finish
+        run: python3 tools/mcp_tester/mcp_tester.py --backend python tests/mcp/all_examples.yaml --exit-on-finish
