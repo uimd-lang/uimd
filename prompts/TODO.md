@@ -4,6 +4,21 @@
 
 Date: 2026-06-05
 
+- [ ] **Installed SDK Python runtime requires Pillow for non-image apps**.
+  Fix the public `v0.4.0` installer smoke failure where `uimd run hello.uimd`
+  in an external project imports `uimd.runtime`, then fails with
+  `ModuleNotFoundError: No module named 'PIL'` before rendering any image.
+  Pillow must be optional for non-image applications and required only when
+  Python `Image` rendering actually needs it. This is Python runtime behavior;
+  C++ image/runtime behavior is unaffected because C++ does not import Pillow.
+  Local implementation is done by lazy-loading Pillow inside image rendering
+  helpers and keeping runtime import usable without Pillow. Validation passed:
+  `python/tests/test_elements.py::TestImage`, full Python suite with
+  `431 passed, 11 skipped`, `./tools/rebuild_all.sh`, `git diff --check`, and
+  a system-Python `PYTHONPATH=src` import/render smoke without Pillow. Pending:
+  commit, push, move `v0.4.0` to the fixed commit, rebuild signed release
+  assets, replace the GitHub Release assets, then rerun the public installer
+  smoke in `/Users/marekdubovsky/Projects/uimd-test`.
 - [x] **Python 3.10 CI mock import regression after the workflow fix push**.
   Fix the remaining `main` GitHub Actions failure on commit `51898cf`: Python
   3.10 fails `test_dialog_button_activation_delays_action_for_visible_focus`

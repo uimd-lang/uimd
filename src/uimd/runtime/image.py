@@ -6,12 +6,12 @@ from contextlib import contextmanager
 from functools import lru_cache
 from io import BytesIO
 
-from PIL import Image as PillowImage
-
 from .rendering import TerminalCell
 from .style import Style
 from .uielement import UIElement
 
+PillowImage = None
+_PILLOW_IMPORT_ERROR = None
 _LIBSIXEL_AVAILABLE = False
 _LIBSIXEL_CHECKED = False
 _LIBSIXEL_ERROR = None
@@ -47,6 +47,10 @@ DEFAULT_IMAGE_RENDER_MODE = "auto"
 DEFAULT_IMAGE_ALIGN = "center"
 DEFAULT_IMAGE_VALIGN = "middle"
 MISSING_IMAGE_PLACEHOLDER = "image"
+PILLOW_UNAVAILABLE_MESSAGE = (
+    "Pillow is required for Python Image rendering. "
+    "Install Pillow, or avoid Image controls in this Python environment."
+)
 SIXEL_UNAVAILABLE_MESSAGE = (
     "libsixel is required for non-fallback Image rendering. "
     "Install libsixel and the Python libsixel binding, or use render_mode: fallback."
@@ -77,6 +81,10 @@ def force_image_cell_background_rendering():
 
 class SixelUnavailableError(RuntimeError):
     """Raised when a non-fallback Image needs libsixel but it is unavailable."""
+
+
+class PillowUnavailableError(RuntimeError):
+    """Raised when Python Image rendering needs Pillow but it is unavailable."""
 
 
 class Image(UIElement):
@@ -472,9 +480,24 @@ def _load_libsixel():
     return True
 
 
+def _require_pillow():
+    global PillowImage, _PILLOW_IMPORT_ERROR
+    if PillowImage is not None:
+        return PillowImage
+    try:
+        from PIL import Image as loaded_pillow_image
+    except Exception as exc:
+        _PILLOW_IMPORT_ERROR = str(exc)
+        raise PillowUnavailableError(PILLOW_UNAVAILABLE_MESSAGE) from exc
+    PillowImage = loaded_pillow_image
+    _PILLOW_IMPORT_ERROR = None
+    return PillowImage
+
+
 @lru_cache(maxsize=64)
 def _load_image(path):
-    with PillowImage.open(path) as image:
+    pillow_image = _require_pillow()
+    with pillow_image.open(path) as image:
         return image.convert("RGBA")
 
 
@@ -518,8 +541,9 @@ def _sixel_encode_libsixel(rgb_image):
 
 
 def _sixel_encode_python(rgba):
+    pillow_image = _require_pillow()
     alpha_flat = [px[3] for px in rgba.getdata()]
-    image = rgba.convert("RGB").convert("P", palette=PillowImage.Palette.ADAPTIVE, colors=IMAGE_SIXEL_MAX_COLORS)
+    image = rgba.convert("RGB").convert("P", palette=pillow_image.Palette.ADAPTIVE, colors=IMAGE_SIXEL_MAX_COLORS)
     palette = image.getpalette() or []
     pixel_data = image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
     used_colors = sorted(set(p for i, p in enumerate(pixel_data) if alpha_flat[i] > 0))
@@ -572,25 +596,26 @@ def _sixel_encode_python(rgba):
 
 
 def _fit_image(image, width, height, fit, background=(0, 0, 0), align=DEFAULT_IMAGE_ALIGN, valign=DEFAULT_IMAGE_VALIGN):
+    pillow_image = _require_pillow()
     width = max(1, int(width))
     height = max(1, int(height))
     fit = str(fit or DEFAULT_IMAGE_FIT).strip().lower()
     src = image if image.mode == "RGBA" else image.convert("RGBA")
     if fit == "stretch":
-        return src.resize((width, height), PillowImage.Resampling.LANCZOS)
+        return src.resize((width, height), pillow_image.Resampling.LANCZOS)
 
     scale = max(width / src.width, height / src.height) if fit == "cover" else min(width / src.width, height / src.height)
     resized_width = max(1, round(src.width * scale))
     resized_height = max(1, round(src.height * scale))
-    resized = src.resize((resized_width, resized_height), PillowImage.Resampling.LANCZOS)
+    resized = src.resize((resized_width, resized_height), pillow_image.Resampling.LANCZOS)
     if fit == "cover":
-        canvas = PillowImage.new("RGBA", (width, height), (*background, 255))
+        canvas = pillow_image.new("RGBA", (width, height), (*background, 255))
         left = _alignment_offset(resized_width, width, align, "left", "right")
         top = _alignment_offset(resized_height, height, valign, "top", "bottom")
         canvas.alpha_composite(resized.crop((left, top, left + width, top + height)))
         return canvas
 
-    canvas = PillowImage.new("RGBA", (width, height), (*background, 255))
+    canvas = pillow_image.new("RGBA", (width, height), (*background, 255))
     left = _alignment_offset(width, resized_width, align, "left", "right")
     top = _alignment_offset(height, resized_height, valign, "top", "bottom")
     canvas.alpha_composite(resized, dest=(left, top))

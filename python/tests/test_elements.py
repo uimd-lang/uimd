@@ -3,6 +3,8 @@
 import sys
 import os
 import re
+import subprocess
+import textwrap
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import unittest
@@ -20,6 +22,7 @@ from runtime.style import Style, Color
 
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 class FixedViewportScrollView(UIScrollView):
@@ -48,6 +51,44 @@ class FixedViewportScrollView(UIScrollView):
 
 class TestImage(unittest.TestCase):
     """Test cases for the Image element."""
+
+    def test_runtime_import_does_not_require_pillow(self):
+        code = textwrap.dedent(
+            """
+            import importlib.abc
+            import sys
+
+            class BlockPillow(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname == "PIL" or fullname.startswith("PIL."):
+                        raise ModuleNotFoundError("blocked PIL for regression test")
+                    return None
+
+            sys.meta_path.insert(0, BlockPillow())
+
+            from uimd.runtime import UIApplication, Image
+
+            app = UIApplication(width=10, height=4)
+            image = Image(name="missing", source="", render_mode="fallback")
+            image.width = 4
+            image.height = 2
+            rows = image.render_cells()
+            assert len(rows) == 2
+            """
+        )
+        env = dict(os.environ)
+        source_path = os.path.join(ROOT_DIR, "src")
+        env["PYTHONPATH"] = source_path + os.pathsep + env.get("PYTHONPATH", "")
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT_DIR,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_image_fallback_renders_colored_cells(self):
         image = Image(
