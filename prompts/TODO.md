@@ -4,7 +4,7 @@
 
 Date: 2026-06-05
 
-- [ ] **Installed SDK Python runtime requires Pillow for non-image apps**.
+- [x] **Installed SDK Python runtime requires Pillow for non-image apps**.
   Fix the public `v0.4.0` installer smoke failure where `uimd run hello.uimd`
   in an external project imports `uimd.runtime`, then fails with
   `ModuleNotFoundError: No module named 'PIL'` before rendering any image.
@@ -15,10 +15,14 @@ Date: 2026-06-05
   helpers and keeping runtime import usable without Pillow. Validation passed:
   `python/tests/test_elements.py::TestImage`, full Python suite with
   `431 passed, 11 skipped`, `./tools/rebuild_all.sh`, `git diff --check`, and
-  a system-Python `PYTHONPATH=src` import/render smoke without Pillow. Pending:
-  commit, push, move `v0.4.0` to the fixed commit, rebuild signed release
-  assets, replace the GitHub Release assets, then rerun the public installer
-  smoke in `/Users/marekdubovsky/Projects/uimd-test`.
+  a system-Python `PYTHONPATH=src` import/render smoke without Pillow. Release
+  repair completed: commit `d0fe32f` was pushed to `sdk-work` and `main`, all
+  GitHub Actions checks passed, `v0.4.0` was moved to the fixed commit, signed
+  GitHub Release assets were rebuilt and replaced, the remote checksum
+  signature verified, public install from
+  `https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh`
+  passed in `/Users/marekdubovsky/Projects/uimd-test`, and the first app
+  Python/C++ smoke tests passed.
 - [x] **Python 3.10 CI mock import regression after the workflow fix push**.
   Fix the remaining `main` GitHub Actions failure on commit `51898cf`: Python
   3.10 fails `test_dialog_button_activation_delays_action_for_visible_focus`
