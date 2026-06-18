@@ -15,6 +15,7 @@ tags: [example, mcp]
 
 ```yaml
 uses:
+  - task_filters/task_filters
   - task_list/task_list
   - task_dialog/task_dialog
 ```
@@ -33,51 +34,26 @@ quit_btn:
   title: Quit
   description: "Close the task list example."
 
-search_label:
-  type: label
-  text: Search
-  description: "Search filter label."
-  expose: false
-
-search:
-  type: textinput
-  value: ""
-  maxlength: 60
-  description: "Filter tasks by title or description."
-
-status_label:
-  type: label
-  text: Filter status
-  description: "Status filter label."
-  expose: false
-
-status_filter:
-  type: combobox
-  options: [Any, Todo, Doing, Blocked, Done]
-  selected_item: Any
-  description: "Filter tasks by status."
-
-owner_label:
-  type: label
-  text: Filter assignee
-  description: "Assignee filter label."
-  expose: false
-
-owner_filter:
-  type: combobox
-  options: [Any, Ava, Bruno, Chen, Dana]
-  selected_item: Any
-  description: "Filter tasks by assignee."
-
-reset_filters_btn:
-  type: button
-  title: Reset filters
-  description: "Reset search, status, and assignee filters."
+filters:
+  type: task_filters
+  cpp-class: task_board_example::TaskFilters
+  cpp-header: "task_filters/task_filters.hpp"
+  description: "Reusable task filter panel."
 
 new_task_btn:
   type: button
   title: New task
   description: "Open a dialog for creating a task."
+
+mark_all_done_btn:
+  type: button
+  title: Mark all done
+  description: "Ask before marking every task as done."
+
+clear_board_btn:
+  type: button
+  title: Clear board
+  description: "Ask before deleting every task."
 
 board:
   type: task_list
@@ -168,30 +144,20 @@ this:
 @title:
   color: "#ffffff"
   text-align: center
-@filters:
+@filter_cell:
+  background: "#15171c"
+@actions:
   background: "#172033"
   padding: 1, 1, 1, 1
 @board_cell:
   background: "#030712"
+@filters:
+  background: "#15171c"
 @board:
   background: "#030712"
   focus-background: "#07111f"
   edit-background: "#0f172a"
   scope-dim-background: "#0000004d"
-textinput:
-  background: "#0b1220"
-  color: "#e5e7eb"
-  focus-background: "#25364f"
-  edit-background: "#0b1220"
-  cursor-background: "#facc15"
-  cursor-color: "#111827"
-combobox:
-  background: "#0b1220"
-  color: "#e5e7eb"
-  focus-background: "#25364f"
-  edit-background: "#0b1220"
-  selected-background: "#2563eb"
-  selected-color: "#ffffff"
 button:
   background: "#334155"
   color: "#e2e8f0"
@@ -199,12 +165,15 @@ button:
 @quit_btn:
   background: "#7f1d1d"
   focus-background: "#dc2626"
-@reset_filters_btn:
-  background: "#711212"
-  focus-background: "#b91c1c"
 @new_task_btn:
   background: "#14532d"
   focus-background: "#16a34a"
+@mark_all_done_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+@clear_board_btn:
+  background: "#711212"
+  focus-background: "#b91c1c"
 @status:
   background: "#111827"
   color: "#93c5fd"
@@ -215,21 +184,21 @@ button:
 ```ui
 +-header-**--------------------------------------------------------------------+
 | title..**................ ..................................... quit_btn.... |
-+-filters-24----------------+-board_cell-**------------------------------------+
-| search_label..**......... | board..**....................................... |
-| search..**............... | ................................................ |
-*                           | *............................................... |
-* status_label..**......... | *............................................... |
-| status_filter............ | ................................................ |
++-filter_cell-**---------------------------------------------------------------+
+| filters..**................................................................. |
+| *........................................................................... |
+| *........................................................................... |
+| ............................................................................ |
+| ............................................................................ |
+| ............................................................................ |
++-actions-24----------------+-board_cell-**------------------------------------+
+| new_task_btn..**......... | board..**....................................... |
 |                           | ................................................ |
-| owner_label..**.......... | ................................................ |
-| owner_filter............. | ................................................ |
-|                           | ................................................ |
-| reset_filters_btn..**.... | ................................................ |
-|                           | ................................................ |
-| new_task_btn..**......... | ................................................ |
-|                           | ................................................ |
-| status..**............... | ................................................ |
+* mark_all_done_btn..**.... | ................................................ |
+*                           | ................................................ |
+| clear_board_btn..**...... | ................................................ |
+|                           | *............................................... |
+| status..**............... | *............................................... |
 | ......................... | ................................................ |
 | ......................... | ................................................ |
 |                           | ................................................ |

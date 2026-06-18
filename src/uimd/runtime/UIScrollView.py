@@ -80,11 +80,9 @@ class UIScrollView(UIControl):
 
     def add_child(self, child):
         """Add a child control to the scroll view."""
-        child_index = len(self._children)
         self._children.append(child)
         child.parent = self
         child._app = self._app
-        self._restore_pending_child_focus(child, child_index)
         self._cached_child_heights = None  # Invalidate height cache
         if self._auto_scroll:
             self._view_offset = 0
@@ -102,9 +100,6 @@ class UIScrollView(UIControl):
 
     def _clear_removed_child_focus(self):
         proxy = getattr(self, "parent", None)
-        focus_restore = self._focused_child_restore()
-        if focus_restore is not None:
-            self._pending_focus_restore = focus_restore
         self._clear_selected_focus_child()
         self._focused = False
 
@@ -209,53 +204,6 @@ class UIScrollView(UIControl):
                 if not should_restore_scrollview_focus and proxy is not None and hasattr(proxy, "focused"):
                     proxy.focused = should_restore_proxy_focus
 
-            owner = getattr(owner, "parent", None)
-
-    def _focused_child_restore(self):
-        for index, child in enumerate(self._children):
-            focused = getattr(child, "_focused_element", None)
-            if focused is not None and self._child_contains_element(child, focused):
-                name = getattr(focused, "name", None)
-                if name:
-                    return {"index": index, "name": name}
-            for element in getattr(child, "_elements", {}).values():
-                if getattr(element, "focused", False):
-                    name = getattr(element, "name", None)
-                    if name:
-                        return {"index": index, "name": name}
-        return None
-
-    def _restore_pending_child_focus(self, child, child_index):
-        pending = getattr(self, "_pending_focus_restore", None)
-        if pending is None:
-            return
-        target_index = pending.get("index")
-        if child_index < target_index:
-            return
-        self._pending_focus_restore = None
-        if child_index != target_index:
-            return
-        target_name = pending.get("name")
-        if target_name is None:
-            return
-        target = getattr(child, "_elements", {}).get(target_name)
-        if target is None:
-            return
-        target.focused = True
-        if hasattr(child, "_focused_element"):
-            child._focused_element = target
-        if hasattr(self, "_focused_element"):
-            self._focused_element = target
-        self._focused = True
-        self._mark_selected_focus_child(child)
-        proxy = getattr(self, "parent", None)
-        owner = proxy
-        while owner is not None:
-            if hasattr(owner, "_focused_element"):
-                owner._focused_element = target
-            last_descendant = getattr(owner, "_scrollview_last_descendant", None)
-            if isinstance(last_descendant, dict):
-                last_descendant[id(self)] = target
             owner = getattr(owner, "parent", None)
 
     def _mark_selected_focus_child(self, child):

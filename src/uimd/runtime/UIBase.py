@@ -1403,6 +1403,9 @@ class UIBase(UIInstance):
         clear_selected = getattr(view, "_clear_selected_focus_child", None)
         if callable(clear_selected):
             clear_selected()
+        clear_pending_proxy_focus = getattr(view, "_clear_pending_proxy_focus_restore", None)
+        if callable(clear_pending_proxy_focus):
+            clear_pending_proxy_focus()
         if hasattr(view, "_focused_element"):
             focused = getattr(view, "_focused_element", None)
             if focused is not None:
@@ -1410,6 +1413,10 @@ class UIBase(UIInstance):
             view._focused_element = None
         if hasattr(view, "_edit_mode"):
             view._edit_mode = False
+        if hasattr(view, "_active_scrollview_scope"):
+            view._active_scrollview_scope = None
+        if hasattr(view, "_edit_snapshot"):
+            view._edit_snapshot = None
         get_children = getattr(view, "_get_children", None)
         if callable(get_children):
             for child in get_children():

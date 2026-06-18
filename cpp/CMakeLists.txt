@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.4.0 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.4.1 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -236,6 +236,8 @@ if(UIMD_BUILD_EXAMPLES)
     )
     add_ui_cpp_example(task_board)
     target_sources(task_board PRIVATE
+        examples/task_board/task_filters/task_filters.cpp
+        examples/task_board/task_filters/task_filters_ui.cpp
         examples/task_board/task_list/task_list.cpp
         examples/task_board/task_list/task_list_ui.cpp
         examples/task_board/task_row/task_row_ui.cpp

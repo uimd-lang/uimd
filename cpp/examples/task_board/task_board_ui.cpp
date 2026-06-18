@@ -1,4 +1,6 @@
 #include "task_board_ui.hpp"
+#include "task_filters/task_filters.hpp"
+#include "task_filters/task_filters_ui.hpp"
 #include "task_list/task_list.hpp"
 #include "task_list/task_list_ui.hpp"
 
@@ -217,18 +219,14 @@ ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std
 std::vector<ui::GeneratedLayoutEntry> buildLayout()
 {
     return {
-        ui::GeneratedLayoutEntry{.name = "board", .type = "task_list", .cellName = "board_cell", .relative = ui::Rect{0, 1, 536870911, 536870911}, .sourceCell = ui::Rect{2, 28, 50, 19}, .width = dimension("expanded", 536870911), .height = dimension("expanded", 536870911), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 19), .charsSize = ui::Size{48, 19}, .cellCharsSize = ui::Size{50, 19}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#030712"}}), .elementStyle = makeStyle({{"background", "#030712"}, {"scope-dim-background", "#0000004d"}})},
-        ui::GeneratedLayoutEntry{.name = "search_label", .type = "label", .cellName = "filters", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 18, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#cbd5e1"}})},
+        ui::GeneratedLayoutEntry{.name = "board", .type = "task_list", .cellName = "board_cell", .relative = ui::Rect{0, 1, 536870911, 536870911}, .sourceCell = ui::Rect{9, 28, 50, 12}, .width = dimension("expanded", 536870911), .height = dimension("expanded", 536870911), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 12), .charsSize = ui::Size{48, 12}, .cellCharsSize = ui::Size{50, 12}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#030712"}}), .elementStyle = makeStyle({{"background", "#030712"}, {"scope-dim-background", "#0000004d"}})},
+        ui::GeneratedLayoutEntry{.name = "filters", .type = "task_filters", .cellName = "filter_cell", .relative = ui::Rect{0, 1, 536870911, 536870911}, .sourceCell = ui::Rect{2, 0, 78, 6}, .width = dimension("expanded", 536870911), .height = dimension("expanded", 536870911), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 6), .charsSize = ui::Size{76, 6}, .cellCharsSize = ui::Size{78, 6}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#15171c"}}), .elementStyle = makeStyle({{"background", "#15171c"}})},
+        ui::GeneratedLayoutEntry{.name = "new_task_btn", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{9, 0, 27, 12}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 12}, .marginRight = 1, .marginBottom = 11, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#14532d"}, {"color", "#e2e8f0"}})},
         ui::GeneratedLayoutEntry{.name = "title", .type = "label", .cellName = "header", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{0, 0, 78, 1}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 52, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#1f2937"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#ffffff"}, {"text-align", "center"}})},
         ui::GeneratedLayoutEntry{.name = "quit_btn", .type = "button", .cellName = "header", .relative = ui::Rect{0, 65, 12, 1}, .sourceCell = ui::Rect{0, 0, 78, 1}, .width = dimension("auto", 12), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{12, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#1f2937"}}), .elementStyle = makeStyle({{"background", "#7f1d1d"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "search", .type = "textinput", .cellName = "filters", .relative = ui::Rect{1, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 17, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}})},
-        ui::GeneratedLayoutEntry{.name = "status_label", .type = "label", .cellName = "filters", .relative = ui::Rect{3, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 15, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#cbd5e1"}})},
-        ui::GeneratedLayoutEntry{.name = "status_filter", .type = "combobox", .cellName = "filters", .relative = ui::Rect{4, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 14, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}})},
-        ui::GeneratedLayoutEntry{.name = "owner_label", .type = "label", .cellName = "filters", .relative = ui::Rect{6, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 12, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#cbd5e1"}})},
-        ui::GeneratedLayoutEntry{.name = "owner_filter", .type = "combobox", .cellName = "filters", .relative = ui::Rect{7, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 11, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}})},
-        ui::GeneratedLayoutEntry{.name = "reset_filters_btn", .type = "button", .cellName = "filters", .relative = ui::Rect{9, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 9, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#711212"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "new_task_btn", .type = "button", .cellName = "filters", .relative = ui::Rect{11, 1, 536870911, 1}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 7, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#14532d"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "status", .type = "label", .cellName = "filters", .relative = ui::Rect{13, 1, 536870911, 3}, .sourceCell = ui::Rect{2, 0, 27, 19}, .width = dimension("expanded", 536870911), .height = dimension("auto", 3), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 3}, .cellCharsSize = ui::Size{27, 19}, .marginRight = 1, .marginBottom = 3, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#111827"}, {"color", "#93c5fd"}})},
+        ui::GeneratedLayoutEntry{.name = "mark_all_done_btn", .type = "button", .cellName = "actions", .relative = ui::Rect{2, 1, 536870911, 1}, .sourceCell = ui::Rect{9, 0, 27, 12}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 12}, .marginRight = 1, .marginBottom = 9, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#14532d"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "clear_board_btn", .type = "button", .cellName = "actions", .relative = ui::Rect{4, 1, 536870911, 1}, .sourceCell = ui::Rect{9, 0, 27, 12}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 1}, .cellCharsSize = ui::Size{27, 12}, .marginRight = 1, .marginBottom = 7, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#711212"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "status", .type = "label", .cellName = "actions", .relative = ui::Rect{6, 1, 536870911, 3}, .sourceCell = ui::Rect{9, 0, 27, 12}, .width = dimension("expanded", 536870911), .height = dimension("auto", 3), .cellWidth = dimension("fixed", 24), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{25, 3}, .cellCharsSize = ui::Size{27, 12}, .marginRight = 1, .marginBottom = 3, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#111827"}, {"color", "#93c5fd"}})},
     };
 }
 
@@ -256,6 +254,7 @@ tags: [example, mcp]
 
 ```yaml
 uses:
+  - task_filters/task_filters
   - task_list/task_list
   - task_dialog/task_dialog
 ```
@@ -274,51 +273,26 @@ quit_btn:
   title: Quit
   description: "Close the task list example."
 
-search_label:
-  type: label
-  text: Search
-  description: "Search filter label."
-  expose: false
-
-search:
-  type: textinput
-  value: ""
-  maxlength: 60
-  description: "Filter tasks by title or description."
-
-status_label:
-  type: label
-  text: Filter status
-  description: "Status filter label."
-  expose: false
-
-status_filter:
-  type: combobox
-  options: [Any, Todo, Doing, Blocked, Done]
-  selected_item: Any
-  description: "Filter tasks by status."
-
-owner_label:
-  type: label
-  text: Filter assignee
-  description: "Assignee filter label."
-  expose: false
-
-owner_filter:
-  type: combobox
-  options: [Any, Ava, Bruno, Chen, Dana]
-  selected_item: Any
-  description: "Filter tasks by assignee."
-
-reset_filters_btn:
-  type: button
-  title: Reset filters
-  description: "Reset search, status, and assignee filters."
+filters:
+  type: task_filters
+  cpp-class: task_board_example::TaskFilters
+  cpp-header: "task_filters/task_filters.hpp"
+  description: "Reusable task filter panel."
 
 new_task_btn:
   type: button
   title: New task
   description: "Open a dialog for creating a task."
+
+mark_all_done_btn:
+  type: button
+  title: Mark all done
+  description: "Ask before marking every task as done."
+
+clear_board_btn:
+  type: button
+  title: Clear board
+  description: "Ask before deleting every task."
 
 board:
   type: task_list
@@ -409,30 +383,20 @@ this:
 @title:
   color: "#ffffff"
   text-align: center
-@filters:
+@filter_cell:
+  background: "#15171c"
+@actions:
   background: "#172033"
   padding: 1, 1, 1, 1
 @board_cell:
   background: "#030712"
+@filters:
+  background: "#15171c"
 @board:
   background: "#030712"
   focus-background: "#07111f"
   edit-background: "#0f172a"
   scope-dim-background: "#0000004d"
-textinput:
-  background: "#0b1220"
-  color: "#e5e7eb"
-  focus-background: "#25364f"
-  edit-background: "#0b1220"
-  cursor-background: "#facc15"
-  cursor-color: "#111827"
-combobox:
-  background: "#0b1220"
-  color: "#e5e7eb"
-  focus-background: "#25364f"
-  edit-background: "#0b1220"
-  selected-background: "#2563eb"
-  selected-color: "#ffffff"
 button:
   background: "#334155"
   color: "#e2e8f0"
@@ -440,12 +404,15 @@ button:
 @quit_btn:
   background: "#7f1d1d"
   focus-background: "#dc2626"
-@reset_filters_btn:
-  background: "#711212"
-  focus-background: "#b91c1c"
 @new_task_btn:
   background: "#14532d"
   focus-background: "#16a34a"
+@mark_all_done_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+@clear_board_btn:
+  background: "#711212"
+  focus-background: "#b91c1c"
 @status:
   background: "#111827"
   color: "#93c5fd"
@@ -456,21 +423,21 @@ button:
 ```ui
 +-header-**--------------------------------------------------------------------+
 | title..**................ ..................................... quit_btn.... |
-+-filters-24----------------+-board_cell-**------------------------------------+
-| search_label..**......... | board..**....................................... |
-| search..**............... | ................................................ |
-*                           | *............................................... |
-* status_label..**......... | *............................................... |
-| status_filter............ | ................................................ |
++-filter_cell-**---------------------------------------------------------------+
+| filters..**................................................................. |
+| *........................................................................... |
+| *........................................................................... |
+| ............................................................................ |
+| ............................................................................ |
+| ............................................................................ |
++-actions-24----------------+-board_cell-**------------------------------------+
+| new_task_btn..**......... | board..**....................................... |
 |                           | ................................................ |
-| owner_label..**.......... | ................................................ |
-| owner_filter............. | ................................................ |
-|                           | ................................................ |
-| reset_filters_btn..**.... | ................................................ |
-|                           | ................................................ |
-| new_task_btn..**......... | ................................................ |
-|                           | ................................................ |
-| status..**............... | ................................................ |
+* mark_all_done_btn..**.... | ................................................ |
+*                           | ................................................ |
+| clear_board_btn..**...... | ................................................ |
+|                           | *............................................... |
+| status..**............... | *............................................... |
 | ......................... | ................................................ |
 | ......................... | ................................................ |
 |                           | ................................................ |
@@ -478,7 +445,7 @@ button:
 |                           | ................................................ |
 +---------------------------+--------------------------------------------------+
 ```
-)UI_MCP_MD", "ClickUp-style task list example with interactive scroll view rows and app-specific MCP tools.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"title", "Application title.", false}, ui::GeneratedElementMetadata{"quit_btn", "Close the task list example.", true}, ui::GeneratedElementMetadata{"search_label", "Search filter label.", false}, ui::GeneratedElementMetadata{"search", "Filter tasks by title or description.", true}, ui::GeneratedElementMetadata{"status_label", "Status filter label.", false}, ui::GeneratedElementMetadata{"status_filter", "Filter tasks by status.", true}, ui::GeneratedElementMetadata{"owner_label", "Assignee filter label.", false}, ui::GeneratedElementMetadata{"owner_filter", "Filter tasks by assignee.", true}, ui::GeneratedElementMetadata{"reset_filters_btn", "Reset search, status, and assignee filters.", true}, ui::GeneratedElementMetadata{"new_task_btn", "Open a dialog for creating a task.", true}, ui::GeneratedElementMetadata{"board", "Scrollable list of interactive task rows.", true}, ui::GeneratedElementMetadata{"status", "Current board status.", true}});
+)UI_MCP_MD", "ClickUp-style task list example with interactive scroll view rows and app-specific MCP tools.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"title", "Application title.", false}, ui::GeneratedElementMetadata{"quit_btn", "Close the task list example.", true}, ui::GeneratedElementMetadata{"filters", "Reusable task filter panel.", true}, ui::GeneratedElementMetadata{"new_task_btn", "Open a dialog for creating a task.", true}, ui::GeneratedElementMetadata{"mark_all_done_btn", "Ask before marking every task as done.", true}, ui::GeneratedElementMetadata{"clear_board_btn", "Ask before deleting every task.", true}, ui::GeneratedElementMetadata{"board", "Scrollable list of interactive task rows.", true}, ui::GeneratedElementMetadata{"status", "Current board status.", true}});
     setMcpAppTools(std::vector<ui::GeneratedAppToolMetadata>{ui::GeneratedAppToolMetadata{"delete_task", "Delete a task by id and return whether it was removed.", R"UI_MCP_MD({"type":"object","properties":{"id":{"type":"string"}},"required":["id"]})UI_MCP_MD", R"UI_MCP_MD({"type":"object","properties":{"deleted":{"type":"boolean"}}})UI_MCP_MD"}, ui::GeneratedAppToolMetadata{"get_task", "Return one task by id.", R"UI_MCP_MD({"type":"object","properties":{"id":{"type":"string"}},"required":["id"]})UI_MCP_MD", R"UI_MCP_MD({"type":"object","properties":{"task":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"status":{"type":"string"},"assignee":{"type":"string"},"priority":{"type":"string"},"description":{"type":"string"},"done":{"type":"boolean"}}}}})UI_MCP_MD"}, ui::GeneratedAppToolMetadata{"query_tasks", "Return tasks matching optional title, status, assignee, priority, and done filters.", R"UI_MCP_MD({"type":"object","properties":{"title":{"type":"string"},"status":{"type":"string"},"assignee":{"type":"string"},"priority":{"type":"string"},"done":{"type":"boolean"}}})UI_MCP_MD", R"UI_MCP_MD({"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"status":{"type":"string"},"assignee":{"type":"string"},"priority":{"type":"string"},"description":{"type":"string"},"done":{"type":"boolean"}}}}}})UI_MCP_MD"}, ui::GeneratedAppToolMetadata{"update_task", "Update a task by id and return the updated task.", R"UI_MCP_MD({"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"status":{"type":"string"},"assignee":{"type":"string"},"priority":{"type":"string"},"description":{"type":"string"},"done":{"type":"boolean"}},"required":["id"]})UI_MCP_MD", R"UI_MCP_MD({"type":"object","properties":{"task":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"},"status":{"type":"string"},"assignee":{"type":"string"},"priority":{"type":"string"},"description":{"type":"string"},"done":{"type":"boolean"}}}}})UI_MCP_MD"}});
     setGeneratedWindowStyle(makeStyle({{"background", "#162033"}, {"border-color", "transparent"}, {"border-width", "0"}}));
     title = &static_cast<ui::Label&>(addElement<ui::Label>("title", "Task Board"));
@@ -488,44 +455,24 @@ button:
     quit_btn->setStyle(makeStyle({{"background", "#7f1d1d"}, {"color", "#e2e8f0"}}));
     quit_btn->setFocusStyle(makeStyle({{"background", "#dc2626"}, {"color", "#ffffff"}}));
     quit_btn->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
-    search_label = &static_cast<ui::Label&>(addElement<ui::Label>("search_label", "Search"));
-    search_label->setStyle(makeStyle({{"background", "transparent"}, {"color", "#cbd5e1"}}));
-    search_label->setCursorStyle(makeStyle({{"background", "#b8d7ff"}, {"color", "#000000"}}));
-    search = &static_cast<ui::TextInput&>(addElement<ui::TextInput>("search", "", 60));
-    search->setStyle(makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}}));
-    search->setFocusStyle(makeStyle({{"background", "#25364f"}, {"color", "#ffffff"}}));
-    search->setEditStyle(makeStyle({{"background", "#0b1220"}, {"color", "#ffffff"}}));
-    search->setCursorStyle(makeStyle({{"background", "#facc15"}, {"color", "#111827"}}));
-    search->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
-    search->setDisabledStyle(makeStyle({{"background", "#0b1220"}, {"color", "#64748b"}}));
-    status_label = &static_cast<ui::Label&>(addElement<ui::Label>("status_label", "Filter status"));
-    status_label->setStyle(makeStyle({{"background", "transparent"}, {"color", "#cbd5e1"}}));
-    status_label->setCursorStyle(makeStyle({{"background", "#b8d7ff"}, {"color", "#000000"}}));
-    status_filter = &static_cast<ui::ComboBox&>(addElement<ui::ComboBox>("status_filter", std::vector<std::string>{"Any", "Todo", "Doing", "Blocked", "Done"}));
-    status_filter->setSelectedIndex(0);
-    status_filter->setStyle(makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}}));
-    status_filter->setFocusStyle(makeStyle({{"background", "#25364f"}, {"color", "#ffffff"}}));
-    status_filter->setEditStyle(makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}}));
-    status_filter->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
-    status_filter->setDisabledStyle(makeStyle({{"background", "#0b1220"}, {"color", "#64748b"}}));
-    owner_label = &static_cast<ui::Label&>(addElement<ui::Label>("owner_label", "Filter assignee"));
-    owner_label->setStyle(makeStyle({{"background", "transparent"}, {"color", "#cbd5e1"}}));
-    owner_label->setCursorStyle(makeStyle({{"background", "#b8d7ff"}, {"color", "#000000"}}));
-    owner_filter = &static_cast<ui::ComboBox&>(addElement<ui::ComboBox>("owner_filter", std::vector<std::string>{"Any", "Ava", "Bruno", "Chen", "Dana"}));
-    owner_filter->setSelectedIndex(0);
-    owner_filter->setStyle(makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}}));
-    owner_filter->setFocusStyle(makeStyle({{"background", "#25364f"}, {"color", "#ffffff"}}));
-    owner_filter->setEditStyle(makeStyle({{"background", "#0b1220"}, {"color", "#e5e7eb"}}));
-    owner_filter->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
-    owner_filter->setDisabledStyle(makeStyle({{"background", "#0b1220"}, {"color", "#64748b"}}));
-    reset_filters_btn = &static_cast<ui::Button&>(addElement<ui::Button>("reset_filters_btn", "Reset filters"));
-    reset_filters_btn->setStyle(makeStyle({{"background", "#711212"}, {"color", "#e2e8f0"}}));
-    reset_filters_btn->setFocusStyle(makeStyle({{"background", "#b91c1c"}, {"color", "#ffffff"}}));
-    reset_filters_btn->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
+    filters = &static_cast<ui::ReusableElement&>(addElement<ui::ReusableElement>("filters"));
+    filters->setChild(std::make_unique<task_board_example::TaskFilters>());
+    filters->setStyle(makeStyle({{"background", "#15171c"}}));
+    filters->setFocusStyle(makeStyle({{"background", "#ffffff14"}}));
+    filters->setEditStyle(makeStyle({{"background", "#ffffff18"}}));
+    filters->setSelectedStyle(makeStyle({{"background", "#ffffff26"}, {"color", "#ffffff"}}));
     new_task_btn = &static_cast<ui::Button&>(addElement<ui::Button>("new_task_btn", "New task"));
     new_task_btn->setStyle(makeStyle({{"background", "#14532d"}, {"color", "#e2e8f0"}}));
     new_task_btn->setFocusStyle(makeStyle({{"background", "#16a34a"}, {"color", "#ffffff"}}));
     new_task_btn->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
+    mark_all_done_btn = &static_cast<ui::Button&>(addElement<ui::Button>("mark_all_done_btn", "Mark all done"));
+    mark_all_done_btn->setStyle(makeStyle({{"background", "#14532d"}, {"color", "#e2e8f0"}}));
+    mark_all_done_btn->setFocusStyle(makeStyle({{"background", "#16a34a"}, {"color", "#ffffff"}}));
+    mark_all_done_btn->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
+    clear_board_btn = &static_cast<ui::Button&>(addElement<ui::Button>("clear_board_btn", "Clear board"));
+    clear_board_btn->setStyle(makeStyle({{"background", "#711212"}, {"color", "#e2e8f0"}}));
+    clear_board_btn->setFocusStyle(makeStyle({{"background", "#b91c1c"}, {"color", "#ffffff"}}));
+    clear_board_btn->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
     board = &static_cast<ui::ReusableElement&>(addElement<ui::ReusableElement>("board"));
     board->setChild(std::make_unique<task_board_example::TaskList>());
     board->setStyle(makeStyle({{"background", "#030712"}, {"scope-dim-background", "#0000004d"}}));
@@ -541,31 +488,15 @@ void TaskBoardUI::onQuitBtnClick()
 {
 }
 
-void TaskBoardUI::onSearchChange(std::string_view value)
-{
-    (void)value;
-}
-
-void TaskBoardUI::onSearchSubmit(std::string_view value)
-{
-    (void)value;
-}
-
-void TaskBoardUI::onStatusFilterChange(std::string_view value)
-{
-    (void)value;
-}
-
-void TaskBoardUI::onOwnerFilterChange(std::string_view value)
-{
-    (void)value;
-}
-
-void TaskBoardUI::onResetFiltersBtnClick()
-{
-}
-
 void TaskBoardUI::onNewTaskBtnClick()
+{
+}
+
+void TaskBoardUI::onMarkAllDoneBtnClick()
+{
+}
+
+void TaskBoardUI::onClearBoardBtnClick()
 {
 }
 
@@ -626,14 +557,19 @@ bool TaskBoardUI::handleGeneratedButton(std::string_view name)
         onQuitBtnClick();
         return true;
     }
-    else if (name == "reset_filters_btn")
-    {
-        onResetFiltersBtnClick();
-        return true;
-    }
     else if (name == "new_task_btn")
     {
         onNewTaskBtnClick();
+        return true;
+    }
+    else if (name == "mark_all_done_btn")
+    {
+        onMarkAllDoneBtnClick();
+        return true;
+    }
+    else if (name == "clear_board_btn")
+    {
+        onClearBoardBtnClick();
         return true;
     }
     return false;
@@ -641,36 +577,16 @@ bool TaskBoardUI::handleGeneratedButton(std::string_view name)
 
 bool TaskBoardUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
-    if (name == "search")
-    {
-        onSearchChange(value);
-        return true;
-    }
     return false;
 }
 
 bool TaskBoardUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
-    if (name == "search")
-    {
-        onSearchSubmit(value);
-        return true;
-    }
     return false;
 }
 
 bool TaskBoardUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
-    if (name == "status_filter")
-    {
-        onStatusFilterChange(value.empty() ? std::string_view{} : std::string_view{value.front()});
-        return true;
-    }
-    else if (name == "owner_filter")
-    {
-        onOwnerFilterChange(value.empty() ? std::string_view{} : std::string_view{value.front()});
-        return true;
-    }
     return false;
 }
 
@@ -683,41 +599,17 @@ ui::GeneratedWindowRuntimeOptions TaskBoardUI::runtimeOptions()
         {
             (void)handleGeneratedButton(name);
         }
-        else if (name == "reset_filters_btn")
-        {
-            (void)handleGeneratedButton(name);
-        }
         else if (name == "new_task_btn")
         {
             (void)handleGeneratedButton(name);
         }
-    };
-
-    options.onTextChanged = [this](std::string_view name, std::string_view value)
-    {
-        if (name == "search")
+        else if (name == "mark_all_done_btn")
         {
-            (void)handleGeneratedTextChanged(name, value);
+            (void)handleGeneratedButton(name);
         }
-    };
-
-    options.onTextConfirmed = [this](std::string_view name, std::string_view value)
-    {
-        if (name == "search")
+        else if (name == "clear_board_btn")
         {
-            (void)handleGeneratedTextConfirmed(name, value);
-        }
-    };
-
-    options.onSelectionChanged = [this](std::string_view name, const std::vector<std::string>& value)
-    {
-        if (name == "status_filter")
-        {
-            (void)handleGeneratedSelectionChanged(name, value);
-        }
-        else if (name == "owner_filter")
-        {
-            (void)handleGeneratedSelectionChanged(name, value);
+            (void)handleGeneratedButton(name);
         }
     };
 

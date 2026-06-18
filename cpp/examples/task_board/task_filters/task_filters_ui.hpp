@@ -1,4 +1,4 @@
-// Auto-generated UI code for task_board - DO NOT EDIT MANUALLY.
+// Auto-generated UI code for task_filters - DO NOT EDIT MANUALLY.
 #pragma once
 
 #include "ui/generated/GeneratedWindowBase.hpp"
@@ -16,18 +16,16 @@
 #include "ui/elements/ScrollView.hpp"
 #include "ui/elements/TextArea.hpp"
 #include "ui/elements/TextInput.hpp"
-#include "task_filters/task_filters.hpp"
-#include "task_list/task_list.hpp"
 
 
 #include <string>
 #include <string_view>
 #include <vector>
 
-class TaskBoardUI : public ui::GeneratedWindowBase
+class TaskFiltersUI : public ui::GeneratedWindowBase
 {
 public:
-    TaskBoardUI();
+    TaskFiltersUI();
 
     virtual ui::GeneratedWindowRuntimeOptions runtimeOptions();
     bool handleGeneratedButton(std::string_view name) override;
@@ -35,26 +33,24 @@ public:
     bool handleGeneratedTextConfirmed(std::string_view name, std::string_view value) override;
     bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;
 
-    std::string callAppTool(std::string_view name, std::string_view inputJson) override;
 
-    ui::Label* title = nullptr;
-    ui::Button* quit_btn = nullptr;
-    ui::ReusableElement* filters = nullptr;
-    ui::Button* new_task_btn = nullptr;
-    ui::Button* mark_all_done_btn = nullptr;
-    ui::Button* clear_board_btn = nullptr;
-    ui::ReusableElement* board = nullptr;
-    ui::Label* status = nullptr;
+    ui::Label* filters_label = nullptr;
+    ui::Label* search_label = nullptr;
+    ui::Label* status_label = nullptr;
+    ui::Label* owner_label = nullptr;
+    ui::TextInput* search = nullptr;
+    ui::ComboBox* status_filter = nullptr;
+    ui::ComboBox* owner_filter = nullptr;
+    ui::Button* apply_filters_btn = nullptr;
+    ui::Button* reset_filters_btn = nullptr;
 
 protected:
-    virtual void onQuitBtnClick();
-    virtual void onNewTaskBtnClick();
-    virtual void onMarkAllDoneBtnClick();
-    virtual void onClearBoardBtnClick();
+    virtual void onSearchChange(std::string_view value);
+    virtual void onSearchSubmit(std::string_view value);
+    virtual void onStatusFilterChange(std::string_view value);
+    virtual void onOwnerFilterChange(std::string_view value);
+    virtual void onApplyFiltersBtnClick();
+    virtual void onResetFiltersBtnClick();
     virtual bool shouldClose() const;
 
-    virtual std::string deleteTask(std::string_view inputJson);
-    virtual std::string getTask(std::string_view inputJson);
-    virtual std::string queryTasks(std::string_view inputJson);
-    virtual std::string updateTask(std::string_view inputJson);
 };

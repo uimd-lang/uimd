@@ -6,6 +6,7 @@ import sys
 
 _here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(_here)))
+sys.path.insert(0, os.path.join(_here, "task_filters"))
 sys.path.insert(0, os.path.join(_here, "task_list"))
 sys.path.insert(0, os.path.join(_here, "task_dialog"))
 
@@ -21,6 +22,8 @@ DEFAULT_PRIORITY = "Med"
 DEFAULT_STATUS = "Todo"
 DONE_STATUS = "Done"
 CANCELED_STATUS_TEXT = "Action canceled."
+MARK_ALL_DONE_STATUS_TEXT = "All tasks marked done."
+CLEAR_BOARD_STATUS_TEXT = "Board cleared."
 SEED_TASKS = (
     {
         "id": "t-101",
@@ -156,28 +159,22 @@ class TaskBoard(TaskBoardUI):
 
     def open(self):
         super().open()
+        self.filters.child.configure(
+            on_apply=self._refresh_board,
+            on_reset=self._reset_filters_and_refresh,
+        )
         self._tasks = [copy.deepcopy(task) for task in SEED_TASKS]
-        self._refresh_board()
-
-    def on_search_change(self, value):
-        self._refresh_board()
-
-    def on_search_submit(self, value):
-        self._refresh_board()
-
-    def on_status_filter_change(self, value):
-        self._refresh_board()
-
-    def on_owner_filter_change(self, value):
         self._refresh_board()
 
     def on_new_task_btn_click(self):
         if self._app is not None:
             self._app.open(TaskDialog(on_close=self._save_task_from_dialog))
 
-    def on_reset_filters_btn_click(self):
-        self._reset_filters()
-        self._refresh_board()
+    def on_mark_all_done_btn_click(self):
+        self._confirm_mark_all_done()
+
+    def on_clear_board_btn_click(self):
+        self._confirm_clear_board()
 
     def on_quit_btn_click(self):
         if self._app is not None:
@@ -254,10 +251,11 @@ class TaskBoard(TaskBoardUI):
         return result
 
     def _current_filters(self):
+        filters = self._filter_panel
         return {
-            "title": self.search.value,
-            "status": self.status_filter.selected_item or ANY_FILTER,
-            "assignee": self.owner_filter.selected_item or ANY_FILTER,
+            "title": filters.search.value,
+            "status": filters.status_filter.selected_item or ANY_FILTER,
+            "assignee": filters.owner_filter.selected_item or ANY_FILTER,
         }
 
     def _open_task_dialog(self, task):
@@ -303,15 +301,66 @@ class TaskBoard(TaskBoardUI):
             return
         self.delete_task({"id": task_id})
 
+    def _confirm_mark_all_done(self):
+        if self._app is None:
+            return
+        dialog = MessageBoxYesNo(
+            header="Mark All Done",
+            message="Mark every task as done?",
+            on_close=self._mark_all_done_confirmed,
+        )
+        dialog._app = self._app
+        self._app.open(dialog)
+
+    def _mark_all_done_confirmed(self, result):
+        if result != "yes":
+            self.status.text = CANCELED_STATUS_TEXT
+            return
+        for task in self._tasks:
+            task["done"] = True
+            self._sync_done_status(task)
+        self._reset_filters()
+        self._refresh_board()
+        self.status.text = MARK_ALL_DONE_STATUS_TEXT
+
+    def _confirm_clear_board(self):
+        if self._app is None:
+            return
+        dialog = MessageBoxYesNo(
+            header="Clear Board",
+            message="Delete every task from the board?",
+            on_close=self._clear_board_confirmed,
+        )
+        dialog._app = self._app
+        self._app.open(dialog)
+
+    def _clear_board_confirmed(self, result):
+        if result != "yes":
+            self.status.text = CANCELED_STATUS_TEXT
+            return
+        self._tasks = []
+        self._reset_filters()
+        self._refresh_board()
+        self.status.text = CLEAR_BOARD_STATUS_TEXT
+
     def _task_changed(self, task):
         self._sync_done_status(task)
         self.status.text = f"Updated {task.get('title', '')}"
 
+    def _reset_filters_and_refresh(self):
+        self._reset_filters()
+        self._refresh_board()
+
     def _reset_filters(self):
-        self.search.value = ""
-        self.search.cursor_pos = 0
-        self.status_filter.selected_item = ANY_FILTER
-        self.owner_filter.selected_item = ANY_FILTER
+        filters = self._filter_panel
+        filters.search.value = ""
+        filters.search.cursor_pos = 0
+        filters.status_filter.selected_item = ANY_FILTER
+        filters.owner_filter.selected_item = ANY_FILTER
+
+    @property
+    def _filter_panel(self):
+        return self.filters.child
 
     def _task_by_id(self, task_id):
         for task in self._tasks:

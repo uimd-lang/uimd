@@ -510,8 +510,7 @@ void resolveRuntimeCellsWithFitPass(const GeneratedWindowBase& window,
                                Rect cellRect,
                                Size size);
 void syncReusableChildFrames(ReusableElement& reusable, Rect frame);
-void syncWindowElementFramesTo(GeneratedWindowBase& window, Rect frame);
-[[nodiscard]] bool windowElementFramesSyncedTo(const GeneratedWindowBase& window, Rect frame);
+void syncWindowElementFramesTo(GeneratedWindowBase& window, Rect frame, bool forceFullscreenLayout = false);
 
 [[nodiscard]] TerminalCell styledTextCell(char ch, const Style& style) {
     return TerminalCell{
@@ -1216,7 +1215,7 @@ void offsetWindowElementFrames(GeneratedWindowBase& window, Rect origin) {
     }
 }
 
-void syncWindowElementFramesTo(GeneratedWindowBase& window, Rect frame) {
+void syncWindowElementFramesTo(GeneratedWindowBase& window, Rect frame, bool forceFullscreenLayout) {
     const int width = std::max(kMinimumRenderableSize, frame.width);
     const int height = std::max(kMinimumRenderableSize, frame.height);
     const Style& style = window.generatedWindowStyle();
@@ -1228,7 +1227,7 @@ void syncWindowElementFramesTo(GeneratedWindowBase& window, Rect frame) {
         Rect{0, 0, width, height},
         borderWidthHorizontal(style),
         borderWidthVertical(style),
-        windowMode(window),
+        forceFullscreenLayout ? GeneratedWindowMode::Fullscreen : windowMode(window),
         resolvedCells);
 
     for (const GeneratedLayoutEntry& entry : window.generatedLayout()) {
@@ -1284,10 +1283,7 @@ void syncReusableChildFrames(ReusableElement& reusable, Rect frame) {
     if (reusable.child() == nullptr) {
         return;
     }
-    if (windowElementFramesSyncedTo(*reusable.child(), frame)) {
-        return;
-    }
-    syncWindowElementFramesTo(*reusable.child(), frame);
+    syncWindowElementFramesTo(*reusable.child(), frame, true);
 }
 
 [[nodiscard]] int focusIndexForElement(GeneratedWindowBase& window, const Element* target, Element* activeScrollView = nullptr) {
@@ -2069,26 +2065,6 @@ void resolveRuntimeNode(const std::shared_ptr<RuntimeNode>& node, Rect rect, std
 
 [[nodiscard]] int marginLeft(const Style& style) {
     return std::max(0, style.marginLeft.value_or(style.margin.value_or(0)));
-}
-
-[[nodiscard]] bool windowElementFramesSyncedTo(const GeneratedWindowBase& window, Rect frame) {
-    for (const GeneratedLayoutEntry& entry : window.generatedLayout()) {
-        if (entry.name.empty()) {
-            continue;
-        }
-        const Element* element = findElement(window, entry.name);
-        if (element == nullptr) {
-            continue;
-        }
-        const Rect elementFrame = element->frame();
-        if (elementFrame.width <= 0 || elementFrame.height <= 0) {
-            return false;
-        }
-        const int expectedRow = frame.row + entry.sourceCell.row + paddingTop(entry.cellStyle) + entry.relative.row;
-        const int expectedCol = frame.col + entry.sourceCell.col + paddingLeft(entry.cellStyle) + entry.relative.col;
-        return elementFrame.row == expectedRow && elementFrame.col == expectedCol;
-    }
-    return false;
 }
 
 [[nodiscard]] Size layoutSize(const std::shared_ptr<RuntimeNode>& root) {
@@ -3098,7 +3074,8 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
             childActiveScrollViewFocusBackground,
             elementClipTop,
             elementClipBottom,
-            false);
+            false,
+            true);
         if (childActiveScrollViewFocusBackground.has_value() && reusableGeneratedScrollView == nullptr) {
             if (applyChildDescendantFocusBackground) {
                 std::vector<Color> descendantBackgrounds;
@@ -3349,7 +3326,8 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
                     childActiveScrollViewFocusBackground,
                     childClipTop,
                     childClipBottom,
-                    false);
+                    false,
+                    true);
                 if (childDescendantFocusBackground.has_value()) {
                     if (reusableGeneratedScrollView == nullptr) {
                         std::vector<Color> descendantBackgrounds;
@@ -6126,6 +6104,34 @@ private:
         activeEditModeRef(window) = false;
     }
 
+    [[nodiscard]] bool focusIdentityPresentIn(GeneratedWindowBase& window,
+                                              Element* activeScrollView,
+                                              FocusIdentity previous) const {
+        if (previous.element == nullptr) {
+            return true;
+        }
+        const std::vector<Element*> focusable = focusableElements(window, activeScrollView);
+        for (const Element* element : focusable) {
+            if (element == previous.element && element->identity() == previous.identity) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void clearRemovedBackgroundScrollViewScope(GeneratedWindowBase& window, Element* activeScrollView) {
+        if (activeScrollView != nullptr) {
+            scrollViewLastDescendant_.erase(activeScrollView);
+        }
+        editSnapshot_.reset();
+        activeEditModeRef(window) = false;
+        activeScrollView_ = nullptr;
+        activeScrollViewEditElement_ = nullptr;
+        state_.activeScrollView = nullptr;
+        state_.activeScrollViewEditElement = nullptr;
+        focusedIndexRef(window) = -1;
+    }
+
     struct BackgroundFocusCleanupContext {
         bool hadActiveStackFrame = false;
         FocusIdentity focused;
@@ -6144,6 +6150,11 @@ private:
 
     void cleanupBackgroundFocusAfterModalClose(const BackgroundFocusCleanupContext& context) {
         if (!context.hadActiveStackFrame || &activeWindow() != &window_) {
+            return;
+        }
+        Element* activeScrollView = activeScrollViewForWindow(window_);
+        if (activeScrollView != nullptr && !focusIdentityPresentIn(window_, activeScrollView, context.focused)) {
+            clearRemovedBackgroundScrollViewScope(window_, activeScrollView);
             return;
         }
         exitBackgroundEditModeAfterModalClose(window_);
@@ -6561,9 +6572,7 @@ private:
             const std::string activatedName = element->name();
             GeneratedWindowBase* activatedWindow = &window;
             const bool hadActiveStackFrame = activeStackFrame() != nullptr;
-            const std::vector<Element*> backgroundFocusable =
-                hadActiveStackFrame ? focusableElements(window_, activeScrollViewForWindow(window_)) : std::vector<Element*>{};
-            const FocusIdentity backgroundFocused = hadActiveStackFrame ? focusIdentityFor(window_, backgroundFocusable) : FocusIdentity{};
+            const BackgroundFocusCleanupContext cleanupContext = captureBackgroundFocusCleanupContext();
             if (activeStackFrame() != nullptr) {
                 delayModalButtonActionForVisibleFocus();
             }
@@ -6575,8 +6584,7 @@ private:
                 (void)handleActiveFrameButton(activatedName);
             }
             if (hadActiveStackFrame && &activeWindow() == &window_) {
-                exitBackgroundEditModeAfterModalClose(window_);
-                clearFocusIfElementRemoved(window_, backgroundFocused);
+                cleanupBackgroundFocusAfterModalClose(cleanupContext);
             }
             state_.fullRedrawRequested = true;
             if (&activeWindow() == activatedWindow) {
@@ -6942,9 +6950,7 @@ private:
             moveFocusSpatial(focusedIndex, focusable, key);
         } else if (focused != nullptr && (key == "Enter" || key == " ")) {
             const bool hadActiveStackFrame = isButton(*focused) && activeStackFrame() != nullptr;
-            const std::vector<Element*> backgroundFocusable =
-                hadActiveStackFrame ? focusableElements(window_, activeScrollViewForWindow(window_)) : std::vector<Element*>{};
-            const FocusIdentity backgroundFocused = hadActiveStackFrame ? focusIdentityFor(window_, backgroundFocusable) : FocusIdentity{};
+            const BackgroundFocusCleanupContext cleanupContext = captureBackgroundFocusCleanupContext();
             if (isButton(*focused) && activeStackFrame() != nullptr) {
                 delayModalButtonActionForVisibleFocus();
             }
@@ -6954,8 +6960,7 @@ private:
             if (isButton(*focused)) {
                 (void)handleActiveFrameButton(focused->name());
                 if (hadActiveStackFrame && &activeWindow() == &window_) {
-                    exitBackgroundEditModeAfterModalClose(window_);
-                    clearFocusIfElementRemoved(window_, backgroundFocused);
+                    cleanupBackgroundFocusAfterModalClose(cleanupContext);
                 }
             } else if (isClickableImage(*focused)) {
                 (void)handleActiveFrameButton(focused->name());
@@ -8402,7 +8407,8 @@ RenderedContent renderGeneratedWindowContent(GeneratedWindowBase& window, Size s
                                              std::optional<Color> activeScrollViewFocusBackground,
                                              std::optional<int> clipTop,
                                              std::optional<int> clipBottom,
-                                             bool applyActiveScrollViewDim) {
+                                             bool applyActiveScrollViewDim,
+                                             bool forceFullscreenLayout) {
     const int width = std::max(kMinimumRenderableSize, size.width);
     const int height = std::max(kMinimumRenderableSize, size.height);
     Element* effectiveActiveScrollView = activeScrollView;
@@ -8431,7 +8437,7 @@ RenderedContent renderGeneratedWindowContent(GeneratedWindowBase& window, Size s
     std::vector<ResolvedRuntimeCell> resolvedCells;
     const int horizontalSeparator = borderWidthHorizontal(style);
     const int verticalSeparator = borderWidthVertical(style);
-    const GeneratedWindowMode mode = windowMode(window);
+    const GeneratedWindowMode mode = forceFullscreenLayout ? GeneratedWindowMode::Fullscreen : windowMode(window);
     resolveRuntimeCellsWithFitPass(window, runtimeCells, content, horizontalSeparator, verticalSeparator,
                                    mode, resolvedCells);
     std::vector<const ResolvedRuntimeCell*> paintedCells;

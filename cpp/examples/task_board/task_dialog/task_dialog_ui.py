@@ -1,6 +1,6 @@
 """Auto-generated UI code for task_dialog_ui.py - DO NOT EDIT MANUALLY."""
 
-from runtime import UIWindow
+from uimd.runtime import UIWindow
 
 
 
@@ -19,6 +19,10 @@ class TaskDialogUI(UIWindow):
             members=COMPILED_MEMBERS,
             style=COMPILED_STYLE
         )
+        self.focusable = False
+        self._metadata_kind = 'dialog'
+        if self._metadata_kind == "dialog":
+            self.mode = "dialog"
 
         self.add_btn = self.create_element("add_btn", "button", title='Save task')
         self.cancel_btn = self.create_element("cancel_btn", "button", title='Cancel')
@@ -201,6 +205,8 @@ COMPILED_STYLE = {
     "textinput": {
         "background": '#0f172a',
         "color": '#e5e7eb',
+        "disabled-background": '#0b1220',
+        "disabled-color": '#64748b',
         "focus-background": '#1e293b',
         "focus-color": '#ffffff',
         "edit-background": '#111827',
@@ -213,6 +219,8 @@ COMPILED_STYLE = {
     "numberinput": {
         "background": '#0d1524',
         "color": '#e5e7eb',
+        "disabled-background": '#0b1220',
+        "disabled-color": '#64748b',
         "focus-background": '#243a5c',
         "focus-color": '#ffffff',
         "edit-background": '#2d456d',
@@ -223,6 +231,8 @@ COMPILED_STYLE = {
     "combobox": {
         "background": '#0f172a',
         "color": '#e5e7eb',
+        "disabled-background": '#0b1220',
+        "disabled-color": '#64748b',
         "focus-background": '#1e293b',
         "focus-color": '#ffffff',
         "edit-background": '#111827',
@@ -233,6 +243,7 @@ COMPILED_STYLE = {
     "listbox": {
         "background": '#0d1524',
         "color": '#cbd5e1',
+        "disabled-color": '#64748b',
         "focus-background": '#1d2f4d',
         "focus-color": '#ffffff',
         "edit-background": '#243a5c',
@@ -255,7 +266,9 @@ COMPILED_STYLE = {
     "checkbox": {
         "background": 'transparent',
         "color": '#b8c4d8',
-        "focus-color": '#66aaff',
+        "disabled-color": '#64748b',
+        "focus-background": '#ffffff44',
+        "focus-color": '#ffffff',
         "checked-background": 'transparent',
         "checked-color": '#44cc88',
         "unchecked-background": 'transparent',
@@ -263,6 +276,8 @@ COMPILED_STYLE = {
     "button": {
         "background": '#334155',
         "color": '#e2e8f0',
+        "disabled-background": '#1f2937',
+        "disabled-color": '#64748b',
         "focus-background": '#2563eb',
         "focus-color": '#ffffff',
     },

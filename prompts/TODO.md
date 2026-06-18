@@ -4,6 +4,178 @@
 
 Date: 2026-06-05
 
+- [x] **Expense tracker modal delete leaves Python/C++ scrollview gap
+  background mismatch**. `tests/mcp/expense_tracker_compare.yaml` fails after
+  activating `yes_btn` in the delete confirmation: snapshot
+  `tests/mcp/snapshots/20260619-004848-step-18-expense_tracker_compare.json`
+  reports row 12 col 28 background `#172033` on C++ versus `#293143` on Python
+  in the empty scrollview gap above the first expense row. This is a
+  parity-sensitive runtime/render cleanup issue, not an example-specific
+  workaround. Audit Python `UIScrollView` selected/focus background rendering in
+  `src/uimd/runtime/UIScrollView.py` and `src/uimd/runtime/UIBase.py` against
+  C++ scrollview/render behavior in `cpp/src/elements/ScrollView.cpp` and
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`. Repro:
+  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
+  python/examples/expense_tracker/expense_tracker.py
+  cpp/build/examples/expense_tracker/expense_tracker
+  tests/mcp/expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast`.
+  Snapshot viewer: `python3 tools/mcp_snapshot_viewer.py
+  tests/mcp/snapshots/20260619-004848-step-18-expense_tracker_compare.json
+  --plain`. Fixed by clearing the scrollview pending proxy-focus restore flag
+  whenever shared Python descendant focus cleanup runs, so a render/snapshot
+  cannot resurrect a scrollview proxy focus after the previously focused child
+  was deleted. This matches the C++ runtime cleanup model, where
+  `clearRemovedBackgroundScrollViewScope` removes the active scrollview scope
+  and does not have a render-time proxy-focus restore path. Validation passed:
+  Python bytecode compilation, `git diff --check`, and
+  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
+  python/examples/expense_tracker/expense_tracker.py
+  cpp/build/examples/expense_tracker/expense_tracker
+  tests/mcp/expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast`
+  with `64 asserts passed, 0 failed, 0 step failures`. Post-fix validation
+  also passed: `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build
+  --output-on-failure` with `26/26` tests, `env UIMD_DISABLE_SIXEL=1 ./uimd
+  mcp-test --compare python/examples/task_board/task_board.py
+  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
+  --compare-app-size 90x35 --mcp-fast` with `144 asserts passed`, and the
+  expense compare rerun after the rebuild with `64 asserts passed`.
+- [x] **Task board filter apply/reset-only behavior polish**. Adjust the
+  reusable `task_filters` component so changing `search`, `status_filter`, or
+  `owner_filter` does not refresh the board automatically; only `Apply filter`
+  and `Reset` may apply filtering. Update the filter layout so there are two
+  spaces between `Apply filter` and `Reset`, with one empty row below the button
+  row. Keep Python/C++ `.uimd` sources equivalent, regenerate affected outputs,
+  rebuild C++, and rerun focused validation. Implemented with matching Python
+  and C++ callback wrappers that no longer override text/selection change
+  events, updated MCP steps to activate `filters.apply_filters_btn` explicitly,
+  and regenerated affected Python/C++ outputs. Validation passed: Python
+  bytecode compilation, C++ rebuild, C++ `--smoke`, C++ `--logic-test`, Python
+  single-app MCP, C++ single-app MCP, and `git diff --check`. Cross-platform
+  compare was rerun and still fails on the separate reusable-layout parity bug
+  logged below.
+- [x] **Task board reusable flatscraper-style filter component**. Correct the
+  `task_board` filter example structure so it matches the flatscraper admin
+  pattern: filters live in a separate reusable `.uimd` control with its own
+  label/input/action layout, and the main `task_board.uimd` only hosts that
+  control above the board. Keep Python `.uimd` files as the reference and make
+  the C++ `.uimd` copies byte-for-byte equivalent. Parity decision: this is a
+  cross-platform example/component architecture change; behavior must remain the
+  same on Python and C++, with callbacks moved into matching Python/C++ filter
+  component wrappers. Implemented `task_filters/task_filters.uimd` and matching
+  Python/C++ wrappers, replaced inline filter controls in `task_board.uimd` with
+  a reusable `filters` host, regenerated Python and C++ outputs, rebuilt the C++
+  `task_board` example, and updated MCP coverage to address nested
+  `filters.*` element IDs. Validation passed: Python bytecode compilation,
+  C++ `--smoke`, C++ `--logic-test`, Python single-app MCP, and C++ single-app
+  MCP with `72 asserts passed, 0 failed, 0 step failures`. Cross-platform
+  compare was rerun and failed on the separate reusable-layout parity bug
+  logged below.
+- [x] **Task board reusable filter expanded column layout parity**. The new
+  flatscraper-style reusable `task_filters` control exposes a Python/C++ layout
+  parity bug at the initial compare snapshot: C++ renders `status_label` at
+  row 2 col 30, while Python has expanded the first filter column and renders a
+  blank cell there. The mismatch is `expected char=S ... got char= ` in
+  `tests/mcp/snapshots/20260618-234411-step-1-task_board_compare.json`.
+  Python `.uimd` source remains the reference; audit Python runtime reusable
+  layout sizing in `src/uimd/runtime/UIBase.py::_resolve_layout_geometry` and
+  `src/uimd/runtime/elements.py::UIElementReusable.render` against C++ runtime
+  layout/rendering in `cpp/src/generated/GeneratedWindowRuntime.cpp`
+  (`resolveRuntimeCellsWithFitPass`, `renderColFor`,
+  `syncReusableChildFrames`, and `renderGeneratedWindowContent`) before changing
+  examples, tests, or snapshots. Repro:
+  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
+  python/examples/task_board/task_board.py
+  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
+  --compare-app-size 90x35 --mcp-fast`. Snapshot viewer:
+  `python3 tools/mcp_snapshot_viewer.py
+  tests/mcp/snapshots/20260618-234411-step-1-task_board_compare.json --plain`.
+  Fixed by rendering and syncing C++ reusable child windows with forced
+  fullscreen layout, matching Python `UIElementReusable` child layout behavior.
+  Validation passed: `cmake --build cpp/build --target task_board`,
+  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
+  python/examples/task_board/task_board.py
+  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
+  --compare-app-size 90x35 --mcp-fast` with `144 asserts passed, 0 failed,
+  0 step failures`, `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build
+  --output-on-failure` with `26/26` tests passed, and `git diff --check`.
+- [x] **Task board filter bar exact flatscraper structure sync**. The Python
+  `task_board.uimd` was manually corrected to match the flatscraper admin filter
+  bar structure more closely, with label/input rows, a spacer row, and
+  Apply/Reset actions below. Sync the C++ `.uimd` source byte-for-byte to that
+  Python reference, regenerate both generated outputs, rebuild `task_board`, and
+  rerun focused validation. Parity decision: this is an example/layout sync only;
+  Python `.uimd` is the reference and runtime behavior remains unchanged.
+  Validation passed: `.uimd` byte-for-byte identity, 80-column UI rows,
+  regenerated Python and C++ outputs, rebuilt `task_board`, passed C++ smoke and
+  logic tests, passed Python bytecode compilation, and passed Python-only and
+  C++-only MCP runs with `72 asserts passed, 0 failed, 0 step failures`.
+  Cross-platform compare was rerun and failed on the separate layout parity bug
+  logged above.
+- [x] **C++ task board render snapshot keeps focused ScrollView background after
+  modal close**. The updated `task_board` compare now exposes a runtime render
+  parity issue after saving through the task dialog: C++ `get_render_snapshot`
+  keeps `board` focus background `#07111f` on row 14 col 27 while Python renders
+  the same cell with base board background `#030712`. Python runtime behavior is
+  the reference; audit Python modal-close/focus rendering in
+  `src/uimd/runtime` against the C++ generated runtime path in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp` before changing tests or
+  snapshots. Repro:
+  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
+  python/examples/task_board/task_board.py
+  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
+  --compare-app-size 90x35 --mcp-fast`. Snapshot viewer:
+  `python3 tools/mcp_snapshot_viewer.py
+  tests/mcp/snapshots/20260618-224235-step-72-task_board_compare.json`.
+  Fixed by using the shared C++ modal-close background focus cleanup path from
+  MCP button activation and by clearing removed active scrollview descendant
+  focus before restoring a proxy. Validation passed in the full task board
+  compare with `144 asserts passed, 0 failed, 0 step failures`,
+  `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build --output-on-failure`
+  with `26/26` tests passed, and `git diff --check`.
+- [x] **Python MCP modal callback restores stale ScrollView descendant focus
+  after bulk refresh**. After fixing the C++ modal-close cleanup path, the
+  `task_board` compare now reaches the later `mark_all_done_btn` confirmation
+  and Python renders a stale focused `board[0].delete_btn` after the bulk
+  action rebuilds the scrollview children, while C++ leaves focus on
+  `mark_all_done_btn`. Python cleanup should not restore a deleted scrollview
+  descendant when the active focus is outside that scrollview. Audit Python
+  focus cleanup in `src/uimd/runtime/UIBase.py`,
+  `src/uimd/runtime/UIScrollView.py`, and `src/uimd/runtime/mcp.py` against the
+  C++ generated runtime modal cleanup in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`; keep the same user-visible
+  state after modal callbacks and scrollview child refreshes. Repro:
+  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
+  python/examples/task_board/task_board.py
+  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
+  --compare-app-size 90x35 --mcp-fast`. Snapshot viewer:
+  `python3 tools/mcp_snapshot_viewer.py
+  tests/mcp/snapshots/20260619-002312-step-107-task_board_compare.json
+  --plain`. Fixed by making Python `UIScrollView.clear_children()` restore a
+  removed child focus only when the current owner focus or active scrollview
+  scope belongs to that scrollview; stale descendant focus from inactive
+  scrollviews is now cleared instead of restored onto newly rebuilt rows.
+  Validation passed: Python runtime bytecode compilation, full task board
+  Python/C++ compare with `144 asserts passed, 0 failed, 0 step failures`,
+  `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build --output-on-failure`
+  with `26/26` tests passed, and `git diff --check`.
+- [x] **Task board filter bar parity repro layout**. Move the existing
+  `task_board` filter controls out of the left panel and into a top filter bar
+  with Apply and Reset actions, matching the flatscraper admin filter structure
+  closely enough to exercise the same Python/C++ render parity surface. Keep
+  the left panel useful with task actions, including confirmed bulk actions for
+  marking all tasks done and clearing the board. Keep the Python and C++
+  `.uimd` sources byte-for-byte equivalent, regenerate both generated outputs,
+  rebuild the C++ example, and rerun the existing `task_board` MCP compare with
+  `--compare-app-size 90x35`. Parity decision: this is a cross-platform
+  example/layout change only; runtime behavior should remain unchanged, but the
+  top filter row intentionally provides coverage for TextInput/ComboBox
+  background rendering inside a dynamic scrollview example. Implementation and
+  single-runtime validation are done: regenerated Python and C++ outputs,
+  rebuilt `task_board`, passed C++ smoke and logic tests, passed Python bytecode
+  compilation, and passed the updated `task_board_compare.yaml` on Python-only
+  and C++-only MCP runs with `72 asserts passed, 0 failed, 0 step failures`.
+  Cross-platform compare was rerun and failed on the separate C++ render parity
+  bug logged above.
 - [x] **Formular MCP dropdown click regression after sync**. The full MCP
   compare suite fails in `tests/mcp/formular.yaml` because the mouse click that
   should choose `Hungary` still targets an old blank row after the combobox is

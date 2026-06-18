@@ -1,0 +1,132 @@
+# Task Filters
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+status: draft
+description: "Reusable task board filter panel."
+tags: [component, example]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+filters_label:
+  type: label
+  text: FILTERS
+  description: "Filter panel label."
+  expose: false
+
+search_label:
+  type: label
+  text: Search
+  description: "Search filter label."
+  expose: false
+
+status_label:
+  type: label
+  text: Status
+  description: "Status filter label."
+  expose: false
+
+owner_label:
+  type: label
+  text: Assignee
+  description: "Assignee filter label."
+  expose: false
+
+search:
+  type: textinput
+  value: ""
+  maxlength: 60
+  placeholder: "Task title or description"
+  description: "Filter tasks by title or description."
+
+status_filter:
+  type: combobox
+  options: [Any, Todo, Doing, Blocked, Done]
+  selected_item: Any
+  description: "Filter tasks by status."
+
+owner_filter:
+  type: combobox
+  options: [Any, Ava, Bruno, Chen, Dana]
+  selected_item: Any
+  description: "Filter tasks by assignee."
+
+apply_filters_btn:
+  type: button
+  title: "Apply filter"
+  description: "Apply the current task filters."
+
+reset_filters_btn:
+  type: button
+  title: Reset
+  description: "Reset search, status, and assignee filters."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  background: "#15171c"
+  border-width: 0
+label:
+  color: "#f5f5f5"
+textinput:
+  background: "#252b35"
+  color: "#ffffff"
+  focus-background: "#303a49"
+  edit-background: "#344459"
+  cursor-background: "#93c5fd"
+  cursor-color: "#ffffff"
+combobox:
+  background: "#252b35"
+  color: "#ffffff"
+  focus-background: "#303a49"
+  edit-background: "#344459"
+  selected-background: "#2f80ed"
+  selected-color: "#ffffff"
+button:
+  background: "#2f3545"
+  color: "#f5f5f5"
+  focus-background: "#2f80ed"
+@filters_label:
+  color: "#aab2c3"
+@search_label:
+  color: "#cfd5e3"
+@status_label:
+  color: "#cfd5e3"
+@owner_label:
+  color: "#cfd5e3"
+@apply_filters_btn:
+  background: "#2f80ed"
+  focus-background: "#1d6fd8"
+@reset_filters_btn:
+  background: "#343b4b"
+```
+
+## User Interface
+
+```ui
++-**---------------------------------------------------------------------------+
+|filters_label..**.............................................................|
++----------------------------+----------------------+--------------------------+
+|search_label..**........... | status_label..**.... | owner_label..**......... |
+|search..**................. | status_filter.**.... | owner_filter..**........ |
++-**-------------------------+----------------------+--------------------------+
+|                                                                              |
+|apply_filters_btn.....  reset_filters_btn.....                                |
+|                                                                              |
++------------------------------------------------------------------------------+
+```

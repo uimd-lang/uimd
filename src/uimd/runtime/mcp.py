@@ -1037,6 +1037,7 @@ class MCPController:
             return []
         scopes = []
         seen = set()
+        active_focus = getattr(window, "_focused_element", None)
 
         def visit(view):
             if view is None or id(view) in seen:
@@ -1044,20 +1045,26 @@ class MCPController:
             seen.add(id(view))
             scope = getattr(view, "_active_scrollview_scope", None)
             if scope is not None:
-                focusable_index = None
                 focused = getattr(view, "_focused_element", None)
-                if hasattr(view, "get_focusable_elements") and focused is not None:
-                    try:
-                        focusable_index = view.get_focusable_elements().index(focused)
-                    except ValueError:
-                        focusable_index = None
+                proxy = scope.get("proxy")
+                scrollview = scope.get("scrollview")
+                if focused is proxy and scrollview is not None:
+                    last_descendant = getattr(view, "_scrollview_last_descendant", None)
+                    if isinstance(last_descendant, dict):
+                        focused = last_descendant.get(id(scrollview), focused)
+                if (
+                    active_focus is not None
+                    and focused is not active_focus
+                    and proxy is not active_focus
+                ):
+                    focused = None
+                    proxy = None
                 scopes.append({
                     "owner": view,
-                    "proxy": scope.get("proxy"),
-                    "scrollview": scope.get("scrollview"),
+                    "proxy": proxy,
+                    "scrollview": scrollview,
                     "scrollview_rect": scope.get("scrollview_rect"),
                     "focused": focused,
-                    "focused_index": focusable_index,
                 })
             for element in getattr(view, "_elements", {}).values():
                 current_view = element.current_view() if hasattr(element, "current_view") else None
@@ -1085,7 +1092,10 @@ class MCPController:
             if owner is None or proxy is None or scrollview is None:
                 continue
             if not self._scrollview_scope_focused_element_present(owner, scope):
-                if getattr(scrollview, "_pending_proxy_focus_restore", False):
+                if (
+                    getattr(scrollview, "_pending_proxy_focus_restore", False)
+                    and scope.get("focused") is proxy
+                ):
                     if hasattr(owner, "_clear_descendant_focus_state"):
                         owner._clear_descendant_focus_state(scrollview)
                     owner._active_scrollview_scope = None
@@ -1149,21 +1159,7 @@ class MCPController:
             origin_rect,
             visible_only=False,
         )
-        if any(context.get("element") is focused for context in contexts):
-            return True
-        return self._scope_navigation_focus_fallback_present(owner, scope)
-
-    def _scope_navigation_focus_fallback_present(self, owner, scope):
-        focused_index = scope.get("focused_index")
-        if focused_index is None or not hasattr(owner, "get_focusable_elements"):
-            return False
-        previous_scope = getattr(owner, "_active_scrollview_scope", None)
-        try:
-            owner._active_scrollview_scope = None
-            focusable = owner.get_focusable_elements()
-        finally:
-            owner._active_scrollview_scope = previous_scope
-        return 0 <= focused_index < len(focusable)
+        return any(context.get("element") is focused for context in contexts)
 
     def _clear_removed_scrollview_scope(self, owner, proxy, scrollview):
         focused = getattr(owner, "_focused_element", None)
@@ -1764,6 +1760,7 @@ class MCPController:
         return f"#{int(red):02x}{int(green):02x}{int(blue):02x}"
 
     def _after_action(self):
+        self._cleanup_active_window_orphaned_focus()
         self.app.mark_dirty()
         if self.config.wait_render:
             if self.config.gui and sys.stdout.isatty():
@@ -1771,6 +1768,15 @@ class MCPController:
             else:
                 self._render_lines()
             self.app.clear_dirty()
+
+    def _cleanup_active_window_orphaned_focus(self):
+        window = self.app.active_window
+        if window is None:
+            return
+        cleanup = getattr(window, "_clear_orphaned_reusable_focus", None)
+        if not callable(cleanup):
+            return
+        cleanup(getattr(window, "_focused_element", None))
 
     def _action_delay(self):
         _sleep_ms(self.config.action_delay_ms)

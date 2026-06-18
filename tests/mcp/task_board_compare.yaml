@@ -120,19 +120,22 @@
 
     - tool: set_text
       arguments:
-        element_id: search
+        element_id: filters.search
         text: Clean
       assert:
         value: Clean
     - tool: ui.set_value
       arguments:
-        element_id: status_filter
+        element_id: filters.status_filter
         value: Todo
     - tool: get_element
       arguments:
-        element_id: status_filter
+        element_id: filters.status_filter
       assert:
         value: Todo
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -141,7 +144,7 @@
     - tool: get_render_snapshot
     - tool: activate_element
       arguments:
-        element_id: reset_filters_btn
+        element_id: filters.reset_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -165,16 +168,19 @@
     - tool: get_render_snapshot
     - tool: focus_element
       arguments:
-        element_id: status_filter
+        element_id: filters.status_filter
     - tool: ui.set_value
       arguments:
-        element_id: status_filter
+        element_id: filters.status_filter
         value: Done
     - tool: get_element
       arguments:
-        element_id: status_filter
+        element_id: filters.status_filter
       assert:
         value: Done
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -183,7 +189,7 @@
     - tool: get_render_snapshot
     - tool: activate_element
       arguments:
-        element_id: reset_filters_btn
+        element_id: filters.reset_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -237,10 +243,13 @@
         element_id: add_btn
     - tool: set_text
       arguments:
-        element_id: search
+        element_id: filters.search
         text: QA smoke scenario
       assert:
         value: QA smoke scenario
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -248,7 +257,7 @@
         value: "1 visible / 15 total"
     - tool: activate_element
       arguments:
-        element_id: reset_filters_btn
+        element_id: filters.reset_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -258,10 +267,13 @@
 
     - tool: set_text
       arguments:
-        element_id: search
+        element_id: filters.search
         text: QA smoke scenario
       assert:
         value: QA smoke scenario
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: activate_element
       arguments:
         element_id: board[0].open_btn
@@ -300,10 +312,13 @@
         element_id: add_btn
     - tool: set_text
       arguments:
-        element_id: search
+        element_id: filters.search
         text: QA smoke scenario edited
       assert:
         value: QA smoke scenario edited
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -313,10 +328,13 @@
 
     - tool: set_text
       arguments:
-        element_id: search
+        element_id: filters.search
         text: QA smoke scenario edited
       assert:
         value: QA smoke scenario edited
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: activate_element
       arguments:
         element_id: board[0].delete_btn
@@ -330,10 +348,13 @@
         value: Action canceled.
     - tool: set_text
       arguments:
-        element_id: search
+        element_id: filters.search
         text: QA smoke scenario edited
       assert:
         value: QA smoke scenario edited
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -347,10 +368,13 @@
         element_id: yes_btn
     - tool: set_text
       arguments:
-        element_id: search
+        element_id: filters.search
         text: QA smoke scenario edited
       assert:
         value: QA smoke scenario edited
+    - tool: activate_element
+      arguments:
+        element_id: filters.apply_filters_btn
     - tool: get_element
       arguments:
         element_id: status
@@ -395,3 +419,93 @@
         id: t-112
       assert:
         task: null
+
+    - tool: activate_element
+      arguments:
+        element_id: mark_all_done_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: get_element
+      arguments:
+        element_id: dialog_header
+      assert:
+        value: Mark All Done
+    - tool: get_element
+      arguments:
+        element_id: message
+      assert:
+        value: Mark every task as done?
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Action canceled.
+    - tool: activate_element
+      arguments:
+        element_id: mark_all_done_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: yes_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: All tasks marked done.
+    - tool: query_tasks
+      arguments:
+        done: false
+      assert:
+        tasks: []
+
+    - tool: activate_element
+      arguments:
+        element_id: clear_board_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: get_element
+      arguments:
+        element_id: dialog_header
+      assert:
+        value: Clear Board
+    - tool: get_element
+      arguments:
+        element_id: message
+      assert:
+        value: Delete every task from the board?
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Action canceled.
+    - tool: activate_element
+      arguments:
+        element_id: clear_board_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
+    - tool: activate_element
+      arguments:
+        element_id: yes_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Board cleared.
+    - tool: query_tasks
+      assert:
+        tasks: []

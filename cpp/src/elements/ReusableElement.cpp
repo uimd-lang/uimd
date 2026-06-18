@@ -20,7 +20,19 @@ RenderedContent ReusableElement::render(Size size, ElementRenderState state) con
     if (child_ == nullptr) {
         return renderPlainText("", size.width, size.height, effectiveStyle(state.focused, state.editMode));
     }
-    return renderGeneratedWindowContent(*child_, size);
+    return renderGeneratedWindowContent(
+        *child_,
+        size,
+        -1,
+        false,
+        nullptr,
+        nullptr,
+        nullptr,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        true,
+        true);
 }
 
 ViewHost::ViewHost(std::string name)

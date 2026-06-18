@@ -2,6 +2,7 @@
 
 #include "message_box.hpp"
 #include "task_dialog/task_dialog.hpp"
+#include "task_filters/task_filters.hpp"
 #include "task_list/task_list.hpp"
 #include "ui/generated/GeneratedWindowRuntime.hpp"
 
@@ -15,6 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace
@@ -27,6 +29,8 @@ constexpr std::string_view kDefaultStatus = "Todo";
 constexpr std::string_view kDoneStatus = "Done";
 constexpr std::string_view kTaskIdPrefix = "t-";
 constexpr std::string_view kCanceledStatusText = "Action canceled.";
+constexpr std::string_view kMarkAllDoneStatusText = "All tasks marked done.";
+constexpr std::string_view kClearBoardStatusText = "Board cleared.";
 constexpr int kInitialTaskNumberBase = 100;
 constexpr int kSmokeRenderWidth = 112;
 constexpr int kSmokeRenderHeight = 38;
@@ -52,6 +56,13 @@ struct SeedTask
     std::string_view priority;
     std::string_view description;
     bool done = false;
+};
+
+enum class BulkAction
+{
+    None,
+    MarkAllDone,
+    ClearBoard,
 };
 
 constexpr std::array<SeedTask, kSeedTaskCount> kSeedTasks{{
@@ -306,6 +317,16 @@ public:
     void open()
     {
         tasks_ = seedTasks();
+        filterPanel().setCallbacks(
+            [this]
+            {
+                refreshBoard();
+            },
+            [this]
+            {
+                resetFilters();
+                refreshBoard();
+            });
         taskList().setRowsProvider([this]
         {
             return visibleRows();
@@ -348,10 +369,22 @@ public:
 
     void button(std::string_view name)
     {
-        if (name == "reset_filters_btn")
+        if (name == "apply_filters_btn")
+        {
+            refreshBoard();
+        }
+        else if (name == "reset_filters_btn")
         {
             resetFilters();
             refreshBoard();
+        }
+        else if (name == "mark_all_done_btn")
+        {
+            confirmMarkAllDone();
+        }
+        else if (name == "clear_board_btn")
+        {
+            confirmClearBoard();
         }
         else if (name == "new_task_btn")
         {
@@ -368,9 +401,9 @@ public:
         saveTask(result);
     }
 
-    void refreshForTest()
+    void setSearchForTest(std::string_view value)
     {
-        refreshBoard();
+        filterPanel().search->setValue(std::string{value});
     }
 
     [[nodiscard]] ui::GeneratedWindowRuntimeOptions runtimeOptions() override
@@ -381,30 +414,14 @@ public:
     }
 
 protected:
-    void onSearchChange(std::string_view) override
+    void onMarkAllDoneBtnClick() override
     {
-        refreshBoard();
+        confirmMarkAllDone();
     }
 
-    void onSearchSubmit(std::string_view) override
+    void onClearBoardBtnClick() override
     {
-        refreshBoard();
-    }
-
-    void onStatusFilterChange(std::string_view) override
-    {
-        refreshBoard();
-    }
-
-    void onOwnerFilterChange(std::string_view) override
-    {
-        refreshBoard();
-    }
-
-    void onResetFiltersBtnClick() override
-    {
-        resetFilters();
-        refreshBoard();
+        confirmClearBoard();
     }
 
     void onNewTaskBtnClick() override
@@ -504,6 +521,26 @@ protected:
     }
 
 private:
+    [[nodiscard]] task_board_example::TaskFilters& filterPanel()
+    {
+        auto* panel = dynamic_cast<task_board_example::TaskFilters*>(filters->child());
+        if (panel == nullptr)
+        {
+            throw std::runtime_error("Task filter child is not initialized.");
+        }
+        return *panel;
+    }
+
+    [[nodiscard]] const task_board_example::TaskFilters& filterPanel() const
+    {
+        auto* panel = dynamic_cast<const task_board_example::TaskFilters*>(filters->child());
+        if (panel == nullptr)
+        {
+            throw std::runtime_error("Task filter child is not initialized.");
+        }
+        return *panel;
+    }
+
     [[nodiscard]] task_board_example::TaskList& taskList()
     {
         auto* list = dynamic_cast<task_board_example::TaskList*>(board->child());
@@ -526,9 +563,10 @@ private:
 
     [[nodiscard]] std::vector<const Task*> matchingTasks() const
     {
-        const std::string query = search->value();
-        const std::string statusFilter = selectedComboValue(*status_filter, kAnyFilter);
-        const std::string assigneeFilter = selectedComboValue(*owner_filter, kAnyFilter);
+        const task_board_example::TaskFilters& panel = filterPanel();
+        const std::string query = panel.search->value();
+        const std::string statusFilter = selectedComboValue(*panel.status_filter, kAnyFilter);
+        const std::string assigneeFilter = selectedComboValue(*panel.owner_filter, kAnyFilter);
 
         std::vector<const Task*> records;
         for (const Task& task : tasks_)
@@ -615,10 +653,96 @@ private:
 
     void resetFilters()
     {
-        search->setValue("");
-        search->setCursor(0);
-        selectComboValue(*status_filter, kAnyFilter);
-        selectComboValue(*owner_filter, kAnyFilter);
+        task_board_example::TaskFilters& panel = filterPanel();
+        panel.search->setValue("");
+        panel.search->setCursor(0);
+        selectComboValue(*panel.status_filter, kAnyFilter);
+        selectComboValue(*panel.owner_filter, kAnyFilter);
+    }
+
+    void confirmMarkAllDone()
+    {
+        openBulkActionDialog(BulkAction::MarkAllDone, "Mark All Done", "Mark every task as done?");
+    }
+
+    void confirmClearBoard()
+    {
+        openBulkActionDialog(BulkAction::ClearBoard, "Clear Board", "Delete every task from the board?");
+    }
+
+    void openBulkActionDialog(BulkAction action, std::string title, std::string message)
+    {
+        pendingBulkAction_ = action;
+        bulkActionDialog_ = std::make_unique<ui::dialogs::MessageBoxYesNo>(
+            std::move(title),
+            std::move(message));
+
+        ui::GeneratedWindowFrameOptions frame;
+        frame.className = "MessageBoxYesNo";
+        frame.initialFocusName = "no_btn";
+        frame.onButton = [this](std::string_view name)
+        {
+            if (name == "yes_btn")
+            {
+                bulkActionConfirmed(true);
+            }
+            else if (name == "no_btn")
+            {
+                bulkActionConfirmed(false);
+            }
+        };
+        modalStack_.push(*bulkActionDialog_, std::move(frame));
+    }
+
+    void bulkActionConfirmed(bool confirmed)
+    {
+        const BulkAction action = pendingBulkAction_;
+        closeBulkActionDialog();
+        if (!confirmed)
+        {
+            status->setText(std::string{kCanceledStatusText});
+            return;
+        }
+
+        if (action == BulkAction::MarkAllDone)
+        {
+            markAllDone();
+        }
+        else if (action == BulkAction::ClearBoard)
+        {
+            clearBoard();
+        }
+    }
+
+    void markAllDone()
+    {
+        for (Task& task : tasks_)
+        {
+            task.done = true;
+            syncDoneStatus(task);
+        }
+        resetFilters();
+        refreshBoard();
+        status->setText(std::string{kMarkAllDoneStatusText});
+    }
+
+    void clearBoard()
+    {
+        tasks_.clear();
+        resetFilters();
+        refreshBoard();
+        status->setText(std::string{kClearBoardStatusText});
+    }
+
+    void closeBulkActionDialog()
+    {
+        if (!bulkActionDialog_)
+        {
+            return;
+        }
+        modalStack_.remove(*bulkActionDialog_);
+        bulkActionDialog_.reset();
+        pendingBulkAction_ = BulkAction::None;
     }
 
     void openTaskDialog(std::optional<Task> task)
@@ -823,7 +947,9 @@ private:
     ui::GeneratedWindowStack modalStack_;
     std::unique_ptr<task_board_example::TaskDialog> taskDialog_;
     std::unique_ptr<ui::dialogs::MessageBoxYesNo> deleteDialog_;
+    std::unique_ptr<ui::dialogs::MessageBoxYesNo> bulkActionDialog_;
     std::string pendingDeleteTaskId_;
+    BulkAction pendingBulkAction_ = BulkAction::None;
     bool quitRequested_ = false;
 };
 
@@ -833,17 +959,23 @@ void smoke()
     assert(static_cast<const ui::Window&>(window).title() == "Task Board");
     assert(window.title != nullptr);
     assert(window.quit_btn != nullptr);
-    assert(window.search != nullptr);
-    assert(window.status_filter != nullptr);
-    assert(window.owner_filter != nullptr);
-    assert(window.reset_filters_btn != nullptr);
+    assert(window.filters != nullptr);
     assert(window.new_task_btn != nullptr);
+    assert(window.mark_all_done_btn != nullptr);
+    assert(window.clear_board_btn != nullptr);
     assert(window.board != nullptr);
     assert(window.status != nullptr);
+    auto* filters = dynamic_cast<task_board_example::TaskFilters*>(window.filters->child());
+    assert(filters != nullptr);
+    assert(filters->search != nullptr);
+    assert(filters->status_filter != nullptr);
+    assert(filters->owner_filter != nullptr);
+    assert(filters->apply_filters_btn != nullptr);
+    assert(filters->reset_filters_btn != nullptr);
 
     ui::TerminalBuffer buffer{kSmokeRenderWidth, kSmokeRenderHeight};
     ui::renderGeneratedWindow(window, buffer);
-    assert(window.board->frame().width > window.search->frame().width);
+    assert(window.board->frame().width > filters->search->frame().width);
 }
 
 void logicTest()
@@ -859,13 +991,16 @@ void logicTest()
     assert(boardText.find("Open") != std::string::npos);
     assert(boardText.find("Delete") != std::string::npos);
 
-    app.search->setValue("calendar");
-    app.refreshForTest();
+    app.setSearchForTest("calendar");
+    app.button("apply_filters_btn");
     assert(app.visibleCount() == 1);
     boardText = renderedWindowText(app, ui::Size{kSmokeRenderWidth, kSmokeRenderHeight});
     assert(boardText.find("Define calendar sharing") != std::string::npos);
 
     app.button("reset_filters_btn");
+    assert(app.visibleCount() == kSeedTaskCount);
+
+    app.button("apply_filters_btn");
     assert(app.visibleCount() == kSeedTaskCount);
 
     app.addTaskForTest(task_board_example::TaskDialogResult{
