@@ -3,7 +3,7 @@
 ## Last Update
 
 - Updated by: Codex (GPT-5)
-- Date: 2026-06-12
+- Date: 2026-06-18
 
 ## Strict Rules
 
@@ -29,6 +29,7 @@
 - **CENTRALIZED RUNTIME CONSTANTS**: Runtime timing constants such as delay/flash durations for closing dialogs are allowed only in centralized settings/runtime configuration, not in individual examples. Values must be named, documented, and the same across platforms.
 - **UPDATE example_cli_commands.md FOR EVERY NEW EXAMPLE**: Whenever a new example is added under `python/examples/` or `cpp/examples/`, its run command MUST be added to `docs/example_cli_commands.md` in alphabetical order under the appropriate section (Python Examples, C++ Examples). For a Python-only addition, add the Python command and add a placeholder C++ command using `./uimd generate ... --target cpp && cmake --build cpp/build --target ... && ...`. Never leave a new example without a corresponding entry in this file.
 - **UPDATE example_cli_commands.md FOR EVERY NEW TEST**: Whenever a new test is added or renamed (including `tests/mcp/*.yaml`, `python/tests/*`, C++ tests, smoke tests, or tool/tester checks), its exact run command MUST be added to `docs/example_cli_commands.md` under the appropriate test section. This file must list all test entry points. For MCP compare tests, always document commands with `--compare-app-size 90x35` and keep per-app commands in alphabetical order.
+- **COMMIT example_cli_commands.md UPDATES WITH RELATED WORK**: When `docs/example_cli_commands.md` is updated because a command, full-test flow, example, or test entry point was added or corrected during the current task, include that file in the same requested commit as the related work unless the user explicitly says to leave it separate.
 - **ALWAYS REBUILD ALL EXAMPLES AFTER LIBRARY FIXES**: After every fix in the library/runtime/compiler/generator/shared behavior, first regenerate all `.uimd` UI files for all supported platforms and then build all examples for all platforms. Building only the specific example where the bug appeared is not enough.
 - **REBUILD BOTH PLATFORMS AFTER CROSS-PLATFORM EXAMPLE TEST FIXES**: When a bug is found while testing an example across two platforms, after fixing it always regenerate that example's `.uimd` outputs and build that example's source for both platforms before reporting the fix as done.
 - **MCP COMPARE VIEWPORTS**: When running compare tests from CLI, scripts, or any automated context, always pass `--compare-app-size 90x35` to guarantee consistent and reproducible per-app viewport sizes regardless of the terminal environment (`180x35` total for Python/C++ side-by-side). Do not rely on auto-split terminal size in automated runs. When a compare snapshot fails, always provide the snapshot viewer command printed by the tester so the failure can be inspected from the recorded side-by-side terminal snapshot.

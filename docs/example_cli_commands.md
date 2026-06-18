@@ -16,6 +16,8 @@ commands.
 ## Full Rebuild and Test
 ```bash
 ./tools/rebuild_all.sh
+python3 -m pytest python/tests
+ctest --test-dir cpp/build --output-on-failure
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ```
 
