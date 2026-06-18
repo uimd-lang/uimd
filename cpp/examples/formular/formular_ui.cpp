@@ -251,7 +251,7 @@ format: uimd
 format-version: 1
 kind: window
 status: stable
-description: "FormApp UI source."
+description: "User profile form for entering contact details, demographic data, role preferences, notification consent, and terms acceptance."
 tags: [example]
 ```
 
@@ -261,68 +261,84 @@ tags: [example]
 title_label:
   type: label
   text: "User profile"
+  description: "Title of the form."
   expose: false
 
 name_label:
   type: label
   text: Name
+  description: "Label for the name field."
 
 name_input:
   type: textinput
   value: ""
+  description: "User name text field."
 
 email_label:
   type: label
   text: Email
+  description: "Label for the email field."
 
 email_input:
   type: textinput
   value: ""
+  description: "Email address text field."
 
 age_label:
   type: label
   text: Age
+  description: "Label for the age field."
 
 age_input:
   type: numberinput
+  description: "Numeric age input."
 
 description_input:
   type: textarea
+  description: "Multiline profile description field."
 
 country_label:
   type: label
   text: Country
+  description: "Label for the country selector."
 
 country_combo:
   type: combobox
   options: [Slovakia, "Czech Republic", Poland, Hungary, Austria]
   selected_item: Slovakia
+  description: "Country combobox with Slovakia, Czech Republic, Poland, Hungary, and Austria options."
 
 role_label:
   type: label
   text: Role
+  description: "Label for the role selector."
 
 role_listbox:
   type: listbox
   options: [Developer, Designer, Manager, QA, DevOps, Tester, Hacker]
   selected_items: [Developer]
   multiple: "true"
+  description: "Multi-select role listbox for choosing one or more user roles."
 
 notify_check:
   type: checkbox
   title: "Email notifications"
+  description: "Toggle email notifications."
 
 terms_check:
   type: checkbox
   title: "I accept the terms and conditions"
+  description: "Toggle acceptance of terms and conditions."
 
 save_btn:
   type: button
   title: Save
+  description: "Submit the form and serialize the entered data."
 
 cancel_btn:
   type: button
   title: Cancel
+  description: "Cancel the form action."
 ```
 
 ## Style
@@ -364,7 +380,7 @@ cancel_btn:
 |                                                    |
 +----------------------------------------------------+
 ```
-)UI_MCP_MD", "FormApp UI source.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"title_label", "User profile", false}, ui::GeneratedElementMetadata{"name_label", "Name", true}, ui::GeneratedElementMetadata{"name_input", "name_input", true}, ui::GeneratedElementMetadata{"email_label", "Email", true}, ui::GeneratedElementMetadata{"email_input", "email_input", true}, ui::GeneratedElementMetadata{"age_label", "Age", true}, ui::GeneratedElementMetadata{"age_input", "age_input", true}, ui::GeneratedElementMetadata{"description_input", "description_input", true}, ui::GeneratedElementMetadata{"country_label", "Country", true}, ui::GeneratedElementMetadata{"country_combo", "country_combo", true}, ui::GeneratedElementMetadata{"role_label", "Role", true}, ui::GeneratedElementMetadata{"role_listbox", "role_listbox", true}, ui::GeneratedElementMetadata{"notify_check", "Email notifications", true}, ui::GeneratedElementMetadata{"terms_check", "I accept the terms and conditions", true}, ui::GeneratedElementMetadata{"save_btn", "Save", true}, ui::GeneratedElementMetadata{"cancel_btn", "Cancel", true}});
+)UI_MCP_MD", "User profile form for entering contact details, demographic data, role preferences, notification consent, and terms acceptance.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"title_label", "Title of the form.", false}, ui::GeneratedElementMetadata{"name_label", "Label for the name field.", true}, ui::GeneratedElementMetadata{"name_input", "User name text field.", true}, ui::GeneratedElementMetadata{"email_label", "Label for the email field.", true}, ui::GeneratedElementMetadata{"email_input", "Email address text field.", true}, ui::GeneratedElementMetadata{"age_label", "Label for the age field.", true}, ui::GeneratedElementMetadata{"age_input", "Numeric age input.", true}, ui::GeneratedElementMetadata{"description_input", "Multiline profile description field.", true}, ui::GeneratedElementMetadata{"country_label", "Label for the country selector.", true}, ui::GeneratedElementMetadata{"country_combo", "Country combobox with Slovakia, Czech Republic, Poland, Hungary, and Austria options.", true}, ui::GeneratedElementMetadata{"role_label", "Label for the role selector.", true}, ui::GeneratedElementMetadata{"role_listbox", "Multi-select role listbox for choosing one or more user roles.", true}, ui::GeneratedElementMetadata{"notify_check", "Toggle email notifications.", true}, ui::GeneratedElementMetadata{"terms_check", "Toggle acceptance of terms and conditions.", true}, ui::GeneratedElementMetadata{"save_btn", "Submit the form and serialize the entered data.", true}, ui::GeneratedElementMetadata{"cancel_btn", "Cancel the form action.", true}});
     setMcpAppTools(std::vector<ui::GeneratedAppToolMetadata>{});
     setGeneratedWindowStyle(makeStyle({{"background", "#162033"}, {"border-color", "transparent"}, {"border-width", "0"}}));
     title_label = &static_cast<ui::Label&>(addElement<ui::Label>("title_label", "User profile"));

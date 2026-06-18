@@ -38,8 +38,8 @@
         element_id: country_combo
     - tool: mouse_click
       arguments:
-        x: 53
-        y: 20
+        x: 43
+        y: 17
     - tool: get_element
       arguments:
         element_id: country_combo

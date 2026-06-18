@@ -4,6 +4,25 @@
 
 Date: 2026-06-05
 
+- [x] **Formular MCP dropdown click regression after sync**. The full MCP
+  compare suite fails in `tests/mcp/formular.yaml` because the mouse click that
+  should choose `Hungary` still targets an old blank row after the combobox is
+  opened. Python-only reproduction shows the same failure, so this is a stale
+  test coordinate rather than a one-platform runtime parity bug. While
+  investigating, fix the existing Python/C++ `formular.uimd` source mismatch so
+  both platforms use byte-for-byte equivalent UI metadata before regenerating.
+  Parity decision: runtime behavior is unchanged; regenerate the affected
+  Python and C++ example outputs from matching `.uimd` sources, rebuild the C++
+  example, and rerun isolated Python/C++ compare coverage. Validation passed:
+  `./uimd generate python/examples/formular/formular.uimd --target python`,
+  `./uimd generate cpp/examples/formular/formular.uimd --target cpp`,
+  `cmake --build cpp/build --target formular`, and
+  `./uimd mcp-test tests/mcp/formular.yaml --compare python/examples
+  cpp/build/examples --mcp-fast --compare-app-size 90x35` with `76 asserts
+  passed, 0 failed, 0 step failures`. Full MCP compare also passed:
+  `./uimd mcp-test --all --compare python/examples cpp/build/examples
+  --mcp-fast --compare-app-size 90x35` with `590 asserts passed, 0 failed,
+  0 step failures`.
 - [x] **Installed SDK Python runtime requires Pillow for non-image apps**.
   Fix the public `v0.4.0` installer smoke failure where `uimd run hello.uimd`
   in an external project imports `uimd.runtime`, then fails with
