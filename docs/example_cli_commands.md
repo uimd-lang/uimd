@@ -39,7 +39,7 @@ Non-interactive one-shot SSH commands fall back to console progress output
 (`tester ready`, `SCRIPT`, `COMPARE`, `RESULT`).
 
 If you run a command as a one-shot SSH remote command, for example
-`ssh host ".\tools\rebuild_all.cmd -Test"`, SSH closes after that command
+`ssh host ".\tools\test_all.cmd"`, SSH closes after that command
 finishes. In an interactive SSH session, run the `.cmd` commands at the prompt.
 
 ## Full Rebuild
@@ -64,29 +64,28 @@ Windows PowerShell only:
 
 ## Full Rebuild and Test
 
+This runs the full local gate: regenerate/build all supported sources, compile
+Python sources, run Python unit tests, run C++ `ctest`, run Python/C++ MCP
+example compare tests with `--compare-app-size 90x35`, and run the optional
+UIMD regression parity compare corpus when `tests/regressions/uimd/parity`
+exists.
+
 macOS/Linux (POSIX shell):
 
 ```bash
-./tools/rebuild_all.sh
-python3 -m pytest python/tests
-ctest --test-dir cpp/build --output-on-failure
-./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
+./tools/test_all.sh
 ```
 
 Windows over SSH / cmd.exe:
 
 ```bat
-.\tools\rebuild_all.cmd -Test
-python -m pytest python\tests
-.\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\tools\test_all.cmd
 ```
 
 Windows PowerShell only:
 
 ```powershell
-.\tools\rebuild_all.ps1 -Test
-python -m pytest python\tests
-.\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\tools\test_all.ps1
 ```
 
 ## Windows Sixel Install

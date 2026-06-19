@@ -514,10 +514,87 @@ bool layoutGeometryMatches(const NativeDocument& left, const NativeDocument& rig
     {
         return false;
     }
-    for (std::size_t index = 0; index < left.layout.size(); ++index)
+
+    std::vector<NativeLayoutItem> leftLayout = left.layout;
+    std::vector<NativeLayoutItem> rightLayout = right.layout;
+    auto geometryLess = [](const NativeLayoutItem& a, const NativeLayoutItem& b) {
+        if (a.row != b.row)
+        {
+            return a.row < b.row;
+        }
+        if (a.col != b.col)
+        {
+            return a.col < b.col;
+        }
+        if (a.cellRow != b.cellRow)
+        {
+            return a.cellRow < b.cellRow;
+        }
+        if (a.cellCol != b.cellCol)
+        {
+            return a.cellCol < b.cellCol;
+        }
+        if (a.cellCharsWidth != b.cellCharsWidth)
+        {
+            return a.cellCharsWidth < b.cellCharsWidth;
+        }
+        if (a.cellCharsHeight != b.cellCharsHeight)
+        {
+            return a.cellCharsHeight < b.cellCharsHeight;
+        }
+        if (a.cellWidth != b.cellWidth)
+        {
+            return a.cellWidth < b.cellWidth;
+        }
+        if (a.cellHeight != b.cellHeight)
+        {
+            return a.cellHeight < b.cellHeight;
+        }
+        if (a.cellWidthMode != b.cellWidthMode)
+        {
+            return a.cellWidthMode < b.cellWidthMode;
+        }
+        if (a.cellHeightMode != b.cellHeightMode)
+        {
+            return a.cellHeightMode < b.cellHeightMode;
+        }
+        if (a.width != b.width)
+        {
+            return a.width < b.width;
+        }
+        if (a.height != b.height)
+        {
+            return a.height < b.height;
+        }
+        if (a.widthMode != b.widthMode)
+        {
+            return a.widthMode < b.widthMode;
+        }
+        if (a.heightMode != b.heightMode)
+        {
+            return a.heightMode < b.heightMode;
+        }
+        if (a.charsWidth != b.charsWidth)
+        {
+            return a.charsWidth < b.charsWidth;
+        }
+        if (a.charsHeight != b.charsHeight)
+        {
+            return a.charsHeight < b.charsHeight;
+        }
+        if (a.marginRight != b.marginRight)
+        {
+            return a.marginRight < b.marginRight;
+        }
+        return a.marginBottom < b.marginBottom;
+    };
+    std::sort(leftLayout.begin(), leftLayout.end(), geometryLess);
+    std::sort(rightLayout.begin(), rightLayout.end(), geometryLess);
+
+    for (std::size_t index = 0; index < leftLayout.size(); ++index)
     {
-        const NativeLayoutItem& a = left.layout[index];
-        const NativeLayoutItem& b = right.layout[index];
+        const NativeLayoutItem& a = leftLayout[index];
+        const NativeLayoutItem& b = rightLayout[index];
         if (a.row != b.row || a.col != b.col ||
             a.cellRow != b.cellRow || a.cellCol != b.cellCol ||
             a.cellCharsWidth != b.cellCharsWidth || a.cellCharsHeight != b.cellCharsHeight ||

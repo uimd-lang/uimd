@@ -99,6 +99,74 @@ apply_btn:
         self.assertNotIn("description:", result.stdout)
         self.assertNotIn("Internal", result.stdout)
 
+    def test_issue_report_geometry_check_ignores_anonymized_content_order(self):
+        if not os.path.exists(NATIVE_UIMD_BINARY):
+            self.skipTest("native uimd binary is not built")
+
+        source = """# Repro
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+filter_address_label:
+  type: label
+  text: Address
+  description: "Address filter label."
+
+filter_developer_label:
+  type: label
+  text: Developer
+  description: "Developer filter label."
+```
+
+## User Interface
+
+```ui
++-------------------------+---------------------------+
+|filter_address_label..** |filter_developer_label..** |
++-------------------------+---------------------------+
+```
+"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = os.path.join(temp_dir, "repro.uimd")
+            with open(source_path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+
+            result = subprocess.run(
+                [
+                    NATIVE_UIMD_BINARY,
+                    "issue-report",
+                    source_path,
+                    "Geometry order mismatch",
+                ],
+                cwd=PROJECT_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=NATIVE_CLI_TIMEOUT_SECONDS,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Geometry order mismatch", result.stdout)
+        self.assertIn("- layout geometry preserved: yes", result.stdout)
+        self.assertNotIn("filter_address_label", result.stdout)
+        self.assertNotIn("filter_developer_label", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

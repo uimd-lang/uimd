@@ -24,6 +24,9 @@ GENERATE_TARGETS = (
     ("cpp/dialogs", "cpp"),
     ("cpp/examples", "cpp"),
 )
+DEFAULT_COMPARE_APP_SIZE = "90x35"
+REGRESSION_PARITY_ROOT = Path("tests/regressions/uimd/parity")
+REGRESSION_PARITY_PYTHON_ROOT = REGRESSION_PARITY_ROOT / "python"
 
 
 def is_windows() -> bool:
@@ -32,6 +35,11 @@ def is_windows() -> bool:
 
 def default_build_dir() -> Path:
     return DEFAULT_WINDOWS_BUILD_DIR if is_windows() else DEFAULT_POSIX_BUILD_DIR
+
+
+def regression_parity_cpp_root() -> Path:
+    build_name = "build-windows" if is_windows() else "build"
+    return REGRESSION_PARITY_ROOT / "cpp" / build_name
 
 
 def cmake_command() -> str:
@@ -145,6 +153,89 @@ def rebuild_all(args: argparse.Namespace) -> None:
         run(ctest_args(build_dir, config=args.config))
 
 
+def run_python_tests() -> None:
+    run([sys.executable, "-m", "pytest", "python/tests"])
+
+
+def run_example_compare(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+) -> None:
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--headless",
+        "--all",
+        "--compare",
+        "python/examples",
+        build_dir / "examples",
+    ]
+    if is_windows():
+        command.extend(["--backend", "python"])
+    if mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", compare_app_size])
+    run(command)
+
+
+def run_regression_compare_if_available(
+    uimd: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+) -> None:
+    python_root = ROOT / REGRESSION_PARITY_PYTHON_ROOT
+    cpp_root_path = regression_parity_cpp_root()
+    cpp_root = ROOT / cpp_root_path
+    if not python_root.exists() and not cpp_root.exists():
+        print(f"==> skip regression parity compare: {REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        return
+    if not python_root.exists() or not cpp_root.exists():
+        missing = REGRESSION_PARITY_PYTHON_ROOT if not python_root.exists() else cpp_root_path
+        raise FileNotFoundError(f"regression parity compare root is missing: {missing}")
+
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--headless",
+        "--all",
+        "--compare",
+        REGRESSION_PARITY_PYTHON_ROOT,
+        cpp_root_path,
+    ]
+    if is_windows():
+        command.extend(["--backend", "python"])
+    if mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", compare_app_size])
+    run(command)
+
+
+def test_all(args: argparse.Namespace) -> None:
+    build_dir = Path(args.build_dir)
+    uimd = ensure_native_uimd(build_dir, config=args.config)
+    if not args.no_rebuild:
+        generate_all(uimd)
+        run(cmake_build_args(build_dir, config=args.config))
+        run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"])
+    run_python_tests()
+    run(ctest_args(build_dir, config=args.config))
+    run_example_compare(
+        uimd,
+        build_dir,
+        compare_app_size=args.compare_app_size,
+        mcp_fast=not args.no_mcp_fast,
+    )
+    run_regression_compare_if_available(
+        uimd,
+        compare_app_size=args.compare_app_size,
+        mcp_fast=not args.no_mcp_fast,
+    )
+
+
 def run_cpp_example(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     uimd = ensure_native_uimd(build_dir, config=args.config)
@@ -205,6 +296,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     rebuild.add_argument("--test", action="store_true")
     rebuild.set_defaults(func=rebuild_all)
 
+    all_tests = subparsers.add_parser("test-all")
+    all_tests.add_argument("--compare-app-size", default=DEFAULT_COMPARE_APP_SIZE)
+    all_tests.add_argument("--no-mcp-fast", action="store_true")
+    all_tests.add_argument("--no-rebuild", action="store_true")
+    all_tests.set_defaults(func=test_all)
+
     run_example = subparsers.add_parser("run-cpp-example")
     run_example.add_argument("name")
     run_example.add_argument("app_args", nargs=argparse.REMAINDER)
@@ -220,7 +317,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     compare = subparsers.add_parser("mcp-compare-example")
     compare.add_argument("name")
     compare.add_argument("yaml")
-    compare.add_argument("--compare-app-size", default="90x35")
+    compare.add_argument("--compare-app-size", default=DEFAULT_COMPARE_APP_SIZE)
     compare.add_argument("--mcp-fast", action="store_true")
     compare.set_defaults(func=mcp_compare_example)
 

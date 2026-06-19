@@ -4,6 +4,90 @@
 
 Date: 2026-06-05
 
+- [x] **AGENTS.md should define GitHub issue update after commit**. Add a
+  standing workflow rule that after a user-requested commit resolving selected
+  GitHub issues, the agent updates those issues with the commit summary,
+  validation performed, and closes only issues that are genuinely fixed. This is
+  workflow documentation only and must not trigger automatic commits.
+  Implemented in `AGENTS.md`.
+- [x] **Add a single full test gate command with future UIMD regression hooks**.
+  Add cross-platform developer tooling so one command runs the full local gate:
+  rebuild/regenerate, Python unit tests, C++ `ctest`, Python/C++ MCP compare
+  examples with `--compare-app-size 90x35`, and, when the future
+  `tests/regressions/uimd/parity` corpus exists, regression parity compares.
+  Keep `rebuild_all` as the fast regenerate/build command rather than mixing it
+  with the full verification gate. Parity decision: this is repo tooling and
+  documentation only; it must not change runtime, generator output, examples,
+  or MCP compare semantics. Implemented as `tools/uimd_dev.py test-all` plus
+  POSIX/cmd/PowerShell wrappers `tools/test_all.sh`, `tools/test_all.cmd`, and
+  `tools/test_all.ps1`; documented as the canonical Full Rebuild and Test
+  command in `docs/example_cli_commands.md`. The regression parity compare step
+  is skipped until `tests/regressions/uimd/parity` exists, and then expects
+  platform-specific C++ build roots (`cpp/build` on POSIX, `cpp/build-windows`
+  on Windows). Validation passed: `python3 -m py_compile tools/uimd_dev.py`,
+  `./tools/test_all.sh --help`, and `python3 tools/uimd_dev.py test-all
+  --help`.
+- [x] **GitHub #1: `issue-report safe anonymization changes layout geometry`**.
+  Issue: https://github.com/uimd-lang/uimd/issues/1. Affected area: native
+  SDK-facing `uimd issue-report` sanitization/anonymization in
+  `cpp/tools/uimd`, especially default `--privacy safe`. The source
+  `uimd_admin/projects_filters.uimd` is valid, and `--privacy none` succeeds,
+  but default safe mode fails with `error: sanitized UIMD source changed layout
+  geometry`. Key reproduction: run `/Users/marekdubovsky/Projects/uimd/uimd
+  issue-report uimd_admin/projects_filters.uimd "issue-report safe
+  anonymization changes layout geometry" --kind bug --targets python,cpp
+  --output /private/tmp/uimd-safe-anonymization-layout-bug-safe.md` from the
+  flatscraper admin checkout. Parity decision: this is native compiler/CLI
+  behavior only; do not add a Python CLI implementation and do not change Python
+  or C++ runtime rendering behavior. Fixed by comparing sanitized layout
+  geometry as an order-independent set of geometry signatures instead of
+  comparing the parser's content-sorted layout vector by index; anonymized names
+  can legitimately reorder layout items that share the same relative `row` and
+  `col` but live in different cells. Validation passed: `cmake --build
+  cpp/build --target uimd`, the minimal two-cell anonymization reproducer,
+  `./uimd issue-report
+  /Users/marekdubovsky/Projects/flats/flatscraper-admin/uimd_admin/projects_filters.uimd
+  "issue-report safe anonymization changes layout geometry" --kind bug
+  --targets python,cpp --output
+  /private/tmp/uimd-safe-anonymization-layout-bug-safe.md`, and
+  `PYTHONPATH=python:src python3 -m unittest python.tests.test_native_cli`.
+- [x] **GitHub #2: `Python/C++ render parity mismatch in projects_filters
+  layout`**. Issue: https://github.com/uimd-lang/uimd/issues/2. Affected area:
+  Python/C++ runtime render/layout parity for identical `.uimd` sources,
+  especially the `projects_filters.uimd` filter row. The reported first raw
+  compare mismatch is `row 6 col 32`, where Python starts the `Address` label
+  one cell earlier than C++. Key reproduction: from the flatscraper admin
+  checkout, verify `uimd_admin/projects_filters.uimd` and
+  `uimd_cpp_admin/projects_filters.uimd` are byte-for-byte identical, then run
+  `env PYTHONPATH=/Users/marekdubovsky/Projects/uimd/src TERM=xterm-256color
+  python3 /Users/marekdubovsky/Projects/uimd/tools/mcp_tester/mcp_tester.py
+  --compare --compare-app-size 90x35 uimd_cpp_admin/tests/mcp/intro_compare.yaml
+  --exit-on-finish`. Parity decision: audit Python runtime behavior under
+  `src/uimd/runtime` first and keep C++ runtime behavior equivalent; do not
+  patch examples or snapshots to hide the mismatch. Triage result: the current
+  first filter-row mismatch is not caused by UIMD generator/runtime layout
+  parity. The generated Python/C++ `projects_filters` layout entries are
+  equivalent, but the external `flatscraper-admin` C++ subclass
+  `ProjectsFilters::ProjectsFilters()` mutates the generated layout after
+  construction by changing `filter_name`, `filter_address`,
+  `filter_developer`, and `filter_extra` widths/relative columns, then also
+  applies C++-only leading spaces to `filter_address_label`,
+  `filter_developer_label`, and `filter_extra_label`. The Python app instead
+  updates those labels from its page configuration without the C++-only spacing.
+  No UIMD library change is appropriate for this first mismatch; the
+  flatscraper C++ app layer must remove/sync those overrides before any
+  remaining runtime parity issue can be evaluated. Clean UIMD-library-only
+  validation passed by copying the same `projects_filters.uimd` into a temporary
+  standalone Python runner and C++ app stub, generating both targets with
+  `--mcp`, building the C++ app against the current checkout runtime, and
+  running `./uimd mcp-test --compare ... --compare-app-size 90x35 --mcp-fast`;
+  the `get_render_snapshot` compare passed with `0` step failures.
+- [x] **AGENTS.md should define GitHub issue triage workflow**. Add a standing
+  rule that when the user asks to look at GitHub bugs/issues, the agent lists
+  the relevant issue numbers, titles, links, and concise summaries, then asks
+  which issue number or numbers to start. After the user selects numbers, the
+  selected GitHub issues must be recorded in `prompts/TODO.md` as open tasks
+  before implementation starts. Implemented in `AGENTS.md`.
 - [x] **Native `uimd issue-report` should generate sanitized Markdown bug
   reports**. Add an SDK-facing native CLI command that reads a `.uimd` source
   and emits a GitHub-ready Markdown issue report with a short problem summary,
