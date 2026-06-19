@@ -948,9 +948,9 @@ const YamlValue* YamlMap::get(const std::string& key) const
     return &it->second;
 }
 
-NativeDocument parseDocumentFile(const std::string& path)
+NativeDocument parseDocumentText(const std::string& rawContent, const std::string& sourceName)
 {
-    const std::string content = normalizeNewlines(readTextFile(path));
+    const std::string content = normalizeNewlines(rawContent);
     if (startsWith(trim(content), "---"))
     {
         throw std::runtime_error("YAML frontmatter UI files are no longer supported");
@@ -961,7 +961,7 @@ NativeDocument parseDocumentFile(const std::string& path)
     document.title = extractH1(content);
     if (document.title.empty())
     {
-        throw std::runtime_error("missing required H1 title");
+        throw std::runtime_error(sourceName + ": missing required H1 title");
     }
 
     const std::map<std::string, std::string> sections = extractH2Sections(content);
@@ -984,6 +984,11 @@ NativeDocument parseDocumentFile(const std::string& path)
     }
     document.layout = parseGrid(document.uiText);
     return document;
+}
+
+NativeDocument parseDocumentFile(const std::string& path)
+{
+    return parseDocumentText(readTextFile(path), path);
 }
 
 std::string inspectDocumentJson(const NativeDocument& document)

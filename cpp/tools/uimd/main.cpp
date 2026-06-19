@@ -1,6 +1,7 @@
 #include "NativeModel.hpp"
 #include "NativeCppGenerator.hpp"
 #include "NativePythonGenerator.hpp"
+#include "IssueReport.hpp"
 
 // Native UIMD command entry point.
 #include <algorithm>
@@ -2033,6 +2034,11 @@ bool commandOptionConsumesNext(const std::string& command, const std::string& op
     {
         return option == "--target" || option == "--output-dir";
     }
+    if (command == "issue-report")
+    {
+        return option == "--kind" || option == "--output" || option == "--privacy" ||
+            option == "--targets" || option == "--title";
+    }
     return false;
 }
 
@@ -2067,7 +2073,7 @@ std::filesystem::path commandSourceArgument(const std::vector<std::string>& args
         return {};
     }
     const std::string& command = args.front();
-    if (command != "generate" && command != "run" && command != "inspect")
+    if (command != "generate" && command != "run" && command != "inspect" && command != "issue-report")
     {
         return {};
     }
@@ -2979,6 +2985,7 @@ int printHelp(const char* program)
         << "  new       Create a new UIMD app\n"
         << "  generate  Generate UI source files\n"
         << "  inspect   Inspect a UIMD source model\n"
+        << "  issue-report  Generate a sanitized Markdown issue report\n"
         << "  run       Generate and run a Python UIMD app\n"
         << "  mcp-test  Run MCP scripts against an app\n"
         << "  sdk       Inspect and manage UIMD SDK installs\n"
@@ -3016,6 +3023,24 @@ int printSelfHelp()
         << "commands:\n"
         << "  update     Update the launcher/current SDK from installed SDKs or release assets\n"
         << "  uninstall  Remove the local SDK Store\n";
+    return EXIT_OK;
+}
+
+int printIssueReportHelp()
+{
+    std::cout
+        << "usage: uimd issue-report <path> [title] [options]\n"
+        << "\n"
+        << "Generate a GitHub-ready Markdown bug report with an embedded sanitized UIMD source.\n"
+        << "\n"
+        << "options:\n"
+        << "  --title <text>             Report summary; positional title is also accepted\n"
+        << "  --kind <name>              Issue kind, for example bug or parity\n"
+        << "  --targets <list>           Affected targets, for example python,cpp\n"
+        << "  --output <path>            Write report to a file instead of stdout\n"
+        << "  --privacy safe|none        safe anonymizes names and removes descriptions; default is safe\n"
+        << "  --no-anonymize-names       Keep member names while still removing descriptions\n"
+        << "  --keep-descriptions        Keep description fields\n";
     return EXIT_OK;
 }
 
@@ -4065,6 +4090,144 @@ int runInspect(const std::vector<std::string>& args)
     return EXIT_OK;
 }
 
+int runIssueReport(const std::vector<std::string>& args)
+{
+    if (args.empty())
+    {
+        std::cerr << "error: issue-report path is required\n";
+        return EXIT_USAGE;
+    }
+
+    uimd::tool::IssueReportOptions options;
+    std::filesystem::path outputPath;
+    std::string path;
+    bool positionalTitleSet = false;
+
+    for (std::size_t index = 0; index < args.size(); ++index)
+    {
+        const std::string& arg = args[index];
+        if (arg == "--help" || arg == "-h")
+        {
+            return printIssueReportHelp();
+        }
+        if (arg == "--title")
+        {
+            if (index + 1 >= args.size())
+            {
+                std::cerr << "error: --title requires a value\n";
+                return EXIT_USAGE;
+            }
+            options.title = args[++index];
+        }
+        else if (arg == "--kind")
+        {
+            if (index + 1 >= args.size())
+            {
+                std::cerr << "error: --kind requires a value\n";
+                return EXIT_USAGE;
+            }
+            options.kind = args[++index];
+        }
+        else if (arg == "--targets")
+        {
+            if (index + 1 >= args.size())
+            {
+                std::cerr << "error: --targets requires a value\n";
+                return EXIT_USAGE;
+            }
+            options.targets = args[++index];
+        }
+        else if (arg == "--output")
+        {
+            if (index + 1 >= args.size())
+            {
+                std::cerr << "error: --output requires a value\n";
+                return EXIT_USAGE;
+            }
+            outputPath = args[++index];
+        }
+        else if (arg == "--privacy")
+        {
+            if (index + 1 >= args.size())
+            {
+                std::cerr << "error: --privacy requires safe or none\n";
+                return EXIT_USAGE;
+            }
+            const std::string privacy = lower(args[++index]);
+            if (privacy == "safe")
+            {
+                options.anonymizeNames = true;
+                options.keepDescriptions = false;
+            }
+            else if (privacy == "none")
+            {
+                options.anonymizeNames = false;
+                options.keepDescriptions = true;
+            }
+            else
+            {
+                std::cerr << "error: --privacy must be safe or none\n";
+                return EXIT_USAGE;
+            }
+        }
+        else if (arg == "--no-anonymize-names")
+        {
+            options.anonymizeNames = false;
+        }
+        else if (arg == "--keep-descriptions")
+        {
+            options.keepDescriptions = true;
+        }
+        else if (arg.rfind("--", 0) == 0)
+        {
+            std::cerr << "error: unknown issue-report option: " << arg << "\n";
+            return EXIT_USAGE;
+        }
+        else if (path.empty())
+        {
+            path = arg;
+        }
+        else if (!positionalTitleSet && options.title.empty())
+        {
+            options.title = arg;
+            positionalTitleSet = true;
+        }
+        else
+        {
+            std::cerr << "error: unexpected issue-report argument: " << arg << "\n";
+            return EXIT_USAGE;
+        }
+    }
+
+    if (path.empty())
+    {
+        std::cerr << "error: issue-report path is required\n";
+        return EXIT_USAGE;
+    }
+    const std::filesystem::path sourcePath{path};
+    if (!std::filesystem::is_regular_file(sourcePath))
+    {
+        std::cerr << "error: not a file: " << path << "\n";
+        return EXIT_USAGE;
+    }
+
+    try
+    {
+        const std::string report = uimd::tool::generateIssueReport(sourcePath, options);
+        if (!outputPath.empty())
+        {
+            return writeText(outputPath, report) ? EXIT_OK : EXIT_ERROR;
+        }
+        std::cout << report;
+    }
+    catch (const std::exception& exc)
+    {
+        std::cerr << "error: " << exc.what() << "\n";
+        return EXIT_ERROR;
+    }
+    return EXIT_OK;
+}
+
 int runNew(const std::vector<std::string>& args)
 {
     if (args.empty())
@@ -4618,6 +4781,10 @@ int main(int argc, char** argv)
     if (command == "inspect")
     {
         return runInspect(args);
+    }
+    if (command == "issue-report")
+    {
+        return runIssueReport(args);
     }
     if (command == "generate")
     {

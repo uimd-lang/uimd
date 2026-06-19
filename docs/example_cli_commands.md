@@ -362,6 +362,7 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_transports.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_native_cli.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_style.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_text_editor.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_uiinstance.py
@@ -391,6 +392,7 @@ ctest --test-dir cpp\build-windows -C Release --output-on-failure
 ```bash
 cmake --build cpp/build --target uimd
 cmake --build cpp/build --target uimd_init
+cpp/build/tools/uimd/uimd issue-report python/examples/calculator/calculator.uimd --title "Issue report smoke" --output /tmp/uimd-issue-report.md
 python3 tools/native_uimd_parity.py
 python3 tools/native_uimd_parity.py --compile-examples
 # Includes SDK store, self-update, target auto-install, and uimd-init smoke checks.

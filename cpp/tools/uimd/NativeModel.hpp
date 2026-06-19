@@ -60,6 +60,7 @@ struct NativeDocument
 };
 
 NativeDocument parseDocumentFile(const std::string& path);
+NativeDocument parseDocumentText(const std::string& content, const std::string& sourceName = "<memory>");
 std::string inspectDocumentJson(const NativeDocument& document);
 
 }  // namespace uimd::tool

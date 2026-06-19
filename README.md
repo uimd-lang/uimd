@@ -165,6 +165,7 @@ before project command delegation. Release downloads verify signed
 ./uimd run hello.uimd
 ./uimd generate hello.uimd --target cpp
 ./uimd mcp-test hello.py tests/mcp/hello.yaml
+./uimd issue-report hello.uimd "Short problem summary" --output issue.md
 ./uimd doctor
 ```
 
@@ -172,6 +173,11 @@ before project command delegation. Release downloads verify signed
 `./uimd`. Packaged SDKs will later provide a native `uimd` binary on `PATH`.
 The future Python package will provide the Python runtime and tester helpers,
 not the compiler CLI.
+
+Use `uimd issue-report` to generate sanitized Markdown for public GitHub bug
+reports that need to include a `.uimd` source. See
+[`docs/issue_reporting.md`](docs/issue_reporting.md) for the reporting workflow
+and privacy behavior.
 
 The visual MCP tester is available through the source-checkout CLI:
 

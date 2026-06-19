@@ -36,6 +36,17 @@ uimd run hello.uimd
 Generate Python UI source files and run the matching `hello.py` app.
 
 ```bash
+uimd issue-report hello.uimd "Short problem summary" --output issue.md
+```
+
+Generate a GitHub-ready Markdown issue report with an embedded sanitized UIMD
+source. The default privacy mode removes `description:` fields, anonymizes
+member names, leaves colors unchanged, and verifies that the sanitized source
+still parses with the same layout geometry. See
+[`docs/issue_reporting.md`](issue_reporting.md) for the full workflow and
+privacy options.
+
+```bash
 uimd doctor
 ```
 

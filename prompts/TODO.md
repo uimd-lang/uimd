@@ -4,6 +4,27 @@
 
 Date: 2026-06-05
 
+- [x] **Native `uimd issue-report` should generate sanitized Markdown bug
+  reports**. Add an SDK-facing native CLI command that reads a `.uimd` source
+  and emits a GitHub-ready Markdown issue report with a short problem summary,
+  reproduction placeholders, and an embedded sanitized UIMD source. Default
+  privacy behavior should remove description text and anonymize element/member
+  names while preserving the ASCII `ui` layout geometry with same-length
+  anonymized identifiers; colors must remain unchanged because render and parity
+  bugs often depend on exact foreground/background values. Provide an opt-out
+  for name anonymization, keep the command generation-only rather than
+  submitting to GitHub directly, and validate that the sanitized source still
+  parses. Parity decision: this is native compiler/CLI behavior in
+  `cpp/tools/uimd`; it must not add a Python CLI implementation and must not
+  change Python or C++ runtime rendering behavior. Implemented as
+  `uimd issue-report <path> [title]` with `--privacy safe|none`,
+  `--no-anonymize-names`, `--keep-descriptions`, `--kind`, `--targets`, and
+  `--output`; sanitized output is reparsed and checked for preserved layout
+  geometry. Validation passed: `cmake --build cpp/build --target uimd`,
+  `cpp/build/tools/uimd/uimd issue-report
+  python/examples/calculator/calculator.uimd --title "Issue report smoke"
+  --output /tmp/uimd-issue-report.md`, `PYTHONPATH=python:src python3 -m
+  unittest python.tests.test_native_cli`, and a `--privacy none` smoke.
 - [x] **Windows C++ SDK support through final installer artifacts**. Implement
   and validate first-class Windows support for the native UIMD CLI, generated
   C++ target, SDK packaging, and installer flow. Scope: configure/build the

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.4.1 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.4.2 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -110,6 +110,7 @@ endif()
 
 add_executable(uimd
     tools/uimd/main.cpp
+    tools/uimd/IssueReport.cpp
     tools/uimd/NativeGrid.cpp
     tools/uimd/NativeCppGenerator.cpp
     tools/uimd/NativeModel.cpp
