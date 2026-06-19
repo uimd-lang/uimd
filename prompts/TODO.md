@@ -4,6 +4,30 @@
 
 Date: 2026-06-05
 
+- [ ] **Flatscraper admin project filters/table layout still differs between
+  Python and C++ runtimes**. After the scrollview focus parity fix, the
+  flatscraper admin compare still fails on the initial Projects page even
+  though the Python and C++ `.uimd` sources are byte-for-byte equivalent. First
+  reported mismatch: row 6 col 33, Python has a blank cell while C++ renders
+  `A` from the Address filter label; C++ also appears to widen/shift filter
+  columns, add an empty table row before the first project, and wrap address
+  text differently. Initial investigation reproduced the first mismatch with
+  the read-only compare and found it is introduced after generation by
+  app-specific C++ code in `flatscraper_cpp_admin.cpp`:
+  `ProjectsFilters::ProjectsFilters()` mutates generated layout widths/relative
+  columns and changes `filter_address_label`, `filter_developer_label`, and
+  `filter_extra_label` text by adding C++-only leading spaces. The generated
+  Python/C++ `projects_filters` layout entries are otherwise equivalent. Before
+  treating this as a remaining UIMD runtime bug, remove/sync those C++-only app
+  layout/text overrides in `flatscraper-admin` and rerun compare; if table gap
+  or address clipping mismatches remain after wrapper parity is restored, audit
+  Python layout/text clipping in `src/uimd/runtime/UIBase.py` and
+  `src/uimd/runtime/elements.py` against C++ layout/rendering in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`,
+  `cpp/src/elements/BasicElements.cpp`, and `cpp/src/elements/ScrollView.cpp`.
+  Repro used the read-only flatscraper compare with
+  `UIMD_DISABLE_SIXEL=1`, `FLATSCRAPER_UIMD_DIRECT_READONLY=1`, and the TSV
+  fixture/snapshot so no admin data is mutated.
 - [x] **Expense tracker modal delete leaves Python/C++ scrollview gap
   background mismatch**. `tests/mcp/expense_tracker_compare.yaml` fails after
   activating `yes_btn` in the delete confirmation: snapshot
