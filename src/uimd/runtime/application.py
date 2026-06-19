@@ -1,15 +1,30 @@
-import fcntl
 import os
 import re
 import select
 import shutil
 import signal
 import sys
-import termios
 import threading
 import time
-import tty
 import struct
+try:
+    import ctypes
+    from ctypes import wintypes
+except ModuleNotFoundError:
+    ctypes = None
+    wintypes = None
+try:
+    import msvcrt
+except ModuleNotFoundError:
+    msvcrt = None
+try:
+    import fcntl
+    import termios
+    import tty
+except ModuleNotFoundError:
+    fcntl = None
+    termios = None
+    tty = None
 from uimd.runtime.mcp import MCPServer, parse_mcp_runtime_args
 from uimd.runtime.rendering import (
     ANSI_CLEAR_SCREEN,
@@ -29,6 +44,34 @@ INPUT_DRAIN_TIMEOUT = 0.0
 TERMINAL_EXIT_DRAIN_TIMEOUT = 0.02
 TERMINAL_EXIT_DRAIN_BYTES = 1024
 TERMINAL_EXIT_DRAIN_MAX_READS = 64
+WINDOWS_SELECT_NOT_SOCKET_ERROR = 10038
+WINDOWS_READ_READY_POLL_SECONDS = 0.001
+WINDOWS_STDIN_HANDLE = -10
+WINDOWS_STDOUT_HANDLE = -11
+WINDOWS_STDERR_HANDLE = -12
+WINDOWS_CP_UTF8 = 65001
+WINDOWS_ENABLE_PROCESSED_INPUT = 0x0001
+WINDOWS_ENABLE_LINE_INPUT = 0x0002
+WINDOWS_ENABLE_ECHO_INPUT = 0x0004
+WINDOWS_ENABLE_WINDOW_INPUT = 0x0008
+WINDOWS_ENABLE_MOUSE_INPUT = 0x0010
+WINDOWS_ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+WINDOWS_ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+WINDOWS_DISABLE_NEWLINE_AUTO_RETURN = 0x0008
+WINDOWS_CONSOLE_KEY_PREFIXES = ("\x00", "\xe0")
+WINDOWS_ESCAPE_SEQUENCE_MAX_CHARS = 512
+WINDOWS_EXTENDED_KEY_MAP = {
+    "H": "Up",
+    "P": "Down",
+    "K": "Left",
+    "M": "Right",
+    "G": "Home",
+    "O": "End",
+    "S": "Delete",
+    "I": "PageUp",
+    "Q": "PageDown",
+    "\x0f": "Shift+Tab",
+}
 RENDER_FRAME_INTERVAL_SECONDS = 1 / 30
 MOUSE_WHEEL_COALESCE_READY_TIMEOUT = 0.0
 MOUSE_WHEEL_COALESCE_MAX_EVENTS = 512
@@ -152,6 +195,13 @@ class _TerminalFrameDiff:
             for row in range(top, bottom):
                 for col in range(left, right):
                     buffer.copy_previous_to_current(row, col)
+
+
+def _is_windows_select_not_socket_error(exc):
+    code = getattr(exc, "winerror", None)
+    if code is None:
+        code = getattr(exc, "errno", None)
+    return code == WINDOWS_SELECT_NOT_SOCKET_ERROR
 
 
 class UIApplication:
@@ -755,8 +805,134 @@ class UIApplication:
         """Wait for terminal input readiness."""
         if self._input_buffer:
             return True
-        readable, _, _ = select.select([fd], [], [], timeout)
-        return bool(readable)
+        try:
+            readable, _, _ = select.select([fd], [], [], timeout)
+            return bool(readable)
+        except OSError as exc:
+            if os.name != "nt" or not _is_windows_select_not_socket_error(exc):
+                raise
+            return self._windows_read_ready(fd, timeout)
+
+    def _windows_read_ready(self, fd, timeout):
+        """Poll Windows pipe/console handles, where select only accepts sockets."""
+        deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
+        while True:
+            if self._windows_fd_has_pending_input(fd):
+                return True
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            if timeout == 0:
+                return False
+            sleep_for = WINDOWS_READ_READY_POLL_SECONDS
+            if deadline is not None:
+                sleep_for = min(sleep_for, max(0.0, deadline - time.monotonic()))
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+
+    @staticmethod
+    def _windows_fd_has_pending_input(fd):
+        if os.name != "nt":
+            return False
+        if msvcrt is not None:
+            try:
+                if fd == sys.stdin.fileno() and msvcrt.kbhit():
+                    return True
+            except (AttributeError, OSError):
+                pass
+        if ctypes is None or wintypes is None or msvcrt is None:
+            return False
+        try:
+            handle = msvcrt.get_osfhandle(fd)
+        except OSError:
+            return False
+        available = wintypes.DWORD()
+        ok = ctypes.windll.kernel32.PeekNamedPipe(
+            wintypes.HANDLE(handle),
+            None,
+            0,
+            None,
+            ctypes.byref(available),
+            None,
+        )
+        return bool(ok and available.value > 0)
+
+    def _windows_console_key_ready(self, timeout=0):
+        if msvcrt is None:
+            return False
+        deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
+        while True:
+            if msvcrt.kbhit():
+                return True
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            if timeout == 0:
+                return False
+            sleep_for = WINDOWS_READ_READY_POLL_SECONDS
+            if deadline is not None:
+                sleep_for = min(sleep_for, max(0.0, deadline - time.monotonic()))
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+
+    def _read_windows_console_key(self, timeout=INPUT_POLL_TIMEOUT):
+        if not self._windows_console_key_ready(timeout):
+            return None
+        return self._decode_windows_console_char(self._read_windows_console_char())
+
+    @staticmethod
+    def _read_windows_console_char():
+        return msvcrt.getwch()
+
+    def _decode_windows_console_char(self, char):
+        if char in WINDOWS_CONSOLE_KEY_PREFIXES:
+            if not self._windows_console_key_ready(ESCAPE_SEQUENCE_TIMEOUT):
+                return None
+            return WINDOWS_EXTENDED_KEY_MAP.get(self._read_windows_console_char())
+        if char == "\x03":
+            raise KeyboardInterrupt
+        if char == "\x1b":
+            return self._read_windows_escape_sequence()
+        if char in ("\r", "\n"):
+            return "Enter"
+        if char == "\t":
+            return "Tab"
+        if char in ("\b", "\x7f"):
+            return "Backspace"
+        code = ord(char) if len(char) == 1 else 0
+        if 1 <= code <= 26:
+            return f"ctrl_{chr(code + 96)}"
+        return char
+
+    def _read_windows_escape_sequence(self):
+        if not self._windows_console_key_ready(ESCAPE_SEQUENCE_TIMEOUT):
+            return "Escape"
+
+        sequence = []
+        while (
+            len(sequence) < WINDOWS_ESCAPE_SEQUENCE_MAX_CHARS
+            and self._windows_console_key_ready(ESCAPE_SEQUENCE_TIMEOUT)
+        ):
+            sequence.append(self._read_windows_console_char())
+            raw = "".join(sequence).encode("utf-8", errors="ignore")
+            if raw.startswith(b"[200~"):
+                if b"\x1b[201~" in raw:
+                    break
+                continue
+            if raw.startswith(b"[<") and raw[-1:] in (b"M", b"m"):
+                break
+            if raw and raw[-1:] in b"~ABCDHFZ":
+                break
+
+        if not sequence:
+            return "Escape"
+        return self._decode_escape_sequence("".join(sequence).encode("utf-8", errors="ignore"))
+
+    def _drain_windows_console_input(self):
+        if msvcrt is None:
+            return
+        reads = 0
+        while reads < TERMINAL_EXIT_DRAIN_MAX_READS and msvcrt.kbhit():
+            self._read_windows_console_char()
+            reads += 1
 
     def _read_input_bytes(self, fd, count):
         """Read bytes from the local input buffer first, then from the terminal."""
@@ -1041,6 +1217,114 @@ class UIApplication:
         """Restore the terminal after fullscreen UI mode."""
         self._terminal_frame_diff.reset()
         self._write_terminal("\x1b[0m\x1b[>4;0m\x1b[?25h\x1b[?7h\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l")
+
+    def _enter_windows_terminal_mode(self):
+        state = {
+            "input_mode": None,
+            "output_mode": None,
+            "error_mode": None,
+            "input_cp": None,
+            "output_cp": None,
+        }
+        self._configure_windows_stream_encoding()
+        if ctypes is None or wintypes is None:
+            return state
+
+        kernel32 = ctypes.windll.kernel32
+        try:
+            kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+            kernel32.GetStdHandle.restype = wintypes.HANDLE
+            kernel32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            kernel32.GetConsoleMode.restype = wintypes.BOOL
+            kernel32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            kernel32.SetConsoleMode.restype = wintypes.BOOL
+        except Exception:
+            pass
+        try:
+            state["input_cp"] = kernel32.GetConsoleCP()
+            state["output_cp"] = kernel32.GetConsoleOutputCP()
+            kernel32.SetConsoleCP(WINDOWS_CP_UTF8)
+            kernel32.SetConsoleOutputCP(WINDOWS_CP_UTF8)
+        except Exception:
+            pass
+
+        input_handle = kernel32.GetStdHandle(WINDOWS_STDIN_HANDLE)
+        output_handle = kernel32.GetStdHandle(WINDOWS_STDOUT_HANDLE)
+        error_handle = kernel32.GetStdHandle(WINDOWS_STDERR_HANDLE)
+
+        input_mode = self._windows_console_mode(input_handle)
+        if input_mode is not None:
+            state["input_mode"] = (input_handle, input_mode)
+            new_input_mode = input_mode
+            new_input_mode |= WINDOWS_ENABLE_PROCESSED_INPUT
+            new_input_mode |= WINDOWS_ENABLE_WINDOW_INPUT
+            new_input_mode |= WINDOWS_ENABLE_MOUSE_INPUT
+            new_input_mode |= WINDOWS_ENABLE_VIRTUAL_TERMINAL_INPUT
+            new_input_mode &= ~WINDOWS_ENABLE_LINE_INPUT
+            new_input_mode &= ~WINDOWS_ENABLE_ECHO_INPUT
+            self._set_windows_console_mode(input_handle, new_input_mode)
+
+        output_mode = self._windows_console_mode(output_handle)
+        if output_mode is not None:
+            state["output_mode"] = (output_handle, output_mode)
+            new_output_mode = output_mode
+            new_output_mode |= WINDOWS_ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            new_output_mode |= WINDOWS_DISABLE_NEWLINE_AUTO_RETURN
+            self._set_windows_console_mode(output_handle, new_output_mode)
+
+        error_mode = self._windows_console_mode(error_handle)
+        if error_mode is not None:
+            state["error_mode"] = (error_handle, error_mode)
+            new_error_mode = error_mode | WINDOWS_ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            self._set_windows_console_mode(error_handle, new_error_mode)
+
+        return state
+
+    def _restore_windows_terminal_mode(self, state):
+        if ctypes is None or wintypes is None or not state:
+            return
+        kernel32 = ctypes.windll.kernel32
+        for key in ("input_mode", "output_mode", "error_mode"):
+            value = state.get(key)
+            if value is None:
+                continue
+            handle, mode = value
+            self._set_windows_console_mode(handle, mode)
+        try:
+            if state.get("input_cp") is not None:
+                kernel32.SetConsoleCP(int(state["input_cp"]))
+            if state.get("output_cp") is not None:
+                kernel32.SetConsoleOutputCP(int(state["output_cp"]))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _configure_windows_stream_encoding():
+        if os.name != "nt":
+            return
+        for stream in (sys.stdout, sys.stderr):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is None:
+                continue
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+    @staticmethod
+    def _windows_console_mode(handle):
+        if ctypes is None or wintypes is None:
+            return None
+        mode = wintypes.DWORD()
+        if not ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return None
+        return int(mode.value)
+
+    @staticmethod
+    def _set_windows_console_mode(handle, mode):
+        if ctypes is None or wintypes is None:
+            return False
+        return bool(ctypes.windll.kernel32.SetConsoleMode(handle, int(mode)))
 
     def _drain_terminal_input(self, fd):
         """Discard pending terminal input before echo mode is restored."""
@@ -1671,6 +1955,8 @@ class UIApplication:
 
         stdin = sys.stdin
         stdout = sys.stdout
+        if os.name == "nt":
+            self._configure_windows_stream_encoding()
         if embedded_viewport and stdout.isatty():
             try:
                 while self._running:
@@ -1711,6 +1997,13 @@ class UIApplication:
             return 0
 
         fd = stdin.fileno()
+        if termios is None or tty is None:
+            if os.name == "nt" and msvcrt is not None:
+                return self._run_windows_console_loop(close_mcp_server, controlled_render)
+            print("interactive terminal mode is not supported on this platform", file=sys.stderr)
+            if close_mcp_server is not None:
+                close_mcp_server.shutdown()
+            return 2
         old_term_attrs = termios.tcgetattr(fd)
         previous_winch_handler = signal.getsignal(signal.SIGWINCH)
 
@@ -1773,5 +2066,48 @@ class UIApplication:
             self._leave_terminal_ui()
             self._drain_terminal_input(fd)
             termios.tcsetattr(fd, termios.TCSADRAIN, old_term_attrs)
+
+        return 0
+
+    def _run_windows_console_loop(self, close_mcp_server=None, controlled_render=False):
+        fd = sys.stdin.fileno()
+        previous_state = self._enter_windows_terminal_mode()
+        self._needs_resize = True
+        previous_size = self._get_terminal_size()
+
+        try:
+            self._enter_terminal_ui()
+
+            while self._running:
+                current_size = self._get_terminal_size()
+                if current_size != previous_size:
+                    previous_size = current_size
+                    self._needs_resize = True
+
+                if self._needs_resize:
+                    self._needs_resize = False
+                    self._sync_active_window_size()
+
+                if not controlled_render and self._should_render_now(fd):
+                    self._render_to_terminal()
+                    self._last_render_at = time.monotonic()
+                    self.clear_dirty()
+
+                key = self._read_windows_console_key()
+                if key is None:
+                    if self.active_window and hasattr(self.active_window, 'tick'):
+                        self.active_window.tick()
+                    continue
+                self.handle_key(key)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            for window in self._window_stack:
+                window.close()
+            if close_mcp_server is not None:
+                close_mcp_server.shutdown()
+            self._leave_terminal_ui()
+            self._drain_windows_console_input()
+            self._restore_windows_terminal_mode(previous_state)
 
         return 0

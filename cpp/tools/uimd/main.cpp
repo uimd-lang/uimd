@@ -57,6 +57,10 @@ const std::string RELEASE_BASE_URL_ENV = "UIMD_RELEASE_BASE_URL";
 const std::string SDK_PATH_ENV = "UIMD_SDK_PATH";
 const std::string SDK_PYTHON_TARGET_ENV = "UIMD_SDK_PYTHON_TARGET";
 const std::string RELEASE_PUBLIC_KEY_ENV = "UIMD_RELEASE_PUBLIC_KEY";
+const std::string LIBSIXEL_PATH_ENV = "UIMD_LIBSIXEL_PATH";
+const std::string LIBSIXEL_DIR_ENV = "UIMD_LIBSIXEL_DIR";
+const std::string DISABLE_SIXEL_ENV = "UIMD_DISABLE_SIXEL";
+const std::string DETERMINISTIC_IMAGE_FALLBACK_ENV = "UIMD_DETERMINISTIC_IMAGE_FALLBACK";
 const std::string SHELL_CONFIG_MARKER{"# UIMD SDK"};
 const std::string RELEASE_CHECKSUMS_FILE{"checksums.txt"};
 const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
@@ -104,6 +108,17 @@ struct ShellCleanupResult
     std::vector<std::string> errors;
 };
 
+struct SixelDoctorInfo
+{
+    bool cppLibraryAvailable = false;
+    bool sixelDisabled = false;
+    std::filesystem::path cppLibraryPath;
+    std::string cppLibrarySource;
+    std::string configuredLibraryPath;
+    std::string configuredLibraryDirectories;
+    std::vector<std::string> cppLibraryNames;
+};
+
 std::string runtimeVersion()
 {
     return UIMD_VERSION;
@@ -117,6 +132,7 @@ std::string envValue(const char* name)
 
 char pathSeparator();
 std::string jsonEscape(const std::string& text);
+std::string pythonExecutable();
 bool versionGreaterOrEqual(const std::string& version, const std::string& required);
 bool sameMinorSeries(const std::string& left, const std::string& right);
 
@@ -784,6 +800,140 @@ void appendUniqueString(std::vector<std::string>& values, const std::string& val
         return;
     }
     values.push_back(value);
+}
+
+void appendDelimitedPaths(std::vector<std::filesystem::path>& paths, const std::string& value, char delimiter)
+{
+    std::stringstream stream(value);
+    std::string item;
+    while (std::getline(stream, item, delimiter))
+    {
+        appendUniquePath(paths, item);
+    }
+}
+
+void appendEnvironmentPathList(std::vector<std::filesystem::path>& paths, const std::string& variable, char delimiter)
+{
+    appendDelimitedPaths(paths, envValue(variable.c_str()), delimiter);
+}
+
+std::vector<std::string> sixelDoctorLibraryNames()
+{
+#ifdef _WIN32
+    return {"libsixel.dll", "sixel.dll", "libsixel-1.dll"};
+#elif defined(__APPLE__)
+    return {"libsixel.1.dylib", "libsixel.dylib"};
+#else
+    return {"libsixel.so.1", "libsixel.so"};
+#endif
+}
+
+std::vector<std::filesystem::path> sixelDoctorSearchDirectories()
+{
+    std::vector<std::filesystem::path> directories;
+#ifdef _WIN32
+    appendEnvironmentPathList(directories, "PATH", ';');
+    appendEnvironmentPathList(directories, "LIB", ';');
+#else
+    appendEnvironmentPathList(directories, "LD_LIBRARY_PATH", ':');
+#ifdef __APPLE__
+    appendEnvironmentPathList(directories, "DYLD_LIBRARY_PATH", ':');
+    appendEnvironmentPathList(directories, "DYLD_FALLBACK_LIBRARY_PATH", ':');
+#endif
+#endif
+
+    const std::string homebrewPrefix = envValue("HOMEBREW_PREFIX");
+    if (!homebrewPrefix.empty())
+    {
+        appendUniquePath(directories, std::filesystem::path{homebrewPrefix} / "lib");
+        appendUniquePath(directories, std::filesystem::path{homebrewPrefix} / "opt" / "libsixel" / "lib");
+    }
+    const std::string macportsPrefix = envValue("MACPORTS_PREFIX");
+    if (!macportsPrefix.empty())
+    {
+        appendUniquePath(directories, std::filesystem::path{macportsPrefix} / "lib");
+    }
+
+#ifdef __APPLE__
+    appendUniquePath(directories, "/opt/homebrew/opt/libsixel/lib");
+    appendUniquePath(directories, "/opt/homebrew/lib");
+    appendUniquePath(directories, "/usr/local/opt/libsixel/lib");
+    appendUniquePath(directories, "/usr/local/lib");
+    appendUniquePath(directories, "/opt/local/lib");
+#elif defined(_WIN32)
+    appendUniquePath(directories, "C:/Program Files/libsixel/bin");
+    appendUniquePath(directories, "C:/Program Files/libsixel/lib");
+    appendUniquePath(directories, "C:/Program Files (x86)/libsixel/bin");
+    appendUniquePath(directories, "C:/Program Files (x86)/libsixel/lib");
+#else
+    appendUniquePath(directories, "/usr/local/lib");
+    appendUniquePath(directories, "/usr/lib");
+    appendUniquePath(directories, "/usr/lib64");
+    appendUniquePath(directories, "/lib");
+    appendUniquePath(directories, "/lib64");
+    appendUniquePath(directories, "/usr/lib/x86_64-linux-gnu");
+    appendUniquePath(directories, "/usr/lib/aarch64-linux-gnu");
+    appendUniquePath(directories, "/usr/lib/arm-linux-gnueabihf");
+#endif
+    return directories;
+}
+
+bool findNamedLibrary(
+    const std::vector<std::filesystem::path>& directories,
+    const std::vector<std::string>& names,
+    std::filesystem::path& foundPath)
+{
+    for (const std::filesystem::path& directory : directories)
+    {
+        for (const std::string& name : names)
+        {
+            const std::filesystem::path candidate = directory / name;
+            if (std::filesystem::is_regular_file(candidate))
+            {
+                foundPath = normalizedAbsolutePath(candidate);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+SixelDoctorInfo sixelDoctorInfo()
+{
+    SixelDoctorInfo info;
+    info.sixelDisabled = envEnabled(DISABLE_SIXEL_ENV.c_str()) ||
+        envEnabled(DETERMINISTIC_IMAGE_FALLBACK_ENV.c_str());
+    info.configuredLibraryPath = envValue(LIBSIXEL_PATH_ENV.c_str());
+    info.configuredLibraryDirectories = envValue(LIBSIXEL_DIR_ENV.c_str());
+    info.cppLibraryNames = sixelDoctorLibraryNames();
+
+    if (!info.configuredLibraryPath.empty())
+    {
+        const std::filesystem::path configured{info.configuredLibraryPath};
+        if (std::filesystem::is_regular_file(configured))
+        {
+            info.cppLibraryAvailable = true;
+            info.cppLibraryPath = normalizedAbsolutePath(configured);
+            info.cppLibrarySource = LIBSIXEL_PATH_ENV;
+            return info;
+        }
+    }
+
+    std::vector<std::filesystem::path> configuredDirectories;
+    appendDelimitedPaths(configuredDirectories, info.configuredLibraryDirectories, pathSeparator());
+    if (findNamedLibrary(configuredDirectories, info.cppLibraryNames, info.cppLibraryPath))
+    {
+        info.cppLibraryAvailable = true;
+        info.cppLibrarySource = LIBSIXEL_DIR_ENV;
+        return info;
+    }
+
+    if (findNamedLibrary(sixelDoctorSearchDirectories(), info.cppLibraryNames, info.cppLibraryPath))
+    {
+        info.cppLibraryAvailable = true;
+        info.cppLibrarySource = "loader search path";
+    }
+    return info;
 }
 
 std::vector<std::filesystem::path> shellProfileCandidates()
@@ -2474,6 +2624,25 @@ project(@PROJECT@ LANGUAGES CXX)
 find_package(uimd CONFIG QUIET)
 
 if(NOT TARGET uimd::runtime)
+    if(DEFINED ENV{UIMD_HOME})
+        set(_uimd_sdk_home "$ENV{UIMD_HOME}")
+    elseif(WIN32 AND DEFINED ENV{LOCALAPPDATA})
+        set(_uimd_sdk_home "$ENV{LOCALAPPDATA}/uimd")
+    elseif(DEFINED ENV{HOME})
+        set(_uimd_sdk_home "$ENV{HOME}/.uimd")
+    endif()
+    if(DEFINED _uimd_sdk_home AND EXISTS "${_uimd_sdk_home}/current")
+        file(READ "${_uimd_sdk_home}/current" _uimd_current_version)
+        string(STRIP "${_uimd_current_version}" _uimd_current_version)
+        set(_uimd_sdk_cpp "${_uimd_sdk_home}/sdk/${_uimd_current_version}/targets/cpp")
+        if(EXISTS "${_uimd_sdk_cpp}/lib/cmake/uimd/uimdConfig.cmake")
+            list(PREPEND CMAKE_PREFIX_PATH "${_uimd_sdk_cpp}")
+            find_package(uimd CONFIG QUIET)
+        endif()
+    endif()
+endif()
+
+if(NOT TARGET uimd::runtime)
     set(_uimd_local_cpp "${CMAKE_CURRENT_LIST_DIR}/../uimd/cpp")
     if(EXISTS "${_uimd_local_cpp}/CMakeLists.txt")
         set(UIMD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -2515,7 +2684,15 @@ target_link_libraries(@PROJECT@ PRIVATE uimd::runtime)
 std::string pythonExecutable()
 {
     const std::string pythonOverride = envValue("UIMD_PYTHON");
-    return pythonOverride.empty() ? "python3" : pythonOverride;
+    if (!pythonOverride.empty())
+    {
+        return pythonOverride;
+    }
+#ifdef _WIN32
+    return "python";
+#else
+    return "python3";
+#endif
 }
 
 std::filesystem::path installedSdkPythonTargetFromExecutable(const std::filesystem::path& executablePath)
@@ -2806,7 +2983,7 @@ int printHelp(const char* program)
         << "  mcp-test  Run MCP scripts against an app\n"
         << "  sdk       Inspect and manage UIMD SDK installs\n"
         << "  self      Manage this UIMD SDK launcher install\n"
-        << "  doctor    Inspect the UIMD installation\n";
+        << "  doctor    Inspect the UIMD installation and optional image dependencies\n";
     return EXIT_USAGE;
 }
 
@@ -2897,6 +3074,10 @@ int runDoctor(const std::vector<std::string>& args)
     const bool sdkUsable = launcherExists && currentBinaryExists && currentPythonTargetExists;
     const bool ok = sourceCheckoutAvailable || sdkUsable;
     const std::vector<std::string> currentTargets = currentVersion.empty() ? std::vector<std::string>{} : installedSdkTargets(sdkHomePath, currentVersion);
+    const SixelDoctorInfo sixelInfo = sixelDoctorInfo();
+    const std::string pythonInstallSixelCommand = pythonExecutable() + " -m pip install libsixel-python";
+    const std::string pythonVerifySixelCommand = pythonExecutable() + " -c \"import libsixel; print('python libsixel ok')\"";
+    const std::string pythonNativeLibraryNote = "libsixel-python also needs a native sixel/libsixel library; UIMD apps can use UIMD_LIBSIXEL_PATH or UIMD_LIBSIXEL_DIR";
 
     if (json)
     {
@@ -2920,6 +3101,16 @@ int runDoctor(const std::vector<std::string>& args)
             targetJson += "\"" + jsonEscape(currentTargets[index]) + "\"";
         }
         targetJson += "]";
+        std::string sixelNamesJson = "[";
+        for (std::size_t index = 0; index < sixelInfo.cppLibraryNames.size(); ++index)
+        {
+            if (index != 0)
+            {
+                sixelNamesJson += ",";
+            }
+            sixelNamesJson += "\"" + jsonEscape(sixelInfo.cppLibraryNames[index]) + "\"";
+        }
+        sixelNamesJson += "]";
         std::cout
             << "{\"native\":{\"binary\":true,\"source_root\":\""
             << jsonEscape(sourceCheckoutAvailable ? pathString(root) : "")
@@ -2947,7 +3138,27 @@ int runDoctor(const std::vector<std::string>& args)
             << versionJson
             << ",\"status\":\""
             << (sdkUsable ? "ok" : "incomplete")
-            << "\"},\"status\":\""
+            << "\"},\"images\":{\"sixel\":{\"disabled\":"
+            << (sixelInfo.sixelDisabled ? "true" : "false")
+            << ",\"cpp\":{\"available\":"
+            << (sixelInfo.cppLibraryAvailable ? "true" : "false")
+            << ",\"library\":\""
+            << jsonEscape(sixelInfo.cppLibraryAvailable ? pathString(sixelInfo.cppLibraryPath) : "")
+            << "\",\"source\":\""
+            << jsonEscape(sixelInfo.cppLibrarySource)
+            << "\",\"library_names\":"
+            << sixelNamesJson
+            << ",\"path_env\":\""
+            << LIBSIXEL_PATH_ENV
+            << "\",\"dir_env\":\""
+            << LIBSIXEL_DIR_ENV
+            << "\"},\"python\":{\"install_command\":\""
+            << jsonEscape(pythonInstallSixelCommand)
+            << "\",\"verify_command\":\""
+            << jsonEscape(pythonVerifySixelCommand)
+            << "\",\"native_library_note\":\""
+            << jsonEscape(pythonNativeLibraryNote)
+            << "\"}}},\"status\":\""
             << (ok ? "ok" : "problems found")
             << "\",\"version\":\""
             << jsonEscape(runtimeVersion())
@@ -3004,6 +3215,32 @@ int runDoctor(const std::vector<std::string>& args)
         }
         std::cout << "\n\n";
     }
+    std::cout << "Images:\n";
+    std::cout << "  Sixel rendering: " << (sixelInfo.sixelDisabled ? "disabled by environment" : "enabled when required") << "\n";
+    std::cout << "  C++ libsixel: " << (sixelInfo.cppLibraryAvailable ? "found" : "missing") << "\n";
+    if (sixelInfo.cppLibraryAvailable)
+    {
+        std::cout << "  C++ libsixel path: " << pathString(sixelInfo.cppLibraryPath) << "\n";
+        std::cout << "  C++ libsixel source: " << sixelInfo.cppLibrarySource << "\n";
+    }
+    else
+    {
+        std::cout << "  C++ search names: ";
+        for (std::size_t index = 0; index < sixelInfo.cppLibraryNames.size(); ++index)
+        {
+            if (index != 0)
+            {
+                std::cout << ", ";
+            }
+            std::cout << sixelInfo.cppLibraryNames[index];
+        }
+        std::cout << "\n";
+        std::cout << "  C++ override file: set " << LIBSIXEL_PATH_ENV << " to the full libsixel library path\n";
+        std::cout << "  C++ override dir: set " << LIBSIXEL_DIR_ENV << " to the directory containing libsixel\n";
+    }
+    std::cout << "  Python install: " << pythonInstallSixelCommand << "\n";
+    std::cout << "  Python native library: " << pythonNativeLibraryNote << "\n";
+    std::cout << "  Python standalone verify: " << pythonVerifySixelCommand << " (requires native DLL on PATH)\n\n";
     std::cout << "Status: " << (ok ? "ok" : "problems found") << "\n";
     return ok ? EXIT_OK : EXIT_ERROR;
 }
@@ -4146,6 +4383,15 @@ const std::vector<std::filesystem::path> MCP_PROJECT_MARKERS{
     std::filesystem::path{"cpp/tools/mcp_tester/main.cpp"},
 };
 
+std::string defaultMcpBackend()
+{
+#ifdef _WIN32
+    return MCP_BACKEND_PYTHON;
+#else
+    return MCP_BACKEND_CPP;
+#endif
+}
+
 bool isMcpProjectRoot(const std::filesystem::path& path)
 {
     for (const std::filesystem::path& marker : MCP_PROJECT_MARKERS)
@@ -4188,7 +4434,7 @@ std::filesystem::path mcpProjectRoot()
 
 std::string normalizeMcpBackend(const std::string& value)
 {
-    std::string backend = lower(trim(value.empty() ? std::string{MCP_BACKEND_CPP} : value));
+    std::string backend = lower(trim(value.empty() ? defaultMcpBackend() : value));
     if (backend == "c++" || backend == "uimd_mcp_tester")
     {
         return MCP_BACKEND_CPP;
@@ -4209,7 +4455,7 @@ std::pair<std::string, std::vector<std::string>> extractMcpBackend(const std::ve
     std::string backend = envValue(MCP_BACKEND_ENV);
     if (backend.empty())
     {
-        backend = MCP_BACKEND_CPP;
+        backend = defaultMcpBackend();
     }
 
     std::vector<std::string> forwarded;
@@ -4249,7 +4495,7 @@ void printMcpBackendHelp()
 {
     std::cout
         << "\nBackend selection:\n"
-        << "  --backend cpp|python  Choose tester backend; default is cpp.\n"
+        << "  --backend cpp|python  Choose tester backend; default is " << defaultMcpBackend() << ".\n"
         << "  --cpp                 Alias for --backend cpp.\n"
         << "  --python              Alias for --backend python.\n"
         << "  " << MCP_BACKEND_ENV << "=cpp|python  Environment fallback for backend selection.\n"

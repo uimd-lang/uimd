@@ -1,9 +1,11 @@
 """Tests for UI elements (Label, TextInput, NumberInput, Button, CheckBox, ComboBox, ListBox)."""
 
+import io
 import sys
 import os
 import re
 import subprocess
+import tempfile
 import textwrap
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -52,6 +54,12 @@ class FixedViewportScrollView(UIScrollView):
 class TestImage(unittest.TestCase):
     """Test cases for the Image element."""
 
+    def _require_pillow(self):
+        try:
+            image_module._require_pillow()
+        except image_module.PillowUnavailableError as exc:
+            self.skipTest(str(exc))
+
     def test_runtime_import_does_not_require_pillow(self):
         code = textwrap.dedent(
             """
@@ -91,6 +99,7 @@ class TestImage(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_image_fallback_renders_colored_cells(self):
+        self._require_pillow()
         image = Image(
             name="sample",
             source="shared/assets/image_samples/coins.png",
@@ -140,6 +149,7 @@ class TestImage(unittest.TestCase):
                 os.environ["UIMD_DISABLE_SIXEL"] = old_disable
 
     def test_image_sixel_encoder_uses_libsixel_when_available(self):
+        self._require_pillow()
         if not image_module._load_libsixel():
             self.skipTest("libsixel Python binding is not installed")
 
@@ -156,7 +166,50 @@ class TestImage(unittest.TestCase):
 
         self.assertTrue(rows[0][0].raw.startswith("\x1bPq"))
 
+    def test_sixel_unavailable_excepthook_prints_actionable_error_without_traceback(self):
+        error = image_module.SixelUnavailableError("libsixel not found.")
+        stderr = io.StringIO()
+
+        with patch("sys.stderr", stderr):
+            image_module._sixel_unavailable_excepthook(type(error), error, None)
+
+        output = stderr.getvalue()
+        self.assertIn("uimd: error: libsixel not found.", output)
+        self.assertIn("Python binding:", output)
+        self.assertIn("Native sixel/libsixel library: missing", output)
+        self.assertIn("pip install libsixel-python", output)
+        self.assertIn("native libsixel library", output)
+        self.assertIn("UIMD_LIBSIXEL_PATH", output)
+        self.assertIn("UIMD_DISABLE_SIXEL=1", output)
+        self.assertNotIn("Traceback", output)
+
+    def test_configured_sixel_library_lookup_honors_directory_override(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            library_path = os.path.join(temp_dir, "sixel.dll" if os.name == "nt" else "libsixel.so")
+            with open(library_path, "wb") as handle:
+                handle.write(b"")
+
+            with patch.dict(os.environ, {
+                image_module.LIBSIXEL_DIR_ENV: temp_dir,
+                image_module.LIBSIXEL_PATH_ENV: "",
+            }):
+                self.assertEqual(image_module._configured_sixel_library_path(), os.path.abspath(library_path))
+
+    def test_configured_sixel_library_lookup_overrides_ctypes_find_library(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            library_path = os.path.join(temp_dir, "custom_sixel.dll")
+            with open(library_path, "wb") as handle:
+                handle.write(b"")
+
+            with patch.dict(os.environ, {
+                image_module.LIBSIXEL_PATH_ENV: library_path,
+                image_module.LIBSIXEL_DIR_ENV: "",
+            }):
+                with image_module._configured_sixel_library_lookup():
+                    self.assertEqual(image_module.ctypes.util.find_library("sixel"), os.path.abspath(library_path))
+
     def test_image_sixel_mode_can_be_disabled_for_fallback(self):
+        self._require_pillow()
         os.environ["UIMD_DISABLE_SIXEL"] = "1"
         try:
             image = Image(

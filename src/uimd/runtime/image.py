@@ -1,7 +1,14 @@
-import fcntl
 import os
 import struct
-import termios
+import sys
+import ctypes.util
+import importlib.util
+try:
+    import fcntl
+    import termios
+except ModuleNotFoundError:
+    fcntl = None
+    termios = None
 from contextlib import contextmanager
 from functools import lru_cache
 from io import BytesIO
@@ -53,10 +60,18 @@ PILLOW_UNAVAILABLE_MESSAGE = (
 )
 SIXEL_UNAVAILABLE_MESSAGE = (
     "libsixel is required for non-fallback Image rendering. "
-    "Install libsixel and the Python libsixel binding, or use render_mode: fallback."
+    "Install libsixel and the Python libsixel binding, or use fallback rendering."
 )
+SIXEL_DISABLE_ENV = "UIMD_DISABLE_SIXEL"
+LIBSIXEL_PATH_ENV = "UIMD_LIBSIXEL_PATH"
+LIBSIXEL_DIR_ENV = "UIMD_LIBSIXEL_DIR"
+SIXEL_PYTHON_PACKAGE = "libsixel-python"
+WINDOWS_SIXEL_LIBRARY_NAMES = ("sixel.dll", "libsixel.dll", "libsixel-1.dll")
 _FORCE_FALLBACK_RENDERING_DEPTH = 0
 _FORCE_CELL_BACKGROUND_RENDERING_DEPTH = 0
+_SIXEL_EXCEPTHOOK_INSTALLED = False
+_PREVIOUS_EXCEPTHOOK = None
+_DLL_DIRECTORY_HANDLES = []
 
 
 @contextmanager
@@ -85,6 +100,130 @@ class SixelUnavailableError(RuntimeError):
 
 class PillowUnavailableError(RuntimeError):
     """Raised when Python Image rendering needs Pillow but it is unavailable."""
+
+
+def _python_install_command():
+    command = "python" if os.name == "nt" else "python3"
+    return f"{command} -m pip install {SIXEL_PYTHON_PACKAGE}"
+
+
+def _sixel_fallback_command_lines():
+    if os.name == "nt":
+        return [
+            f"cmd.exe: set {SIXEL_DISABLE_ENV}=1",
+            f"PowerShell: $env:{SIXEL_DISABLE_ENV} = \"1\"",
+        ]
+    return [f"POSIX shell: export {SIXEL_DISABLE_ENV}=1"]
+
+
+def _native_sixel_library_command_lines():
+    if os.name == "nt":
+        return [
+            f"cmd.exe: set {LIBSIXEL_PATH_ENV}=C:\\path\\to\\sixel.dll",
+            f"cmd.exe: set {LIBSIXEL_DIR_ENV}=C:\\path\\to\\folder\\with\\sixel.dll",
+            f"PowerShell: $env:{LIBSIXEL_PATH_ENV} = \"C:\\path\\to\\sixel.dll\"",
+        ]
+    return [
+        f"export {LIBSIXEL_PATH_ENV}=/path/to/libsixel.so",
+        f"export {LIBSIXEL_DIR_ENV}=/path/to/libsixel/lib",
+    ]
+
+
+def _libsixel_python_binding_installed():
+    return importlib.util.find_spec("libsixel") is not None
+
+
+def _native_sixel_missing_from_binding_error(exc):
+    return "libsixel not found" in str(exc).lower()
+
+
+def _format_sixel_unavailable_error(exc):
+    lines = [
+        f"uimd: error: {exc}",
+        "",
+        f"Python binding: {'installed' if _libsixel_python_binding_installed() else 'missing'}",
+        f"Native sixel/libsixel library: {'missing' if _native_sixel_missing_from_binding_error(exc) else 'not available'}",
+        "",
+        "Install Python Sixel binding:",
+        f"  {_python_install_command()}",
+        "",
+        "Make the native libsixel library visible to UIMD:",
+    ]
+    lines.extend(f"  {line}" for line in _native_sixel_library_command_lines())
+    lines.extend([
+        "",
+        "On Windows, libsixel-python needs a native sixel/libsixel DLL in addition to the Python package.",
+        "",
+        "Or run with fallback image rendering:",
+    ])
+    lines.extend(f"  {line}" for line in _sixel_fallback_command_lines())
+    lines.extend([
+        "",
+        "Then rerun the app.",
+    ])
+    return "\n".join(lines)
+
+
+def _sixel_unavailable_excepthook(exc_type, exc, traceback):
+    if isinstance(exc, SixelUnavailableError) or issubclass(exc_type, SixelUnavailableError):
+        print(_format_sixel_unavailable_error(exc), file=sys.stderr)
+        return
+    _PREVIOUS_EXCEPTHOOK(exc_type, exc, traceback)
+
+
+def install_sixel_unavailable_excepthook():
+    global _PREVIOUS_EXCEPTHOOK, _SIXEL_EXCEPTHOOK_INSTALLED
+    if _SIXEL_EXCEPTHOOK_INSTALLED:
+        return
+    _PREVIOUS_EXCEPTHOOK = sys.excepthook
+    sys.excepthook = _sixel_unavailable_excepthook
+    _SIXEL_EXCEPTHOOK_INSTALLED = True
+
+
+install_sixel_unavailable_excepthook()
+
+
+def _configured_sixel_library_path():
+    configured = os.environ.get(LIBSIXEL_PATH_ENV, "").strip()
+    if configured and os.path.isfile(configured):
+        return os.path.abspath(configured)
+
+    configured_dirs = os.environ.get(LIBSIXEL_DIR_ENV, "")
+    names = WINDOWS_SIXEL_LIBRARY_NAMES if os.name == "nt" else ("libsixel.so.1", "libsixel.so", "libsixel.1.dylib", "libsixel.dylib")
+    for directory in configured_dirs.split(os.pathsep):
+        directory = directory.strip()
+        if not directory:
+            continue
+        for name in names:
+            candidate = os.path.join(directory, name)
+            if os.path.isfile(candidate):
+                return os.path.abspath(candidate)
+    return None
+
+
+@contextmanager
+def _configured_sixel_library_lookup():
+    configured = _configured_sixel_library_path()
+    if not configured:
+        yield
+        return
+
+    directory = os.path.dirname(configured)
+    if os.name == "nt" and hasattr(os, "add_dll_directory"):
+        _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(directory))
+
+    original_find_library = ctypes.util.find_library
+
+    def find_library(name):
+        if name == "sixel":
+            return configured
+        return original_find_library(name)
+
+    ctypes.util.find_library = find_library
+    try:
+        yield
+    finally:
+        ctypes.util.find_library = original_find_library
 
 
 class Image(UIElement):
@@ -399,6 +538,8 @@ def _terminal_cell_px():
     if _terminal_cell_px_queried:
         return _terminal_cell_px_cache
     _terminal_cell_px_queried = True
+    if fcntl is None or termios is None:
+        return _terminal_cell_px_cache
     try:
         import sys
         buf = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
@@ -448,18 +589,19 @@ def _load_libsixel():
         return _LIBSIXEL_AVAILABLE
     _LIBSIXEL_CHECKED = True
     try:
-        from libsixel import (
-            sixel_output_new as loaded_sixel_output_new,
-            sixel_dither_new as loaded_sixel_dither_new,
-            sixel_dither_initialize as loaded_sixel_dither_initialize,
-            sixel_dither_unref as loaded_sixel_dither_unref,
-            sixel_output_unref as loaded_sixel_output_unref,
-            sixel_encode as loaded_sixel_encode,
-            SIXEL_PIXELFORMAT_RGB888 as loaded_SIXEL_PIXELFORMAT_RGB888,
-            SIXEL_LARGE_AUTO as loaded_SIXEL_LARGE_AUTO,
-            SIXEL_REP_AUTO as loaded_SIXEL_REP_AUTO,
-            SIXEL_QUALITY_HIGH as loaded_SIXEL_QUALITY_HIGH,
-        )
+        with _configured_sixel_library_lookup():
+            from libsixel import (
+                sixel_output_new as loaded_sixel_output_new,
+                sixel_dither_new as loaded_sixel_dither_new,
+                sixel_dither_initialize as loaded_sixel_dither_initialize,
+                sixel_dither_unref as loaded_sixel_dither_unref,
+                sixel_output_unref as loaded_sixel_output_unref,
+                sixel_encode as loaded_sixel_encode,
+                SIXEL_PIXELFORMAT_RGB888 as loaded_SIXEL_PIXELFORMAT_RGB888,
+                SIXEL_LARGE_AUTO as loaded_SIXEL_LARGE_AUTO,
+                SIXEL_REP_AUTO as loaded_SIXEL_REP_AUTO,
+                SIXEL_QUALITY_HIGH as loaded_SIXEL_QUALITY_HIGH,
+            )
     except Exception as exc:
         _LIBSIXEL_ERROR = str(exc)
         _LIBSIXEL_AVAILABLE = False

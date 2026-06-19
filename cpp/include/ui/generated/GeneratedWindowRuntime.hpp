@@ -4,11 +4,13 @@
 #include "ui/elements/Render.hpp"
 #include "ui/terminal/TerminalBuffer.hpp"
 
+#include <exception>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace ui {
@@ -121,5 +123,24 @@ void renderGeneratedWindow(GeneratedWindowBase& window, TerminalBuffer& buffer, 
 void dimGeneratedWindowModalBackground(TerminalBuffer& buffer);
 int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOptions options = {});
 int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOptions options, int argc, char** argv);
+int reportGeneratedAppUnhandledException(const std::exception& exc);
+int reportGeneratedAppUnhandledException();
+
+template <typename MainBody>
+int runGeneratedAppMain(MainBody&& body)
+{
+    try
+    {
+        return std::forward<MainBody>(body)();
+    }
+    catch (const std::exception& exc)
+    {
+        return reportGeneratedAppUnhandledException(exc);
+    }
+    catch (...)
+    {
+        return reportGeneratedAppUnhandledException();
+    }
+}
 
 }  // namespace ui

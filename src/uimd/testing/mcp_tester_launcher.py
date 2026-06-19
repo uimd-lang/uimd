@@ -1,8 +1,8 @@
 """Launcher for the repository MCP tester entrypoints.
 
-The C++ tester is the default local implementation.  The Python tester remains
-available as the packaged reference/fallback implementation via --backend
-python.
+POSIX uses the C++ tester as the default local implementation. Windows defaults
+to the Python tester because the C++ tester still depends on POSIX PTY/fork
+primitives. Both backends remain selectable explicitly with --backend.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Iterable
 BACKEND_CPP = "cpp"
 BACKEND_PYTHON = "python"
 BACKEND_ENV = "UIMD_MCP_TESTER_BACKEND"
-DEFAULT_BACKEND = BACKEND_CPP
+DEFAULT_BACKEND = BACKEND_PYTHON if os.name == "nt" else BACKEND_CPP
 CPP_TESTER_RELATIVE_PATH = os.path.join("cpp", "build", "tools", "mcp_tester", "uimd_mcp_tester")
 CPP_BUILD_COMMAND = "cmake --build cpp/build --target uimd_mcp_tester"
 CPP_TESTER_MISSING_EXIT_CODE = 127
@@ -114,7 +114,7 @@ def _run_python_tester(args: list[str]) -> int:
 def _print_backend_help() -> None:
     print(
         "\nBackend selection:\n"
-        "  --backend cpp|python  Choose tester backend; default is cpp.\n"
+        f"  --backend cpp|python  Choose tester backend; default is {DEFAULT_BACKEND}.\n"
         "  --cpp                 Alias for --backend cpp.\n"
         "  --python              Alias for --backend python.\n"
         f"  {BACKEND_ENV}=cpp|python  Environment fallback for backend selection.",

@@ -1,5 +1,6 @@
 """Tests for the universal MCP tester app configuration."""
 
+import io
 import os
 import re
 import subprocess
@@ -12,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from uimd.testing import mcp_tester_launcher
+from uimd.testing import mcp_tester as mcp_tester_module
 from uimd.testing.mcp_tester import (
     DEFAULT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_TYPE_DELAY_MS,
@@ -33,6 +35,7 @@ from uimd.testing.mcp_tester import (
     _render_snapshot_mismatch,
     _run_tester_file_step,
     _select_snapshot_fields,
+    _supports_visual_tester,
     parse_args,
 )
 from uimd.testing.log_panel import LogPanel
@@ -72,6 +75,10 @@ STABLE_PARITY_LOG_PREFIXES = (
     "PASS:",
     "RESULT:",
 )
+
+
+def _repo_path(root, value):
+    return os.path.normpath(os.path.join(root, value))
 
 
 def _mcp_tester_parity_env():
@@ -129,6 +136,7 @@ class TestMcpTesterConfig(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parse_args([])
 
+    @unittest.skipIf(os.name == "nt", "Windows defaults to the Python tester backend")
     def test_launcher_defaults_to_cpp_tester_binary(self):
         binary = os.path.join("/repo", "cpp", "build", "tools", "mcp_tester", "uimd_mcp_tester")
         with patch("uimd.testing.mcp_tester_launcher._project_root", return_value="/repo"), \
@@ -138,6 +146,14 @@ class TestMcpTesterConfig(unittest.TestCase):
 
         self.assertEqual(result, 0)
         run_binary.assert_called_once_with([binary, "tests/mcp/calculator.yaml"], cwd="/repo")
+
+    @unittest.skipUnless(os.name == "nt", "POSIX defaults to the C++ tester backend")
+    def test_launcher_defaults_to_python_tester_on_windows(self):
+        with patch("uimd.testing.mcp_tester.main", return_value=0) as python_tester:
+            result = mcp_tester_launcher.main_argv(["tests/mcp/calculator.yaml"])
+
+        self.assertEqual(result, 0)
+        python_tester.assert_called_once_with(["tests/mcp/calculator.yaml"])
 
     def test_launcher_can_select_python_reference_backend(self):
         with patch("uimd.testing.mcp_tester.main", return_value=5) as python_tester:
@@ -149,6 +165,81 @@ class TestMcpTesterConfig(unittest.TestCase):
 
         self.assertEqual(result, 5)
         python_tester.assert_called_once_with(["tests/mcp/calculator.yaml"])
+
+    def test_windows_visual_tester_supported_without_posix_pty(self):
+        with patch.object(mcp_tester_module.os, "name", "nt"), \
+             patch("uimd.testing.mcp_tester._supports_pty", return_value=False):
+            self.assertTrue(_supports_visual_tester())
+
+    def test_target_command_uses_gui_only_when_terminal_capture_is_enabled(self):
+        target = TargetApp("calculator", "python/examples/calculator/calculator.py", PROJECT_ROOT)
+        target.port = 12345
+        target.viewport = {"row": 0, "col": 0, "width": 40, "height": 12}
+
+        gui_command = target._command(0, 0, terminal_capture=True)
+        headless_command = target._command(0, 0, terminal_capture=False)
+
+        self.assertIn("--gui", gui_command)
+        self.assertNotIn("--headless", gui_command)
+        self.assertIn("--headless", headless_command)
+        self.assertNotIn("--gui", headless_command)
+
+    def test_target_start_falls_back_to_headless_when_conpty_start_fails(self):
+        target = TargetApp("calculator", "python/examples/calculator/calculator.py", PROJECT_ROOT)
+        started_commands = []
+
+        def record_headless(command, _process_env):
+            started_commands.append(command)
+
+        with patch("uimd.testing.mcp_tester._supports_pty", return_value=False), \
+             patch("uimd.testing.mcp_tester._supports_conpty", return_value=True), \
+             patch.object(target, "_start_with_conpty", side_effect=OSError("ConPTY unavailable")), \
+             patch.object(target, "_start_headless", side_effect=record_headless):
+            target.start({"row": 0, "col": 0, "width": 40, "height": 12}, 0, 0)
+
+        self.assertEqual(len(started_commands), 1)
+        self.assertIn("--headless", started_commands[0])
+        self.assertNotIn("--gui", started_commands[0])
+
+    def test_main_uses_visual_tester_when_windows_tty_is_available(self):
+        class FakeStdout:
+            def isatty(self):
+                return True
+
+        class FakeApp:
+            def __init__(self):
+                self.opened = []
+
+            def open(self, window):
+                self.opened.append(window)
+
+            def run(self):
+                return 9
+
+        config = TesterConfig(
+            root=PROJECT_ROOT,
+            apps={},
+            action_delay_ms=0,
+            type_delay_ms=0,
+            step_delay_seconds=0,
+            source_path="tests/mcp/calculator.yaml",
+            steps=[],
+            plain=False,
+        )
+        fake_app = FakeApp()
+        fake_window = type("FakeWindow", (), {"exit_code": 9})()
+
+        with patch("uimd.testing.mcp_tester.parse_args", return_value=config), \
+             patch("uimd.testing.mcp_tester._supports_visual_tester", return_value=True), \
+             patch("uimd.testing.mcp_tester.sys.stdout", FakeStdout()), \
+             patch("uimd.testing.mcp_tester.UIApplication", return_value=fake_app), \
+             patch("uimd.testing.mcp_tester.McpTester", return_value=fake_window), \
+             patch("uimd.testing.mcp_tester._run_headless") as run_headless:
+            result = mcp_tester_module.main([])
+
+        self.assertEqual(result, 9)
+        self.assertEqual(fake_app.opened, [fake_window])
+        run_headless.assert_not_called()
 
     def test_python_and_cpp_tester_backends_have_small_script_parity(self):
         self.maxDiff = None
@@ -235,7 +326,7 @@ class TestMcpTesterConfig(unittest.TestCase):
         ])
         self.assertEqual(
             config.apps,
-            {"calculator": os.path.join(config.root, "python/examples/calculator/calculator.py")},
+            {"calculator": _repo_path(config.root, "python/examples/calculator/calculator.py")},
         )
         self.assertEqual(config.source_path, "tests/mcp/calculator.yaml")
         self.assertEqual(len(config.steps), 33)
@@ -253,7 +344,7 @@ class TestMcpTesterConfig(unittest.TestCase):
 
         self.assertEqual(
             config.apps,
-            {"calculator": os.path.join(config.root, "python/examples/calculator/calculator.py")},
+            {"calculator": _repo_path(config.root, "python/examples/calculator/calculator.py")},
         )
         self.assertEqual(config.source_path, "tests/mcp/calculator.yaml")
 
@@ -299,7 +390,7 @@ class TestMcpTesterConfig(unittest.TestCase):
 
         self.assertEqual(
             config.apps,
-            {"calculator": os.path.join(config.root, "cpp/build/examples/calculator/calculator")},
+            {"calculator": _repo_path(config.root, "cpp/build/examples/calculator/calculator")},
         )
         self.assertEqual(config.steps[0]["target"], "calculator")
 
@@ -312,7 +403,7 @@ class TestMcpTesterConfig(unittest.TestCase):
 
         self.assertEqual(
             config.apps,
-            {"calculator": os.path.join(config.root, "cpp/build/examples/calculator/calculator")},
+            {"calculator": _repo_path(config.root, "cpp/build/examples/calculator/calculator")},
         )
 
     def test_compare_cli_runs_single_yaml_against_two_apps(self):
@@ -327,8 +418,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(
             config.apps,
             {
-                "python": os.path.join(config.root, "python/examples/calculator/calculator.py"),
-                "cpp": os.path.join(config.root, "cpp/build/examples/calculator/calculator"),
+                "python": _repo_path(config.root, "python/examples/calculator/calculator.py"),
+                "cpp": _repo_path(config.root, "cpp/build/examples/calculator/calculator"),
             },
         )
         self.assertEqual(config.steps[0]["target"], "*")
@@ -369,7 +460,7 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(len(config.scripts), ALL_EXAMPLE_SCRIPT_COUNT)
         self.assertEqual(
             config.scripts[0].apps,
-            {"calculator": os.path.join(config.root, "python/examples/calculator/calculator.py")},
+            {"calculator": _repo_path(config.root, "python/examples/calculator/calculator.py")},
         )
 
     def test_compare_examples_roots_replace_each_included_script_app_path(self):
@@ -407,7 +498,7 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(len(config.scripts), ALL_EXAMPLE_SCRIPT_COUNT)
         self.assertEqual(
             config.scripts[0].apps,
-            {"calculator": os.path.join(config.root, "python/examples/calculator/calculator.py")},
+            {"calculator": _repo_path(config.root, "python/examples/calculator/calculator.py")},
         )
 
     def test_all_compare_uses_examples_roots(self):
@@ -973,6 +1064,37 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertIn("beta", elements_module._TEXT_CLIPBOARD)
         self.assertNotIn("copied", elements_module._TEXT_CLIPBOARD)
         tester.close()
+
+    def test_plain_log_escapes_unencodable_console_characters(self):
+        class Cp1250Stdout(io.StringIO):
+            encoding = "cp1250"
+
+            def write(self, text):
+                text.encode(self.encoding)
+                return super().write(text)
+
+        script = TestScript("unit.yaml", {}, [])
+        config = TesterConfig(
+            root=os.getcwd(),
+            apps=script.apps,
+            action_delay_ms=0,
+            type_delay_ms=0,
+            step_delay_seconds=0,
+            source_path="unit.yaml",
+            steps=[],
+            scripts=[script],
+            plain=True,
+        )
+        tester = McpTester(config)
+        tester.open()
+        stdout = Cp1250Stdout()
+        try:
+            with patch("uimd.testing.mcp_tester.sys.stdout", stdout):
+                tester._append_log("snapshot mismatch char='\u2580'")
+        finally:
+            tester.close()
+
+        self.assertIn("\\u2580", stdout.getvalue())
 
     def test_pause_button_toggles_to_play_and_back(self):
         script = TestScript("unit.yaml", {"missing": "missing.py"}, [])

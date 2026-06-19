@@ -4,12 +4,14 @@ import sys
 import os
 import time
 import tempfile
+from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'examples', 'activity_feed'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'examples', 'calculator'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'examples', 'cells'))
 
 import unittest
+import runtime.application as application_module
 from runtime.application import MOUSE_WHEEL_COALESCED_MAX_DELTA, UIApplication
 from runtime.uiwindow import UIWindow
 from runtime.UIScrollView import UIScrollView
@@ -822,6 +824,80 @@ class TestUIApplication(unittest.TestCase):
         self.assertEqual(app._decode_escape_sequence(b"[1;5B"), "Ctrl+Down")
         self.assertEqual(app._decode_escape_sequence(b"[1;5C"), "Ctrl+Right")
         self.assertEqual(app._decode_escape_sequence(b"[1;5D"), "Ctrl+Left")
+
+    def test_windows_console_extended_key_prefix_decodes_arrow(self):
+        app = UIApplication()
+        pending = ["H"]
+        app._windows_console_key_ready = lambda timeout=0: bool(pending)
+        app._read_windows_console_char = lambda: pending.pop(0)
+
+        self.assertEqual(app._decode_windows_console_char("\xe0"), "Up")
+
+    def test_windows_console_escape_sequence_uses_existing_decoder(self):
+        app = UIApplication()
+        pending = list("[A")
+        app._windows_console_key_ready = lambda timeout=0: bool(pending)
+        app._read_windows_console_char = lambda: pending.pop(0)
+
+        self.assertEqual(app._decode_windows_console_char("\x1b"), "Up")
+
+    def test_windows_console_plain_keys_match_posix_key_names(self):
+        app = UIApplication()
+
+        self.assertEqual(app._decode_windows_console_char("\r"), "Enter")
+        self.assertEqual(app._decode_windows_console_char("\t"), "Tab")
+        self.assertEqual(app._decode_windows_console_char("\b"), "Backspace")
+        self.assertEqual(app._decode_windows_console_char("x"), "x")
+
+    def test_windows_console_ctrl_c_raises_keyboard_interrupt(self):
+        app = UIApplication()
+
+        with self.assertRaises(KeyboardInterrupt):
+            app._decode_windows_console_char("\x03")
+
+    def test_windows_tty_without_termios_uses_console_loop(self):
+        class FakeTTY:
+            def __init__(self):
+                self.text = ""
+
+            def isatty(self):
+                return True
+
+            def fileno(self):
+                return 0
+
+            def write(self, text):
+                self.text += text
+
+            def flush(self):
+                pass
+
+            def reconfigure(self, **_kwargs):
+                pass
+
+        app = UIApplication()
+        app.open(UIWindow(title="Test"))
+        stderr = FakeTTY()
+        calls = []
+
+        def run_windows_console_loop(close_mcp_server=None, controlled_render=False):
+            calls.append((close_mcp_server, controlled_render))
+            return 77
+
+        app._run_windows_console_loop = run_windows_console_loop
+
+        with patch.object(application_module.os, "name", "nt"), \
+             patch.object(application_module, "termios", None), \
+             patch.object(application_module, "tty", None), \
+             patch.object(application_module, "msvcrt", object()), \
+             patch.object(application_module.sys, "stdin", FakeTTY()), \
+             patch.object(application_module.sys, "stdout", FakeTTY()), \
+             patch.object(application_module.sys, "stderr", stderr):
+            result = app._run_gui_loop()
+
+        self.assertEqual(result, 77)
+        self.assertEqual(calls, [(None, False)])
+        self.assertNotIn("interactive terminal mode is not supported", stderr.text)
 
 
 class TestUIApplicationWindowStack(unittest.TestCase):

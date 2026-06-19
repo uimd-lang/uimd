@@ -187,25 +187,106 @@ def init_asset_name(version: str, platform_label: str) -> str:
     return f"uimd-init-{version}-{platform_label}" + (".exe" if platform_is_windows(platform_label) else "")
 
 
-def run_command(root: Path, command: list[str]) -> None:
-    print("$ " + " ".join(command), flush=True)
-    subprocess.run(command, cwd=root, check=True)
+def visual_studio_cmake_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    program_files = os.environ.get("ProgramFiles")
+    program_files_x86 = os.environ.get("ProgramFiles(x86)")
+    vswhere_candidates = []
+    if program_files_x86:
+        vswhere_candidates.append(Path(program_files_x86) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe")
+    for vswhere in vswhere_candidates:
+        if not vswhere.is_file():
+            continue
+        try:
+            result = subprocess.run(
+                [
+                    str(vswhere),
+                    "-latest",
+                    "-products",
+                    "*",
+                    "-requires",
+                    "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                    "-property",
+                    "installationPath",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError:
+            continue
+        for line in result.stdout.splitlines():
+            path = Path(line.strip())
+            if path:
+                candidates.append(path / "Common7" / "IDE" / "CommonExtensions" / "Microsoft" / "CMake" / "CMake" / "bin" / "cmake.exe")
+    if program_files:
+        candidates.append(
+            Path(program_files)
+            / "Microsoft Visual Studio"
+            / "2022"
+            / "Professional"
+            / "Common7"
+            / "IDE"
+            / "CommonExtensions"
+            / "Microsoft"
+            / "CMake"
+            / "CMake"
+            / "bin"
+            / "cmake.exe"
+        )
+    return candidates
 
 
-def build_native_outputs(root: Path, build_dir: Path) -> None:
+def cmake_command() -> str:
+    override = os.environ.get("CMAKE_COMMAND")
+    if override:
+        return override
+    discovered = shutil.which("cmake")
+    if discovered:
+        return discovered
+    if sys.platform.startswith("win"):
+        for candidate in visual_studio_cmake_candidates():
+            if candidate.is_file():
+                return str(candidate)
+    raise RuntimeError("cannot find cmake; set CMAKE_COMMAND or add CMake to PATH")
+
+
+def cmake_config_args(platform_label: str, build_dir: Path) -> list[str]:
+    if not platform_is_windows(platform_label):
+        return []
+    architecture = "ARM64" if platform_label.endswith("arm64") else "x64"
+    if (build_dir / "CMakeCache.txt").is_file():
+        return []
+    return ["-G", "Visual Studio 17 2022", "-A", architecture]
+
+
+def cmake_build_config_args(platform_label: str) -> list[str]:
+    return ["--config", "Release"] if platform_is_windows(platform_label) else []
+
+
+def run_command(root: Path, command: list[str | Path]) -> None:
+    normalized = [str(part) for part in command]
+    print("$ " + " ".join(normalized), flush=True)
+    subprocess.run(normalized, cwd=root, check=True)
+
+
+def build_native_outputs(root: Path, build_dir: Path, platform_label: str) -> None:
+    cmake = cmake_command()
     run_command(
         root,
         [
-            "cmake",
+            cmake,
             "-S",
             "cpp",
             "-B",
             str(build_dir),
             "-DUIMD_EMBED_SOURCE_ROOT=OFF",
-        ],
+        ]
+        + cmake_config_args(platform_label, build_dir),
     )
+    build_config = cmake_build_config_args(platform_label)
     for target in ("ui_cpp_runtime", "ui_cpp_dialogs", "uimd", "uimd_init"):
-        run_command(root, ["cmake", "--build", str(build_dir), "--target", target])
+        run_command(root, [cmake, "--build", str(build_dir), *build_config, "--target", target])
 
 
 def remove_path(path: Path) -> None:
@@ -331,7 +412,13 @@ def sign_checksums(root: Path, checksums_path: Path, signing_key: Path) -> Path:
     return signature_path
 
 
-def install_script_text(version: str, public_key: str) -> str:
+def install_script_text(version: str, public_key: str, require_signature: bool) -> str:
+    signature_download = (
+        'download "$BASE_URL/checksums.txt.minisig" "$tmpdir/checksums.txt.minisig"\n'
+        "verify_checksums_signature\n"
+        if require_signature
+        else "export UIMD_ALLOW_UNSIGNED_RELEASE=1\n"
+    )
     return f"""#!/bin/sh
 set -eu
 
@@ -405,8 +492,7 @@ verify_checksums_signature() {{
 }}
 
 download "$BASE_URL/checksums.txt" "$tmpdir/checksums.txt"
-download "$BASE_URL/checksums.txt.minisig" "$tmpdir/checksums.txt.minisig"
-verify_checksums_signature
+{signature_download.rstrip()}
 download "$BASE_URL/$INIT_ASSET" "$tmpdir/$INIT_ASSET"
 
 expected="$(checksum_for "$INIT_ASSET")"
@@ -427,7 +513,22 @@ exec "$tmpdir/$INIT_ASSET" "$@"
 """
 
 
-def install_powershell_script_text(version: str, public_key: str) -> str:
+def install_powershell_script_text(version: str, public_key: str, require_signature: bool) -> str:
+    signature_block = (
+        f"""    Receive-UimdFile -Uri "$BaseUrl/checksums.txt.minisig" -OutFile $ChecksumsSignaturePath
+    $Minisign = Get-Command minisign -ErrorAction SilentlyContinue
+    if (-not $Minisign) {{
+        throw "missing minisign for signed release verification"
+    }}
+    & $Minisign.Source -Vq -P "{public_key}" -m $ChecksumsPath -x $ChecksumsSignaturePath
+    if ($LASTEXITCODE -ne 0) {{
+        throw "checksums.txt signature verification failed"
+    }}
+"""
+        if require_signature
+        else """    $env:UIMD_ALLOW_UNSIGNED_RELEASE = "1"
+"""
+    )
     return f"""$ErrorActionPreference = "Stop"
 
 $Version = if ($env:UIMD_VERSION) {{ $env:UIMD_VERSION }} else {{ "{version}" }}
@@ -461,21 +562,26 @@ $InitAsset = "uimd-init-$Version-$Platform.exe"
 $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("uimd-install-" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $TempRoot | Out-Null
 
+function Receive-UimdFile {{
+    param(
+        [string]$Uri,
+        [string]$OutFile
+    )
+    if ($Uri.StartsWith("file://")) {{
+        $LocalPath = ([System.Uri]$Uri).LocalPath
+        Copy-Item -LiteralPath $LocalPath -Destination $OutFile
+    }} else {{
+        Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile
+    }}
+}}
+
 try {{
     $ChecksumsPath = Join-Path $TempRoot "checksums.txt"
     $ChecksumsSignaturePath = Join-Path $TempRoot "checksums.txt.minisig"
     $InitPath = Join-Path $TempRoot $InitAsset
-    Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/checksums.txt" -OutFile $ChecksumsPath
-    Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/checksums.txt.minisig" -OutFile $ChecksumsSignaturePath
-    $Minisign = Get-Command minisign -ErrorAction SilentlyContinue
-    if (-not $Minisign) {{
-        throw "missing minisign for signed release verification"
-    }}
-    & $Minisign.Source -Vq -P "{public_key}" -m $ChecksumsPath -x $ChecksumsSignaturePath
-    if ($LASTEXITCODE -ne 0) {{
-        throw "checksums.txt signature verification failed"
-    }}
-    Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/$InitAsset" -OutFile $InitPath
+    Receive-UimdFile -Uri "$BaseUrl/checksums.txt" -OutFile $ChecksumsPath
+{signature_block.rstrip()}
+    Receive-UimdFile -Uri "$BaseUrl/$InitAsset" -OutFile $InitPath
 
     $Expected = $null
     foreach ($Line in Get-Content -Path $ChecksumsPath) {{
@@ -501,9 +607,9 @@ try {{
 """
 
 
-def write_install_script(output_root: Path, version: str, public_key: str) -> Path:
+def write_install_script(output_root: Path, version: str, public_key: str, require_signature: bool) -> Path:
     script_path = output_root / "install.sh"
-    script_path.write_text(install_script_text(version, public_key), encoding="utf-8")
+    script_path.write_text(install_script_text(version, public_key, require_signature), encoding="utf-8")
     script_path.chmod(
         stat.S_IRUSR
         | stat.S_IWUSR
@@ -516,16 +622,37 @@ def write_install_script(output_root: Path, version: str, public_key: str) -> Pa
     return script_path
 
 
-def write_install_powershell_script(output_root: Path, version: str, public_key: str) -> Path:
+def write_install_powershell_script(output_root: Path, version: str, public_key: str, require_signature: bool) -> Path:
     script_path = output_root / "install.ps1"
-    script_path.write_text(install_powershell_script_text(version, public_key), encoding="utf-8")
+    script_path.write_text(install_powershell_script_text(version, public_key, require_signature), encoding="utf-8")
     return script_path
 
 
-def stage_cpp_install(root: Path, build_dir: Path, stage_dir: Path) -> None:
+def stage_cpp_install(root: Path, build_dir: Path, stage_dir: Path, platform_label: str) -> None:
     remove_path(stage_dir)
     stage_dir.mkdir(parents=True, exist_ok=True)
-    run_command(root, ["cmake", "--install", str(build_dir), "--prefix", str(stage_dir)])
+    run_command(
+        root,
+        [
+            cmake_command(),
+            "--install",
+            str(build_dir),
+            *cmake_build_config_args(platform_label),
+            "--prefix",
+            str(stage_dir),
+        ],
+    )
+
+
+def built_tool_path(build_dir: Path, relative_dir: Path, executable: str) -> Path:
+    candidates = [
+        build_dir / relative_dir / executable,
+        build_dir / relative_dir / "Release" / executable,
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
 
 
 def package_release(
@@ -537,18 +664,20 @@ def package_release(
     build: bool,
     signing_key: Path | None,
     public_key_path: Path,
+    allow_unsigned_local_release: bool,
 ) -> list[Path]:
     uimd_binary_name = executable_name("uimd", platform_label)
     init_binary_name = executable_name("uimd-init", platform_label)
-    uimd_binary = build_dir / "tools" / "uimd" / uimd_binary_name
-    init_binary = build_dir / "tools" / "uimd_init" / init_binary_name
 
     if build:
-        build_native_outputs(root, build_dir)
+        build_native_outputs(root, build_dir, platform_label)
 
-    if signing_key is None:
+    uimd_binary = built_tool_path(build_dir, Path("tools") / "uimd", uimd_binary_name)
+    init_binary = built_tool_path(build_dir, Path("tools") / "uimd_init", init_binary_name)
+
+    if signing_key is None and not allow_unsigned_local_release:
         raise RuntimeError("release signing key is required; pass --signing-key or set UIMD_RELEASE_SIGNING_KEY")
-    public_key = minisign_public_key(public_key_path)
+    public_key = minisign_public_key(public_key_path) if signing_key is not None else ""
 
     ensure_file(uimd_binary, f"native uimd binary; run with --build or build {build_dir} first")
     ensure_file(init_binary, f"native uimd-init binary; run with --build or build {build_dir} first")
@@ -570,7 +699,7 @@ def package_release(
     copy_file(root / "README.md", python_target / "README.md")
     copy_file(root / "LICENSE", python_target / "LICENSE")
 
-    stage_cpp_install(root, build_dir, stage_dir)
+    stage_cpp_install(root, build_dir, stage_dir, platform_label)
     cpp_target = payload_dir / "targets" / "cpp"
     copy_tree(stage_dir / "bin", cpp_target / "bin")
     copy_tree(stage_dir / "include", cpp_target / "include")
@@ -586,14 +715,16 @@ def package_release(
     init_asset = output_root / init_asset_name(version, platform_label)
     copy_file(init_binary, init_asset, executable=True)
     archive_path = create_tarball(output_root, release_dir, version, platform_label)
-    install_script = write_install_script(output_root, version, public_key)
-    install_powershell_script = write_install_powershell_script(output_root, version, public_key)
+    require_signature = signing_key is not None
+    install_script = write_install_script(output_root, version, public_key, require_signature)
+    install_powershell_script = write_install_powershell_script(output_root, version, public_key, require_signature)
     checksums_path = write_checksums(output_root, [manifest_path, archive_path, init_asset, install_script, install_powershell_script])
-    signature_path = sign_checksums(root, checksums_path, signing_key)
+    signature_path = sign_checksums(root, checksums_path, signing_key) if signing_key is not None else None
 
     remove_path(output_root / ".stage")
     artifacts = [manifest_path, archive_path, init_asset, install_script, install_powershell_script, checksums_path]
-    artifacts.append(signature_path)
+    if signature_path is not None:
+        artifacts.append(signature_path)
     return artifacts
 
 
@@ -645,6 +776,14 @@ def parse_args() -> argparse.Namespace:
         default=Path(os.environ["UIMD_RELEASE_PUBLIC_KEY_FILE"]) if os.environ.get("UIMD_RELEASE_PUBLIC_KEY_FILE") else None,
         help="Minisign public key to embed in bootstrap scripts (default: signing/uimd-release.pub).",
     )
+    parser.add_argument(
+        "--allow-unsigned-local-release",
+        action="store_true",
+        help=(
+            "Write local validation artifacts without checksums.txt.minisig when no signing key is available. "
+            "Do not use for public release assets."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -679,6 +818,7 @@ def main() -> int:
             build=args.build,
             signing_key=signing_key,
             public_key_path=public_key_path,
+            allow_unsigned_local_release=args.allow_unsigned_local_release,
         )
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -689,8 +829,15 @@ def main() -> int:
         print(f"  {artifact}")
     print()
     print("Install locally with:")
-    installer_binary = build_dir / "tools" / "uimd" / "uimd"
-    print(f"  UIMD_HOME=/tmp/uimd-home {installer_binary} sdk install {version} --release-root {output_root}")
+    if platform_is_windows(platform_label):
+        print(
+            "  $env:UIMD_HOME = \"$env:TEMP\\uimd-home\"; "
+            f"$env:UIMD_RELEASE_BASE_URL = \"file:///{output_root.as_posix()}\"; "
+            f"powershell -ExecutionPolicy Bypass -File \"{output_root / 'install.ps1'}\" --no-shell-config --json"
+        )
+    else:
+        installer_binary = built_tool_path(build_dir, Path("tools") / "uimd", "uimd")
+        print(f"  UIMD_HOME=/tmp/uimd-home {installer_binary} sdk install {version} --release-root {output_root}")
     return 0
 
 

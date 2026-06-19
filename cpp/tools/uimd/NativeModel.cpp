@@ -29,6 +29,26 @@ std::string readTextFile(const std::string& path)
     return buffer.str();
 }
 
+std::string normalizeNewlines(std::string text)
+{
+    std::string normalized;
+    normalized.reserve(text.size());
+    for (std::size_t index = 0; index < text.size(); ++index)
+    {
+        if (text[index] == '\r')
+        {
+            if (index + 1 < text.size() && text[index + 1] == '\n')
+            {
+                ++index;
+            }
+            normalized.push_back('\n');
+            continue;
+        }
+        normalized.push_back(text[index]);
+    }
+    return normalized;
+}
+
 std::string trim(const std::string& value)
 {
     std::size_t start = 0;
@@ -622,16 +642,37 @@ std::map<std::string, std::string> extractH2Sections(const std::string& content)
     };
 
     std::map<std::string, std::string> sections;
-    std::regex headingPattern{R"(^##\s+(.+?)\s*$)", std::regex::multiline};
-    std::vector<std::pair<std::smatch, std::size_t>> matches;
-    for (std::sregex_iterator it(content.begin(), content.end(), headingPattern), end; it != end; ++it)
+    struct HeadingMatch
     {
-        matches.push_back({*it, static_cast<std::size_t>(it->position())});
+        std::string name;
+        std::size_t headingStart = 0;
+        std::size_t contentStart = 0;
+    };
+    std::vector<HeadingMatch> matches;
+    for (std::size_t lineStart = 0; lineStart < content.size();)
+    {
+        const std::size_t lineEnd = content.find('\n', lineStart);
+        const std::size_t effectiveLineEnd = lineEnd == std::string::npos ? content.size() : lineEnd;
+        std::string line = content.substr(lineStart, effectiveLineEnd - lineStart);
+        if (!line.empty() && line.back() == '\r')
+        {
+            line.pop_back();
+        }
+        if (line.size() > 2 && line[0] == '#' && line[1] == '#' &&
+            std::isspace(static_cast<unsigned char>(line[2])))
+        {
+            matches.push_back(HeadingMatch{trim(line.substr(2)), lineStart, effectiveLineEnd});
+        }
+        if (lineEnd == std::string::npos)
+        {
+            break;
+        }
+        lineStart = lineEnd + 1;
     }
 
     for (std::size_t index = 0; index < matches.size(); ++index)
     {
-        const std::string rawName = trim(matches[index].first[1].str());
+        const std::string rawName = matches[index].name;
         const auto allowedIt = allowed.find(lower(rawName));
         if (allowedIt == allowed.end())
         {
@@ -642,8 +683,8 @@ std::map<std::string, std::string> extractH2Sections(const std::string& content)
         {
             throw std::runtime_error("duplicate Markdown UI section: " + canonical);
         }
-        const std::size_t start = matches[index].second + static_cast<std::size_t>(matches[index].first.length());
-        const std::size_t end = index + 1 < matches.size() ? matches[index + 1].second : content.size();
+        const std::size_t start = matches[index].contentStart;
+        const std::size_t end = index + 1 < matches.size() ? matches[index + 1].headingStart : content.size();
         sections[canonical] = content.substr(start, end - start);
     }
     return sections;
@@ -909,7 +950,7 @@ const YamlValue* YamlMap::get(const std::string& key) const
 
 NativeDocument parseDocumentFile(const std::string& path)
 {
-    const std::string content = readTextFile(path);
+    const std::string content = normalizeNewlines(readTextFile(path));
     if (startsWith(trim(content), "---"))
     {
         throw std::runtime_error("YAML frontmatter UI files are no longer supported");

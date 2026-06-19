@@ -2,11 +2,27 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-NATIVE_UIMD="$ROOT_DIR/cpp/build/tools/uimd/uimd"
+NATIVE_UIMD=""
 
-if [ ! -x "$NATIVE_UIMD" ]; then
-    echo "error: native UIMD launcher is not built: $NATIVE_UIMD" >&2
-    echo "run: cmake --build cpp/build --target uimd" >&2
+for candidate in \
+    "$ROOT_DIR/cpp/build/tools/uimd/uimd" \
+    "$ROOT_DIR/cpp/build/tools/uimd/uimd.exe" \
+    "$ROOT_DIR/cpp/build/tools/uimd/Release/uimd.exe" \
+    "$ROOT_DIR/cpp/build/tools/uimd/Debug/uimd.exe" \
+    "$ROOT_DIR/cpp/build-windows/tools/uimd/Release/uimd.exe" \
+    "$ROOT_DIR/cpp/build-windows/tools/uimd/Debug/uimd.exe" \
+    "$ROOT_DIR/cpp/build-windows/tools/uimd/uimd.exe"
+do
+    if [ -x "$candidate" ]; then
+        NATIVE_UIMD="$candidate"
+        break
+    fi
+done
+
+if [ -z "$NATIVE_UIMD" ]; then
+    echo "error: native UIMD launcher is not built" >&2
+    echo "run: ./tools/rebuild_all.sh" >&2
+    echo "windows powershell: ./tools/rebuild_all.ps1" >&2
     exit 127
 fi
 

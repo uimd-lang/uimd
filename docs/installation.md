@@ -139,6 +139,18 @@ same Python environment that runs the app:
 python3 -m pip install libsixel-python
 ```
 
+On Windows source checkouts, install the Python binding plus native
+`libsixel-1.dll` with the repo helper:
+
+```bat
+.\tools\install_sixel_windows.cmd
+```
+
+The helper uses MSYS2/UCRT64, builds native `libsixel` from source when a
+prebuilt package is not available, sets `UIMD_LIBSIXEL_DIR` for the current
+shell, stores it for future shells with `setx`, and verifies that the Python
+runtime can load the library.
+
 For C++ apps with non-fallback images, install the system `libsixel` library.
 On macOS with Homebrew:
 

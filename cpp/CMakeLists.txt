@@ -57,6 +57,9 @@ target_include_directories(ui_cpp_runtime
 )
 
 target_link_libraries(ui_cpp_runtime PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+if(WIN32)
+    target_link_libraries(ui_cpp_runtime PUBLIC ws2_32)
+endif()
 target_compile_features(ui_cpp_runtime PUBLIC cxx_std_17)
 set_target_properties(ui_cpp_runtime PROPERTIES EXPORT_NAME runtime)
 add_library(uimd::runtime ALIAS ui_cpp_runtime)
@@ -87,21 +90,23 @@ target_compile_features(ui_cpp_dialogs PUBLIC cxx_std_17)
 set_target_properties(ui_cpp_dialogs PROPERTIES EXPORT_NAME dialogs)
 add_library(uimd::dialogs ALIAS ui_cpp_dialogs)
 
-add_executable(uimd_mcp_tester
-    tools/mcp_tester/main.cpp
-    tools/mcp_tester/log_panel_ui.cpp
-    tools/mcp_tester/mcp_tester_ui.cpp
-)
+if(NOT WIN32)
+    add_executable(uimd_mcp_tester
+        tools/mcp_tester/main.cpp
+        tools/mcp_tester/log_panel_ui.cpp
+        tools/mcp_tester/mcp_tester_ui.cpp
+    )
 
-target_include_directories(uimd_mcp_tester PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/mcp_tester
-)
-target_link_libraries(uimd_mcp_tester PRIVATE ui_cpp_runtime Threads::Threads)
-target_compile_features(uimd_mcp_tester PRIVATE cxx_std_17)
-set_target_properties(uimd_mcp_tester
-    PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools/mcp_tester
-)
+    target_include_directories(uimd_mcp_tester PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/mcp_tester
+    )
+    target_link_libraries(uimd_mcp_tester PRIVATE ui_cpp_runtime Threads::Threads)
+    target_compile_features(uimd_mcp_tester PRIVATE cxx_std_17)
+    set_target_properties(uimd_mcp_tester
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools/mcp_tester
+    )
+endif()
 
 add_executable(uimd
     tools/uimd/main.cpp

@@ -14,6 +14,7 @@ from settings import Settings
 
 
 DEFAULT_ACTIVITY_TYPE = "Info"
+TIMESTAMP_ENV = "UIMD_ACTIVITY_FEED_TIMESTAMP"
 INITIAL_SAMPLE_COUNT = 2
 SAMPLE_ACTIVITIES = (
     ("Info", "Workspace opened"),
@@ -121,6 +122,9 @@ class ActivityFeed(ActivityFeedUI):
         self.status.text = f"{self.activity_count()} activities"
 
     def _current_timestamp(self):
+        fixed_timestamp = os.environ.get(TIMESTAMP_ENV)
+        if fixed_timestamp:
+            return fixed_timestamp
         return datetime.now().strftime("%H:%M")
 
 

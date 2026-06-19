@@ -4,6 +4,142 @@
 
 Date: 2026-06-05
 
+- [x] **Windows C++ SDK support through final installer artifacts**. Implement
+  and validate first-class Windows support for the native UIMD CLI, generated
+  C++ target, SDK packaging, and installer flow. Scope: configure/build the
+  native `uimd` and `uimd-init` tools on Windows, build the C++ runtime and
+  examples with the available Windows toolchain, keep generated C++ public APIs
+  and runtime behavior equivalent to Python/C++ behavior on other platforms,
+  package a Windows SDK slice with `uimd-sdk-<version>-windows-<arch>.tar.gz`,
+  `uimd-init-<version>-windows-<arch>.exe`, `install.ps1`, checksums, and
+  signature metadata when signing is available, then smoke-test a clean
+  `UIMD_HOME` install and an external C++ hello-world configure/build without
+  relying on a sibling source checkout. Parity decision: this is native
+  SDK-facing packaging/CLI plus cross-platform C++ runtime validation; do not
+  add Python compiler/CLI behavior, and do not make Windows-only generated API
+  differences. Required validation before completion: Windows CMake configure
+  and build, native `uimd doctor --json`, `uimd generate --target cpp`, package
+  creation, local `install.ps1 --NoShellConfig` install, installed launcher
+  `doctor --json`, external project `uimd new`, C++ generation, and C++ build
+  against installed SDK `targets/cpp`. Implemented with portable Windows socket
+  support in the C++ generated runtime, Windows Visual Studio CMake packaging,
+  SDK Store lookup in generated/scaffolded C++ CMake projects, and a
+  self-contained `uimd-init` checksum verifier. macOS C++ protection: POSIX
+  terminal/signal paths remain under non-Windows guards, the POSIX MCP tester is
+  still built on `NOT WIN32` platforms, and portable parser/installer changes do
+  not introduce Windows-only generated APIs. Validation passed on Windows:
+  Visual Studio CMake configure/build, full C++ build including native `uimd`
+  and `uimd-init`, `ctest` with `26/26` tests, package creation into
+  `dist/sdk-release-windows`, clean local `install.ps1 --no-shell-config`
+  install, installed `uimd doctor --json`, external `uimd new hello --target
+  cpp`, `uimd generate hello.uimd --target cpp`, and external C++ configure/build
+  against the installed SDK `targets/cpp`. Local Windows artifact validation used
+  `--allow-unsigned-local-release` because production minisign credentials were
+  not available on this machine; public release artifacts still require
+  `checksums.txt.minisig` signing.
+- [ ] **C++ generated app startup errors must be visible on stderr**. When a
+  generated C++ app fails before the runtime loop starts, for example because a
+  `.uimd` file requires non-fallback Sixel images and `libsixel` is unavailable,
+  the process must print a clear error message and exit nonzero instead of
+  appearing to do nothing. Parity decision: this is C++ entrypoint/error
+  reporting only; Python already raises a visible `SixelUnavailableError`, and
+  runtime image fallback/Sixel rendering behavior must not be changed. Required
+  validation: rebuild the affected C++ example/tool, run a C++ image example
+  with Sixel unavailable, and verify stderr includes the dependency error.
+- [x] **`uimd doctor` must explain optional Sixel image dependencies**. When
+  diagnosing an install/source checkout, the native `uimd doctor` output should
+  show whether the C++ runtime can find a candidate `libsixel` library, list the
+  relevant `UIMD_LIBSIXEL_PATH`/`UIMD_LIBSIXEL_DIR` override mechanism, and give
+  the Python `libsixel` binding install/verify commands. Parity decision: this
+  is SDK-facing CLI diagnostics only; it must not change Python or C++ image
+  runtime behavior, fallback rendering, or platform-specific loader behavior.
+  Validation passed on Windows: rebuilt the native `uimd` target with Visual
+  Studio CMake, ran `cpp\build-windows\tools\uimd\Release\uimd.exe doctor`,
+  confirmed the new Images/Sixel section reports missing optional C++
+  `libsixel` while keeping `Status: ok`, ran `doctor --json`, and parsed the
+  JSON with `python -m json.tool`; rebuilt again after the short `--help`
+  wording update and confirmed the help lists optional image dependency
+  diagnostics under `doctor`.
+- [x] **Python Sixel startup failures should be user-facing errors, not raw
+  tracebacks**. Running a Python app that requires non-fallback Image/Sixel
+  rendering without the optional Python `libsixel` binding currently prints a
+  full traceback from generated UI initialization. Show a concise UIMD error
+  with the install command and fallback environment command while preserving
+  normal tracebacks for unrelated exceptions. Parity decision: this is Python
+  runtime error presentation for the same missing optional dependency that C++
+  generated app startup error handling covers separately; do not change Image
+  fallback/Sixel rendering behavior or `.uimd` render-mode semantics. Required
+  validation passed on Windows: focused `TestImage` pytest coverage confirmed
+  the friendly error hook prints install/fallback guidance without a traceback,
+  `cmd /c .\uimd.cmd run python\examples\image_gallery\image_gallery.uimd`
+  printed the concise UIMD Sixel error and exited nonzero without a traceback,
+  and full `python -m pytest python\tests` passed with `436 passed,
+  18 skipped`.
+- [x] **Python Sixel diagnostics must distinguish binding install from native
+  DLL availability**. Installing `libsixel-python` on Windows can still fail
+  with `libsixel not found.` because the Python package is only a binding and
+  still needs a native `sixel`/`libsixel` DLL. Update the friendly Python
+  startup error to explain the two-layer dependency, and let the Python runtime
+  honor the same `UIMD_LIBSIXEL_PATH`/`UIMD_LIBSIXEL_DIR` override mechanism
+  used by the C++ runtime where possible. Parity decision: this is optional
+  Sixel dependency discovery and messaging only; do not change fallback
+  rendering, required `render_mode: sixel` behavior, or non-image app startup.
+  Implemented by making Python runtime Sixel loading honor
+  `UIMD_LIBSIXEL_PATH`/`UIMD_LIBSIXEL_DIR` through the `libsixel-python`
+  `find_library("sixel")` lookup path, updating the friendly error to describe
+  the Python binding plus native DLL layers, and adding `libsixel-1.dll` to the
+  C++ Windows search names. Validation passed on Windows: focused
+  `TestImage` tests for native-DLL guidance and configured lookup helpers,
+  missing-native-DLL `uimd run image_gallery` smoke showing the native library
+  guidance, rebuilt native `uimd` and `ui_cpp_runtime`, `doctor`/`doctor --json`
+  validation, full `python -m pytest python\tests` with `438 passed,
+  18 skipped`, and Windows `ctest` with `26/26` tests passed.
+- [x] **Python Sixel missing-native-DLL message should state installed/missing
+  layers explicitly**. Even after the improved guidance, the user can still
+  read `python -m pip install libsixel-python` as the complete fix. When the
+  binding package is installed but raises `libsixel not found.`, the startup
+  error should explicitly say `Python binding: installed` and `Native
+  sixel/libsixel DLL: missing`, then show the `UIMD_LIBSIXEL_PATH` and
+  `UIMD_LIBSIXEL_DIR` fix. Parity decision: messaging only; do not change
+  loader behavior, render-mode semantics, fallback behavior, or C++ runtime
+  loading. Validation passed on Windows: confirmed `libsixel-python` is
+  installed while `sixel.dll`, `libsixel.dll`, and `libsixel-1.dll` are absent
+  from `PATH`, updated focused TestImage coverage, reran the focused Image test
+  block with `6 passed, 3 skipped`, and verified
+  `cmd /c .\uimd.cmd run python\examples\image_gallery\image_gallery.uimd`
+  now prints `Python binding: installed` and
+  `Native sixel/libsixel library: missing`.
+- [x] **One-command Windows Sixel installer helper**. Since the current MSYS2
+  package indexes do not provide a ready `libsixel` package, Windows users need
+  a single repo command that installs MSYS2 if missing, installs the build
+  dependencies, builds native `libsixel` from source in the UCRT64 environment,
+  installs `libsixel-1.dll`, sets `UIMD_LIBSIXEL_DIR`, and verifies the Python
+  UIMD runtime can load it. Parity decision: this is Windows developer/install
+  tooling only; it must not change Python/C++ runtime behavior or macOS/Linux
+  Sixel behavior. Required validation: run the helper in an already-installed
+  MSYS2 setup and verify it skips/reuses the installed DLL, updates the current
+  and future Windows environment, and passes the Python `image._load_libsixel`
+  check. Implemented `tools\install_sixel_windows.cmd` as the Windows/cmd entry
+  point plus `tools\install_sixel_windows_msys2.sh` for the UCRT64 build logic;
+  documented it in installation and example CLI docs. Validation passed on
+  Windows: `cmd /c .\tools\install_sixel_windows.cmd` reused the installed
+  `/ucrt64/bin/libsixel-1.dll`, set `UIMD_LIBSIXEL_DIR`, saved it with `setx`,
+  and verified `uimd libsixel load: True`; a configured `image_gallery` smoke
+  started rendering instead of failing on missing `libsixel`.
+- [ ] **Windows Sixel rendering can start without drawing visible images**.
+  After installing/building native `libsixel-1.dll` through the Windows helper
+  and setting `UIMD_LIBSIXEL_DIR`, Python `image_gallery` no longer fails the
+  missing-dependency check and starts the app, but the user reports that no
+  image is visibly drawn in the Windows SSH terminal. Current validation:
+  `image._load_libsixel()` returns `True`, the app startup/render smoke emits
+  terminal output without the missing-`libsixel` error, and C++/Python missing
+  dependency messages are now actionable. Remaining work: determine whether the
+  active Windows SSH/terminal path supports Sixel graphics, verify that Sixel
+  escape sequences are actually emitted, decide whether runtime/doctor should
+  warn or fall back when terminal graphics are unsupported, and keep macOS/Linux
+  plus C++ behavior intact. Parity decision: this is terminal image capability
+  detection/rendering behavior; do not change `.uimd` image semantics, non-image
+  rendering, or existing macOS/Linux Sixel behavior without compare validation.
 - [ ] **Flatscraper admin project filters/table layout still differs between
   Python and C++ runtimes**. After the scrollview focus parity fix, the
   flatscraper admin compare still fails on the initial Projects page even
@@ -28,345 +164,162 @@ Date: 2026-06-05
   Repro used the read-only flatscraper compare with
   `UIMD_DISABLE_SIXEL=1`, `FLATSCRAPER_UIMD_DIRECT_READONLY=1`, and the TSV
   fixture/snapshot so no admin data is mutated.
-- [x] **Expense tracker modal delete leaves Python/C++ scrollview gap
-  background mismatch**. `tests/mcp/expense_tracker_compare.yaml` fails after
-  activating `yes_btn` in the delete confirmation: snapshot
-  `tests/mcp/snapshots/20260619-004848-step-18-expense_tracker_compare.json`
-  reports row 12 col 28 background `#172033` on C++ versus `#293143` on Python
-  in the empty scrollview gap above the first expense row. This is a
-  parity-sensitive runtime/render cleanup issue, not an example-specific
-  workaround. Audit Python `UIScrollView` selected/focus background rendering in
-  `src/uimd/runtime/UIScrollView.py` and `src/uimd/runtime/UIBase.py` against
-  C++ scrollview/render behavior in `cpp/src/elements/ScrollView.cpp` and
-  `cpp/src/generated/GeneratedWindowRuntime.cpp`. Repro:
-  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
-  python/examples/expense_tracker/expense_tracker.py
-  cpp/build/examples/expense_tracker/expense_tracker
-  tests/mcp/expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast`.
-  Snapshot viewer: `python3 tools/mcp_snapshot_viewer.py
-  tests/mcp/snapshots/20260619-004848-step-18-expense_tracker_compare.json
-  --plain`. Fixed by clearing the scrollview pending proxy-focus restore flag
-  whenever shared Python descendant focus cleanup runs, so a render/snapshot
-  cannot resurrect a scrollview proxy focus after the previously focused child
-  was deleted. This matches the C++ runtime cleanup model, where
-  `clearRemovedBackgroundScrollViewScope` removes the active scrollview scope
-  and does not have a render-time proxy-focus restore path. Validation passed:
-  Python bytecode compilation, `git diff --check`, and
-  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
-  python/examples/expense_tracker/expense_tracker.py
-  cpp/build/examples/expense_tracker/expense_tracker
-  tests/mcp/expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast`
-  with `64 asserts passed, 0 failed, 0 step failures`. Post-fix validation
-  also passed: `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build
-  --output-on-failure` with `26/26` tests, `env UIMD_DISABLE_SIXEL=1 ./uimd
-  mcp-test --compare python/examples/task_board/task_board.py
-  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
-  --compare-app-size 90x35 --mcp-fast` with `144 asserts passed`, and the
-  expense compare rerun after the rebuild with `64 asserts passed`.
-- [x] **Task board filter apply/reset-only behavior polish**. Adjust the
-  reusable `task_filters` component so changing `search`, `status_filter`, or
-  `owner_filter` does not refresh the board automatically; only `Apply filter`
-  and `Reset` may apply filtering. Update the filter layout so there are two
-  spaces between `Apply filter` and `Reset`, with one empty row below the button
-  row. Keep Python/C++ `.uimd` sources equivalent, regenerate affected outputs,
-  rebuild C++, and rerun focused validation. Implemented with matching Python
-  and C++ callback wrappers that no longer override text/selection change
-  events, updated MCP steps to activate `filters.apply_filters_btn` explicitly,
-  and regenerated affected Python/C++ outputs. Validation passed: Python
-  bytecode compilation, C++ rebuild, C++ `--smoke`, C++ `--logic-test`, Python
-  single-app MCP, C++ single-app MCP, and `git diff --check`. Cross-platform
-  compare was rerun and still fails on the separate reusable-layout parity bug
-  logged below.
-- [x] **Task board reusable flatscraper-style filter component**. Correct the
-  `task_board` filter example structure so it matches the flatscraper admin
-  pattern: filters live in a separate reusable `.uimd` control with its own
-  label/input/action layout, and the main `task_board.uimd` only hosts that
-  control above the board. Keep Python `.uimd` files as the reference and make
-  the C++ `.uimd` copies byte-for-byte equivalent. Parity decision: this is a
-  cross-platform example/component architecture change; behavior must remain the
-  same on Python and C++, with callbacks moved into matching Python/C++ filter
-  component wrappers. Implemented `task_filters/task_filters.uimd` and matching
-  Python/C++ wrappers, replaced inline filter controls in `task_board.uimd` with
-  a reusable `filters` host, regenerated Python and C++ outputs, rebuilt the C++
-  `task_board` example, and updated MCP coverage to address nested
-  `filters.*` element IDs. Validation passed: Python bytecode compilation,
-  C++ `--smoke`, C++ `--logic-test`, Python single-app MCP, and C++ single-app
-  MCP with `72 asserts passed, 0 failed, 0 step failures`. Cross-platform
-  compare was rerun and failed on the separate reusable-layout parity bug
-  logged below.
-- [x] **Task board reusable filter expanded column layout parity**. The new
-  flatscraper-style reusable `task_filters` control exposes a Python/C++ layout
-  parity bug at the initial compare snapshot: C++ renders `status_label` at
-  row 2 col 30, while Python has expanded the first filter column and renders a
-  blank cell there. The mismatch is `expected char=S ... got char= ` in
-  `tests/mcp/snapshots/20260618-234411-step-1-task_board_compare.json`.
-  Python `.uimd` source remains the reference; audit Python runtime reusable
-  layout sizing in `src/uimd/runtime/UIBase.py::_resolve_layout_geometry` and
-  `src/uimd/runtime/elements.py::UIElementReusable.render` against C++ runtime
-  layout/rendering in `cpp/src/generated/GeneratedWindowRuntime.cpp`
-  (`resolveRuntimeCellsWithFitPass`, `renderColFor`,
-  `syncReusableChildFrames`, and `renderGeneratedWindowContent`) before changing
-  examples, tests, or snapshots. Repro:
-  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
-  python/examples/task_board/task_board.py
-  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
-  --compare-app-size 90x35 --mcp-fast`. Snapshot viewer:
-  `python3 tools/mcp_snapshot_viewer.py
-  tests/mcp/snapshots/20260618-234411-step-1-task_board_compare.json --plain`.
-  Fixed by rendering and syncing C++ reusable child windows with forced
-  fullscreen layout, matching Python `UIElementReusable` child layout behavior.
-  Validation passed: `cmake --build cpp/build --target task_board`,
-  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
-  python/examples/task_board/task_board.py
-  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
-  --compare-app-size 90x35 --mcp-fast` with `144 asserts passed, 0 failed,
-  0 step failures`, `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build
-  --output-on-failure` with `26/26` tests passed, and `git diff --check`.
-- [x] **Task board filter bar exact flatscraper structure sync**. The Python
-  `task_board.uimd` was manually corrected to match the flatscraper admin filter
-  bar structure more closely, with label/input rows, a spacer row, and
-  Apply/Reset actions below. Sync the C++ `.uimd` source byte-for-byte to that
-  Python reference, regenerate both generated outputs, rebuild `task_board`, and
-  rerun focused validation. Parity decision: this is an example/layout sync only;
-  Python `.uimd` is the reference and runtime behavior remains unchanged.
-  Validation passed: `.uimd` byte-for-byte identity, 80-column UI rows,
-  regenerated Python and C++ outputs, rebuilt `task_board`, passed C++ smoke and
-  logic tests, passed Python bytecode compilation, and passed Python-only and
-  C++-only MCP runs with `72 asserts passed, 0 failed, 0 step failures`.
-  Cross-platform compare was rerun and failed on the separate layout parity bug
-  logged above.
-- [x] **C++ task board render snapshot keeps focused ScrollView background after
-  modal close**. The updated `task_board` compare now exposes a runtime render
-  parity issue after saving through the task dialog: C++ `get_render_snapshot`
-  keeps `board` focus background `#07111f` on row 14 col 27 while Python renders
-  the same cell with base board background `#030712`. Python runtime behavior is
-  the reference; audit Python modal-close/focus rendering in
-  `src/uimd/runtime` against the C++ generated runtime path in
-  `cpp/src/generated/GeneratedWindowRuntime.cpp` before changing tests or
-  snapshots. Repro:
-  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
-  python/examples/task_board/task_board.py
-  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
-  --compare-app-size 90x35 --mcp-fast`. Snapshot viewer:
-  `python3 tools/mcp_snapshot_viewer.py
-  tests/mcp/snapshots/20260618-224235-step-72-task_board_compare.json`.
-  Fixed by using the shared C++ modal-close background focus cleanup path from
-  MCP button activation and by clearing removed active scrollview descendant
-  focus before restoring a proxy. Validation passed in the full task board
-  compare with `144 asserts passed, 0 failed, 0 step failures`,
-  `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build --output-on-failure`
-  with `26/26` tests passed, and `git diff --check`.
-- [x] **Python MCP modal callback restores stale ScrollView descendant focus
-  after bulk refresh**. After fixing the C++ modal-close cleanup path, the
-  `task_board` compare now reaches the later `mark_all_done_btn` confirmation
-  and Python renders a stale focused `board[0].delete_btn` after the bulk
-  action rebuilds the scrollview children, while C++ leaves focus on
-  `mark_all_done_btn`. Python cleanup should not restore a deleted scrollview
-  descendant when the active focus is outside that scrollview. Audit Python
-  focus cleanup in `src/uimd/runtime/UIBase.py`,
-  `src/uimd/runtime/UIScrollView.py`, and `src/uimd/runtime/mcp.py` against the
-  C++ generated runtime modal cleanup in
-  `cpp/src/generated/GeneratedWindowRuntime.cpp`; keep the same user-visible
-  state after modal callbacks and scrollview child refreshes. Repro:
-  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
-  python/examples/task_board/task_board.py
-  cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
-  --compare-app-size 90x35 --mcp-fast`. Snapshot viewer:
-  `python3 tools/mcp_snapshot_viewer.py
-  tests/mcp/snapshots/20260619-002312-step-107-task_board_compare.json
-  --plain`. Fixed by making Python `UIScrollView.clear_children()` restore a
-  removed child focus only when the current owner focus or active scrollview
-  scope belongs to that scrollview; stale descendant focus from inactive
-  scrollviews is now cleared instead of restored onto newly rebuilt rows.
-  Validation passed: Python runtime bytecode compilation, full task board
-  Python/C++ compare with `144 asserts passed, 0 failed, 0 step failures`,
-  `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build --output-on-failure`
-  with `26/26` tests passed, and `git diff --check`.
-- [x] **Task board filter bar parity repro layout**. Move the existing
-  `task_board` filter controls out of the left panel and into a top filter bar
-  with Apply and Reset actions, matching the flatscraper admin filter structure
-  closely enough to exercise the same Python/C++ render parity surface. Keep
-  the left panel useful with task actions, including confirmed bulk actions for
-  marking all tasks done and clearing the board. Keep the Python and C++
-  `.uimd` sources byte-for-byte equivalent, regenerate both generated outputs,
-  rebuild the C++ example, and rerun the existing `task_board` MCP compare with
-  `--compare-app-size 90x35`. Parity decision: this is a cross-platform
-  example/layout change only; runtime behavior should remain unchanged, but the
-  top filter row intentionally provides coverage for TextInput/ComboBox
-  background rendering inside a dynamic scrollview example. Implementation and
-  single-runtime validation are done: regenerated Python and C++ outputs,
-  rebuilt `task_board`, passed C++ smoke and logic tests, passed Python bytecode
-  compilation, and passed the updated `task_board_compare.yaml` on Python-only
-  and C++-only MCP runs with `72 asserts passed, 0 failed, 0 step failures`.
-  Cross-platform compare was rerun and failed on the separate C++ render parity
-  bug logged above.
-- [x] **Formular MCP dropdown click regression after sync**. The full MCP
-  compare suite fails in `tests/mcp/formular.yaml` because the mouse click that
-  should choose `Hungary` still targets an old blank row after the combobox is
-  opened. Python-only reproduction shows the same failure, so this is a stale
-  test coordinate rather than a one-platform runtime parity bug. While
-  investigating, fix the existing Python/C++ `formular.uimd` source mismatch so
-  both platforms use byte-for-byte equivalent UI metadata before regenerating.
-  Parity decision: runtime behavior is unchanged; regenerate the affected
-  Python and C++ example outputs from matching `.uimd` sources, rebuild the C++
-  example, and rerun isolated Python/C++ compare coverage. Validation passed:
-  `./uimd generate python/examples/formular/formular.uimd --target python`,
-  `./uimd generate cpp/examples/formular/formular.uimd --target cpp`,
-  `cmake --build cpp/build --target formular`, and
-  `./uimd mcp-test tests/mcp/formular.yaml --compare python/examples
-  cpp/build/examples --mcp-fast --compare-app-size 90x35` with `76 asserts
-  passed, 0 failed, 0 step failures`. Full MCP compare also passed:
-  `./uimd mcp-test --all --compare python/examples cpp/build/examples
-  --mcp-fast --compare-app-size 90x35` with `590 asserts passed, 0 failed,
-  0 step failures`.
-- [x] **Installed SDK Python runtime requires Pillow for non-image apps**.
-  Fix the public `v0.4.0` installer smoke failure where `uimd run hello.uimd`
-  in an external project imports `uimd.runtime`, then fails with
-  `ModuleNotFoundError: No module named 'PIL'` before rendering any image.
-  Pillow must be optional for non-image applications and required only when
-  Python `Image` rendering actually needs it. This is Python runtime behavior;
-  C++ image/runtime behavior is unaffected because C++ does not import Pillow.
-  Local implementation is done by lazy-loading Pillow inside image rendering
-  helpers and keeping runtime import usable without Pillow. Validation passed:
-  `python/tests/test_elements.py::TestImage`, full Python suite with
-  `431 passed, 11 skipped`, `./tools/rebuild_all.sh`, `git diff --check`, and
-  a system-Python `PYTHONPATH=src` import/render smoke without Pillow. Release
-  repair completed: commit `d0fe32f` was pushed to `sdk-work` and `main`, all
-  GitHub Actions checks passed, `v0.4.0` was moved to the fixed commit, signed
-  GitHub Release assets were rebuilt and replaced, the remote checksum
-  signature verified, public install from
-  `https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh`
-  passed in `/Users/marekdubovsky/Projects/uimd-test`, and the first app
-  Python/C++ smoke tests passed.
-- [x] **Python 3.10 CI mock import regression after the workflow fix push**.
-  Fix the remaining `main` GitHub Actions failure on commit `51898cf`: Python
-  3.10 fails `test_dialog_button_activation_delays_action_for_visible_focus`
-  because `unittest.mock.patch("uimd.runtime.UIBase.time.sleep")` resolves
-  `uimd.runtime.UIBase` to the exported `UIBase` class from
-  `uimd.runtime.__init__` instead of the module. This is test-only CI
-  hardening; runtime behavior and Python/C++ parity are unaffected. Implemented
-  by importing the real `uimd.runtime.UIBase` module with `importlib` and using
-  `patch.object` against that module's `time.sleep`. Validation passed:
-  isolated dialog-delay pytest and `PATH=/private/tmp/uimd-ci-fix-venv/bin:$PATH
-  /private/tmp/uimd-ci-fix-venv/bin/python -m pytest python/tests` with
-  `430 passed, 11 skipped`.
-- [x] **GitHub CI failures after the v0.4.0 main/tag push**. Fix the
-  GitHub-hosted Python workflow failures without deleting local tests: keep
-  sixel image coverage while handling the optional `libsixel` dependency
-  explicitly in CI or through a correct skip condition, make MCP tester config
-  tests independent of an existing local `cpp/build/examples` directory, and
-  patch dialog-delay mocking through the canonical import path so the test
-  passes on both Python 3.10 and 3.12. This is test/CI behavior only; no
-  runtime parity behavior should change unless the investigation finds a real
-  runtime bug. Implemented by keeping a required mocked UIMD sixel render-path
-  test plus an optional real `libsixel` integration test, creating temporary
-  Python/C++ example roots inside the MCP tester config tests, and patching
-  `uimd.runtime.UIBase.time.sleep` in the dialog-delay test. Validation passed:
-  `PATH=/private/tmp/uimd-ci-fix-venv/bin:$PATH
-  /private/tmp/uimd-ci-fix-venv/bin/python -m pytest python/tests` with
-  `427 passed, 14 skipped`.
-- [x] **GitHub workflow failures after the CI test fix push**. Fix the next
-  `main` push failures on commit `ea2aa94`: `.github/workflows/generated.yml`
-  still calls removed legacy compiler wrappers (`compile.py` and
-  `tools/compile_cpp.py`), `.github/workflows/mcp.yml` launches the default
-  C++ MCP tester without building `uimd_mcp_tester`, and the Linux C++ workflow
-  fails because `cpp/src/generated/GeneratedWindowRuntime.cpp` uses
-  `std::nearbyint` without including `<cmath>`. While validating locally,
-  `ctest` also exposed that C++ image smoke tests require the optional
-  `libsixel` runtime library unless they explicitly force fallback mode. This
-  is CI/runtime portability cleanup only; keep canonical generation through the
-  native `./uimd` entry point and do not remove sixel coverage. Implemented by
-  switching generated-source CI to build the native `uimd` launcher and run
-  `./uimd generate ...`, pinning the MCP workflow to the Python backend it
-  installs, adding the missing C++ `<cmath>` include for Linux, forcing fallback
-  mode only for C++ image smoke tests that do not require system `libsixel`, and
-  correcting the stale `formular.yaml` dropdown click coordinate for `Hungary`.
-  Validation passed: local generated-source commands for Python and C++ targets,
-  `cmake -S cpp -B cpp/build`, `cmake --build cpp/build --parallel`,
-  `ctest --test-dir cpp/build --output-on-failure` with `26/26` tests passed,
-  isolated `formular.yaml` on both Python and C++ MCP backends, and
-  `python3 tools/mcp_tester/mcp_tester.py --backend python
-  tests/mcp/all_examples.yaml --exit-on-finish` with `305 asserts passed, 0
-  failed, 0 step failures`.
-- [x] **Automatic release signing key discovery**. Remove repetitive release
-  signing setup from the normal packaging flow by teaching
-  `tools/package_sdk_release.py` to discover the minisign private key from a
-  stable encrypted-USB convention such as
-  `/Volumes/*/projects-signing/uimd/uimd-release.key`, while still supporting
-  explicit `--signing-key` and `UIMD_RELEASE_SIGNING_KEY` overrides. The
-  private key must stay outside the repository; only the path discovery logic is
-  automated. Implemented explicit/env/config/volume discovery in
-  `tools/package_sdk_release.py`; validation passed with a temporary HOME
-  config file and no explicit `--signing-key`.
-- [x] **Network-backed `uimd sdk update`, SDK auto-install, and uninstall shell
-  cleanup**. Complete the remaining SDK manager convenience gaps in the native
-  CLI: `uimd sdk update` should use GitHub Release assets by default just like
-  `uimd self update`, launcher delegation should auto-install a missing
-  required SDK version from release assets before target checks, while retaining
-  `--release-root`/environment overrides for tests and CI; `uimd self
-  uninstall` should remove UIMD-owned PATH marker blocks from supported shell
-  profiles instead of leaving manual cleanup.
-  Parity decision: this is native SDK-facing installer/CLI behavior in
-  `cpp/tools/uimd` and native smoke coverage; no Python compiler/CLI
-  implementation is involved. Implemented in `cpp/tools/uimd/main.cpp` with
-  default release-asset downloads for `uimd sdk update`, missing required SDK
-  auto-install before launcher delegation, and marker-block shell cleanup for
-  `uimd self uninstall`; smoke coverage in `tools/native_uimd_parity.py`
-  exercises these paths through `UIMD_RELEASE_BASE_URL=file://...` and a
-  temporary shell profile. Validation passed: `cmake --build cpp/build --target
-  uimd uimd_init` and `python3 tools/native_uimd_parity.py`.
-- [x] **Network-backed default SDK update flow**. Make ordinary user commands
-  work without `UIMD_RELEASE_ROOT`: `uimd self update` should discover the
-  latest same-minor SDK patch from GitHub Release checksums, download and
-  verify the matching platform SDK tarball, install it, and refresh the
-  launcher; missing target auto-install should similarly download the selected
-  SDK version by default unless offline mode is enabled. `UIMD_RELEASE_ROOT`
-  and `UIMD_RELEASE_BASE_URL` should remain test/CI/development overrides, not
-  the normal user path. Implemented in `cpp/tools/uimd/main.cpp` with release
-  checksum parsing, platform archive download/extract/install, default
-  `uimd self update`, and default target auto-install. Smoke coverage in
-  `tools/native_uimd_parity.py` uses `UIMD_RELEASE_BASE_URL=file://...` to
-  exercise the network-style code path without requiring internet access.
-  Validation passed: `cmake --build cpp/build --target uimd uimd_init` and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK self update and target auto-install slice**. Implement the next
-  practical SDK manager layer in the native CLI: `uimd self update` should
-  update the SDK Store launcher/current SDK from an installed newer patch or
-  a local release root, project commands should auto-install missing supported
-  targets from the current SDK release manifest when not offline. Parity
-  decision: this is native SDK-facing installer/CLI behavior under
-  `cpp/tools/uimd` and native smoke tests only; no Python compiler/CLI
-  implementation is involved. Implemented with `uimd self update
-  [--release-root <path>] [--json]`, target auto-install before launcher
-  delegation for `generate --target`, `new --target`, and `run`, and smoke
-  coverage in `tools/native_uimd_parity.py`. Validation passed:
-  `cmake --build cpp/build --target uimd uimd_init` and
-  `python3 tools/native_uimd_parity.py`.
-- [x] **SDK install MVP hardening slice**. Complete the practical installer
-  layer for comfortable UIMD installation before package-manager recipes:
-  `uimd-init` must validate and repair the installed Python target, release
-  download platform detection must cover macOS/Linux/Windows labels instead of
-  only macOS Intel, release packaging must emit the matching macOS/Linux
-  `install.sh` and Windows `install.ps1` bootstrap assets with SHA-256
-  verification, and docs must describe the versioned GitHub Release install
-  commands plus `--modify-shell` / `--no-shell-config` behavior. Parity
-  decision: this is native SDK-facing installer/CLI behavior under
-  `cpp/tools/uimd_init`, `cpp/tools/uimd`, and release tooling only; no Python
-  compiler/CLI implementation is involved. Implemented in
-  `cpp/tools/uimd_init/main.cpp`, `cpp/tools/uimd/main.cpp`,
-  `tools/package_sdk_release.py`, `tools/native_uimd_parity.py`, `README.md`,
-  `docs/installation.md`, and `docs/sdk-store.md`. Validation passed:
-  `python3 -m py_compile tools/package_sdk_release.py
-  tools/native_uimd_parity.py`, `cmake --build cpp/build --target uimd
-  uimd_init`, `python3 tools/native_uimd_parity.py`,
-  `python3 tools/package_sdk_release.py --build --output dist/sdk-release`,
-  local `install.sh` smoke with `UIMD_RELEASE_BASE_URL=file://...` and
-  `--no-shell-config --json`, installed launcher `doctor --json`, and plain
-  `uimd-init --no-shell-config` next-steps output.
 - [ ] **Windows validation**: verify the new `image_button` control and the
   updated `image_browser` build and run on Windows for both Python and C++,
   confirming padding, centering, square sizing, click selection, and render-mode
   switching behave identically to macOS/Linux.
+- [x] **Windows developer rebuild and example command parity**. Provide a
+  Windows-native developer workflow matching the macOS/Linux `tools/rebuild_all.sh`
+  and documented example commands. Scope: add a PowerShell full rebuild script,
+  add a Windows checkout launcher wrapper for the native `uimd.exe`, avoid
+  duplicating build logic where a small shared helper is practical, document
+  Windows C++ example run/MCP/compare commands with correct Visual Studio
+  `Release/*.exe` paths, and keep POSIX `./uimd`/`rebuild_all.sh` behavior
+  intact for macOS Intel and Apple Silicon. Parity decision: this is compiler,
+  C++ runtime, example, and MCP command-surface work; scripts may differ by
+  shell/OS primitives, but they must invoke the same native compiler/generator
+  and build the same C++ runtime/examples. Implemented with shared
+  `tools/uimd_dev.py` orchestration, POSIX wrappers, Windows PowerShell wrappers,
+  a Windows `uimd.ps1` checkout launcher, and POSIX `./uimd` lookup support for
+  Windows Git Bash build layouts. Windows MCP command parity uses the Python MCP
+  tester in headless mode because the native C++ tester still depends on POSIX
+  PTY/fork primitives, but it launches and validates the built Windows C++
+  example executables/runtime. Validation passed on Windows:
+  `.\tools\rebuild_all.ps1 -Test`, Python bytecode compilation, full
+  `cpp\build-windows` Release build, `ctest` with `26/26` tests, focused C++
+  `activity_feed` MCP, focused Python/C++ `activity_feed` compare, focused
+  Python/C++ `markdown_viewer` compare, PowerShell parser checks for the new
+  scripts, and `git diff --check`. A full Windows `--all --compare` run was
+  started with `--compare-app-size 90x35 --mcp-fast` but exceeded the local
+  runner timeout before completion; focused compare coverage passed after the
+  timeout cleanup.
+- [x] **Windows cmd.exe wrappers for developer commands**. The documented
+  Windows PowerShell scripts are not directly runnable from `cmd.exe`-style
+  prompts, which can make `.\tools\rebuild_all.ps1 -Test` appear to do nothing
+  or fail before the developer reaches the actual rebuild flow. Add thin `.cmd`
+  wrappers that delegate to the PowerShell scripts and the repo-local
+  `uimd.ps1` launcher, document the `cmd.exe` forms separately from PowerShell,
+  and validate that the wrappers execute from `cmd /c` without duplicating build
+  logic. Implemented `uimd.cmd` and `.cmd` wrappers for rebuild, C++ example
+  run, C++ MCP, and compare helper scripts. Validation passed:
+  `cmd /c .\uimd.cmd --help` reached the repo-local native `uimd.exe`, and
+  `cmd /c .\tools\rebuild_all.cmd -Test` regenerated sources, built Windows
+  Release C++ runtime/examples/tools under `cpp\build-windows`, compiled Python
+  sources, and passed `ctest` with `26/26` tests.
+- [x] **Remove PowerShell dependency from Windows SSH/cmd developer flow**.
+  Windows developers connecting over SSH may land in a `cmd.exe`-style shell
+  where `.ps1` scripts do not execute directly and PowerShell should not be
+  required for the normal rebuild/test path. Make the `.cmd` wrappers invoke the
+  shared Python helper and repo-local `uimd.exe` directly, keep `.ps1` scripts as
+  optional PowerShell convenience only, document the SSH/cmd commands as the
+  primary non-PowerShell Windows flow, and validate from `cmd /c`. Implemented
+  `tools\uimd_dev.cmd` as the Python-helper launcher, changed all developer
+  `.cmd` wrappers to avoid `powershell.exe`, and made `uimd.cmd` locate and run
+  the repo-local `uimd.exe` directly. Validation passed:
+  `cmd /c .\uimd.cmd --help` reached the native tool, `rg -n "powershell|pwsh"
+  -g "*.cmd" .` found no PowerShell dependency in `.cmd` files, and
+  `cmd /c .\tools\rebuild_all.cmd -Test` regenerated sources, built Windows
+  Release C++ runtime/examples/tools under `cpp\build-windows`, compiled Python
+  sources, and passed `ctest` with `26/26` tests. Follow-up hardening changed
+  wrapper-to-wrapper calls to use `call` and avoids `exit /b` on successful
+  completion, so interactive SSH/cmd shells should return to the prompt instead
+  of closing after a successful command. Validation passed:
+  `cmd /c ".\uimd.cmd --version && echo AFTER_UIMD"` and
+  `cmd /c "call .\tools\uimd_dev.cmd --help && echo AFTER_HELP"` both printed
+  their `AFTER_*` marker after the wrapper returned.
+- [x] **MCP all-compare progress output for Windows SSH/cmd validation**.
+  Long `uimd mcp-test --backend python --headless --all --compare ...` runs can
+  appear hung over Windows SSH because the tester may spend minutes on an app
+  without emitting progress. Add lightweight per-script/per-target progress
+  output that flushes immediately, without changing MCP assertions or runtime
+  behavior, so developers can tell which app/script is currently running.
+  Implemented by mirroring tester log lines to stdout only in plain/headless
+  mode. macOS/POSIX interactive PTY tester UI behavior is unchanged because the
+  stdout mirror is gated on `config.plain`. Validation passed: focused Windows
+  headless Python/C++ `activity_feed` compare printed immediate progress lines
+  (`tester ready`, `SCRIPT`, `spawn`, `connected`, tool steps) throughout the
+  run.
+- [x] **Activity feed compare timestamp nondeterminism on Windows headless MCP**.
+  Focused Windows headless compare for `tests/mcp/activity_feed.yaml` can fail
+  at the first render snapshot when Python and C++ start across a minute
+  boundary: one app renders a timestamp ending in `3`, the other in `4`.
+  This is example data nondeterminism, not a runtime rendering mismatch. Keep
+  Python and C++ example behavior equivalent and make MCP/test startup
+  timestamps deterministic without creating Windows-only logic. Implemented a
+  shared `UIMD_ACTIVITY_FEED_TIMESTAMP` env override in the Python and C++
+  activity feed examples, and set it in `tests/mcp/activity_feed.yaml` so compare
+  tests use deterministic timestamps while normal app runs still use current
+  local time. Validation passed: Python bytecode compile, focused Windows C++
+  `activity_feed` rebuild, and focused Windows headless Python/C++ compare with
+  `47 asserts passed, 0 failed, 0 step failures`.
+- [x] **Windows Python pytest parity failures after enabling SSH/cmd workflow**.
+  Running `python -m pytest python\tests` on Windows with Python 3.14 exposes
+  test/runtime portability gaps: `UIApplication._read_ready()` still uses
+  `select.select()` on pipe file descriptors even though Windows `select` only
+  accepts sockets; image fallback tests expect blank text cells but the Windows
+  fallback path renders nonblank cells; MCP tester config tests compare
+  POSIX-style path strings against Windows-normalized paths; and the launcher
+  default backend expectation must account for Windows using the Python tester
+  while POSIX keeps the C++ tester. Fix the implementation where runtime
+  behavior is wrong, update only platform-specific test expectations where the
+  public behavior is unchanged, and keep macOS/POSIX behavior intact. Fixed by
+  keeping the POSIX `select.select()` path unchanged, adding a Windows
+  `PeekNamedPipe`/console-readiness fallback only for `WinError 10038`,
+  normalizing MCP tester display `source_path` values to `/`, making app-path
+  assertions compare native normalized paths, documenting/testing the Windows
+  Python tester default, and skipping bitmap image rendering tests when optional
+  Pillow is unavailable. Validation passed on Windows:
+  `python -m pytest python\tests` with `425 passed, 18 skipped, 2 warnings`.
+- [x] **Windows interactive Python `uimd run` terminal backend**. `.\uimd.cmd
+  run python\examples\activity_feed\activity_feed.uimd` over Windows SSH/cmd
+  failed with `interactive terminal mode is not supported on this platform`
+  because the Python runtime only entered raw interactive terminal mode
+  through POSIX `termios`/`tty`. Implement a Windows console input/output backend
+  for `UIApplication._run_gui_loop()` that enables VT output/input where
+  available, reads keyboard/escape input via Windows primitives, preserves the
+  existing POSIX `termios` path for macOS/Linux unchanged, and keeps MCP/headless
+  behavior intact. Also make the native `uimd run` launcher select the Windows
+  `python` command by default instead of `python3`, while still honoring
+  `UIMD_PYTHON`. Implemented with a Windows console mode path in the Python
+  runtime, Windows key/escape decoding tests, UTF-8 console stream setup, and a
+  Windows default Python launcher command in the native `uimd` tool. POSIX
+  `termios`/`tty` behavior remains unchanged. Validation passed on Windows:
+  focused Windows console/TTY dispatch input tests, focused pipe readiness
+  tests, full `python -m pytest python\tests` with `430 passed, 18 skipped, 2 warnings`,
+  `.\tools\rebuild_all.cmd -Test` with `ctest` `26/26` passed, and
+  `cmd /c .\uimd.cmd run python\examples\activity_feed\activity_feed.uimd`
+  rendered the app and no longer exits with the unsupported platform error.
+- [ ] **Windows visual MCP tester window parity**. Windows MCP compare commands
+  currently execute correctly through the Python tester's plain/console progress
+  mode, but they do not show the same interactive UIMD tester window with
+  side-by-side captured Python/C++ app panes that macOS/Linux can show through
+  the POSIX PTY-backed tester path. Implement a Windows terminal capture backend
+  for the tester, likely using ConPTY or an equivalent Windows pseudo-terminal
+  primitive, so `.\uimd.cmd mcp-test --all --compare ...` can run with the
+  visual tester UI on Windows without requiring `--headless` and without
+  breaking the current POSIX PTY path. Parity decision: this is tester
+  infrastructure only; generated examples, Python runtime app behavior, C++
+  runtime behavior, MCP assertions, and POSIX macOS/Linux tester behavior must
+  remain unchanged. Validation required: focused Windows visual compare with two
+  app panes visible in the tester UI, full Windows compare smoke, full Python
+  tests, and a POSIX/macOS smoke or documented audit showing the POSIX PTY path
+  is untouched. Implemented progress: the Python tester now
+  treats Windows interactive terminals as visual-tester capable, starts target
+  apps through ConPTY only when the Windows API is available and a smoke test
+  passes, and otherwise falls back to headless target processes while keeping
+  the tester UI populated from MCP render frames. Focused validation passed:
+  `python -m py_compile src\uimd\testing\mcp_tester.py` and
+  `python -m pytest python\tests\test_mcp_tester.py -q` with
+  `50 passed, 2 skipped, 2 warnings`; full `python -m pytest python\tests`
+  with `435 passed, 18 skipped, 2 warnings`; and
+  `cmd /c .\uimd.cmd mcp-test --plain --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast`
+  with `47 asserts passed`. The full Windows all-example compare currently
+  reaches `tests/mcp/image_browser_compare.yaml` and reports an existing
+  Python/C++ snapshot mismatch at row 6 col 6; the Windows plain log output now
+  escapes the unencodable `\u2580` character instead of crashing with
+  `UnicodeEncodeError`. Remaining validation: user-visible interactive Windows
+  SSH compare pane check, full compare smoke after image_browser parity is
+  fixed, and a POSIX/macOS smoke or documented audit.
 
 ## MCP Tester
 
@@ -387,93 +340,11 @@ Date: 2026-06-05
 
 ## Repository And Publishing
 
-- [x] **Prepare 0.4.0 main release candidate from sdk-work**. Before pushing
-  `sdk-work` to `main`, bump the release line from the already-tagged `v0.3.2`
-  main snapshot to `0.4.0`, keep public install docs aligned with the new
-  version, build signed macOS arm64 release assets from `sdk-work`, smoke-test
-  the installer flow from the generated assets, and record the validation
-  commands before any `main` push. Progress: version surfaces were bumped with
-  `python3 tools/set_version.py 0.4.0`, public install docs were updated to
-  `v0.4.0`, and validation passed: `python3 tools/set_version.py 0.4.0
-  --check`, `python3 -m py_compile tools/package_sdk_release.py
-  tools/native_uimd_parity.py`, `git diff --check`, `cmake --build cpp/build
-  --target uimd uimd_init`, and `python3 tools/native_uimd_parity.py`.
-  Signed release asset packaging found the production key at
-  `/Volumes/DUBOVSKY/projects-signing/uimd/uimd-release.key`; after the user
-  entered the private-key password interactively, `dist/sdk-release` contained
-  `install.sh`, `install.ps1`, `checksums.txt`, `checksums.txt.minisig`,
-  `uimd-init-0.4.0-macos-arm64`, and
-  `uimd-sdk-0.4.0-macos-arm64.tar.gz`. Installer smoke passed:
-  `UIMD_HOME=/private/tmp/uimd-040-smoke
-  UIMD_RELEASE_BASE_URL=file:///Users/marekdubovsky/Projects/uimd/dist/sdk-release
-  sh dist/sdk-release/install.sh --no-shell-config --json`,
-  `/private/tmp/uimd-040-smoke/bin/uimd doctor --json`, external-project
-  `uimd new hello`, `uimd generate hello.uimd --target python`, `uimd generate
-  hello.uimd --target cpp`, Python `py_compile`, and C++ configure/build
-  against installed `targets/cpp`. `file` confirmed arm64 Mach-O binaries for
-  the installed launcher and versioned SDK binary.
-- [x] **Public install command and PATH UX cleanup**. Update the public README,
-  release notes, and install docs for the real `v0.4.0` GitHub Release install
-  flow. Document the safe default command
-  `curl -fsSL https://github.com/uimd-lang/uimd/releases/download/v0.4.0/install.sh | sh`,
-  explain that it installs into `~/.uimd` but does not modify `PATH`, and show
-  both immediate usage via `~/.uimd/bin/uimd` and human-friendly setup via
-  `sh -s -- --modify-shell` followed by a new shell or `source ~/.zshrc`.
-  Decide whether `install.sh`/`uimd-init` should print these next steps when
-  `shell config: unchanged`. Do not advertise
-  `releases/latest/download/install.sh` as the primary command until the
-  prerelease/latest policy is verified; keep the versioned URL canonical for
-  now. Implemented in `README.md`, `docs/installation.md`, `docs/sdk-store.md`,
-  `CHANGELOG.md`, and `uimd-init` plain output.
-- [x] Validate native `uimd` release artifacts on macOS arm64 separately from
-  the Windows/Linux platform migration work. Implemented macOS arm64 release
-  artifact support in the native bootstrapper (`cpp/tools/uimd_init/main.cpp`)
-  and local packaging script (`tools/package_sdk_release.py`) while preserving
-  the existing `macos-x86_64` artifact path. Parity decision: this is native
-  SDK packaging/bootstrap behavior only; Python runtime behavior is unaffected,
-  and generated Python/C++ outputs are both validated from the installed arm64
-  SDK Store. Validation passed on Apple Silicon (`uname -m` = `arm64`):
-  `python3 tools/package_sdk_release.py --build --build-dir
-  cpp/build-release-arm64 --output dist/sdk-release-arm64`,
-  `env UIMD_HOME=/private/tmp/uimd-arm64-release-manifest-20260611
-  cpp/build-release-arm64/tools/uimd/uimd sdk install 0.3.2 --release-root
-  dist/sdk-release-arm64`,
-  `env UIMD_HOME=/private/tmp/uimd-arm64-release-script-20260611
-  UIMD_RELEASE_BASE_URL=file:///Users/marekdubovsky/Projects/uimd/dist/sdk-release-arm64
-  sh dist/sdk-release-arm64/install.sh --no-shell-config --json`,
-  `env UIMD_HOME=/private/tmp/uimd-arm64-release-script-20260611
-  /private/tmp/uimd-arm64-release-script-20260611/bin/uimd doctor --json`,
-  external-project `uimd new hello`, `uimd generate hello.uimd --target
-  python`, `uimd generate hello.uimd --target cpp`, Python `py_compile`,
-  C++ configure/build against installed `targets/cpp`, `python3
-  tools/native_uimd_parity.py --native-binary
-  cpp/build-release-arm64/tools/uimd/uimd --native-init-binary
-  cpp/build-release-arm64/tools/uimd_init/uimd-init`, and the same parity smoke
-  with `--compile-examples`. `file` confirmed arm64 Mach-O binaries for
-  packaged `uimd-init`, installed launcher, versioned SDK `bin/uimd`, and the
-  generated external C++ hello app.
 - [ ] Validate native `uimd` release artifacts as part of the Windows/Linux
   platform migration work, covering Linux x86_64, Linux arm64, Windows x86_64,
   and Windows arm64 where toolchains are available. This should include package
   install/bootstrap behavior, C++-only usage without Python installed, native
   `generate`, `doctor`, `sdk`, `inspect`, and MCP/rebuild smoke checks.
-- [x] **Release signature hardening**. Pick a production signature scheme and
-  implement signed release verification beyond SHA-256 checksums. Required
-  decisions: signature format (`minisign`/`signify`, Ed25519, or another
-  portable verifier), offline private-key custody, embedded public verification
-  key distribution for `install.sh`, `install.ps1`, `uimd-init`, and
-  `uimd self update`, `checksums.txt.minisig` publication, required-vs-optional
-  verification policy during alpha, key rotation, and emergency revocation.
-  Implemented the current alpha policy with minisign/Ed25519 signatures:
-  `tools/package_sdk_release.py` requires `--signing-key` or
-  `UIMD_RELEASE_SIGNING_KEY`, emits `checksums.txt.minisig`, embeds
-  `signing/uimd-release.pub` into generated `install.sh`/`install.ps1`, and
-  native `uimd`/`uimd-init` verify the signed checksum file before SHA-256
-  asset checks. Test-only public-key overrides are available for fixture
-  generation. Validation passed: `cmake --build cpp/build --target uimd
-  uimd_init`, `python3 tools/native_uimd_parity.py`, signed
-  `tools/package_sdk_release.py` smoke with a temporary minisign key, and local
-  signed `install.sh --no-shell-config --json` smoke.
 - [ ] Design and implement the long-term UIMD SDK Store/Launcher installation
   model before public packaging hardens.
 
@@ -622,19 +493,6 @@ Date: 2026-06-05
 
   Remaining implementation gaps: package-manager recipes and cross-platform
   validation.
-- [x] Design GitHub Release based bootstrap scripts for UIMD SDK installation as
-  a separate packaging task. Initial bootstrap commands should not require a
-  custom UIMD domain and can use release assets directly, for example
-  `curl -sSf https://github.com/uimd-lang/uimd/releases/latest/download/install.sh | sh`
-  on macOS/Linux and
-  `iwr https://github.com/uimd-lang/uimd/releases/latest/download/install.ps1 | iex`
-  on Windows. The scripts must download and run `uimd-init`, verify
-  checksums/signatures for downloaded binaries, avoid raw branch URLs such as
-  `raw.githubusercontent.com/.../main/...`, and remain compatible with a future
-  friendly redirect such as `https://install.uimd.dev` if a domain/server is
-  later added. Implemented as generated versioned-release `install.sh` and
-  `install.ps1` assets with minisign verification of `checksums.txt.minisig`
-  before SHA-256 verification through `checksums.txt`.
 - [ ] Verify that the PyPI package name `uimd` is available before the first
   public release.
 - [ ] Confirm GitHub repository description is set to:

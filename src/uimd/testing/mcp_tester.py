@@ -3,20 +3,36 @@
 import argparse
 import ast
 import datetime
-import fcntl
 import json
 import math
 import os
-import pty
 import re
 import shutil
 import socket
 import struct
 import subprocess
 import sys
-import termios
 import threading
 import time
+try:
+    import ctypes
+    from ctypes import wintypes
+except ModuleNotFoundError:
+    ctypes = None
+    wintypes = None
+try:
+    import msvcrt
+except ModuleNotFoundError:
+    msvcrt = None
+
+try:
+    import fcntl
+    import pty
+    import termios
+except ModuleNotFoundError:
+    fcntl = None
+    pty = None
+    termios = None
 
 from uimd.runtime.application import UIApplication
 from uimd.testing.mcp_tester_ui import McpTesterUI
@@ -79,6 +95,452 @@ TARGET_PLACEHOLDERS = ("{platform}", "{target}")
 TOOLBAR_BUTTON_NAMES = ("run", "next", "pause", "copy", "quit")
 PAUSE_BUTTON_TITLE = "Pause"
 PLAY_BUTTON_TITLE = "Play"
+WINDOWS_CMAKE_CONFIG_DIRS = ("Release", "Debug", "RelWithDebInfo", "MinSizeRel")
+WINDOWS_CONPTY_DISABLE_ENV = "UIMD_DISABLE_CONPTY"
+WINDOWS_CREATE_UNICODE_ENVIRONMENT = 0x00000400
+WINDOWS_CREATE_NO_WINDOW = 0x08000000
+WINDOWS_EXTENDED_STARTUPINFO_PRESENT = 0x00080000
+WINDOWS_PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
+WINDOWS_WAIT_OBJECT_0 = 0x00000000
+WINDOWS_WAIT_TIMEOUT = 0x00000102
+WINDOWS_INFINITE = 0xFFFFFFFF
+WINDOWS_STILL_ACTIVE = 259
+
+
+if ctypes is not None and wintypes is not None:
+    class _WindowsCoord(ctypes.Structure):
+        _fields_ = [
+            ("X", wintypes.SHORT),
+            ("Y", wintypes.SHORT),
+        ]
+
+
+    class _WindowsStartupInfoW(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("lpReserved", wintypes.LPWSTR),
+            ("lpDesktop", wintypes.LPWSTR),
+            ("lpTitle", wintypes.LPWSTR),
+            ("dwX", wintypes.DWORD),
+            ("dwY", wintypes.DWORD),
+            ("dwXSize", wintypes.DWORD),
+            ("dwYSize", wintypes.DWORD),
+            ("dwXCountChars", wintypes.DWORD),
+            ("dwYCountChars", wintypes.DWORD),
+            ("dwFillAttribute", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("wShowWindow", wintypes.WORD),
+            ("cbReserved2", wintypes.WORD),
+            ("lpReserved2", ctypes.POINTER(wintypes.BYTE)),
+            ("hStdInput", wintypes.HANDLE),
+            ("hStdOutput", wintypes.HANDLE),
+            ("hStdError", wintypes.HANDLE),
+        ]
+
+
+    class _WindowsStartupInfoExW(ctypes.Structure):
+        _fields_ = [
+            ("StartupInfo", _WindowsStartupInfoW),
+            ("lpAttributeList", wintypes.LPVOID),
+        ]
+
+
+    class _WindowsProcessInformation(ctypes.Structure):
+        _fields_ = [
+            ("hProcess", wintypes.HANDLE),
+            ("hThread", wintypes.HANDLE),
+            ("dwProcessId", wintypes.DWORD),
+            ("dwThreadId", wintypes.DWORD),
+        ]
+else:
+    _WindowsCoord = None
+    _WindowsStartupInfoExW = None
+    _WindowsProcessInformation = None
+
+
+_windows_conpty_functions_ready = False
+_windows_conpty_support_checked = False
+_windows_conpty_supported = False
+
+
+class _WindowsConptyProcess:
+    stderr = None
+
+    def __init__(self, process_handle, thread_handle, process_id, command):
+        self._process_handle = process_handle
+        self._thread_handle = thread_handle
+        self.pid = int(process_id)
+        self.args = list(command)
+        self.returncode = None
+        _windows_close_handle(self._thread_handle)
+        self._thread_handle = None
+
+    def poll(self):
+        if self.returncode is not None:
+            return self.returncode
+        if _windows_wait_for_process(self._process_handle, 0) == WINDOWS_WAIT_TIMEOUT:
+            return None
+        self.returncode = _windows_process_exit_code(self._process_handle)
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if self.returncode is not None:
+            return self.returncode
+        timeout_ms = WINDOWS_INFINITE if timeout is None else int(max(0.0, float(timeout)) * 1000)
+        result = _windows_wait_for_process(self._process_handle, timeout_ms)
+        if result == WINDOWS_WAIT_TIMEOUT:
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        self.returncode = _windows_process_exit_code(self._process_handle)
+        return self.returncode
+
+    def terminate(self):
+        if self.poll() is None:
+            _windows_terminate_process(self._process_handle)
+
+    def kill(self):
+        self.terminate()
+
+    def close(self):
+        if self._thread_handle is not None:
+            _windows_close_handle(self._thread_handle)
+            self._thread_handle = None
+        if self._process_handle is not None:
+            _windows_close_handle(self._process_handle)
+            self._process_handle = None
+
+    def __del__(self):
+        self.close()
+
+
+class _WindowsPseudoConsole:
+    def __init__(self, viewport):
+        self.handle = None
+        self.input_write_fd = None
+        self.output_read_fd = None
+        self._conpty_input_fd = None
+        self._conpty_output_fd = None
+        self._open(viewport)
+
+    def _open(self, viewport):
+        _ensure_windows_conpty_functions()
+        input_read_fd, input_write_fd = os.pipe()
+        output_read_fd, output_write_fd = os.pipe()
+        self.input_write_fd = input_write_fd
+        self.output_read_fd = output_read_fd
+        self._conpty_input_fd = input_read_fd
+        self._conpty_output_fd = output_write_fd
+
+        handle = wintypes.HANDLE()
+        input_handle = wintypes.HANDLE(msvcrt.get_osfhandle(input_read_fd))
+        output_handle = wintypes.HANDLE(msvcrt.get_osfhandle(output_write_fd))
+        size = _windows_conpty_coord(viewport)
+        hr = ctypes.windll.kernel32.CreatePseudoConsole(
+            size,
+            input_handle,
+            output_handle,
+            0,
+            ctypes.byref(handle),
+        )
+        if hr != 0:
+            self.close()
+            raise OSError(f"CreatePseudoConsole failed: HRESULT 0x{hr & 0xffffffff:08x}")
+        self.handle = handle
+
+    def _close_conpty_side_pipe_fds(self):
+        for attr in ("_conpty_input_fd", "_conpty_output_fd"):
+            fd = getattr(self, attr, None)
+            if fd is None:
+                continue
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            setattr(self, attr, None)
+
+    def spawn(self, command, cwd, env):
+        return _windows_conpty_spawn(self.handle, command, cwd, env)
+
+    def resize(self, viewport):
+        if self.handle is None:
+            return
+        try:
+            ctypes.windll.kernel32.ResizePseudoConsole(
+                self.handle,
+                _windows_conpty_coord(viewport),
+            )
+        except Exception:
+            pass
+
+    def close(self):
+        self._close_conpty_side_pipe_fds()
+        for attr in ("input_write_fd", "output_read_fd"):
+            fd = getattr(self, attr, None)
+            if fd is None:
+                continue
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            setattr(self, attr, None)
+        if self.handle is not None:
+            try:
+                ctypes.windll.kernel32.ClosePseudoConsole(self.handle)
+            except Exception:
+                pass
+            self.handle = None
+
+    def __del__(self):
+        self.close()
+
+
+def _windows_conpty_disabled():
+    value = os.environ.get(WINDOWS_CONPTY_DISABLE_ENV, "")
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _supports_conpty():
+    global _windows_conpty_support_checked, _windows_conpty_supported
+    if os.name != "nt" or _windows_conpty_disabled():
+        return False
+    if ctypes is None or wintypes is None or msvcrt is None:
+        return False
+    try:
+        _ensure_windows_conpty_functions()
+    except Exception:
+        return False
+    if not _windows_conpty_support_checked:
+        _windows_conpty_supported = _windows_conpty_smoke_test()
+        _windows_conpty_support_checked = True
+    return _windows_conpty_supported
+
+
+def _supports_terminal_capture():
+    return _supports_pty() or _supports_conpty()
+
+
+def _supports_visual_tester():
+    return _supports_pty() or os.name == "nt"
+
+
+def _ensure_windows_conpty_functions():
+    global _windows_conpty_functions_ready
+    if _windows_conpty_functions_ready:
+        return
+    if ctypes is None or wintypes is None or msvcrt is None:
+        raise OSError("Windows ConPTY requires ctypes and msvcrt")
+    kernel32 = ctypes.windll.kernel32
+    required = (
+        "CreatePseudoConsole",
+        "ResizePseudoConsole",
+        "ClosePseudoConsole",
+        "InitializeProcThreadAttributeList",
+        "UpdateProcThreadAttribute",
+        "DeleteProcThreadAttributeList",
+        "CreateProcessW",
+    )
+    for name in required:
+        if not hasattr(kernel32, name):
+            raise OSError(f"Windows ConPTY API is unavailable: {name}")
+
+    kernel32.CreatePseudoConsole.argtypes = [
+        _WindowsCoord,
+        wintypes.HANDLE,
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+    ]
+    kernel32.CreatePseudoConsole.restype = ctypes.c_long
+    kernel32.ResizePseudoConsole.argtypes = [wintypes.HANDLE, _WindowsCoord]
+    kernel32.ResizePseudoConsole.restype = ctypes.c_long
+    kernel32.ClosePseudoConsole.argtypes = [wintypes.HANDLE]
+    kernel32.ClosePseudoConsole.restype = None
+    kernel32.InitializeProcThreadAttributeList.argtypes = [
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    kernel32.InitializeProcThreadAttributeList.restype = wintypes.BOOL
+    kernel32.UpdateProcThreadAttribute.argtypes = [
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.c_size_t,
+        wintypes.LPVOID,
+        ctypes.c_size_t,
+        wintypes.LPVOID,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    kernel32.UpdateProcThreadAttribute.restype = wintypes.BOOL
+    kernel32.DeleteProcThreadAttributeList.argtypes = [wintypes.LPVOID]
+    kernel32.DeleteProcThreadAttributeList.restype = None
+    kernel32.CreateProcessW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPWSTR,
+        wintypes.LPVOID,
+        wintypes.LPVOID,
+        wintypes.BOOL,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.LPCWSTR,
+        ctypes.POINTER(_WindowsStartupInfoExW),
+        ctypes.POINTER(_WindowsProcessInformation),
+    ]
+    kernel32.CreateProcessW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    _windows_conpty_functions_ready = True
+
+
+def _windows_conpty_coord(viewport):
+    rows = max(1, int(viewport["height"]))
+    cols = max(1, int(viewport["width"]))
+    return _WindowsCoord(cols, rows)
+
+
+def _windows_environment_block(env):
+    if env is None:
+        return None
+    entries = []
+    for key, value in sorted(env.items(), key=lambda item: item[0].upper()):
+        if not key or "=" in key:
+            continue
+        entries.append(f"{key}={value}")
+    return ctypes.create_unicode_buffer("\0".join(entries) + "\0\0")
+
+
+def _windows_create_attribute_list(pseudo_console):
+    kernel32 = ctypes.windll.kernel32
+    size = ctypes.c_size_t()
+    kernel32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
+    attribute_buffer = ctypes.create_string_buffer(size.value)
+    attribute_list = ctypes.cast(attribute_buffer, wintypes.LPVOID)
+    if not kernel32.InitializeProcThreadAttributeList(attribute_list, 1, 0, ctypes.byref(size)):
+        raise ctypes.WinError()
+    try:
+        if not kernel32.UpdateProcThreadAttribute(
+            attribute_list,
+            0,
+            WINDOWS_PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+            pseudo_console,
+            ctypes.sizeof(wintypes.HANDLE),
+            None,
+            None,
+        ):
+            raise ctypes.WinError()
+    except Exception:
+        kernel32.DeleteProcThreadAttributeList(attribute_list)
+        raise
+    return attribute_buffer, attribute_list
+
+
+def _windows_conpty_spawn(pseudo_console, command, cwd, env):
+    _ensure_windows_conpty_functions()
+    kernel32 = ctypes.windll.kernel32
+    attribute_buffer, attribute_list = _windows_create_attribute_list(pseudo_console)
+    startup_info = _WindowsStartupInfoExW()
+    startup_info.StartupInfo.cb = ctypes.sizeof(_WindowsStartupInfoExW)
+    startup_info.lpAttributeList = attribute_list
+    process_info = _WindowsProcessInformation()
+    command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(command))
+    environment = _windows_environment_block(env)
+    try:
+        ok = kernel32.CreateProcessW(
+            None,
+            command_line,
+            None,
+            None,
+            False,
+            (
+                WINDOWS_EXTENDED_STARTUPINFO_PRESENT
+                | WINDOWS_CREATE_UNICODE_ENVIRONMENT
+                | WINDOWS_CREATE_NO_WINDOW
+            ),
+            environment,
+            cwd,
+            ctypes.byref(startup_info),
+            ctypes.byref(process_info),
+        )
+        if not ok:
+            raise ctypes.WinError()
+        return _WindowsConptyProcess(
+            process_info.hProcess,
+            process_info.hThread,
+            process_info.dwProcessId,
+            command,
+        )
+    finally:
+        kernel32.DeleteProcThreadAttributeList(attribute_list)
+        # Keep the backing buffer alive until after CreateProcessW returns.
+        attribute_buffer = None
+
+
+def _windows_conpty_smoke_test():
+    marker = b"uimd_conpty_ok"
+    pc = None
+    process = None
+    try:
+        pc = _WindowsPseudoConsole({"width": 40, "height": 8})
+        process = pc.spawn(["cmd", "/c", "echo", marker.decode("ascii")], os.getcwd(), os.environ.copy())
+        os.set_blocking(pc.output_read_fd, False)
+        output = bytearray()
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            try:
+                chunk = os.read(pc.output_read_fd, OUTPUT_READ_BYTES)
+                if chunk:
+                    output.extend(chunk)
+            except BlockingIOError:
+                pass
+            except OSError:
+                break
+            if marker in output:
+                return True
+            if process.poll() is not None and output:
+                break
+            time.sleep(0.02)
+        return marker in output
+    except Exception:
+        return False
+    finally:
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+            except Exception:
+                pass
+            process.close()
+        if pc is not None:
+            pc.close()
+
+
+def _windows_wait_for_process(process_handle, timeout_ms):
+    return ctypes.windll.kernel32.WaitForSingleObject(process_handle, int(timeout_ms))
+
+
+def _windows_process_exit_code(process_handle):
+    exit_code = wintypes.DWORD(WINDOWS_STILL_ACTIVE)
+    if not ctypes.windll.kernel32.GetExitCodeProcess(process_handle, ctypes.byref(exit_code)):
+        raise ctypes.WinError()
+    return int(exit_code.value)
+
+
+def _windows_terminate_process(process_handle):
+    ctypes.windll.kernel32.TerminateProcess(process_handle, 1)
+
+
+def _windows_close_handle(handle):
+    if handle:
+        try:
+            ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            pass
 
 
 class TargetApp:
@@ -91,7 +553,9 @@ class TargetApp:
         self.process = None
         self.viewport = None
         self.output_master_fd = None
+        self.output_pipe = None
         self.output_thread = None
+        self.pseudo_console = None
         self.next_request_id = 1
         self.request_id_lock = threading.Lock()
         self.action_delay_ms = DEFAULT_ACTION_DELAY_MS
@@ -110,9 +574,24 @@ class TargetApp:
         self.type_delay_ms = int(type_delay_ms)
         self.forward_output = bool(forward_output)
         self.port = _find_free_port()
-        command = self._command(action_delay_ms, type_delay_ms, controlled_render)
         process_env = os.environ.copy()
         process_env.update({str(key): str(value) for key, value in self.env.items()})
+        if _supports_pty():
+            command = self._command(action_delay_ms, type_delay_ms, controlled_render, terminal_capture=True)
+            self._start_with_pty(command, process_env)
+        elif _supports_conpty():
+            command = self._command(action_delay_ms, type_delay_ms, controlled_render, terminal_capture=True)
+            try:
+                self._start_with_conpty(command, process_env)
+            except OSError:
+                self._close_output()
+                command = self._command(action_delay_ms, type_delay_ms, controlled_render, terminal_capture=False)
+                self._start_headless(command, process_env)
+        else:
+            command = self._command(action_delay_ms, type_delay_ms, controlled_render, terminal_capture=False)
+            self._start_headless(command, process_env)
+
+    def _start_with_pty(self, command, process_env):
         master_fd, slave_fd = pty.openpty()
         _set_pty_size(master_fd, self.viewport)
         _set_pty_size(slave_fd, self.viewport)
@@ -130,6 +609,27 @@ class TargetApp:
         self.output_thread = threading.Thread(target=self._drain_output, daemon=True)
         self.output_thread.start()
 
+    def _start_with_conpty(self, command, process_env):
+        self.pseudo_console = _WindowsPseudoConsole(self.viewport)
+        self.output_master_fd = self.pseudo_console.output_read_fd
+        self.process = self.pseudo_console.spawn(command, self.root, process_env)
+        self.output_thread = threading.Thread(target=self._drain_output, daemon=True)
+        self.output_thread.start()
+
+    def _start_headless(self, command, process_env):
+        self.process = subprocess.Popen(
+            command,
+            cwd=self.root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=process_env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        self.output_pipe = self.process.stdout
+        self.output_thread = threading.Thread(target=self._drain_output, daemon=True)
+        self.output_thread.start()
+
     def stop(self):
         if self.process is None:
             return
@@ -141,16 +641,26 @@ class TargetApp:
                 self.process.kill()
                 self.process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
         self._close_output()
+        if self.output_thread is not None:
+            self.output_thread.join(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+            self.output_thread = None
+        close_process = getattr(self.process, "close", None)
+        if callable(close_process):
+            close_process()
         self.process = None
 
     def _drain_output(self):
-        output_fd = self.output_master_fd
         should_forward = bool(getattr(sys.stdout, "isatty", lambda: False)())
         stdout_buffer = getattr(sys.stdout, "buffer", None)
         while True:
             try:
-                data = os.read(output_fd, OUTPUT_READ_BYTES)
-            except OSError:
+                if self.output_master_fd is not None:
+                    data = os.read(self.output_master_fd, OUTPUT_READ_BYTES)
+                elif self.output_pipe is not None:
+                    data = self.output_pipe.read(OUTPUT_READ_BYTES)
+                else:
+                    return
+            except (OSError, ValueError):
                 return
             if not data:
                 return
@@ -171,13 +681,27 @@ class TargetApp:
                     sys.stdout.flush()
 
     def _close_output(self):
-        if self.output_master_fd is None:
+        if self.pseudo_console is not None:
+            self.pseudo_console.close()
+            self.pseudo_console = None
+            self.output_master_fd = None
+            self.output_pipe = None
             return
-        try:
-            os.close(self.output_master_fd)
-        except OSError:
-            pass
-        self.output_master_fd = None
+        if self.output_master_fd is None:
+            if self.output_pipe is None:
+                return
+        if self.output_master_fd is not None:
+            try:
+                os.close(self.output_master_fd)
+            except OSError:
+                pass
+            self.output_master_fd = None
+        if self.output_pipe is not None:
+            try:
+                self.output_pipe.close()
+            except OSError:
+                pass
+            self.output_pipe = None
 
     def call_tool(self, name, arguments=None, timeout_ms=None):
         return self.request("tools/call", {
@@ -298,7 +822,10 @@ class TargetApp:
         if viewport == self.viewport:
             return
         self.viewport = viewport
-        _set_pty_size(self.output_master_fd, viewport)
+        if self.pseudo_console is not None:
+            self.pseudo_console.resize(viewport)
+        elif self.output_master_fd is not None:
+            _set_pty_size(self.output_master_fd, viewport)
         self.call_tool("set_viewport", viewport)
 
     def repaint(self):
@@ -312,16 +839,18 @@ class TargetApp:
     def render_rect(self):
         return self.call_tool("get_render_rect")
 
-    def _command(self, action_delay_ms, type_delay_ms, controlled_render=False):
+    def _command(self, action_delay_ms, type_delay_ms, controlled_render=False, terminal_capture=None):
         path = _abs_path(self.root, self.path)
         if path.endswith(".py"):
             command = [sys.executable, path]
         else:
             command = [path]
+        if terminal_capture is None:
+            terminal_capture = _supports_terminal_capture()
         viewport = self.viewport
         command += [
             "--mcp-server",
-            "--gui",
+            "--gui" if terminal_capture else "--headless",
             "--mcp-transport",
             "tcp",
             "--mcp-host",
@@ -1533,6 +2062,8 @@ class McpTester(McpTesterUI):
         timestamp = time.strftime("%H:%M:%S")
         entry = f"{timestamp} {line}"
         self.log_output.append_line(entry, kind=kind)
+        if self.config.plain:
+            _write_plain_log(entry)
         if self.config.log_path:
             with open(self.config.log_path, "a", encoding="utf-8") as handle:
                 handle.write(entry + "\n")
@@ -1785,7 +2316,7 @@ def parse_args(argv=None):
         action_delay_ms=action_delay_ms,
         type_delay_ms=type_delay_ms,
         step_delay_seconds=max(0, step_delay_ms) / 1000.0,
-        source_path=os.path.relpath(config_path, root),
+        source_path=_display_relpath(root, config_path),
         steps=first_script.steps,
         setup_steps=first_script.setup_steps,
         cleanup_steps=first_script.cleanup_steps,
@@ -1801,7 +2332,7 @@ def parse_args(argv=None):
 
 def main(argv=None):
     config = parse_args(argv)
-    if config.plain or not getattr(sys.stdout, "isatty", lambda: False)():
+    if config.plain or not _supports_visual_tester() or not getattr(sys.stdout, "isatty", lambda: False)():
         config.plain = True
         return _run_headless(config)
     app = UIApplication()
@@ -2135,10 +2666,14 @@ def _script_with_apps(script, apps):
 def _app_path_from_examples_root(examples_root, name):
     candidates = [
         os.path.join(examples_root, name, f"{name}.py"),
+        os.path.join(examples_root, name, f"{name}.exe"),
         os.path.join(examples_root, name, name),
         os.path.join(examples_root, f"{name}.py"),
-        os.path.join(examples_root, name),
+        os.path.join(examples_root, f"{name}.exe"),
     ]
+    for config in WINDOWS_CMAKE_CONFIG_DIRS:
+        candidates.append(os.path.join(examples_root, name, config, f"{name}.exe"))
+    candidates.append(os.path.join(examples_root, name))
     for candidate in candidates:
         if os.path.exists(candidate):
             return candidate
@@ -2224,7 +2759,7 @@ def _script_from_yaml_items(root, path, data):
     if not steps:
         raise ValueError("MCP tester YAML must contain at least one test step")
     return TestScript(
-        os.path.relpath(path, root),
+        _display_relpath(root, path),
         apps,
         steps,
         setup_steps,
@@ -2515,6 +3050,22 @@ def _resolve_config_path(root, config_path, value):
     return os.path.normpath(os.path.join(root, value))
 
 
+def _display_relpath(root, path):
+    return os.path.relpath(path, root).replace("\\", "/")
+
+
+def _write_plain_log(entry):
+    text = f"{entry}\n"
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        safe_text = text.encode(encoding, errors="backslashreplace").decode(encoding)
+        sys.stdout.write(safe_text)
+        sys.stdout.flush()
+
+
 def _find_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((DEFAULT_HOST, 0))
@@ -2522,7 +3073,7 @@ def _find_free_port():
 
 
 def _set_pty_size(fd, viewport):
-    if fd is None:
+    if fd is None or fcntl is None or termios is None:
         return
     try:
         rows = max(1, int(viewport["height"]))
@@ -2530,6 +3081,10 @@ def _set_pty_size(fd, viewport):
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     except (KeyError, OSError, TypeError, ValueError):
         pass
+
+
+def _supports_pty():
+    return fcntl is not None and pty is not None and termios is not None
 
 
 def _select_snapshot_fields(value, fields):

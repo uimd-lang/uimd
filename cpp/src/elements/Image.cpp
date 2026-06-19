@@ -200,7 +200,7 @@ using DynamicLibraryHandle = void*;
 [[nodiscard]] std::vector<std::string> sixelLibraryNames()
 {
 #if defined(_WIN32)
-    return {"libsixel.dll", "sixel.dll"};
+    return {"libsixel.dll", "sixel.dll", "libsixel-1.dll"};
 #elif defined(__APPLE__)
     return {"libsixel.1.dylib", "libsixel.dylib"};
 #else

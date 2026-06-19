@@ -9,6 +9,7 @@
 #include <cassert>
 #include <chrono>
 #include <cctype>
+#include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <memory>
@@ -21,6 +22,7 @@ namespace
 {
 
 constexpr std::string_view kDefaultActivityType = "Info";
+constexpr const char* kTimestampEnv = "UIMD_ACTIVITY_FEED_TIMESTAMP";
 
 struct SampleActivity
 {
@@ -58,6 +60,14 @@ constexpr int kHeaderLayoutTestHeight = 38;
 
 [[nodiscard]] std::string currentTimestamp()
 {
+    if (const char* fixedTimestamp = std::getenv(kTimestampEnv))
+    {
+        if (*fixedTimestamp != '\0')
+        {
+            return fixedTimestamp;
+        }
+    }
+
     const auto now = std::chrono::system_clock::now();
     const std::time_t time = std::chrono::system_clock::to_time_t(now);
     std::tm localTime{};

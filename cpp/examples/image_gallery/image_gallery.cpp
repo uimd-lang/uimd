@@ -54,17 +54,20 @@ void smoke()
 
 int main(int argc, char** argv)
 {
-    ImageGallery app;
-    if (argc > 1 && std::string_view(argv[1]) == "--smoke")
+    return ui::runGeneratedAppMain([&]() -> int
     {
-        smoke();
-        return 0;
-    }
-    if (argc > 1 && std::string_view(argv[1]) == "--logic-test")
-    {
-        smoke();
-        return 0;
-    }
+        ImageGallery app;
+        if (argc > 1 && std::string_view(argv[1]) == "--smoke")
+        {
+            smoke();
+            return 0;
+        }
+        if (argc > 1 && std::string_view(argv[1]) == "--logic-test")
+        {
+            smoke();
+            return 0;
+        }
 
-    return ui::runGeneratedWindow(app, app.runtimeOptions(), argc, argv);
+        return ui::runGeneratedWindow(app, app.runtimeOptions(), argc, argv);
+    });
 }

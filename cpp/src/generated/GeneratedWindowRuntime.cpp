@@ -27,7 +27,6 @@
 #include <cstdlib>
 #include <cctype>
 #include <cerrno>
-#include <termios.h>
 #include <condition_variable>
 #include <iostream>
 #include <map>
@@ -38,7 +37,6 @@
 #include <thread>
 #include <tuple>
 #include <utility>
-#include <unistd.h>
 #include <mutex>
 #include <stdexcept>
 #include <system_error>
@@ -49,6 +47,19 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <termios.h>
+#include <unistd.h>
+#else
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
+#ifdef _WIN32
+constexpr int STDIN_FILENO = 0;
+constexpr int STDOUT_FILENO = 1;
 #endif
 
 namespace ui {
@@ -7835,19 +7846,99 @@ private:
     McpController& controller_;
 };
 
-[[nodiscard]] std::string readSocketLine(int clientFd) {
+#ifdef _WIN32
+using SocketHandle = SOCKET;
+constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
+constexpr int kSocketShutdownBoth = SD_BOTH;
+#else
+using SocketHandle = int;
+constexpr SocketHandle kInvalidSocket = -1;
+constexpr int kSocketShutdownBoth = SHUT_RDWR;
+#endif
+
+class SocketRuntime {
+public:
+    SocketRuntime() {
+#ifdef _WIN32
+        WSADATA data{};
+        enabled_ = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+#else
+        enabled_ = true;
+#endif
+    }
+
+    ~SocketRuntime() {
+#ifdef _WIN32
+        if (enabled_) {
+            WSACleanup();
+        }
+#endif
+    }
+
+    SocketRuntime(const SocketRuntime&) = delete;
+    SocketRuntime& operator=(const SocketRuntime&) = delete;
+
+    [[nodiscard]] bool enabled() const {
+        return enabled_;
+    }
+
+private:
+    bool enabled_ = false;
+};
+
+[[nodiscard]] int socketLastError() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+[[nodiscard]] const std::error_category& socketErrorCategory() {
+#ifdef _WIN32
+    return std::system_category();
+#else
+    return std::generic_category();
+#endif
+}
+
+[[nodiscard]] bool socketErrorInterrupted(int errorCode) {
+#ifdef _WIN32
+    return errorCode == WSAEINTR;
+#else
+    return errorCode == EINTR;
+#endif
+}
+
+[[noreturn]] void throwSocketError(const char* message) {
+    throw std::system_error(socketLastError(), socketErrorCategory(), message);
+}
+
+void closeSocket(SocketHandle socket) {
+#ifdef _WIN32
+    closesocket(socket);
+#else
+    ::close(socket);
+#endif
+}
+
+void shutdownSocket(SocketHandle socket) {
+    ::shutdown(socket, kSocketShutdownBoth);
+}
+
+[[nodiscard]] std::string readSocketLine(SocketHandle clientFd) {
     std::string line;
     char ch = '\0';
     while (true) {
-        const ssize_t count = ::recv(clientFd, &ch, 1, 0);
+        const auto count = ::recv(clientFd, &ch, 1, 0);
         if (count == 0) {
             break;
         }
         if (count < 0) {
-            if (errno == EINTR) {
+            if (socketErrorInterrupted(socketLastError())) {
                 continue;
             }
-            throw std::system_error(errno, std::generic_category(), "socket read failed");
+            throwSocketError("socket read failed");
         }
         if (ch == '\n') {
             break;
@@ -7857,37 +7948,37 @@ private:
     return line;
 }
 
-void writeSocketAll(int clientFd, std::string_view text) {
+void writeSocketAll(SocketHandle clientFd, std::string_view text) {
     const char* cursor = text.data();
     std::size_t remaining = text.size();
     while (remaining > 0) {
-        const ssize_t written = ::send(clientFd, cursor, remaining, 0);
+        const auto written = ::send(clientFd, cursor, static_cast<int>(remaining), 0);
         if (written < 0) {
-            if (errno == EINTR) {
+            if (socketErrorInterrupted(socketLastError())) {
                 continue;
             }
-            throw std::system_error(errno, std::generic_category(), "socket write failed");
+            throwSocketError("socket write failed");
         }
         cursor += written;
         remaining -= static_cast<std::size_t>(written);
     }
 }
 
-[[nodiscard]] std::string readSocketBytes(int clientFd, std::size_t byteCount) {
+[[nodiscard]] std::string readSocketBytes(SocketHandle clientFd, std::size_t byteCount) {
     std::string result;
     result.resize(byteCount);
     std::size_t offset = 0;
     while (offset < byteCount) {
-        const ssize_t count = ::recv(clientFd, result.data() + offset, byteCount - offset, 0);
+        const auto count = ::recv(clientFd, result.data() + offset, static_cast<int>(byteCount - offset), 0);
         if (count == 0) {
             result.resize(offset);
             break;
         }
         if (count < 0) {
-            if (errno == EINTR) {
+            if (socketErrorInterrupted(socketLastError())) {
                 continue;
             }
-            throw std::system_error(errno, std::generic_category(), "socket read failed");
+            throwSocketError("socket read failed");
         }
         offset += static_cast<std::size_t>(count);
     }
@@ -7911,19 +8002,19 @@ struct HttpRequest {
     return text;
 }
 
-[[nodiscard]] HttpRequest readHttpRequest(int clientFd) {
+[[nodiscard]] HttpRequest readHttpRequest(SocketHandle clientFd) {
     std::string headerText;
     char ch = '\0';
     while (headerText.find("\r\n\r\n") == std::string::npos) {
-        const ssize_t count = ::recv(clientFd, &ch, 1, 0);
+        const auto count = ::recv(clientFd, &ch, 1, 0);
         if (count == 0) {
             break;
         }
         if (count < 0) {
-            if (errno == EINTR) {
+            if (socketErrorInterrupted(socketLastError())) {
                 continue;
             }
-            throw std::system_error(errno, std::generic_category(), "socket read failed");
+            throwSocketError("socket read failed");
         }
         headerText.push_back(ch);
     }
@@ -8007,13 +8098,11 @@ public:
 
     void stop() {
         running_ = false;
-#ifndef _WIN32
-        if (serverFd_ >= 0) {
-            ::shutdown(serverFd_, SHUT_RDWR);
-            ::close(serverFd_);
-            serverFd_ = -1;
+        if (serverFd_ != kInvalidSocket) {
+            shutdownSocket(serverFd_);
+            closeSocket(serverFd_);
+            serverFd_ = kInvalidSocket;
         }
-#endif
         if (thread_.joinable()) {
             thread_.join();
         }
@@ -8025,13 +8114,16 @@ public:
 
 private:
     void serve() {
-#ifndef _WIN32
+        SocketRuntime socketRuntime;
+        if (!socketRuntime.enabled()) {
+            return;
+        }
         serverFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (serverFd_ < 0) {
+        if (serverFd_ == kInvalidSocket) {
             return;
         }
         int reuse = 1;
-        (void)::setsockopt(serverFd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        (void)::setsockopt(serverFd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
 
         sockaddr_in address{};
         address.sin_family = AF_INET;
@@ -8046,9 +8138,9 @@ private:
             return;
         }
         while (running_) {
-            const int clientFd = ::accept(serverFd_, nullptr, nullptr);
-            if (clientFd < 0) {
-                if (errno == EINTR) {
+            const SocketHandle clientFd = ::accept(serverFd_, nullptr, nullptr);
+            if (clientFd == kInvalidSocket) {
+                if (socketErrorInterrupted(socketLastError())) {
                     continue;
                 }
                 break;
@@ -8064,17 +8156,16 @@ private:
                     }
                 } catch (...) {
                 }
-                ::close(clientFd);
+                closeSocket(clientFd);
             }).detach();
         }
-#endif
     }
 
     McpJsonRpcDispatcher dispatcher_;
     McpRuntimeConfig config_;
     std::thread thread_;
     bool running_ = true;
-    int serverFd_ = -1;
+    SocketHandle serverFd_ = kInvalidSocket;
 };
 
 class McpStdioServer {
@@ -8111,13 +8202,11 @@ public:
 
     void stop() {
         running_ = false;
-#ifndef _WIN32
-        if (serverFd_ >= 0) {
-            ::shutdown(serverFd_, SHUT_RDWR);
-            ::close(serverFd_);
-            serverFd_ = -1;
+        if (serverFd_ != kInvalidSocket) {
+            shutdownSocket(serverFd_);
+            closeSocket(serverFd_);
+            serverFd_ = kInvalidSocket;
         }
-#endif
         if (thread_.joinable()) {
             thread_.join();
         }
@@ -8163,13 +8252,16 @@ private:
     }
 
     void serve() {
-#ifndef _WIN32
+        SocketRuntime socketRuntime;
+        if (!socketRuntime.enabled()) {
+            return;
+        }
         serverFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (serverFd_ < 0) {
+        if (serverFd_ == kInvalidSocket) {
             return;
         }
         int reuse = 1;
-        (void)::setsockopt(serverFd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        (void)::setsockopt(serverFd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
 
         sockaddr_in address{};
         address.sin_family = AF_INET;
@@ -8184,9 +8276,9 @@ private:
             return;
         }
         while (running_) {
-            const int clientFd = ::accept(serverFd_, nullptr, nullptr);
-            if (clientFd < 0) {
-                if (errno == EINTR) {
+            const SocketHandle clientFd = ::accept(serverFd_, nullptr, nullptr);
+            if (clientFd == kInvalidSocket) {
+                if (socketErrorInterrupted(socketLastError())) {
                     continue;
                 }
                 break;
@@ -8196,17 +8288,16 @@ private:
                     writeSocketAll(clientFd, handleHttpRequest(readHttpRequest(clientFd)));
                 } catch (...) {
                 }
-                ::close(clientFd);
+                closeSocket(clientFd);
             }).detach();
         }
-#endif
     }
 
     McpJsonRpcDispatcher dispatcher_;
     McpRuntimeConfig config_;
     std::thread thread_;
     bool running_ = true;
-    int serverFd_ = -1;
+    SocketHandle serverFd_ = kInvalidSocket;
 };
 
 // Restore the terminal on signals that would otherwise bypass the normal
@@ -8214,6 +8305,7 @@ private:
 // alternate screen and mouse tracking stay enabled, so the shell prints raw
 // mouse-report sequences when the user scrolls. Only async-signal-safe calls
 // (write/tcsetattr/sigaction/raise) run inside the handler.
+#ifndef _WIN32
 struct TerminalSignalRestoreState {
     int stdinFd = -1;
     int stdoutFd = -1;
@@ -8267,6 +8359,13 @@ void removeTerminalRestoreHandlers() {
     sigaction(SIGHUP, &g_previousSighup, nullptr);
     sigaction(SIGINT, &g_previousSigint, nullptr);
 }
+#else
+void installTerminalRestoreHandlers() {
+}
+
+void removeTerminalRestoreHandlers() {
+}
+#endif
 
 }  // namespace
 
@@ -8550,6 +8649,16 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
     return runGeneratedWindow(window, std::move(options), 0, nullptr);
 }
 
+int reportGeneratedAppUnhandledException(const std::exception& exc) {
+    std::cerr << "uimd: error: " << exc.what() << '\n';
+    return 1;
+}
+
+int reportGeneratedAppUnhandledException() {
+    std::cerr << "uimd: error: unhandled C++ exception\n";
+    return 1;
+}
+
 int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOptions options, int argc, char** argv) {
     const McpRuntimeConfig mcpConfig = parseMcpRuntimeArgs(argc, argv);
 
@@ -8594,8 +8703,10 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
     }
 
     PosixTerminalBackend backend(STDIN_FILENO, STDOUT_FILENO);
+#ifndef _WIN32
     termios originalTermios{};
     const bool hasOriginalTermios = tcgetattr(STDIN_FILENO, &originalTermios) == 0;
+#endif
     TerminalModeGuard mode(STDIN_FILENO, STDOUT_FILENO);
     if (const std::optional<Size> cellPixelSize = backend.cellPixelSize()) {
         setImageTerminalCellPixels(*cellPixelSize);
@@ -8615,6 +8726,7 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
         backend.write(enterAlternateScreen);
     }
 
+#ifndef _WIN32
     g_terminalRestore.stdinFd = STDIN_FILENO;
     g_terminalRestore.stdoutFd = STDOUT_FILENO;
     g_terminalRestore.savedTermios = originalTermios;
@@ -8623,6 +8735,7 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
     g_terminalRestore.leaveSequence = terminalLeaveSequence.c_str();
     g_terminalRestore.leaveLength = terminalLeaveSequence.size();
     g_terminalRestoreArmed = 1;
+#endif
     installTerminalRestoreHandlers();
 
     std::vector<Element*> initialFocusable = focusableElements(window);
