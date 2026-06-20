@@ -1,6 +1,8 @@
 #include <cassert>
 #include <memory>
+#include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "ui/app/Application.hpp"
@@ -33,6 +35,131 @@
 #endif
 
 void run_dialog_tests();
+
+namespace
+{
+
+constexpr int kStaleScopeRenderWidth = 16;
+constexpr int kStaleScopeRenderHeight = 6;
+constexpr int kStaleScopeProxyRow = 2;
+constexpr int kStaleScopeProxyCol = 2;
+constexpr int kStaleScopeProxyWidth = 8;
+constexpr int kStaleScopeProxyHeight = 3;
+
+[[nodiscard]] ui::GeneratedLayoutEntry fixedEntry(std::string name, std::string type, ui::Rect rect)
+{
+    return ui::GeneratedLayoutEntry{
+        .name = std::move(name),
+        .type = std::move(type),
+        .relative = rect,
+        .sourceCell = rect,
+        .width = ui::AxisDimension::fixed(rect.width),
+        .height = ui::AxisDimension::fixed(rect.height),
+        .cellWidth = ui::AxisDimension::fixed(rect.width),
+        .cellHeight = ui::AxisDimension::fixed(rect.height),
+        .charsSize = ui::Size{rect.width, rect.height},
+        .cellCharsSize = ui::Size{rect.width, rect.height},
+    };
+}
+
+class StaleScopeScrollPage : public ui::GeneratedScrollViewBase
+{
+public:
+    StaleScopeScrollPage()
+        : ui::GeneratedScrollViewBase("StaleScopeScrollPage")
+    {
+        ui::Style windowStyle;
+        windowStyle.background = ui::Color{"#101010"};
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+
+        scroll = &addElement<ui::ScrollView>("items");
+        ui::Style scrollStyle;
+        scrollStyle.background = ui::Color{"#202020"};
+        scroll->setStyle(scrollStyle);
+        setGeneratedScrollView(*scroll);
+        edit = &scroll->addChild<ui::Button>("edit", "Edit");
+
+        setGeneratedLayout({
+            fixedEntry("items", "scrollview", ui::Rect{0, 0, kStaleScopeProxyWidth, kStaleScopeProxyHeight}),
+        });
+    }
+
+    ui::ScrollView* scroll = nullptr;
+    ui::Button* edit = nullptr;
+};
+
+class StaleScopeHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    StaleScopeHostWindow()
+        : ui::GeneratedWindowBase("StaleScopeHostWindow")
+    {
+        ui::Style windowStyle;
+        windowStyle.background = ui::Color{"#111111"};
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+
+        ui::Style staleProxyStyle;
+        staleProxyStyle.background = ui::Color{"#202020"};
+        staleProxyStyle.scopeDimBackground = ui::Color{"#ff0000"};
+        staleProxy = &addElement<ui::ReusableElement>("stale_scope", std::make_unique<StaleScopeScrollPage>());
+        staleProxy->setStyle(staleProxyStyle);
+
+        plain = &addElement<ui::Label>("plain", "Plain");
+        ui::Style plainStyle;
+        plainStyle.background = ui::Color{"#111111"};
+        plain->setStyle(plainStyle);
+
+        showStaleScopePage();
+    }
+
+    void showStaleScopePage()
+    {
+        setGeneratedLayout({
+            fixedEntry(
+                "stale_scope",
+                "uielement",
+                ui::Rect{kStaleScopeProxyRow, kStaleScopeProxyCol, kStaleScopeProxyWidth, kStaleScopeProxyHeight}),
+        });
+    }
+
+    void showPlainPage()
+    {
+        setGeneratedLayout({
+            fixedEntry("plain", "label", ui::Rect{0, 0, kStaleScopeRenderWidth, kStaleScopeRenderHeight}),
+        });
+    }
+
+    [[nodiscard]] ui::ScrollView* staleScrollView() const
+    {
+        return staleProxy == nullptr || staleProxy->child() == nullptr
+            ? nullptr
+            : staleProxy->child()->generatedScrollView();
+    }
+
+    ui::ReusableElement* staleProxy = nullptr;
+    ui::Label* plain = nullptr;
+};
+
+[[nodiscard]] bool renderedContentHasBackground(const ui::RenderedContent& content, const ui::Color& color)
+{
+    for (const ui::RenderedRow& row : content)
+    {
+        for (const ui::TerminalCell& cell : row)
+        {
+            if (cell.background == color)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+}  // namespace
 
 int main() {
     constexpr int kResizeWidth = 80;
@@ -236,6 +363,25 @@ int main() {
     assert(viewHostRenderedChild);
     viewHost.clearView();
     assert(viewHost.currentView() == nullptr);
+
+    StaleScopeHostWindow staleScopeWindow;
+    (void)ui::renderGeneratedWindowContent(
+        staleScopeWindow,
+        ui::Size{kStaleScopeRenderWidth, kStaleScopeRenderHeight});
+    ui::ScrollView* staleScrollView = staleScopeWindow.staleScrollView();
+    assert(staleScrollView != nullptr);
+    staleScopeWindow.showPlainPage();
+    const ui::RenderedContent staleScopeRendered = ui::renderGeneratedWindowContent(
+        staleScopeWindow,
+        ui::Size{kStaleScopeRenderWidth, kStaleScopeRenderHeight},
+        0,
+        true,
+        staleScrollView,
+        nullptr);
+    const std::vector<std::string> staleScopeLines = ui::renderedText(staleScopeRendered);
+    assert(!staleScopeLines.empty());
+    assert(staleScopeLines.front().find("Plain") != std::string::npos);
+    assert(!renderedContentHasBackground(staleScopeRendered, ui::Color{"#ff0000"}));
 
     class TexturedGeneratedWindow : public ui::GeneratedWindowBase {
     public:

@@ -4,6 +4,25 @@
 
 Date: 2026-06-05
 
+- [x] **GitHub #4: stale C++ active ScrollView scope after view switch**.
+  Issue: https://github.com/uimd-lang/uimd/issues/4. Repro shape: keyboard
+  focus enters a `ScrollView`, focus moves to a nested button, `Enter`
+  triggers a callback that swaps the visible reusable/page view, and the next
+  C++ render still applies the old `activeScrollView` focus/dim scope. Python
+  runtime reference paths to audit first: `src/uimd/runtime/UIBase.py`
+  scrollview scope cleanup and generated callback/event cleanup. C++ paths to
+  fix: `cpp/src/generated/GeneratedWindowRuntime.cpp` state validation around
+  `activeScrollView`, `activeScrollViewEditElement`, `focusableElements`,
+  `ownerWindowForElement`, generated button/callback handling, and final render
+  state. Parity decision: C++ runtime must match Python behavior; clearing stale
+  scrollview scope must be shared runtime cleanup, not an app/test workaround.
+  Implemented by validating active C++ scrollview scope against the current
+  generated layout representation, clearing stale scrollview/edit/focus scope
+  after render/event/MCP state transitions, and adding a C++ runtime regression
+  that fails if stale scrollview dim background is applied after a generated
+  page switch. Validation passed: `cmake --build cpp/build --target
+  ui_cpp_tests`, `ctest --test-dir cpp/build --output-on-failure -R
+  ui_cpp_tests`, and `./tools/test_all.sh` with `FULL TEST RESULT: PASS`.
 - [x] **Python tests should run remaining smoke coverage without avoidable skips
   or collection warnings**. After installing the Python libsixel binding,
   ordinary `python3 -m pytest python/tests` still reports skip noise for

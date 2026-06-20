@@ -1477,6 +1477,102 @@ void syncReusableChildFrames(ReusableElement& reusable, Rect frame) {
     return elements;
 }
 
+[[nodiscard]] bool elementRepresentedInCurrentLayout(GeneratedWindowBase& window, const Element* target);
+
+[[nodiscard]] bool childElementRepresentedInCurrentLayout(Element& element, const Element* target) {
+    if (&element == target) {
+        return true;
+    }
+    if (auto* reusable = dynamic_cast<ReusableElement*>(&element);
+        reusable != nullptr && reusable->child() != nullptr) {
+        const Rect frame = reusable->frame();
+        if (frame.width > 0 && frame.height > 0) {
+            syncReusableChildFrames(*reusable, frame);
+        }
+        return elementRepresentedInCurrentLayout(*reusable->child(), target);
+    }
+    auto* scrollView = dynamic_cast<ScrollView*>(&element);
+    if (scrollView == nullptr) {
+        return false;
+    }
+    const Rect frame = scrollView->frame();
+    const Size viewport{
+        std::max(kMinimumRenderableSize, frame.width),
+        std::max(kMinimumRenderableSize, frame.height),
+    };
+    for (const ScrollViewChildView& childView : scrollView->childViews(viewport)) {
+        if (childView.element == nullptr) {
+            continue;
+        }
+        if (childElementRepresentedInCurrentLayout(*childView.element, target)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool elementRepresentedInCurrentLayout(GeneratedWindowBase& window, const Element* target) {
+    if (target == nullptr) {
+        return false;
+    }
+    for (const GeneratedLayoutEntry& entry : window.generatedLayout()) {
+        if (entry.name.empty()) {
+            continue;
+        }
+        Element* element = findElement(window, entry.name);
+        if (element != nullptr && childElementRepresentedInCurrentLayout(*element, target)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool activeScrollViewRepresentedInCurrentLayout(GeneratedWindowBase& window, Element* activeScrollView) {
+    auto* scrollView = dynamic_cast<ScrollView*>(activeScrollView);
+    if (scrollView == nullptr) {
+        return false;
+    }
+    Element* proxy = generatedScrollViewProxyFor(window, scrollView);
+    return (proxy != nullptr && elementRepresentedInCurrentLayout(window, proxy)) ||
+           elementRepresentedInCurrentLayout(window, scrollView);
+}
+
+void clearInvalidActiveScrollViewScope(GeneratedWindowBase& window,
+                                       int& focusedIndex,
+                                       bool& editMode,
+                                       Element*& activeScrollView,
+                                       Element*& activeScrollViewEditElement,
+                                       std::unordered_map<Element*, Element*>& remembered,
+                                       std::optional<EditSnapshot>& editSnapshot) {
+    if (activeScrollView == nullptr || activeScrollViewRepresentedInCurrentLayout(window, activeScrollView)) {
+        if (activeScrollViewEditElement != nullptr &&
+            !elementRepresentedInCurrentLayout(window, activeScrollViewEditElement)) {
+            activeScrollViewEditElement = nullptr;
+            editSnapshot.reset();
+        }
+        return;
+    }
+
+    Element* previousFocused = nullptr;
+    const std::vector<Element*> activeFocusable = focusableElements(window, activeScrollView);
+    if (focusedIndex >= 0 && focusedIndex < static_cast<int>(activeFocusable.size())) {
+        previousFocused = activeFocusable[static_cast<std::size_t>(focusedIndex)];
+    }
+
+    remembered.erase(activeScrollView);
+    activeScrollView = nullptr;
+    activeScrollViewEditElement = nullptr;
+    editMode = false;
+    editSnapshot.reset();
+
+    const std::vector<Element*> navigationFocusable = focusableElements(window, nullptr);
+    if (previousFocused != nullptr && elementRepresentedInCurrentLayout(window, previousFocused)) {
+        focusedIndex = indexOfElement(navigationFocusable, previousFocused);
+    } else if (focusedIndex < 0 || focusedIndex >= static_cast<int>(navigationFocusable.size())) {
+        focusedIndex = -1;
+    }
+}
+
 [[nodiscard]] std::optional<int> logicalCellSize(const AxisDimension& dimension, int sourceSize) {
     if (dimension.mode == DimensionMode::Expanded) {
         return std::nullopt;
@@ -5415,12 +5511,12 @@ void overlayFocusedComboBox(TerminalBuffer& buffer, GeneratedWindowBase& window,
 [[nodiscard]] RenderedContent renderViewportContent(GeneratedWindowBase& window, const McpRuntimeState& state,
                                                     int focusedIndex, bool editMode) {
     Element* scopedActiveScrollView =
-        state.activeScrollView != nullptr && ownerWindowForElement(window, state.activeScrollView) != nullptr
+        activeScrollViewRepresentedInCurrentLayout(window, state.activeScrollView)
             ? state.activeScrollView
             : nullptr;
     Element* scopedActiveScrollViewEditElement =
         state.activeScrollViewEditElement != nullptr &&
-                ownerWindowForElement(window, state.activeScrollViewEditElement) != nullptr
+                elementRepresentedInCurrentLayout(window, state.activeScrollViewEditElement)
             ? state.activeScrollViewEditElement
             : nullptr;
     const Size contentSize = activeWindowReportedSize(window, state);
@@ -6071,9 +6167,36 @@ private:
     }
 
     [[nodiscard]] Element* activeScrollViewForWindow(GeneratedWindowBase& window) const {
-        return activeScrollView_ != nullptr && ownerWindowForElement(window, activeScrollView_) != nullptr
+        return activeScrollViewRepresentedInCurrentLayout(window, activeScrollView_)
             ? activeScrollView_
             : nullptr;
+    }
+
+    void clearInvalidActiveScrollViewScopeForWindow(GeneratedWindowBase& window) {
+        if (GeneratedWindowStackFrame* frame = activeStackFrame(); frame != nullptr && frame->window == &window) {
+            clearInvalidActiveScrollViewScope(
+                window,
+                frame->focusedIndex,
+                frame->editMode,
+                frame->activeScrollView,
+                frame->activeScrollViewEditElement,
+                frame->scrollViewLastDescendant,
+                frame->editSnapshot);
+            return;
+        }
+
+        int& focusedIndex = focusedIndexRef(window);
+        bool& editMode = activeEditModeRef(window);
+        clearInvalidActiveScrollViewScope(
+            window,
+            focusedIndex,
+            editMode,
+            activeScrollView_,
+            activeScrollViewEditElement_,
+            scrollViewLastDescendant_,
+            editSnapshot_);
+        state_.activeScrollView = activeScrollView_;
+        state_.activeScrollViewEditElement = activeScrollViewEditElement_;
     }
 
     void notifyActiveFrameFocusChanged(GeneratedWindowBase& window, Element* element, bool focused) {
@@ -6330,7 +6453,11 @@ private:
 
     [[nodiscard]] JsonValue toolGetFocusedElement() const {
         GeneratedWindowBase& window = activeWindow();
-        const std::vector<Element*> focusable = focusableElements(window, state_.activeScrollView);
+        Element* activeScrollView =
+            activeScrollViewRepresentedInCurrentLayout(window, state_.activeScrollView)
+                ? state_.activeScrollView
+                : nullptr;
+        const std::vector<Element*> focusable = focusableElements(window, activeScrollView);
         const int focusedIndex = focusedIndexValue(window);
         if (focusedIndex < 0 || focusedIndex >= static_cast<int>(focusable.size())) {
             return nullptr;
@@ -6993,6 +7120,7 @@ private:
             (void)handleElementKey(*focused, key);
             notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelectionIndex);
         }
+        clearInvalidActiveScrollViewScopeForWindow(activeWindow());
         state_.fullRedrawRequested = true;
         state_.activeScrollView = activeScrollView_;
         state_.activeScrollViewEditElement = activeScrollViewEditElement_;
@@ -7394,6 +7522,19 @@ private:
                                                   frame->activeScrollViewEditElement, mouseSelectionElement,
                                                   mouseSelectionAnchor, mouseClickCandidateArg, focusable, target,
                                                   position);
+            if (options_.windowStack != nullptr && !options_.windowStack->empty()) {
+                if (GeneratedWindowStackFrame* activeFrame = options_.windowStack->top();
+                    activeFrame != nullptr && activeFrame->window != nullptr) {
+                    clearInvalidActiveScrollViewScope(
+                        *activeFrame->window,
+                        activeFrame->focusedIndex,
+                        activeFrame->editMode,
+                        activeFrame->activeScrollView,
+                        activeFrame->activeScrollViewEditElement,
+                        activeFrame->scrollViewLastDescendant,
+                        activeFrame->editSnapshot);
+                }
+            }
             state_.fullRedrawRequested = state_.fullRedrawRequested || handled;
             return handled;
         }
@@ -7440,6 +7581,7 @@ private:
                                              activeScrollView_, activeScrollViewEditElement_, mouseSelectionElement,
                                              mouseSelectionAnchor, mouseClickCandidateArg, focusable, target,
                                              position);
+        clearInvalidActiveScrollViewScopeForWindow(window);
         state_.activeScrollView = activeScrollView_;
         state_.activeScrollViewEditElement = activeScrollViewEditElement_;
         state_.fullRedrawRequested = state_.fullRedrawRequested || handled;
@@ -8419,10 +8561,10 @@ void renderGeneratedWindow(GeneratedWindowBase& window, TerminalBuffer& buffer, 
     buffer.clear();
 
     bool ownsActiveScrollView =
-        activeScrollView != nullptr && ownerWindowForElement(window, activeScrollView) != nullptr;
-    Element* effectiveActiveScrollView = activeScrollView;
+        activeScrollViewRepresentedInCurrentLayout(window, activeScrollView);
+    Element* effectiveActiveScrollView = ownsActiveScrollView ? activeScrollView : nullptr;
     Element* effectiveActiveScrollViewEditElement =
-        activeScrollViewEditElement != nullptr && ownerWindowForElement(window, activeScrollViewEditElement) != nullptr
+        activeScrollViewEditElement != nullptr && elementRepresentedInCurrentLayout(window, activeScrollViewEditElement)
             ? activeScrollViewEditElement
             : nullptr;
     Element* focusedElement = nullptr;
@@ -8510,9 +8652,10 @@ RenderedContent renderGeneratedWindowContent(GeneratedWindowBase& window, Size s
                                              bool forceFullscreenLayout) {
     const int width = std::max(kMinimumRenderableSize, size.width);
     const int height = std::max(kMinimumRenderableSize, size.height);
-    Element* effectiveActiveScrollView = activeScrollView;
+    Element* effectiveActiveScrollView =
+        activeScrollViewRepresentedInCurrentLayout(window, activeScrollView) ? activeScrollView : nullptr;
     Element* effectiveActiveScrollViewEditElement =
-        activeScrollViewEditElement != nullptr && ownerWindowForElement(window, activeScrollViewEditElement) != nullptr
+        activeScrollViewEditElement != nullptr && elementRepresentedInCurrentLayout(window, activeScrollViewEditElement)
             ? activeScrollViewEditElement
             : nullptr;
     const std::vector<Element*> focusable = focusableElements(window, effectiveActiveScrollView);
@@ -8579,8 +8722,7 @@ RenderedContent renderGeneratedWindowContent(GeneratedWindowBase& window, Size s
                         activeScrollViewFocusBackground);
         }
     }
-    if (applyActiveScrollViewDim && editMode && effectiveActiveScrollView != nullptr &&
-        ownerWindowForElement(window, effectiveActiveScrollView) != nullptr) {
+    if (applyActiveScrollViewDim && editMode && effectiveActiveScrollView != nullptr) {
         auto* scrollView = dynamic_cast<ScrollView*>(effectiveActiveScrollView);
         dimOutsideActiveScrollView(
             buffer,
@@ -9092,6 +9234,19 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                                                         target,
                                                         local) ||
                                        handledInput;
+                        if (options.windowStack != nullptr && !options.windowStack->empty()) {
+                            if (GeneratedWindowStackFrame* activeFrame = options.windowStack->top();
+                                activeFrame != nullptr && activeFrame->window != nullptr) {
+                                clearInvalidActiveScrollViewScope(
+                                    *activeFrame->window,
+                                    activeFrame->focusedIndex,
+                                    activeFrame->editMode,
+                                    activeFrame->activeScrollView,
+                                    activeFrame->activeScrollViewEditElement,
+                                    activeFrame->scrollViewLastDescendant,
+                                    activeFrame->editSnapshot);
+                            }
+                        }
                         continue;
                     }
                 }
@@ -9218,6 +9373,16 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                         editSnapshot.reset();
                         editMode = false;
                         activeScrollViewEditElement = nullptr;
+                    } else if (GeneratedWindowStackFrame* activeFrame = options.windowStack->top();
+                               activeFrame != nullptr && activeFrame->window != nullptr) {
+                        clearInvalidActiveScrollViewScope(
+                            *activeFrame->window,
+                            activeFrame->focusedIndex,
+                            activeFrame->editMode,
+                            activeFrame->activeScrollView,
+                            activeFrame->activeScrollViewEditElement,
+                            activeFrame->scrollViewLastDescendant,
+                            activeFrame->editSnapshot);
                     }
                     continue;
                 }
@@ -9421,6 +9586,8 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
         if (!handledInput) {
             std::this_thread::sleep_for(embeddedViewport ? kEmbeddedViewportIdleSleep : kInputIdleSleep);
         } else {
+            clearInvalidActiveScrollViewScope(window, focusedIndex, editMode, activeScrollView,
+                                              activeScrollViewEditElement, scrollViewLastDescendant, editSnapshot);
             queueScrollRegionHint(pendingScrollRegion, dynamic_cast<ScrollView*>(activeScrollView));
             dirty = true;
             std::lock_guard lock(mcpState.mutex);
