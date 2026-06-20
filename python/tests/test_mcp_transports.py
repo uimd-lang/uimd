@@ -17,7 +17,6 @@ from runtime.mcp import MCPController
 
 PYTHON_FORMULAR = os.path.join(ROOT_DIR, "python", "examples", "formular", "formular.py")
 CPP_FORMULAR = os.path.join(ROOT_DIR, "cpp", "build", "examples", "formular", "formular")
-NETWORK_TESTS_ENV = "UI_MCP_NETWORK_TESTS"
 EXPECTED_TOOL_NAMES = {tool["name"] for tool in MCPController(app=None).list_tools()}
 
 
@@ -51,66 +50,61 @@ class TestMCPTransportSmoke(unittest.TestCase):
         result = _stdio_call([CPP_FORMULAR, "--mcp-server", "--headless"], _batch_request())
         _assert_batch_get_window_result(result)
 
-    @unittest.skipUnless(os.environ.get(NETWORK_TESTS_ENV), "network transport smoke tests are opt-in")
     def test_python_tcp_exposes_complete_tool_inventory(self):
         result = _tcp_call(["python3", PYTHON_FORMULAR], _unused_tcp_port(), _tools_list_request())
         self.assertEqual(_tool_names(result), EXPECTED_TOOL_NAMES)
 
-    @unittest.skipUnless(os.environ.get(NETWORK_TESTS_ENV), "network transport smoke tests are opt-in")
     def test_python_tcp_accepts_batch_requests(self):
         result = _tcp_call(["python3", PYTHON_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())
         _assert_batch_get_window_result(result)
 
     @unittest.skipUnless(
-        os.path.exists(CPP_FORMULAR) and os.environ.get(NETWORK_TESTS_ENV),
-        "C++ TCP smoke test requires built binary and opt-in network tests",
+        os.path.exists(CPP_FORMULAR),
+        "C++ TCP smoke test requires built binary",
     )
     def test_cpp_tcp_exposes_complete_tool_inventory(self):
         result = _tcp_call([CPP_FORMULAR], _unused_tcp_port(), _tools_list_request())
         self.assertEqual(_tool_names(result), EXPECTED_TOOL_NAMES)
 
     @unittest.skipUnless(
-        os.path.exists(CPP_FORMULAR) and os.environ.get(NETWORK_TESTS_ENV),
-        "C++ TCP smoke test requires built binary and opt-in network tests",
+        os.path.exists(CPP_FORMULAR),
+        "C++ TCP smoke test requires built binary",
     )
     def test_cpp_tcp_accepts_batch_requests(self):
         result = _tcp_call([CPP_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())
         _assert_batch_get_window_result(result)
 
-    @unittest.skipUnless(os.environ.get(NETWORK_TESTS_ENV), "network transport smoke tests are opt-in")
     def test_python_http_transport(self):
         result = _http_call(["python3", PYTHON_FORMULAR], _unused_tcp_port())
         self.assertIn("FormApp", result["result"]["content"][0]["text"])
 
-    @unittest.skipUnless(os.environ.get(NETWORK_TESTS_ENV), "network transport smoke tests are opt-in")
     def test_python_http_exposes_complete_tool_inventory(self):
         result = _http_call(["python3", PYTHON_FORMULAR], _unused_tcp_port(), _tools_list_request())
         self.assertEqual(_tool_names(result), EXPECTED_TOOL_NAMES)
 
-    @unittest.skipUnless(os.environ.get(NETWORK_TESTS_ENV), "network transport smoke tests are opt-in")
     def test_python_http_accepts_batch_requests(self):
         result = _http_call(["python3", PYTHON_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())
         _assert_batch_get_window_result(result)
 
     @unittest.skipUnless(
-        os.path.exists(CPP_FORMULAR) and os.environ.get(NETWORK_TESTS_ENV),
-        "C++ HTTP smoke test requires built binary and opt-in network tests",
+        os.path.exists(CPP_FORMULAR),
+        "C++ HTTP smoke test requires built binary",
     )
     def test_cpp_http_transport(self):
         result = _http_call([CPP_FORMULAR], _unused_tcp_port())
         self.assertIn("FormApp", result["result"]["content"][0]["text"])
 
     @unittest.skipUnless(
-        os.path.exists(CPP_FORMULAR) and os.environ.get(NETWORK_TESTS_ENV),
-        "C++ HTTP smoke test requires built binary and opt-in network tests",
+        os.path.exists(CPP_FORMULAR),
+        "C++ HTTP smoke test requires built binary",
     )
     def test_cpp_http_exposes_complete_tool_inventory(self):
         result = _http_call([CPP_FORMULAR], _unused_tcp_port(), _tools_list_request())
         self.assertEqual(_tool_names(result), EXPECTED_TOOL_NAMES)
 
     @unittest.skipUnless(
-        os.path.exists(CPP_FORMULAR) and os.environ.get(NETWORK_TESTS_ENV),
-        "C++ HTTP smoke test requires built binary and opt-in network tests",
+        os.path.exists(CPP_FORMULAR),
+        "C++ HTTP smoke test requires built binary",
     )
     def test_cpp_http_accepts_batch_requests(self):
         result = _http_call([CPP_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())

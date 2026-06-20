@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -585,6 +585,7 @@ bool WidgetGalleryUI::shouldClose() const
 
 bool WidgetGalleryUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "close_btn")
     {
         onCloseBtnClick();
@@ -605,6 +606,8 @@ bool WidgetGalleryUI::handleGeneratedButton(std::string_view name)
 
 bool WidgetGalleryUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "name_input")
     {
         onNameInputChange(value);
@@ -625,6 +628,8 @@ bool WidgetGalleryUI::handleGeneratedTextChanged(std::string_view name, std::str
 
 bool WidgetGalleryUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "name_input")
     {
         onNameInputSubmit(value);
@@ -640,6 +645,8 @@ bool WidgetGalleryUI::handleGeneratedTextConfirmed(std::string_view name, std::s
 
 bool WidgetGalleryUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "theme_combo")
     {
         onThemeComboChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

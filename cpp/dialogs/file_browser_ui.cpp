@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -375,6 +375,7 @@ bool FileBrowserUI::shouldClose() const
 
 bool FileBrowserUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "open_btn")
     {
         onOpenBtnClick();
@@ -390,6 +391,8 @@ bool FileBrowserUI::handleGeneratedButton(std::string_view name)
 
 bool FileBrowserUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "filename")
     {
         onFilenameChange(value);
@@ -400,6 +403,8 @@ bool FileBrowserUI::handleGeneratedTextChanged(std::string_view name, std::strin
 
 bool FileBrowserUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "filename")
     {
         onFilenameSubmit(value);
@@ -410,6 +415,8 @@ bool FileBrowserUI::handleGeneratedTextConfirmed(std::string_view name, std::str
 
 bool FileBrowserUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "entries")
     {
         onEntriesSelectionChange(value);

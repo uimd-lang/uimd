@@ -63,6 +63,12 @@ int main() {
     constexpr int kReusableScrollChildHeight = 2;
     constexpr int kReusableScrollWrapperStaleHeight = 20;
     constexpr int kReusableScrollViewportHeight = 5;
+    constexpr int kSourceSeparatorChildWidth = 11;
+    constexpr int kSourceSeparatorContentHeight = 2;
+    constexpr int kSourceSeparatorCellWidth = 5;
+    constexpr int kSourceSeparatorRightCellCol = 6;
+    constexpr int kSourceSeparatorLowerSourceRow = 2;
+    constexpr int kSourceSeparatorCellHeight = 1;
     constexpr int kVerticalTrailingSourceWidth = 10;
     constexpr int kVerticalTrailingSourceHeight = 6;
     constexpr int kVerticalTrailingRenderWidth = 20;
@@ -332,6 +338,86 @@ int main() {
         reusableScroll.childViews(ui::Size{kReusableScrollChildWidth, kReusableScrollViewportHeight});
     assert(reusableChildViews.size() == 1);
     assert(reusableChildViews.front().frame.height == kReusableScrollChildHeight);
+
+    class SourceSeparatorReusableChildWindow : public ui::GeneratedWindowBase {
+    public:
+        SourceSeparatorReusableChildWindow() : ui::GeneratedWindowBase("Source Separator Reusable Child") {
+            ui::Style style;
+            style.borderWidthHorizontal = 0;
+            style.borderWidthVertical = 0;
+            setGeneratedWindowStyle(style);
+            sep = &addElement<ui::Label>("sep", "");
+            a = &addElement<ui::Label>("a", "A");
+            b = &addElement<ui::Label>("b", "B");
+            setGeneratedLayout({
+                ui::GeneratedLayoutEntry{
+                    .name = "sep",
+                    .type = "label",
+                    .relative = ui::Rect{0, 0, kSourceSeparatorChildWidth, kSourceSeparatorCellHeight},
+                    .sourceCell = ui::Rect{0, 0, kSourceSeparatorChildWidth, kSourceSeparatorCellHeight},
+                    .width = ui::AxisDimension::fixed(kSourceSeparatorChildWidth),
+                    .height = ui::AxisDimension::fixed(kSourceSeparatorCellHeight),
+                    .cellWidth = ui::AxisDimension::fixed(kSourceSeparatorChildWidth),
+                    .cellHeight = ui::AxisDimension::fixed(kSourceSeparatorCellHeight),
+                    .charsSize = ui::Size{kSourceSeparatorChildWidth, kSourceSeparatorCellHeight},
+                    .cellCharsSize = ui::Size{kSourceSeparatorChildWidth, kSourceSeparatorCellHeight},
+                },
+                ui::GeneratedLayoutEntry{
+                    .name = "a",
+                    .type = "label",
+                    .relative = ui::Rect{0, 0, kSourceSeparatorCellWidth, kSourceSeparatorCellHeight},
+                    .sourceCell = ui::Rect{
+                        kSourceSeparatorLowerSourceRow,
+                        0,
+                        kSourceSeparatorCellWidth,
+                        kSourceSeparatorCellHeight,
+                    },
+                    .width = ui::AxisDimension::fixed(kSourceSeparatorCellWidth),
+                    .height = ui::AxisDimension::fixed(kSourceSeparatorCellHeight),
+                    .cellWidth = ui::AxisDimension::fixed(kSourceSeparatorCellWidth),
+                    .cellHeight = ui::AxisDimension::fixed(kSourceSeparatorCellHeight),
+                    .charsSize = ui::Size{kSourceSeparatorCellWidth, kSourceSeparatorCellHeight},
+                    .cellCharsSize = ui::Size{kSourceSeparatorCellWidth, kSourceSeparatorCellHeight},
+                },
+                ui::GeneratedLayoutEntry{
+                    .name = "b",
+                    .type = "label",
+                    .relative = ui::Rect{0, 0, kSourceSeparatorCellWidth, kSourceSeparatorCellHeight},
+                    .sourceCell = ui::Rect{
+                        kSourceSeparatorLowerSourceRow,
+                        kSourceSeparatorRightCellCol,
+                        kSourceSeparatorCellWidth,
+                        kSourceSeparatorCellHeight,
+                    },
+                    .width = ui::AxisDimension::fixed(kSourceSeparatorCellWidth),
+                    .height = ui::AxisDimension::fixed(kSourceSeparatorCellHeight),
+                    .cellWidth = ui::AxisDimension::fixed(kSourceSeparatorCellWidth),
+                    .cellHeight = ui::AxisDimension::fixed(kSourceSeparatorCellHeight),
+                    .charsSize = ui::Size{kSourceSeparatorCellWidth, kSourceSeparatorCellHeight},
+                    .cellCharsSize = ui::Size{kSourceSeparatorCellWidth, kSourceSeparatorCellHeight},
+                },
+            });
+        }
+
+        ui::Label* sep = nullptr;
+        ui::Label* a = nullptr;
+        ui::Label* b = nullptr;
+    };
+
+    SourceSeparatorReusableChildWindow sourceSeparatorWindow;
+    assert(ui::generatedWindowContentSize(sourceSeparatorWindow).height == kSourceSeparatorContentHeight);
+    ui::ScrollView sourceSeparatorScroll{"source-separator-scroll"};
+    sourceSeparatorScroll.addChild(
+        std::make_unique<ui::ReusableElement>(
+            "source-separator",
+            std::make_unique<SourceSeparatorReusableChildWindow>()
+        )
+    );
+    assert(sourceSeparatorScroll.contentHeight(kSourceSeparatorChildWidth) == kSourceSeparatorContentHeight);
+    const std::vector<ui::ScrollViewChildView> sourceSeparatorChildViews =
+        sourceSeparatorScroll.childViews(ui::Size{kSourceSeparatorChildWidth, kReusableScrollViewportHeight});
+    assert(sourceSeparatorChildViews.size() == 1);
+    assert(sourceSeparatorChildViews.front().frame.height == kSourceSeparatorContentHeight);
 
     class PaddedCellGeneratedWindow : public ui::GeneratedWindowBase {
     public:
@@ -829,7 +915,8 @@ int main() {
     manyScroll.addChild(ui::renderPlainText("B", 1, 1, widgetStyle));
     manyScroll.addChild(ui::renderPlainText("C", 1, 1, widgetStyle));
     manyScroll.addChild(ui::renderPlainText("D", 1, 1, widgetStyle));
-    manyScroll.scrollToBottom(ui::Size{1, 3});
+    const bool manyScrollMovedToBottom = manyScroll.scrollToBottom(ui::Size{1, 3});
+    (void)manyScrollMovedToBottom;
     assert(ui::renderedText(manyScroll.render(ui::Size{1, 3}))[0] == "^");
     assert(ui::renderedText(manyScroll.render(ui::Size{1, 3}))[1] == " ");
     assert(ui::renderedText(manyScroll.render(ui::Size{1, 3}))[2] == "D");

@@ -349,7 +349,7 @@ bool runShellCommand(const std::string& command)
     return std::system(command.c_str()) == 0;
 }
 
-std::string readShellCommand(const std::string& command)
+[[maybe_unused]] std::string readShellCommand(const std::string& command)
 {
 #ifdef _WIN32
     FILE* pipe = _popen(command.c_str(), "r");

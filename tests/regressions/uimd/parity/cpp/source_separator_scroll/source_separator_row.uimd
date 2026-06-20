@@ -1,0 +1,53 @@
+# Source Separator Row
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: regression
+description: "Regression row with a design-only ASCII separator between content rows."
+tags: [regression, issue-3, scrollview]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+sep:
+  type: label
+  text: Header
+
+left:
+  type: label
+  text: Left
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#15171c"
+cell:
+  background: "#15171c"
+label:
+  color: "#e5e7eb"
+```
+
+## User Interface
+
+```ui
++-----------+
+|sep........|
++-----------+
+|left.......|
++-----------+
+```

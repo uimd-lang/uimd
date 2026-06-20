@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -318,6 +318,7 @@ bool MessageBoxYesNoUI::shouldClose() const
 
 bool MessageBoxYesNoUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "yes_btn")
     {
         onYesBtnClick();
@@ -333,16 +334,22 @@ bool MessageBoxYesNoUI::handleGeneratedButton(std::string_view name)
 
 bool MessageBoxYesNoUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool MessageBoxYesNoUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool MessageBoxYesNoUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 

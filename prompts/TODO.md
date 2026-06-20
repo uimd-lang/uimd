@@ -4,6 +4,102 @@
 
 Date: 2026-06-05
 
+- [x] **Python tests should run remaining smoke coverage without avoidable skips
+  or collection warnings**. After installing the Python libsixel binding,
+  ordinary `python3 -m pytest python/tests` still reports skip noise for
+  Windows launcher behavior and opt-in MCP TCP/HTTP transport smoke tests, plus
+  PytestCollectionWarning messages for imported helper classes named
+  `TesterConfig` and `TestScript`. Make the Windows launcher behavior testable
+  through platform patching, run MCP transport smoke tests by default, and avoid
+  exporting imported helper classes under pytest-collectable names in the test
+  module. Parity decision: Python test coverage/tooling only; no runtime,
+  compiler, generator, MCP protocol, or platform behavior change.
+  Implemented in `python/tests/test_mcp_tester.py` and
+  `python/tests/test_mcp_transports.py`. Validation passed:
+  `python3 -m py_compile python/tests/test_mcp_tester.py
+  python/tests/test_mcp_transports.py`,
+  `python3 -m pytest python/tests/test_mcp_tester.py
+  python/tests/test_mcp_transports.py -rs`, and
+  `python3 -m pytest python/tests -rs`, which now reports `458 passed` with no
+  skips or warnings on this macOS checkout with the C++ example build present.
+- [x] **Full test gate should print one final summary for all phases**.
+  `./tools/test_all.sh` currently lets each underlying tool print its own
+  output, so the final visible summary can look like it only covers the last
+  MCP regression compare. Add a final aggregate summary in `tools/uimd_dev.py`
+  that lists every full-gate phase: repo-local `uimd` build, UIMD generation,
+  CMake configure/build, Python compileall, Python tests, CTest, example MCP
+  compare, and regression MCP compare. Parity decision: tooling output only;
+  no runtime, compiler, generator output, or platform behavior change.
+  Implemented by recording every `test-all` phase and printing a final
+  `FULL TEST SUMMARY` block even after the underlying tools print their own
+  summaries. Validation passed: `python3 -m py_compile tools/uimd_dev.py` and
+  `./tools/test_all.sh --no-rebuild`, which reported Python tests passed,
+  CTest passed, MCP examples passed 626 asserts, regression parity passed 2
+  asserts, and `FULL TEST RESULT: PASS`.
+- [x] **Full test gate should use Homebrew pytest executable when pytest is not
+  installed as a module in the active Python**. The POSIX `test_all` flow can
+  run under a Homebrew-managed Python where `python -m pytest` is blocked or
+  unavailable even though `brew install pytest` provides a working `pytest`
+  command. Keep the normal `python -m pytest` path for virtualenvs and Python
+  environments where the module is installed, but fall back to `pytest` from
+  `PATH` before failing. Parity decision: repo tooling only; no runtime,
+  generated API, or render behavior change. Implemented in `tools/uimd_dev.py`.
+  Validation: `python3 -m py_compile tools/uimd_dev.py` passed, and after the
+  local Python image dependency was available, `./tools/test_all.sh` completed
+  the full gate successfully outside the sandbox: Python tests 446 passed and
+  12 skipped, CTest passed 26/26, Python/C++ MCP examples passed 626 asserts,
+  and the UIMD regression parity corpus passed 2 asserts.
+- [x] **Silence C++ unused warning noise without removing parity scaffolding**.
+  Keep runtime/generator helper functions and generated callback stubs in place
+  so Python/C++ API and parity scaffolding is preserved, but annotate or
+  explicitly consume unused functions/parameters so clean rebuilds do not emit
+  warning noise. Parity decision: this is warning-only C++ hygiene; it must not
+  change runtime behavior, generated public APIs, or Python behavior.
+  Implemented by adding `[[maybe_unused]]` to intentionally retained internal
+  C++ helpers, emitting `(void)` argument markers from the native C++ generator
+  for generated event dispatch stubs, and regenerating/building generated C++
+  outputs. Validation passed: `./tools/rebuild_all.sh` completed without the
+  previous `unused function`, `unused parameter`, or ignored `[[nodiscard]]`
+  warnings; `ctest --test-dir cpp/build --output-on-failure` passed 26/26; and
+  the regression parity compare passed with 2 asserts and 0 failures.
+- [x] **Full test gate must build and test UIMD regression corpora**. Make the
+  documented full rebuild/test flow generate, build, and run reported-bug
+  regression UIMD corpora in addition to examples. Affected paths:
+  `tools/uimd_dev.py`, C++ CMake wiring under `cpp/CMakeLists.txt`, and
+  `docs/example_cli_commands.md`. Parity decision: regression sources should be
+  generated for both Python and C++ from equivalent `.uimd` inputs and compared
+  through the same MCP contract as examples, with `--compare-app-size 90x35`.
+  Implemented by making `generate-all`, `rebuild-all`, and `test-all` generate
+  regression parity UIMD outputs for Python and C++, reconfigure CMake so C++
+  regression apps are discovered and built, and run
+  `tests/regressions/uimd/parity/all.yaml` against the C++ regression build
+  output. Added the first reported-bug regression corpus for source separator
+  rows inside scrollview reusable children. Validation passed:
+  `./tools/rebuild_all.sh`, `ctest --test-dir cpp/build --output-on-failure`,
+  and `env UIMD_DISABLE_SIXEL=1 TERM=xterm-256color ./uimd mcp-test --headless
+  --compare tests/regressions/uimd/parity/python
+  cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml
+  --mcp-fast --compare-app-size 90x35`. Full `./tools/test_all.sh` also passed
+  with rebuild, Python tests, CTest, example MCP compare, and regression MCP
+  compare included.
+- [x] **GitHub #3: `UIMD source border line counts as runtime layout row`**.
+  Issue: https://github.com/uimd-lang/uimd/issues/3. Root cause: the generated
+  Python/C++ layout shape is equivalent and preserves source ASCII separator
+  rows, but C++ `cpp/src/elements/ScrollView.cpp::nativeChildHeight()` treated
+  raw `sourceCell.row` values inside reusable generated children as part of the
+  rendered child height. Python reference path
+  `src/uimd/runtime/UIScrollView.py::_measure_child_height()` measures the
+  child's resolved natural size instead. Fix: make C++ reusable child height use
+  `generatedWindowContentSizeForWidth()` only, matching the resolved layout
+  height and avoiding blank rows caused by design-only ASCII separators. Added
+  a C++ runtime regression in `cpp/tests/test_runtime_skeleton.cpp` for a
+  reusable child with source row `2` under a separator but resolved content
+  height `2`. Validation: temporary repro returned Python natural size `(11, 2)`;
+  built `ui_cpp_tests`; ran CTest runtime suite (26/26); ran
+  `./tools/rebuild_all.sh`; ran full headless MCP compare for Python/C++
+  examples with `--compare-app-size 90x35` (626 asserts passed, 0 failed, 0 step
+  failures); and ran `./tools/test_all.sh` successfully with the regression
+  parity corpus included.
 - [x] **AGENTS.md should define GitHub issue update after commit**. Add a
   standing workflow rule that after a user-requested commit resolving selected
   GitHub issues, the agent updates those issues with the commit summary,

@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -325,6 +325,7 @@ bool GalleryItemUI::shouldClose() const
 
 bool GalleryItemUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "photo")
     {
         onPhotoClick();
@@ -335,16 +336,22 @@ bool GalleryItemUI::handleGeneratedButton(std::string_view name)
 
 bool GalleryItemUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool GalleryItemUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool GalleryItemUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 

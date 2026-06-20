@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -526,6 +526,7 @@ bool TaskDialogUI::shouldClose() const
 
 bool TaskDialogUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "add_btn")
     {
         onAddBtnClick();
@@ -541,6 +542,8 @@ bool TaskDialogUI::handleGeneratedButton(std::string_view name)
 
 bool TaskDialogUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "name")
     {
         onNameChange(value);
@@ -556,6 +559,8 @@ bool TaskDialogUI::handleGeneratedTextChanged(std::string_view name, std::string
 
 bool TaskDialogUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "name")
     {
         onNameSubmit(value);
@@ -571,6 +576,8 @@ bool TaskDialogUI::handleGeneratedTextConfirmed(std::string_view name, std::stri
 
 bool TaskDialogUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "project_status")
     {
         onProjectStatusChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

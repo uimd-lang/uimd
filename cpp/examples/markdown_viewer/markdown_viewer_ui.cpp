@@ -201,7 +201,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -426,6 +426,7 @@ bool MarkdownViewerUI::shouldClose() const
 
 bool MarkdownViewerUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "up_btn")
     {
         onUpBtnClick();
@@ -446,16 +447,22 @@ bool MarkdownViewerUI::handleGeneratedButton(std::string_view name)
 
 bool MarkdownViewerUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool MarkdownViewerUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool MarkdownViewerUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "docs")
     {
         onDocsSelectionChange(value);

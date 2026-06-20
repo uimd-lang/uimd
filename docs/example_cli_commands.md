@@ -64,16 +64,26 @@ Windows PowerShell only:
 
 ## Full Rebuild and Test
 
-This runs the full local gate: regenerate/build all supported sources, compile
-Python sources, run Python unit tests, run C++ `ctest`, run Python/C++ MCP
-example compare tests with `--compare-app-size 90x35`, and run the optional
-UIMD regression parity compare corpus when `tests/regressions/uimd/parity`
-exists.
+This runs the full local gate: regenerate/build all supported sources including
+reported-bug regression corpora, compile Python sources, run Python unit tests,
+run C++ `ctest`, run Python/C++ MCP example compare tests with
+`--compare-app-size 90x35`, and run the UIMD regression parity compare corpus
+when `tests/regressions/uimd/parity` exists.
 
 macOS/Linux (POSIX shell):
 
 ```bash
 ./tools/test_all.sh
+```
+
+Equivalent explicit command sequence:
+
+```bash
+./tools/rebuild_all.sh
+python3 -m pytest python/tests
+ctest --test-dir cpp/build --output-on-failure
+./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 Windows over SSH / cmd.exe:
@@ -82,10 +92,28 @@ Windows over SSH / cmd.exe:
 .\tools\test_all.cmd
 ```
 
+Equivalent explicit command sequence:
+
+```bat
+.\tools\rebuild_all.cmd -Test
+python -m pytest python\tests
+.\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
+```
+
 Windows PowerShell only:
 
 ```powershell
 .\tools\test_all.ps1
+```
+
+Equivalent explicit command sequence:
+
+```powershell
+.\tools\rebuild_all.ps1 -Test
+python -m pytest python\tests
+.\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 ## Windows Sixel Install
@@ -303,6 +331,8 @@ cmake --build cpp\build-windows --target activity_feed --config Release
 ./uimd generate src/uimd/testing --target python
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
+./uimd generate tests/regressions/uimd/parity/python --target python
+./uimd generate tests/regressions/uimd/parity/cpp --target cpp
 ```
 
 ## Bulk Rebuild
@@ -316,6 +346,9 @@ POSIX raw form:
 ./uimd generate src/uimd/testing --target python
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
+./uimd generate tests/regressions/uimd/parity/python --target python
+./uimd generate tests/regressions/uimd/parity/cpp --target cpp
+cmake -S cpp -B cpp/build
 cmake --build cpp/build
 python3 -m compileall python src tests tools
 ```
@@ -329,6 +362,9 @@ Windows raw form:
 .\uimd.ps1 generate src\uimd\testing --target python
 .\uimd.ps1 generate cpp\dialogs --target cpp
 .\uimd.ps1 generate cpp\examples --target cpp
+.\uimd.ps1 generate tests\regressions\uimd\parity\python --target python
+.\uimd.ps1 generate tests\regressions\uimd\parity\cpp --target cpp
+cmake -S cpp -B cpp\build-windows -G "Visual Studio 17 2022" -A x64
 cmake --build cpp\build-windows --config Release
 python -m compileall python src tests tools
 ```
@@ -576,6 +612,7 @@ Raw POSIX form:
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-action-delay-ms 1 --mcp-type-delay-ms 1 --step-delay-ms 1 --compare-app-size 90x35
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --compare-app-size 90x35
+./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/calculator/calculator.py cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/cells/cells.py cpp/build/examples/cells/cells tests/mcp/cells.yaml --compare-app-size 90x35 --mcp-fast
@@ -595,6 +632,7 @@ Raw Windows PowerShell form:
 
 ```powershell
 .\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ```
 

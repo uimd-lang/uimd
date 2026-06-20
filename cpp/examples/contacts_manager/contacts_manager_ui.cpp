@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -466,6 +466,7 @@ bool ContactsManagerUI::shouldClose() const
 
 bool ContactsManagerUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "add_btn")
     {
         onAddBtnClick();
@@ -501,16 +502,22 @@ bool ContactsManagerUI::handleGeneratedButton(std::string_view name)
 
 bool ContactsManagerUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool ContactsManagerUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool ContactsManagerUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "contacts")
     {
         onContactsSelectionChange(value);

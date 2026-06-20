@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -651,6 +651,7 @@ bool ContactFormUI::shouldClose() const
 
 bool ContactFormUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "save_btn")
     {
         onSaveBtnClick();
@@ -666,6 +667,8 @@ bool ContactFormUI::handleGeneratedButton(std::string_view name)
 
 bool ContactFormUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "first_name")
     {
         onFirstNameChange(value);
@@ -711,6 +714,8 @@ bool ContactFormUI::handleGeneratedTextChanged(std::string_view name, std::strin
 
 bool ContactFormUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "first_name")
     {
         onFirstNameSubmit(value);
@@ -751,6 +756,8 @@ bool ContactFormUI::handleGeneratedTextConfirmed(std::string_view name, std::str
 
 bool ContactFormUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "category")
     {
         onCategoryChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

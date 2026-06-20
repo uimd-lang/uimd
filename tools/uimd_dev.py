@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import platform
 import shutil
 import subprocess
 import sys
+import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,25 @@ GENERATE_TARGETS = (
 DEFAULT_COMPARE_APP_SIZE = "90x35"
 REGRESSION_PARITY_ROOT = Path("tests/regressions/uimd/parity")
 REGRESSION_PARITY_PYTHON_ROOT = REGRESSION_PARITY_ROOT / "python"
+REGRESSION_PARITY_CPP_SOURCE_ROOT = REGRESSION_PARITY_ROOT / "cpp"
+REGRESSION_PARITY_MANIFEST = REGRESSION_PARITY_ROOT / "all.yaml"
+REGRESSION_GENERATE_TARGETS = (
+    (REGRESSION_PARITY_PYTHON_ROOT, "python"),
+    (REGRESSION_PARITY_CPP_SOURCE_ROOT, "cpp"),
+)
+
+
+@dataclass
+class FullTestPhase:
+    name: str
+    status: str
+    seconds: float
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class PhaseSkip:
+    detail: str
 
 
 def is_windows() -> bool:
@@ -37,9 +58,8 @@ def default_build_dir() -> Path:
     return DEFAULT_WINDOWS_BUILD_DIR if is_windows() else DEFAULT_POSIX_BUILD_DIR
 
 
-def regression_parity_cpp_root() -> Path:
-    build_name = "build-windows" if is_windows() else "build"
-    return REGRESSION_PARITY_ROOT / "cpp" / build_name
+def regression_parity_cpp_build_root(build_dir: Path) -> Path:
+    return build_dir / "regressions/uimd/parity"
 
 
 def cmake_command() -> str:
@@ -62,6 +82,43 @@ def run(command: list[str | Path], *, cwd: Path = ROOT) -> None:
     printable = " ".join(str(part) for part in command)
     print(f"==> {printable}", flush=True)
     subprocess.run([str(part) for part in command], cwd=cwd, check=True)
+
+
+def failure_detail(exc: BaseException) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        return f"exit {exc.returncode}"
+    return f"{type(exc).__name__}: {exc}"
+
+
+def record_skipped_phase(phases: list[FullTestPhase], name: str, detail: str) -> None:
+    phases.append(FullTestPhase(name, "SKIP", 0.0, detail))
+
+
+def run_full_test_phase(phases: list[FullTestPhase], name: str, action):
+    started = time.monotonic()
+    try:
+        result = action()
+    except BaseException as exc:
+        phases.append(FullTestPhase(name, "FAIL", time.monotonic() - started, failure_detail(exc)))
+        raise
+    elapsed = time.monotonic() - started
+    if isinstance(result, PhaseSkip):
+        phases.append(FullTestPhase(name, "SKIP", elapsed, result.detail))
+        return None
+    phases.append(FullTestPhase(name, "PASS", elapsed))
+    return result
+
+
+def print_full_test_summary(phases: list[FullTestPhase]) -> None:
+    if not phases:
+        return
+    print("==> FULL TEST SUMMARY", flush=True)
+    width = max(len(phase.name) for phase in phases)
+    for phase in phases:
+        detail = f" ({phase.detail})" if phase.detail else ""
+        print(f"{phase.status:<4} {phase.name:<{width}} {phase.seconds:>6.1f}s{detail}", flush=True)
+    result = "FAIL" if any(phase.status == "FAIL" for phase in phases) else "PASS"
+    print(f"==> FULL TEST RESULT: {result}", flush=True)
 
 
 def cmake_configure_args(build_dir: Path) -> list[str | Path]:
@@ -141,12 +198,26 @@ def ensure_native_uimd(build_dir: Path, *, config: str | None = None) -> Path:
 def generate_all(uimd: Path) -> None:
     for path, target in GENERATE_TARGETS:
         run([uimd, "generate", path, "--target", target])
+    generate_regression_parity_if_available(uimd)
+
+
+def generate_regression_parity_if_available(uimd: Path) -> None:
+    regression_root = ROOT / REGRESSION_PARITY_ROOT
+    if not regression_root.exists():
+        print(f"==> skip regression parity generation: {REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        return
+    for path, _target in REGRESSION_GENERATE_TARGETS:
+        if not (ROOT / path).exists():
+            raise FileNotFoundError(f"regression parity generation root is missing: {path}")
+    for path, target in REGRESSION_GENERATE_TARGETS:
+        run([uimd, "generate", path, "--target", target])
 
 
 def rebuild_all(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     uimd = ensure_native_uimd(build_dir, config=args.config)
     generate_all(uimd)
+    run(cmake_configure_args(build_dir))
     run(cmake_build_args(build_dir, config=args.config))
     run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"])
     if args.test:
@@ -154,6 +225,19 @@ def rebuild_all(args: argparse.Namespace) -> None:
 
 
 def run_python_tests() -> None:
+    probe = subprocess.run(
+        [sys.executable, "-m", "pytest", "--version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if probe.returncode == 0:
+        run([sys.executable, "-m", "pytest", "python/tests"])
+        return
+    pytest = shutil.which("pytest")
+    if pytest is not None:
+        run([pytest, "python/tests"])
+        return
     run([sys.executable, "-m", "pytest", "python/tests"])
 
 
@@ -183,28 +267,35 @@ def run_example_compare(
 
 def run_regression_compare_if_available(
     uimd: Path,
+    build_dir: Path,
     *,
     compare_app_size: str,
     mcp_fast: bool,
-) -> None:
+) -> PhaseSkip | None:
     python_root = ROOT / REGRESSION_PARITY_PYTHON_ROOT
-    cpp_root_path = regression_parity_cpp_root()
+    cpp_root_path = regression_parity_cpp_build_root(build_dir)
     cpp_root = ROOT / cpp_root_path
-    if not python_root.exists() and not cpp_root.exists():
+    manifest = ROOT / REGRESSION_PARITY_MANIFEST
+    if not python_root.exists() and not cpp_root.exists() and not manifest.exists():
         print(f"==> skip regression parity compare: {REGRESSION_PARITY_ROOT} does not exist", flush=True)
-        return
-    if not python_root.exists() or not cpp_root.exists():
-        missing = REGRESSION_PARITY_PYTHON_ROOT if not python_root.exists() else cpp_root_path
+        return PhaseSkip(f"{REGRESSION_PARITY_ROOT} does not exist")
+    if not python_root.exists() or not cpp_root.exists() or not manifest.exists():
+        if not python_root.exists():
+            missing = REGRESSION_PARITY_PYTHON_ROOT
+        elif not cpp_root.exists():
+            missing = cpp_root_path
+        else:
+            missing = REGRESSION_PARITY_MANIFEST
         raise FileNotFoundError(f"regression parity compare root is missing: {missing}")
 
     command: list[str | Path] = [
         uimd,
         "mcp-test",
         "--headless",
-        "--all",
         "--compare",
         REGRESSION_PARITY_PYTHON_ROOT,
         cpp_root_path,
+        REGRESSION_PARITY_MANIFEST,
     ]
     if is_windows():
         command.extend(["--backend", "python"])
@@ -212,28 +303,60 @@ def run_regression_compare_if_available(
         command.append("--mcp-fast")
     command.extend(["--compare-app-size", compare_app_size])
     run(command)
+    return None
 
 
 def test_all(args: argparse.Namespace) -> None:
+    phases: list[FullTestPhase] = []
     build_dir = Path(args.build_dir)
-    uimd = ensure_native_uimd(build_dir, config=args.config)
-    if not args.no_rebuild:
-        generate_all(uimd)
-        run(cmake_build_args(build_dir, config=args.config))
-        run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"])
-    run_python_tests()
-    run(ctest_args(build_dir, config=args.config))
-    run_example_compare(
-        uimd,
-        build_dir,
-        compare_app_size=args.compare_app_size,
-        mcp_fast=not args.no_mcp_fast,
-    )
-    run_regression_compare_if_available(
-        uimd,
-        compare_app_size=args.compare_app_size,
-        mcp_fast=not args.no_mcp_fast,
-    )
+    try:
+        uimd = run_full_test_phase(
+            phases,
+            "Build repo-local uimd tool",
+            lambda: ensure_native_uimd(build_dir, config=args.config),
+        )
+        if not args.no_rebuild:
+            run_full_test_phase(phases, "Generate UIMD sources", lambda: generate_all(uimd))
+            run_full_test_phase(phases, "Configure CMake", lambda: run(cmake_configure_args(build_dir)))
+            run_full_test_phase(
+                phases,
+                "Build C++ runtime, tools, examples, regressions",
+                lambda: run(cmake_build_args(build_dir, config=args.config)),
+            )
+            run_full_test_phase(
+                phases,
+                "Compile Python sources",
+                lambda: run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"]),
+            )
+        else:
+            record_skipped_phase(phases, "Generate UIMD sources", "--no-rebuild")
+            record_skipped_phase(phases, "Configure CMake", "--no-rebuild")
+            record_skipped_phase(phases, "Build C++ runtime, tools, examples, regressions", "--no-rebuild")
+            record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
+        run_full_test_phase(phases, "Python tests", run_python_tests)
+        run_full_test_phase(phases, "CTest", lambda: run(ctest_args(build_dir, config=args.config)))
+        run_full_test_phase(
+            phases,
+            "MCP example compare",
+            lambda: run_example_compare(
+                uimd,
+                build_dir,
+                compare_app_size=args.compare_app_size,
+                mcp_fast=not args.no_mcp_fast,
+            ),
+        )
+        run_full_test_phase(
+            phases,
+            "MCP regression parity compare",
+            lambda: run_regression_compare_if_available(
+                uimd,
+                build_dir,
+                compare_app_size=args.compare_app_size,
+                mcp_fast=not args.no_mcp_fast,
+            ),
+        )
+    finally:
+        print_full_test_summary(phases)
 
 
 def run_cpp_example(args: argparse.Namespace) -> None:

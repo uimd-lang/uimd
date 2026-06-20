@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -610,6 +610,7 @@ bool SpecialElementsUI::shouldClose() const
 
 bool SpecialElementsUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "raw_button")
     {
         onRawButtonClick();
@@ -620,6 +621,8 @@ bool SpecialElementsUI::handleGeneratedButton(std::string_view name)
 
 bool SpecialElementsUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "raw_input")
     {
         onRawInputChange(value);
@@ -635,6 +638,8 @@ bool SpecialElementsUI::handleGeneratedTextChanged(std::string_view name, std::s
 
 bool SpecialElementsUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "raw_input")
     {
         onRawInputSubmit(value);
@@ -650,6 +655,8 @@ bool SpecialElementsUI::handleGeneratedTextConfirmed(std::string_view name, std:
 
 bool SpecialElementsUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "raw_combo")
     {
         onRawComboChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

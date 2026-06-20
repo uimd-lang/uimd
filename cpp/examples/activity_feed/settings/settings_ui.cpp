@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -404,6 +404,7 @@ bool SettingsUI::shouldClose() const
 
 bool SettingsUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "save_button")
     {
         onSaveButtonClick();
@@ -419,6 +420,8 @@ bool SettingsUI::handleGeneratedButton(std::string_view name)
 
 bool SettingsUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "auto_scroll")
     {
         onAutoScrollChange(value);
@@ -434,11 +437,15 @@ bool SettingsUI::handleGeneratedTextChanged(std::string_view name, std::string_v
 
 bool SettingsUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool SettingsUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "default_type")
     {
         onDefaultTypeChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

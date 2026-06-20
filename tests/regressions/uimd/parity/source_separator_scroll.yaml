@@ -1,0 +1,7 @@
+- name: source_separator_scroll
+  app: tests/regressions/uimd/parity/python/source_separator_scroll/source_separator_scroll.py
+  tests:
+    - tool: get_window
+      assert:
+        title: "Source Separator Scroll"
+    - tool: get_render_snapshot

@@ -2289,7 +2289,7 @@ void blitClipped(TerminalBuffer& buffer, const RenderedContent& content, int row
     }
 }
 
-[[nodiscard]] Rect intersectRects(Rect lhs, Rect rhs) {
+[[maybe_unused, nodiscard]] Rect intersectRects(Rect lhs, Rect rhs) {
     const int row = std::max(lhs.row, rhs.row);
     const int col = std::max(lhs.col, rhs.col);
     const int bottom = std::min(lhs.row + lhs.height, rhs.row + rhs.height);
@@ -2834,7 +2834,7 @@ void applyActiveScrollViewFocusBackgroundGaps(TerminalBuffer& buffer,
     return std::nullopt;
 }
 
-void applyActiveScrollViewFocusBackgroundForLayout(
+[[maybe_unused]] void applyActiveScrollViewFocusBackgroundForLayout(
     TerminalBuffer& buffer,
     GeneratedWindowBase& window,
     const std::vector<ResolvedRuntimeCell>& resolvedCells,
@@ -2858,7 +2858,7 @@ void applyActiveScrollViewFocusBackgroundForLayout(
         focusBackgroundOverride);
 }
 
-[[nodiscard]] std::optional<Color> activeScrollViewBaseBackground(
+[[maybe_unused, nodiscard]] std::optional<Color> activeScrollViewBaseBackground(
     GeneratedWindowBase& renderWindow,
     ScrollView* activeScrollView,
     const Style& renderStyle
@@ -2875,7 +2875,7 @@ void applyActiveScrollViewFocusBackgroundForLayout(
     return renderStyle.background;
 }
 
-[[nodiscard]] bool elementExtendsBeyondReusableFrame(const Element* element, Rect origin, Size size) {
+[[maybe_unused, nodiscard]] bool elementExtendsBeyondReusableFrame(const Element* element, Rect origin, Size size) {
     if (element == nullptr) {
         return false;
     }
@@ -4774,7 +4774,7 @@ void clearLabelSelectionsInWindow(GeneratedWindowBase& window) {
     }
 }
 
-[[nodiscard]] std::string selectedLabelText(GeneratedWindowBase& window) {
+[[maybe_unused, nodiscard]] std::string selectedLabelText(GeneratedWindowBase& window) {
     std::string result;
     for (const auto& element : window.elements()) {
         if (element == nullptr) {

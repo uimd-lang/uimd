@@ -200,7 +200,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -508,6 +508,7 @@ bool ActivityFeedUI::shouldClose() const
 
 bool ActivityFeedUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "settings_button")
     {
         onSettingsButtonClick();
@@ -538,6 +539,8 @@ bool ActivityFeedUI::handleGeneratedButton(std::string_view name)
 
 bool ActivityFeedUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "message")
     {
         onMessageChange(value);
@@ -548,6 +551,8 @@ bool ActivityFeedUI::handleGeneratedTextChanged(std::string_view name, std::stri
 
 bool ActivityFeedUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "message")
     {
         onMessageSubmit(value);
@@ -558,6 +563,8 @@ bool ActivityFeedUI::handleGeneratedTextConfirmed(std::string_view name, std::st
 
 bool ActivityFeedUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "activity_type")
     {
         onActivityTypeChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

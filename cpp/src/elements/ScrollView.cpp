@@ -176,15 +176,7 @@ void applyFocusBackgroundToViewport(RenderedContent& content,
     if (const auto* reusable = dynamic_cast<const ReusableElement*>(&child);
         reusable != nullptr && reusable->child() != nullptr) {
         const Size resolved = generatedWindowContentSizeForWidth(*reusable->child(), std::max(1, width));
-        int sourceHeight = 1;
-        for (const auto& entry : reusable->child()->generatedLayout()) {
-            const int entryHeight = std::max(1, std::min(entry.charsSize.height, entry.sourceCell.height));
-            sourceHeight = std::max(sourceHeight,
-                                    entry.sourceCell.row + stylePaddingTop(entry.cellStyle) +
-                                    entry.relative.row + entryHeight +
-                                    stylePaddingBottom(entry.cellStyle));
-        }
-        return std::max({1, resolved.height, sourceHeight});
+        return std::max(1, resolved.height);
     }
     return std::max(1, child.frame().height);
 }

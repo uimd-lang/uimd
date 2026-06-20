@@ -21,9 +21,9 @@ from uimd.testing.mcp_tester import (
     LIVE_BUFFER_REPAINT_INTERVAL_SECONDS,
     PAUSE_BUTTON_TITLE,
     PLAY_BUTTON_TITLE,
-    TesterConfig,
+    TesterConfig as McpTesterConfig,
     TEXT_TIMEOUT_MULTIPLIER,
-    TestScript,
+    TestScript as McpTestScript,
     McpTester,
     TargetApp,
     _compact_result,
@@ -136,10 +136,10 @@ class TestMcpTesterConfig(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parse_args([])
 
-    @unittest.skipIf(os.name == "nt", "Windows defaults to the Python tester backend")
     def test_launcher_defaults_to_cpp_tester_binary(self):
         binary = os.path.join("/repo", "cpp", "build", "tools", "mcp_tester", "uimd_mcp_tester")
-        with patch("uimd.testing.mcp_tester_launcher._project_root", return_value="/repo"), \
+        with patch.object(mcp_tester_launcher, "DEFAULT_BACKEND", mcp_tester_launcher.BACKEND_CPP), \
+             patch("uimd.testing.mcp_tester_launcher._project_root", return_value="/repo"), \
              patch("uimd.testing.mcp_tester_launcher.os.path.exists", return_value=True), \
              patch("uimd.testing.mcp_tester_launcher.subprocess.call", return_value=0) as run_binary:
             result = mcp_tester_launcher.main_argv(["tests/mcp/calculator.yaml"])
@@ -147,9 +147,9 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(result, 0)
         run_binary.assert_called_once_with([binary, "tests/mcp/calculator.yaml"], cwd="/repo")
 
-    @unittest.skipUnless(os.name == "nt", "POSIX defaults to the C++ tester backend")
     def test_launcher_defaults_to_python_tester_on_windows(self):
-        with patch("uimd.testing.mcp_tester.main", return_value=0) as python_tester:
+        with patch.object(mcp_tester_launcher, "DEFAULT_BACKEND", mcp_tester_launcher.BACKEND_PYTHON), \
+             patch("uimd.testing.mcp_tester.main", return_value=0) as python_tester:
             result = mcp_tester_launcher.main_argv(["tests/mcp/calculator.yaml"])
 
         self.assertEqual(result, 0)
@@ -216,7 +216,7 @@ class TestMcpTesterConfig(unittest.TestCase):
             def run(self):
                 return 9
 
-        config = TesterConfig(
+        config = McpTesterConfig(
             root=PROJECT_ROOT,
             apps={},
             action_delay_ms=0,
@@ -430,7 +430,7 @@ class TestMcpTesterConfig(unittest.TestCase):
 
     def test_compare_cli_rejects_yaml_with_multiple_apps(self):
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        script = TestScript(
+        script = McpTestScript(
             "unit.yaml",
             {"py": "python/examples/calculator/calculator.py", "cpp": "cpp/build/examples/calculator/calculator"},
             [{"target": "*", "tool": "get_state"}],
@@ -569,8 +569,8 @@ class TestMcpTesterConfig(unittest.TestCase):
                 self.forwarding.append(f"{self.name}:{tool}:{self.forwarding[-1]}")
                 return {"id": self.name, "value": arguments["value"]}
 
-        script = TestScript("unit.yaml", {"a": "a.py", "b": "b.py"}, [])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"a": "a.py", "b": "b.py"}, [])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -693,8 +693,8 @@ class TestMcpTesterConfig(unittest.TestCase):
             def _repaint_targets(self):
                 pass
 
-        script = TestScript("unit.yaml", {"python": "py.py", "cpp": "cpp"}, [])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"python": "py.py", "cpp": "cpp"}, [])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -780,8 +780,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         )
 
     def test_multiple_target_viewports_split_app_area(self):
-        script = TestScript("unit.yaml", {"py": "py.py", "cpp": "cpp.py"}, [{"tool": "noop"}])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"py": "py.py", "cpp": "cpp.py"}, [{"tool": "noop"}])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -805,8 +805,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(rects["cpp"], {"row": 2, "col": 8, "width": 5, "height": 4})
 
     def test_compare_target_viewports_use_equal_dimensions(self):
-        script = TestScript("unit.yaml", {"py": "py.py", "cpp": "cpp.py"}, [{"tool": "noop"}])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"py": "py.py", "cpp": "cpp.py"}, [{"tool": "noop"}])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -831,8 +831,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(rects["cpp"], {"row": 2, "col": 74, "width": 71, "height": 37})
 
     def test_single_target_explicit_app_size_uses_buffer_viewport(self):
-        script = TestScript("unit.yaml", {"py": "py.py"}, [{"tool": "noop"}])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"py": "py.py"}, [{"tool": "noop"}])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -887,8 +887,8 @@ class TestMcpTesterConfig(unittest.TestCase):
             def mark_full_repaint_pending(self):
                 return None
 
-        script = TestScript("unit.yaml", {"py": "py.py"}, [{"tool": "noop"}])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"py": "py.py"}, [{"tool": "noop"}])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -915,8 +915,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertGreaterEqual(target.render_frame_calls, 1)
 
     def test_multiple_target_viewports_tile_three_apps(self):
-        script = TestScript("unit.yaml", {"a": "a.py", "b": "b.py", "c": "c.py"}, [{"tool": "noop"}])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"a": "a.py", "b": "b.py", "c": "c.py"}, [{"tool": "noop"}])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -987,8 +987,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertEqual(len(panel._children), 1)
 
     def test_failed_step_is_reported_in_result_even_without_failed_assert(self):
-        script = TestScript("unit.yaml", {"missing": "missing.py"}, [])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"missing": "missing.py"}, [])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -1014,9 +1014,9 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertTrue(any("RESULT: 7 asserts passed, 0 failed, 1 step failures" in line for line in lines))
 
     def test_failed_script_continues_to_next_include(self):
-        first = TestScript("first.yaml", {"first": "missing.py"}, [])
-        second = TestScript("second.yaml", {"second": "missing.py"}, [])
-        config = TesterConfig(
+        first = McpTestScript("first.yaml", {"first": "missing.py"}, [])
+        second = McpTestScript("second.yaml", {"second": "missing.py"}, [])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=first.apps,
             action_delay_ms=0,
@@ -1042,8 +1042,8 @@ class TestMcpTesterConfig(unittest.TestCase):
 
     def test_copy_log_button_copies_visible_log_history(self):
         elements_module._TEXT_CLIPBOARD = ""
-        script = TestScript("unit.yaml", {"missing": "missing.py"}, [])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"missing": "missing.py"}, [])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -1073,8 +1073,8 @@ class TestMcpTesterConfig(unittest.TestCase):
                 text.encode(self.encoding)
                 return super().write(text)
 
-        script = TestScript("unit.yaml", {}, [])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {}, [])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,
@@ -1097,8 +1097,8 @@ class TestMcpTesterConfig(unittest.TestCase):
         self.assertIn("\\u2580", stdout.getvalue())
 
     def test_pause_button_toggles_to_play_and_back(self):
-        script = TestScript("unit.yaml", {"missing": "missing.py"}, [])
-        config = TesterConfig(
+        script = McpTestScript("unit.yaml", {"missing": "missing.py"}, [])
+        config = McpTesterConfig(
             root=os.getcwd(),
             apps=script.apps,
             action_delay_ms=0,

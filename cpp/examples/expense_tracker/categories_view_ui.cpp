@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -381,6 +381,7 @@ bool CategoriesViewUI::shouldClose() const
 
 bool CategoriesViewUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "add_category_btn")
     {
         onAddCategoryBtnClick();
@@ -396,6 +397,8 @@ bool CategoriesViewUI::handleGeneratedButton(std::string_view name)
 
 bool CategoriesViewUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "category_name")
     {
         onCategoryNameChange(value);
@@ -406,6 +409,8 @@ bool CategoriesViewUI::handleGeneratedTextChanged(std::string_view name, std::st
 
 bool CategoriesViewUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "category_name")
     {
         onCategoryNameSubmit(value);
@@ -416,6 +421,8 @@ bool CategoriesViewUI::handleGeneratedTextConfirmed(std::string_view name, std::
 
 bool CategoriesViewUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "categories")
     {
         onCategoriesSelectionChange(value);

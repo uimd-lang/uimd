@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -370,6 +370,7 @@ bool TaskRowUI::shouldClose() const
 
 bool TaskRowUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "open_btn")
     {
         onOpenBtnClick();
@@ -385,6 +386,8 @@ bool TaskRowUI::handleGeneratedButton(std::string_view name)
 
 bool TaskRowUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "done")
     {
         onDoneChange(value);
@@ -395,11 +398,15 @@ bool TaskRowUI::handleGeneratedTextChanged(std::string_view name, std::string_vi
 
 bool TaskRowUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool TaskRowUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 

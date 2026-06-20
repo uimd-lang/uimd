@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.4.3 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.4.4 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -18,6 +18,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(UI_CPP_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
 option(UIMD_BUILD_EXAMPLES "Build UIMD C++ examples" ON)
+option(UIMD_BUILD_REGRESSIONS "Build UIMD C++ regression applications" ON)
 option(UIMD_BUILD_TESTS "Build UIMD C++ tests" ON)
 option(UIMD_INSTALL "Install UIMD C++ targets" ON)
 option(UIMD_EMBED_SOURCE_ROOT "Embed the source checkout path in the native uimd tool" ON)
@@ -187,6 +188,38 @@ function(add_ui_cpp_example name)
         add_test(NAME example_${name} COMMAND ${name} --smoke)
     endif()
 endfunction()
+
+function(add_uimd_regression_parity_app name app_dir)
+    file(GLOB regression_ui_sources CONFIGURE_DEPENDS "${app_dir}/*_ui.cpp")
+    if(NOT regression_ui_sources)
+        message(STATUS "Skipping UIMD regression ${name}: generated UI sources are missing")
+        return()
+    endif()
+    add_executable(uimd_regression_${name}
+        ${app_dir}/${name}.cpp
+        ${regression_ui_sources}
+    )
+    target_link_libraries(uimd_regression_${name} PRIVATE ui_cpp_runtime)
+    target_compile_features(uimd_regression_${name} PRIVATE cxx_std_17)
+    set_target_properties(uimd_regression_${name}
+        PROPERTIES
+            OUTPUT_NAME ${name}
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/regressions/uimd/parity/${name}
+    )
+endfunction()
+
+set(UIMD_REGRESSION_PARITY_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tests/regressions/uimd/parity/cpp")
+if(UIMD_BUILD_REGRESSIONS AND EXISTS "${UIMD_REGRESSION_PARITY_CPP_DIR}")
+    file(GLOB regression_parity_dirs CONFIGURE_DEPENDS "${UIMD_REGRESSION_PARITY_CPP_DIR}/*")
+    foreach(regression_dir IN LISTS regression_parity_dirs)
+        if(IS_DIRECTORY "${regression_dir}")
+            get_filename_component(regression_name "${regression_dir}" NAME)
+            if(EXISTS "${regression_dir}/${regression_name}.cpp")
+                add_uimd_regression_parity_app(${regression_name} "${regression_dir}")
+            endif()
+        endif()
+    endforeach()
+endif()
 
 if(UIMD_BUILD_EXAMPLES)
     add_ui_cpp_example(calculator)

@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -384,6 +384,7 @@ bool SettingsViewUI::shouldClose() const
 
 bool SettingsViewUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "reset_btn")
     {
         onResetBtnClick();
@@ -394,6 +395,8 @@ bool SettingsViewUI::handleGeneratedButton(std::string_view name)
 
 bool SettingsViewUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "show_paid")
     {
         onShowPaidChange(value);
@@ -409,6 +412,8 @@ bool SettingsViewUI::handleGeneratedTextChanged(std::string_view name, std::stri
 
 bool SettingsViewUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "monthly_limit")
     {
         onMonthlyLimitSubmit(value);
@@ -419,6 +424,8 @@ bool SettingsViewUI::handleGeneratedTextConfirmed(std::string_view name, std::st
 
 bool SettingsViewUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "currency")
     {
         onCurrencyChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

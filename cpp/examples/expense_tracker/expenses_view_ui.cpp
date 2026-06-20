@@ -201,7 +201,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -432,6 +432,7 @@ bool ExpensesViewUI::shouldClose() const
 
 bool ExpensesViewUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "add_expense_btn")
     {
         onAddExpenseBtnClick();
@@ -442,6 +443,8 @@ bool ExpensesViewUI::handleGeneratedButton(std::string_view name)
 
 bool ExpensesViewUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "item_input")
     {
         onItemInputChange(value);
@@ -457,6 +460,8 @@ bool ExpensesViewUI::handleGeneratedTextChanged(std::string_view name, std::stri
 
 bool ExpensesViewUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "item_input")
     {
         onItemInputSubmit(value);
@@ -472,6 +477,8 @@ bool ExpensesViewUI::handleGeneratedTextConfirmed(std::string_view name, std::st
 
 bool ExpensesViewUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "category_input")
     {
         onCategoryInputChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

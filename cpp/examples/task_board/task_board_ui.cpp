@@ -203,7 +203,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -552,6 +552,7 @@ std::string TaskBoardUI::callAppTool(std::string_view name, std::string_view inp
 
 bool TaskBoardUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "quit_btn")
     {
         onQuitBtnClick();
@@ -577,16 +578,22 @@ bool TaskBoardUI::handleGeneratedButton(std::string_view name)
 
 bool TaskBoardUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool TaskBoardUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
 bool TaskBoardUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 

@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -447,6 +447,7 @@ bool TaskFiltersUI::shouldClose() const
 
 bool TaskFiltersUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "apply_filters_btn")
     {
         onApplyFiltersBtnClick();
@@ -462,6 +463,8 @@ bool TaskFiltersUI::handleGeneratedButton(std::string_view name)
 
 bool TaskFiltersUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "search")
     {
         onSearchChange(value);
@@ -472,6 +475,8 @@ bool TaskFiltersUI::handleGeneratedTextChanged(std::string_view name, std::strin
 
 bool TaskFiltersUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "search")
     {
         onSearchSubmit(value);
@@ -482,6 +487,8 @@ bool TaskFiltersUI::handleGeneratedTextConfirmed(std::string_view name, std::str
 
 bool TaskFiltersUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     if (name == "status_filter")
     {
         onStatusFilterChange(value.empty() ? std::string_view{} : std::string_view{value.front()});

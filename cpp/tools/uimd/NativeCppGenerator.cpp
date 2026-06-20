@@ -2442,6 +2442,7 @@ void appendCppEventDispatch(std::vector<std::string>& lines, const std::string& 
 
     lines.push_back("bool " + classNameValue + "::handleGeneratedButton(std::string_view name)");
     lines.push_back("{");
+    lines.push_back("    (void)name;");
     appendIfBranches(lines, buttonSpecs, "        @METHOD@();");
     lines.push_back("    return false;");
     lines.push_back("}");
@@ -2449,6 +2450,8 @@ void appendCppEventDispatch(std::vector<std::string>& lines, const std::string& 
 
     lines.push_back("bool " + classNameValue + "::handleGeneratedTextChanged(std::string_view name, std::string_view value)");
     lines.push_back("{");
+    lines.push_back("    (void)name;");
+    lines.push_back("    (void)value;");
     appendIfBranches(lines, textSpecs, "        @METHOD@(value);");
     lines.push_back("    return false;");
     lines.push_back("}");
@@ -2456,6 +2459,8 @@ void appendCppEventDispatch(std::vector<std::string>& lines, const std::string& 
 
     lines.push_back("bool " + classNameValue + "::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)");
     lines.push_back("{");
+    lines.push_back("    (void)name;");
+    lines.push_back("    (void)value;");
     appendIfBranches(lines, confirmedSpecs, "        @METHOD@(value);");
     lines.push_back("    return false;");
     lines.push_back("}");
@@ -2463,6 +2468,8 @@ void appendCppEventDispatch(std::vector<std::string>& lines, const std::string& 
 
     lines.push_back("bool " + classNameValue + "::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)");
     lines.push_back("{");
+    lines.push_back("    (void)name;");
+    lines.push_back("    (void)value;");
     int branchIndex = 0;
     for (const auto& [name, method] : selectionTextSpecs)
     {
@@ -2890,7 +2897,7 @@ void appendGeneratedHelpers(std::vector<std::string>& lines)
         "    return style;",
         "}",
         "",
-        "ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)",
+        "[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)",
         "{",
         "    ui::TextGradient gradient;",
         "    gradient.intervalMs = intervalMs;",

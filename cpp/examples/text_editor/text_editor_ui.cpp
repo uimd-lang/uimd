@@ -199,7 +199,7 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
     return style;
 }
 
-ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
+[[maybe_unused]] ui::TextGradient makeTextGradient(int intervalMs, int step, int segmentSize, std::initializer_list<const char*> colors)
 {
     ui::TextGradient gradient;
     gradient.intervalMs = intervalMs;
@@ -414,6 +414,7 @@ bool TextEditorUI::shouldClose() const
 
 bool TextEditorUI::handleGeneratedButton(std::string_view name)
 {
+    (void)name;
     if (name == "new_btn")
     {
         onNewBtnClick();
@@ -444,6 +445,8 @@ bool TextEditorUI::handleGeneratedButton(std::string_view name)
 
 bool TextEditorUI::handleGeneratedTextChanged(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "editor")
     {
         onEditorChange(value);
@@ -454,6 +457,8 @@ bool TextEditorUI::handleGeneratedTextChanged(std::string_view name, std::string
 
 bool TextEditorUI::handleGeneratedTextConfirmed(std::string_view name, std::string_view value)
 {
+    (void)name;
+    (void)value;
     if (name == "editor")
     {
         onEditorSubmit(value);
@@ -464,6 +469,8 @@ bool TextEditorUI::handleGeneratedTextConfirmed(std::string_view name, std::stri
 
 bool TextEditorUI::handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value)
 {
+    (void)name;
+    (void)value;
     return false;
 }
 
