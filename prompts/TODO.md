@@ -4,6 +4,72 @@
 
 Date: 2026-06-05
 
+- [x] **Expand `stale_scrollview_focus` regression to match the reported app
+  shape more closely**. The first manual repro was intentionally small. Extend
+  it with at least five source ScrollView rows, a full-height page area, and an
+  opened edit page whose main content is itself a ScrollView containing many
+  alternating text inputs and buttons separated by blank rows. Keep Python and
+  C++ `.uimd` sources identical and keep the behavior flow equivalent across
+  both app implementations. Implemented with five list rows and a nested edit
+  `ViewHost` containing a generated `UIScrollView` with 40 textinput/button
+  rows. While validating, the expanded repro exposed a C++ generated root
+  scrollview parity gap: indicators were computed from the reduced resolved
+  frame instead of Python's source panel rect clamped to the host render size.
+  Fixed in `cpp/src/generated/GeneratedWindowRuntime.cpp` by drawing root
+  generated scrollview indicators after child-window composition with the same
+  source-rect-plus-clamp behavior as Python. Validation passed:
+  `env UIMD_DISABLE_SIXEL=1 ./uimd mcp-test --compare
+  tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity
+  tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast
+  --compare-app-size 90x35` and the same command with
+  `tests/regressions/uimd/parity/all.yaml`. Full validation also passed with
+  `./tools/test_all.sh` (`FULL TEST RESULT: PASS`). A later local regeneration
+  exposed that the Python and C++ root `.uimd` copies had diverged in two
+  vertical expansion marker rows (`| *...` versus `* *...`), causing Python to
+  resolve the window as `expand_width` while C++ resolved it as `fullscreen`.
+  Fixed the Python `.uimd` copy to restore byte-for-byte source parity, then
+  regenerated both targets and reran `./tools/test_all.sh` successfully.
+- [x] **Add visual/manual regression app for GitHub #5**. The current
+  `source_separator_scroll` regression corpus is intentionally minimal and
+  cannot be used to manually reproduce the #5 shape because it has no scrollview
+  item buttons that switch the visible page. Add a small Python/C++ parity
+  regression corpus with a root view host, list page, scrollview rows with
+  `Open` buttons, and an edit page with a textarea so the stale top-level focus
+  and stale scrollview overlay bug can be tested both manually and through MCP
+  compare. Parity decision: `.uimd` sources must be identical across Python and
+  C++; behavior glue may differ by language only in syntax, not state flow.
+  Implemented as `stale_scrollview_focus` under
+  `tests/regressions/uimd/parity`. The repro also exposed a Python runtime
+  parity cleanup gap: replacing a `ViewHost` page while MCP activation held an
+  active scrollview scope left `_edit_mode=True` on the owner window. Fixed in
+  `src/uimd/runtime/elements.py` by clearing owner scrollview scope/edit/focus
+  state when the detached child owns the active scope. Validation passed:
+  Python-only MCP regression, C++-only MCP regression, and Python/C++ compare
+  for `tests/regressions/uimd/parity/stale_scrollview_focus.yaml`.
+- [x] **GitHub #5: C++ stale top-level focus and ScrollView overlay after row
+  button switches view**. Issue: https://github.com/uimd-lang/uimd/issues/5.
+  Repro shape: focus enters a row button inside a `uiscrollview`, `Enter`
+  swaps a reusable/page host from list page to edit page, then C++ still
+  renders the previous top-level tab/button as focused and paints the old
+  scrollview focus/dim overlay over the edit page. This follows #4 but adds
+  stale top-level focus state, not only stale `activeScrollView`. Audit Python
+  reference behavior first in `src/uimd/runtime` because the reported app may
+  now differ between Python and C++; fix shared C++ runtime cleanup in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`, not examples. Parity
+  decision: after callbacks that can change generated layout/page host, C++
+  must revalidate/remap both active scrollview scope and focused element against
+  the currently represented generated layout before render, snapshot, or MCP
+  state is inspected.
+  Implemented by adding live C++ element pointer validation, clearing/remapping
+  stale scrollview scope after generated callbacks and MCP activation, keeping
+  click focus restoration limited to immediate click controls, and preserving
+  background scrollview focus when modal-close cleanup already moved focus back
+  to the owning scrollview proxy. Added a C++ runtime regression for stale
+  top-level focus background and destroyed scrollview pointers. Validation
+  passed: `ctest --test-dir cpp/build --output-on-failure -R ui_cpp_tests`,
+  `./uimd mcp-test --compare python/examples cpp/build/examples --mcp-fast
+  --compare-app-size 90x35 tests/mcp/task_board_compare.yaml`, and full
+  `./tools/test_all.sh` with `FULL TEST RESULT: PASS`.
 - [x] **GitHub #4: stale C++ active ScrollView scope after view switch**.
   Issue: https://github.com/uimd-lang/uimd/issues/4. Repro shape: keyboard
   focus enters a `ScrollView`, focus moves to a nested button, `Enter`

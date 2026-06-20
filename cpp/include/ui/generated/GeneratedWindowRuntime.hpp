@@ -119,7 +119,8 @@ void renderGeneratedWindow(GeneratedWindowBase& window, TerminalBuffer& buffer, 
                                                            std::optional<int> clipTop = std::nullopt,
                                                            std::optional<int> clipBottom = std::nullopt,
                                                            bool applyActiveScrollViewDim = true,
-                                                           bool forceFullscreenLayout = false);
+                                                           bool forceFullscreenLayout = false,
+                                                           bool useHostViewportForRootScrollViewIndicators = false);
 void dimGeneratedWindowModalBackground(TerminalBuffer& buffer);
 int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOptions options = {});
 int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOptions options, int argc, char** argv);

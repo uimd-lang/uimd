@@ -1,0 +1,144 @@
+# Edit Page
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: regression
+description: "Edit page shown after a ScrollView row button replaces the active ViewHost page."
+tags: [regression, issue-5, viewhost]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+uses:
+  - edit_fields_scroll
+```
+
+## Members
+
+```yaml
+edit_title:
+  type: label
+  text: "Edit item"
+  description: "Edit page title."
+  expose: false
+
+back_btn:
+  type: button
+  title: Back
+  description: "Return to the list page."
+
+save_btn:
+  type: button
+  title: Save
+  description: "Dummy save action used by the regression app."
+
+name_label:
+  type: label
+  text: Name
+  description: "Name field label."
+  expose: false
+
+name_input:
+  type: textinput
+  value: ""
+  maxlength: 80
+  description: "Editable item name."
+
+body_label:
+  type: label
+  text: Fields
+  description: "Fields panel label."
+  expose: false
+
+fields:
+  type: viewhost
+  description: "Scrollable edit fields panel."
+
+status:
+  type: label
+  text: "Opened from ScrollView"
+  description: "Edit page status."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+@top:
+  background: "#172033"
+@edit_title:
+  color: "#ffffff"
+  text-align: center
+@form:
+  background: "#111827"
+  padding: 1, 1, 1, 1
+@fields:
+  background: "#030712"
+  focus-background: "#07111f"
+  edit-background: "#0f172a"
+  scope-dim-background: "#0000004d"
+@status:
+  color: "#93c5fd"
+label:
+  color: "#e5e7eb"
+textinput:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+textarea:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@save_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+```
+
+## User Interface
+
+```ui
++-top-**-----------------------------------------------------------------------------------+
+| back_btn.... edit_title..**.............................................. save_btn...... |
++-form-**----------------------------------------------------------------------------------+
+| name_label.... name_input..**........................................................... |
+|                                                                                          |
+| status..**.............................................................................. |
+|                                                                                          |
+| body_label..**.......................................................................... |
+| fields..**.............................................................................. |
+| *....................................................................................... |
+| *....................................................................................... |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+| ........................................................................................ |
+|                                                                                          |
++------------------------------------------------------------------------------------------+
+```

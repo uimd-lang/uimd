@@ -2966,6 +2966,7 @@ class ViewHost(UIElementReusable):
         if child is None:
             return
         owner = self._owning_container()
+        self._clear_owner_scope_for_detached_child(owner, child)
         focused = getattr(owner, "_focused_element", None) if owner is not None else None
         if focused is not None and self._contains_element(child, focused):
             owner.set_focus(None)
@@ -2973,6 +2974,36 @@ class ViewHost(UIElementReusable):
         child.parent = None
         child._app = None
         self._child_opened = False
+
+    def _clear_owner_scope_for_detached_child(self, owner, child):
+        if owner is None:
+            return
+        scope = getattr(owner, "_active_scrollview_scope", None)
+        if scope is None:
+            return
+        scope_scrollview = scope.get("scrollview")
+        scope_proxy = scope.get("proxy")
+        if scope_proxy is not self and not self._contains_element(child, scope_scrollview):
+            return
+        clear_descendant_focus = getattr(owner, "_clear_descendant_focus_state", None)
+        if callable(clear_descendant_focus):
+            clear_descendant_focus(child)
+        if scope_proxy is not None:
+            scope_proxy.focused = False
+            if hasattr(scope_proxy, "_edit_mode"):
+                scope_proxy._edit_mode = False
+        focused = getattr(owner, "_focused_element", None)
+        if focused is not None:
+            if hasattr(owner, "_set_element_focus_state"):
+                owner._set_element_focus_state(focused, False)
+            else:
+                focused.focused = False
+        owner._focused_element = None
+        owner._active_scrollview_scope = None
+        if hasattr(owner, "_edit_mode"):
+            owner._edit_mode = False
+        if hasattr(owner, "_edit_snapshot"):
+            owner._edit_snapshot = None
 
     def _owning_container(self):
         parent = getattr(self, "parent", None)

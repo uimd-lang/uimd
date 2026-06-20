@@ -2,7 +2,9 @@
 
 #include <atomic>
 #include <cmath>
+#include <mutex>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace ui {
 
@@ -10,6 +12,8 @@ namespace {
 
 thread_local std::optional<Color> effectiveStyleParentBackground;
 std::atomic<std::uint64_t> nextElementIdentity{1};
+std::mutex liveElementsMutex;
+std::unordered_set<const Element*> liveElements;
 
 [[nodiscard]] bool hasPartialAlpha(const std::optional<Color>& color) {
     return color.has_value() && color->rgba().has_value() && color->rgba()->alpha < 255;
@@ -42,7 +46,23 @@ std::atomic<std::uint64_t> nextElementIdentity{1};
 
 Element::Element(std::string name)
     : name_(std::move(name)),
-      identity_(nextElementIdentity.fetch_add(1, std::memory_order_relaxed)) {}
+      identity_(nextElementIdentity.fetch_add(1, std::memory_order_relaxed)) {
+    std::lock_guard lock(liveElementsMutex);
+    liveElements.insert(this);
+}
+
+Element::~Element() {
+    std::lock_guard lock(liveElementsMutex);
+    liveElements.erase(this);
+}
+
+bool isLiveElementPointer(const Element* element) {
+    if (element == nullptr) {
+        return false;
+    }
+    std::lock_guard lock(liveElementsMutex);
+    return liveElements.find(element) != liveElements.end();
+}
 
 std::optional<Color> Element::renderingParentBackground() {
     return effectiveStyleParentBackground;

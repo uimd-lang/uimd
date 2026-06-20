@@ -1,7 +1,9 @@
 # Changelog
 
-## 0.4.5 - Unreleased
+## 0.4.6 - Unreleased
 
+- Fix C++ runtime focus and ScrollView scope cleanup after generated callbacks
+  replace the visible layout, keeping MCP snapshots in parity with Python.
 - Add a cross-platform `Image` element with Sixel rendering and an ANSI
   character-based fallback in Python and C++.
 - Add `.uimd` image properties: source, alt/fallback text, fit mode,

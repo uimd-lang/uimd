@@ -18,7 +18,7 @@ inline constexpr std::string_view kCommitModeLeave = "leave";
 class Element {
 public:
     explicit Element(std::string name);
-    virtual ~Element() = default;
+    virtual ~Element();
 
     Element(const Element&) = delete;
     Element& operator=(const Element&) = delete;
@@ -176,6 +176,8 @@ private:
     std::optional<Style> disabledStyle_;
     std::vector<std::unique_ptr<Element>> children_;
 };
+
+[[nodiscard]] bool isLiveElementPointer(const Element* element);
 
 class ScopedElementParentBackground {
 public:

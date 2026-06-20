@@ -45,6 +45,7 @@ constexpr int kStaleScopeProxyRow = 2;
 constexpr int kStaleScopeProxyCol = 2;
 constexpr int kStaleScopeProxyWidth = 8;
 constexpr int kStaleScopeProxyHeight = 3;
+constexpr int kStaleScopeTabWidth = 6;
 
 [[nodiscard]] ui::GeneratedLayoutEntry fixedEntry(std::string name, std::string type, ui::Rect rect)
 {
@@ -108,6 +109,14 @@ public:
         staleProxy = &addElement<ui::ReusableElement>("stale_scope", std::make_unique<StaleScopeScrollPage>());
         staleProxy->setStyle(staleProxyStyle);
 
+        tab = &addElement<ui::Button>("tab", "List");
+        ui::Style tabStyle;
+        tabStyle.background = ui::Color{"#222222"};
+        tab->setStyle(tabStyle);
+        ui::Style tabFocusStyle;
+        tabFocusStyle.background = ui::Color{"#00ff00"};
+        tab->setFocusStyle(tabFocusStyle);
+
         plain = &addElement<ui::Label>("plain", "Plain");
         ui::Style plainStyle;
         plainStyle.background = ui::Color{"#111111"};
@@ -119,6 +128,7 @@ public:
     void showStaleScopePage()
     {
         setGeneratedLayout({
+            fixedEntry("tab", "button", ui::Rect{0, 0, kStaleScopeTabWidth, 1}),
             fixedEntry(
                 "stale_scope",
                 "uielement",
@@ -129,7 +139,8 @@ public:
     void showPlainPage()
     {
         setGeneratedLayout({
-            fixedEntry("plain", "label", ui::Rect{0, 0, kStaleScopeRenderWidth, kStaleScopeRenderHeight}),
+            fixedEntry("tab", "button", ui::Rect{0, 0, kStaleScopeTabWidth, 1}),
+            fixedEntry("plain", "label", ui::Rect{1, 0, kStaleScopeRenderWidth, kStaleScopeRenderHeight - 1}),
         });
     }
 
@@ -141,6 +152,7 @@ public:
     }
 
     ui::ReusableElement* staleProxy = nullptr;
+    ui::Button* tab = nullptr;
     ui::Label* plain = nullptr;
 };
 
@@ -380,8 +392,23 @@ int main() {
         nullptr);
     const std::vector<std::string> staleScopeLines = ui::renderedText(staleScopeRendered);
     assert(!staleScopeLines.empty());
-    assert(staleScopeLines.front().find("Plain") != std::string::npos);
+    assert(staleScopeLines.size() > 1);
+    assert(staleScopeLines[1].find("Plain") != std::string::npos);
     assert(!renderedContentHasBackground(staleScopeRendered, ui::Color{"#ff0000"}));
+    assert(!renderedContentHasBackground(staleScopeRendered, ui::Color{"#00ff00"}));
+
+    auto destroyedPage = std::make_unique<StaleScopeScrollPage>();
+    ui::ScrollView* destroyedScrollView = destroyedPage->generatedScrollView();
+    assert(destroyedScrollView != nullptr);
+    destroyedPage.reset();
+    const ui::RenderedContent destroyedScopeRendered = ui::renderGeneratedWindowContent(
+        staleScopeWindow,
+        ui::Size{kStaleScopeRenderWidth, kStaleScopeRenderHeight},
+        0,
+        true,
+        destroyedScrollView,
+        nullptr);
+    assert(!renderedContentHasBackground(destroyedScopeRendered, ui::Color{"#00ff00"}));
 
     class TexturedGeneratedWindow : public ui::GeneratedWindowBase {
     public:

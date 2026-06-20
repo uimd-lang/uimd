@@ -1,0 +1,34 @@
+- name: stale_scrollview_focus
+  app: tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py
+  tests:
+    - tool: get_window
+      assert:
+        title: "Stale ScrollView Focus"
+    - tool: activate_element
+      arguments:
+        element_id: page[1].open_btn
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: page.name_input
+      assert:
+        value: "Bravo Offices"
+    - tool: get_element
+      arguments:
+        element_id: page.fields[1].field_input
+      assert:
+        value:
+          contains: "Bravo item was opened"
+    - tool: scroll
+      arguments:
+        element_id: page.fields
+        delta: -12
+    - tool: get_element
+      arguments:
+        element_id: page.fields[10].field_input
+      assert:
+        value:
+          contains: "detail field 11"
+    - tool: get_render_snapshot

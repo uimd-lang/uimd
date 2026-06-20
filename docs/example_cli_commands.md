@@ -613,6 +613,7 @@ Raw POSIX form:
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --compare tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/calculator/calculator.py cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/cells/cells.py cpp/build/examples/cells/cells tests/mcp/cells.yaml --compare-app-size 90x35 --mcp-fast
@@ -633,6 +634,7 @@ Raw Windows PowerShell form:
 ```powershell
 .\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
