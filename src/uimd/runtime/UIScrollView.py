@@ -1415,11 +1415,21 @@ class UIScrollView(UIControl):
         proxy = getattr(self, "parent", None)
         proxy_focused = bool(getattr(proxy, "focused", False))
         self_focused = bool(getattr(self, "_focused", False))
-        focus_style = (
-            getattr(self, "focus_style", None)
-            if self_focused
-            else getattr(proxy, "focus_style", None)
+        proxy_focus_style = getattr(proxy, "focus_style", None)
+        self_focus_style = getattr(self, "focus_style", None)
+        own_style = getattr(self, "style", None)
+        has_explicit_self_focus_style = (
+            getattr(own_style, "focus_background", None) is not None
+            or getattr(own_style, "focus_color", None) is not None
         )
+        if self_focused and has_explicit_self_focus_style and self_focus_style is not None:
+            focus_style = self_focus_style
+        elif (proxy_focused or self_focused) and proxy_focus_style is not None:
+            focus_style = proxy_focus_style
+        elif self_focused:
+            focus_style = self_focus_style
+        else:
+            focus_style = getattr(proxy, "focus_style", None)
         focus_background = getattr(focus_style, "background", None) if focus_style is not None else None
         focused = bool(self_focused or proxy_focused)
         if not focused or focus_background is None:

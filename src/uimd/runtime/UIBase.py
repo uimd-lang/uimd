@@ -804,6 +804,14 @@ class UIBase(UIInstance):
             return False
         if not getattr(elem, "focusable", True):
             return False
+        child = getattr(elem, "_child_instance", None)
+        if (
+            getattr(elem, "ELEMENT_TYPE", None) == "viewhost"
+            and child is not None
+            and hasattr(child, "child_view_entries")
+            and hasattr(child, "_clamped_viewport_rect")
+        ):
+            return True
         return getattr(elem, "ELEMENT_TYPE", None) not in (
             "image",
             "label",
@@ -1381,7 +1389,7 @@ class UIBase(UIInstance):
         element.focused = focused
         if hasattr(element, "_focused"):
             element._focused = focused
-        if focused and getattr(element, "ELEMENT_TYPE", None) == "uielement":
+        if focused and getattr(element, "ELEMENT_TYPE", None) in ("uielement", "viewhost"):
             child = getattr(element, "_child_instance", None)
             if child is None and hasattr(element, "_ensure_child"):
                 child = element._ensure_child()
@@ -1391,7 +1399,7 @@ class UIBase(UIInstance):
                 and hasattr(child, "_clamped_viewport_rect")
             ):
                 child._focused = True
-        if not focused and getattr(element, "ELEMENT_TYPE", None) == "uielement":
+        if not focused and getattr(element, "ELEMENT_TYPE", None) in ("uielement", "viewhost"):
             child = getattr(element, "_child_instance", None)
             if child is not None:
                 self._clear_descendant_focus_state(child)

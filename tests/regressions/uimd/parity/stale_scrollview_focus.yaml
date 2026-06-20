@@ -10,6 +10,21 @@
     - tool: get_edit_mode
       assert:
         edit_mode: false
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: page.fields
     - tool: get_element
       arguments:
         element_id: page.name_input

@@ -9476,10 +9476,13 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
             if (event.type == EventType::Paste) {
                 if (options.windowStack != nullptr) {
                     if (GeneratedWindowStackFrame* frame = options.windowStack->top(); frame != nullptr && frame->window != nullptr) {
-                        std::vector<Element*> focusable = focusableElements(*frame->window);
-                        Element* focused = (frame->focusedIndex >= 0 && frame->focusedIndex < static_cast<int>(focusable.size()))
-                            ? focusable[static_cast<std::size_t>(frame->focusedIndex)]
-                            : nullptr;
+                        Element* focused = frame->activeScrollViewEditElement;
+                        if (focused == nullptr || !elementRepresentedInCurrentLayout(*frame->window, focused)) {
+                            std::vector<Element*> focusable = focusableElements(*frame->window, frame->activeScrollView);
+                            focused = (frame->focusedIndex >= 0 && frame->focusedIndex < static_cast<int>(focusable.size()))
+                                ? focusable[static_cast<std::size_t>(frame->focusedIndex)]
+                                : nullptr;
+                        }
                         if (focused != nullptr && !frame->editMode && isEditableElement(*focused)) {
                             frame->editSnapshot = captureSnapshot(focused);
                             beginElementEdit(focused);
@@ -9492,10 +9495,13 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                         continue;
                     }
                 }
-                std::vector<Element*> focusable = focusableElements(window);
-                Element* focused = (focusedIndex >= 0 && focusedIndex < static_cast<int>(focusable.size()))
-                    ? focusable[static_cast<std::size_t>(focusedIndex)]
-                    : nullptr;
+                Element* focused = activeScrollViewEditElement;
+                if (focused == nullptr || !elementRepresentedInCurrentLayout(window, focused)) {
+                    std::vector<Element*> focusable = focusableElements(window, activeScrollView);
+                    focused = (focusedIndex >= 0 && focusedIndex < static_cast<int>(focusable.size()))
+                        ? focusable[static_cast<std::size_t>(focusedIndex)]
+                        : nullptr;
+                }
                 if (focused != nullptr && !editMode && isEditableElement(*focused)) {
                     editSnapshot = captureSnapshot(focused);
                     beginElementEdit(focused);
