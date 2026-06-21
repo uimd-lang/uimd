@@ -4,38 +4,6 @@
 
 Date: 2026-06-21
 
-- [x] **C++ bracketed paste/Cmd+V fails for focused inputs inside ScrollView**.
-  In `stale_scrollview_focus`, after opening the edit page, paste works in the
-  top-level `name_input` before the nested ScrollView but fails for a TextInput
-  focused inside `page.fields`. The earlier MCP `paste_text`/`press_key cmd_v`
-  probe was insufficient because real terminal Cmd+V arrives as bracketed paste
-  (`ESC [ 200~ ... ESC [ 201~`). Python runtime paths to audit first:
-  `src/uimd/runtime/application.py` bracketed paste decoding and
-  `src/uimd/runtime/UIBase.py` active ScrollView paste routing. C++ paths to
-  fix: `cpp/src/terminal/Input.cpp` bracketed paste event parsing and
-  `cpp/src/generated/GeneratedWindowRuntime.cpp` EventType::Paste handling when
-  `activeScrollViewEditElement` is set. Parity decision: C++ must route pasted
-  text to the same active ScrollView edit element as Python; do not add
-  example-specific paste handling or test waits. Done: C++ paste routing now
-  prefers the represented `activeScrollViewEditElement` before falling back to
-  scoped focusable lookup inside the active ScrollView. Validation: PTY
-  bracketed paste into the nested `page.fields` TextInput inserted
-  `__CXX_SCROLL_PASTE__`; focused stale-scrollview compare passed; full
-  `./tools/test_all.sh --no-rebuild` passed.
-- [x] **Python arrow navigation should enter and move through ScrollView fields
-  in the stale_scrollview_focus regression app**. In the Python regression app,
-  keyboard navigation into the edit-page nested ScrollView is not usable with
-  arrow keys, forcing mouse clicks before testing the paste bug. Audit Python
-  reference focus movement in `src/uimd/runtime/UIBase.py` around
-  `_enter_scrollview_scope`, `_move_scrollview_scope_focus`, and
-  `_handle_scrollview_scope_key`, then keep C++ behavior equivalent in
-  `cpp/src/generated/GeneratedWindowRuntime.cpp` if the same contract applies.
-  Parity decision: this is shared runtime focus/navigation behavior; fix in
-  runtime code, not in `stale_scrollview_focus` app logic. Done: Python now
-  treats ViewHost-hosted ScrollViews as direct focus targets and propagates
-  focus state into hosted child views. Validation: `stale_scrollview_focus.yaml`
-  now verifies four `Down` presses focus `page.fields`; focused compare and full
-  `./tools/test_all.sh --no-rebuild` passed.
 - [ ] **Nested ScrollView edit-scope dim overlay has a one-column Python/C++
   edge mismatch**. While adding arrow navigation coverage to
   `stale_scrollview_focus`, pressing `Enter` on the focused `page.fields`
@@ -48,22 +16,6 @@ Date: 2026-06-21
   and generated child-window render clipping. Parity decision: this is render
   parity cleanup for active nested ScrollView scope, separate from paste routing
   and keyboard reachability.
-- [x] **Native `uimd sdk ... --help` must not be parsed as an SDK version**.
-  `uimd sdk install --help` currently treats `--help` as the requested SDK
-  version and mutates the SDK store by creating `sdk/--help`. This is a native
-  CLI parser bug in `cpp/tools/uimd/main.cpp`, not release infrastructure.
-  Command-specific help for mutating SDK subcommands such as `install`,
-  `install-target`, `use`, `update`, `remove`, `prune`, and `home` must return
-  help/usage without touching `UIMD_HOME`, and option-looking positional values
-  must not be accepted as SDK version names. Required validation: add coverage
-  to `tools/native_uimd_parity.py` with an isolated `UIMD_HOME` and confirm no
-  `sdk/--help` directory is created. Done: native SDK subcommands now intercept
-  `--help`/`-h` before mutating command handling, and SDK version names starting
-  with `-` are rejected. Validation:
-  `cmake --build cpp/build --target uimd`;
-  `python3 tools/native_uimd_parity.py --native-binary cpp/build/tools/uimd/uimd`;
-  focused isolated-home checks for `sdk install --help`,
-  `sdk install --not-a-version`, and absence of `sdk/--help`.
 - [ ] **C++ generated app startup errors must be visible on stderr**. When a
   generated C++ app fails before the runtime loop starts, for example because a
   `.uimd` file requires non-fallback Sixel images and `libsixel` is unavailable,
