@@ -433,6 +433,31 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     if "usage: uimd sdk <command> [args]" not in sdk_help.stdout or "list" not in sdk_help.stdout:
         failures.append("sdk --help: output does not describe SDK commands")
 
+    for help_args in (
+        ("install", "--help"),
+        ("install-target", "--help"),
+        ("use", "--help"),
+        ("update", "--help"),
+        ("remove", "--help"),
+        ("prune", "--help"),
+        ("home", "--help"),
+    ):
+        help_result = run_command(native_cli(native_binary, "sdk", *help_args), workspace, env=env)
+        command_name = " ".join(("sdk", *help_args))
+        failures.extend(expect_success(command_name, help_result))
+        if "usage: uimd sdk <command> [args]" not in help_result.stdout:
+            failures.append(f"{command_name}: expected SDK help output")
+    if (sdk_home / "sdk" / "--help").exists():
+        failures.append("sdk subcommand --help: created an SDK version named --help")
+
+    option_version = run_command(native_cli(native_binary, "sdk", "install", "--not-a-version"), workspace, env=env)
+    if option_version.returncode == 0:
+        failures.append("sdk install --not-a-version: expected option-looking version to be rejected")
+    if "safe version name" not in option_version.stderr:
+        failures.append("sdk install --not-a-version: expected safe-version error message")
+    if (sdk_home / "sdk" / "--not-a-version").exists():
+        failures.append("sdk install --not-a-version: created an SDK version from an option-looking value")
+
     empty_doctor = run_command(native_cli(native_binary, "doctor", "--json"), workspace, env=env)
     failures.extend(expect_success("doctor --json before sdk install", empty_doctor))
     try:

@@ -48,6 +48,22 @@ Date: 2026-06-21
   and generated child-window render clipping. Parity decision: this is render
   parity cleanup for active nested ScrollView scope, separate from paste routing
   and keyboard reachability.
+- [x] **Native `uimd sdk ... --help` must not be parsed as an SDK version**.
+  `uimd sdk install --help` currently treats `--help` as the requested SDK
+  version and mutates the SDK store by creating `sdk/--help`. This is a native
+  CLI parser bug in `cpp/tools/uimd/main.cpp`, not release infrastructure.
+  Command-specific help for mutating SDK subcommands such as `install`,
+  `install-target`, `use`, `update`, `remove`, `prune`, and `home` must return
+  help/usage without touching `UIMD_HOME`, and option-looking positional values
+  must not be accepted as SDK version names. Required validation: add coverage
+  to `tools/native_uimd_parity.py` with an isolated `UIMD_HOME` and confirm no
+  `sdk/--help` directory is created. Done: native SDK subcommands now intercept
+  `--help`/`-h` before mutating command handling, and SDK version names starting
+  with `-` are rejected. Validation:
+  `cmake --build cpp/build --target uimd`;
+  `python3 tools/native_uimd_parity.py --native-binary cpp/build/tools/uimd/uimd`;
+  focused isolated-home checks for `sdk install --help`,
+  `sdk install --not-a-version`, and absence of `sdk/--help`.
 - [ ] **C++ generated app startup errors must be visible on stderr**. When a
   generated C++ app fails before the runtime loop starts, for example because a
   `.uimd` file requires non-fallback Sixel images and `libsixel` is unavailable,

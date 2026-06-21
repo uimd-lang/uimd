@@ -284,7 +284,7 @@ std::filesystem::path sdkTargetRoot(const std::filesystem::path& home, const std
 
 bool isVersionNameSafe(const std::string& version)
 {
-    if (version.empty() || version == "." || version == "..")
+    if (version.empty() || version == "." || version == ".." || version.front() == '-')
     {
         return false;
     }
@@ -297,6 +297,23 @@ bool isVersionNameSafe(const std::string& version)
         }
     }
     return true;
+}
+
+bool isHelpArgument(const std::string& arg)
+{
+    return arg == "--help" || arg == "-h";
+}
+
+bool hasHelpArgument(const std::vector<std::string>& args, std::size_t startIndex = 0)
+{
+    for (std::size_t index = startIndex; index < args.size(); ++index)
+    {
+        if (isHelpArgument(args[index]))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool isSdkTargetNameSafe(const std::string& target)
@@ -3280,7 +3297,11 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
     const std::string command = args.front();
     const std::filesystem::path home = sdkHome();
 
-    if (command == "--help" || command == "-h" || command == "help")
+    if (isHelpArgument(command) || command == "help")
+    {
+        return printSdkHelp();
+    }
+    if (hasHelpArgument(args, 1))
     {
         return printSdkHelp();
     }
