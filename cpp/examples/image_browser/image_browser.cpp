@@ -165,6 +165,12 @@ bool pathStartsWith(const std::filesystem::path& path, const std::filesystem::pa
     return absolute == base || absolute.rfind(base + std::string{std::filesystem::path::preferred_separator}, 0) == 0;
 }
 
+std::string nativeDisplayPath(std::filesystem::path path)
+{
+    path.make_preferred();
+    return path.string();
+}
+
 std::string imageDisplayPath(const std::string& path)
 {
     if (path.empty())
@@ -172,9 +178,11 @@ std::string imageDisplayPath(const std::string& path)
         return {};
     }
     const std::filesystem::path sourcePath{path};
-    if (sourcePath.is_absolute() && pathStartsWith(sourcePath, projectRoot()))
+    const std::filesystem::path absoluteSourcePath = std::filesystem::absolute(sourcePath).lexically_normal();
+    const std::filesystem::path root = projectRoot();
+    if (pathStartsWith(absoluteSourcePath, root))
     {
-        return std::filesystem::relative(sourcePath, projectRoot()).generic_string();
+        return nativeDisplayPath(std::filesystem::relative(absoluteSourcePath, root));
     }
     return path;
 }
@@ -876,8 +884,13 @@ private:
 void runLogicTest()
 {
     assert(imageNameFromPath("/tmp/chelsea.png") == "Chelsea");
+    std::filesystem::path expectedDisplayPathPath{"shared/assets/image_samples/chelsea.png"};
+    expectedDisplayPathPath.make_preferred();
+    std::filesystem::path expectedCameraDisplayPathPath{"shared/assets/image_samples/camera.png"};
+    expectedCameraDisplayPathPath.make_preferred();
+    assert(imageDisplayPath("shared/assets/image_samples/camera.png") == expectedCameraDisplayPathPath.string());
     assert(imageDisplayPath((projectRoot() / "shared/assets/image_samples/chelsea.png").string()) ==
-           "shared/assets/image_samples/chelsea.png");
+           expectedDisplayPathPath.string());
     const std::vector<ImageEntry> images = imageLibrary();
     assert(images[5].source.ends_with(".bmp"));
     assert(images[6].source.ends_with(".gif"));

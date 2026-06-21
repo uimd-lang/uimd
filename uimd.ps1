@@ -9,6 +9,7 @@ $candidates = @(
     "$root\cpp\build-windows\tools\uimd\Release\uimd.exe",
     "$root\cpp\build-windows\tools\uimd\Debug\uimd.exe",
     "$root\cpp\build-windows\tools\uimd\uimd.exe",
+    "$root\cpp\build-windows-mingw\tools\uimd\uimd.exe",
     "$root\cpp\build\tools\uimd\Release\uimd.exe",
     "$root\cpp\build\tools\uimd\Debug\uimd.exe",
     "$root\cpp\build\tools\uimd\uimd.exe"

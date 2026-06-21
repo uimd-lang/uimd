@@ -4,6 +4,48 @@
 
 Date: 2026-06-21
 
+- [x] **Provision Windows build toolchain and rerun rebuild validation**. Install
+  the missing Windows build prerequisites needed by the source checkout
+  (`cmake`, Visual Studio 2022 C++ Build Tools/MSBuild/MSVC, and Python test
+  dependencies), then rerun the repository rebuild path from Windows using the
+  existing helpers. Required validation: confirm the tools are discoverable,
+  build the repo-local native `uimd.exe`, regenerate supported UIMD outputs,
+  rebuild C++ examples, and record any remaining runtime/parity failures under
+  their targeted TODO items. Result on 2026-06-21: Visual Studio Build Tools
+  and the CMake MSI installers both exited with `1602` from the non-interactive
+  winget/UAC path, so the environment was provisioned with portable CMake 4.3.3
+  under `%LOCALAPPDATA%\uimd-build-tools` and WinLibs POSIX/UCRT GCC 16.1.0
+  through winget. Added narrow source-checkout support for this path by guarding
+  the non-MSVC `uimd_mcp_tester` CMake warning flags with `if(TARGET ...)`,
+  honoring MinGW's existing `STDIN_FILENO`/`STDOUT_FILENO` macros, and teaching
+  `uimd.cmd`/`uimd.ps1` to find `cpp\build-windows-mingw\tools\uimd\uimd.exe`.
+  Validation passed: configured `cpp\build-windows-mingw` with Ninja, built the
+  native `uimd.exe`, regenerated all configured Python/C++ dialogs, examples,
+  tester UI, and parity regression outputs, built all C++ examples/regression
+  binaries, ran CTest with `26/26` passing, and ran Python tests with
+  `446 passed, 12 skipped, 3 subtests passed`. Remaining caveat: the default
+  `tools\rebuild_all.cmd` Visual Studio path still requires an accepted Visual
+  Studio Build Tools/MSBuild install, or a future helper option for the
+  MinGW/Ninja build directory.
+- [x] **Windows rebuild baseline validation**. Re-run the repository rebuild
+  path on Windows from the source checkout to confirm the local environment can
+  regenerate UIMD outputs and rebuild the native/C++ example targets after the
+  recent Windows support work. Required validation: run the Windows rebuild
+  helper from the repo root, record any missing toolchain/dependency blockers,
+  and leave follow-up parity/runtime failures in their existing targeted TODO
+  items rather than masking them. Result on 2026-06-21: PowerShell blocked
+  `tools\rebuild_all.ps1` by execution policy; `tools\rebuild_all.cmd` found no
+  system `python` except the Windows Store alias; running `tools\uimd_dev.py
+  rebuild-all` with the bundled Codex Python reached the expected CMake
+  configure step but failed because `cmake` is missing (`WinError 2`). `cmake`,
+  `msbuild`, `cl`, `clang`, `g++`, and `ninja` are not on PATH, no repo-local
+  `cpp\build-windows\tools\uimd\...\uimd.exe` exists yet, `cpp\build-windows`
+  is absent, `winget list` reports no installed Kitware CMake or Visual Studio
+  2022 Build Tools/Community package, and the bundled Python does not include
+  `pytest`. The only validation that could run in this environment was Python
+  syntax compilation for selected runtime/tester files, which passed. Full
+  regeneration/build validation still requires provisioning a Windows C++ build
+  toolchain and Python test dependencies.
 - [ ] **Nested ScrollView edit-scope dim overlay has a one-column Python/C++
   edge mismatch**. While adding arrow navigation coverage to
   `stale_scrollview_focus`, pressing `Enter` on the focused `page.fields`
@@ -39,6 +81,12 @@ Date: 2026-06-21
   plus C++ behavior intact. Parity decision: this is terminal image capability
   detection/rendering behavior; do not change `.uimd` image semantics, non-image
   rendering, or existing macOS/Linux Sixel behavior without compare validation.
+  Current Windows setup validation: `tools\install_sixel_windows.cmd` installed
+  MSYS2 at `C:\msys64`, built `C:\msys64\ucrt64\bin\libsixel-1.dll`, installed
+  `libsixel-python` into the local Windows Python venv, saved
+  `UIMD_LIBSIXEL_DIR=C:\msys64\ucrt64\bin`, Python `_load_libsixel()` returns
+  `True`, and `.\uimd.cmd doctor` reports C++ libsixel found from
+  `UIMD_LIBSIXEL_DIR`.
 - [ ] **Flatscraper admin project filters/table layout still differs between
   Python and C++ runtimes**. After the scrollview focus parity fix, the
   flatscraper admin compare still fails on the initial Projects page even
@@ -63,10 +111,48 @@ Date: 2026-06-21
   Repro used the read-only flatscraper compare with
   `UIMD_DISABLE_SIXEL=1`, `FLATSCRAPER_UIMD_DIRECT_READONLY=1`, and the TSV
   fixture/snapshot so no admin data is mutated.
-- [ ] **Windows validation**: verify the new `image_button` control and the
+- [x] **Windows validation**: verify the new `image_button` control and the
   updated `image_browser` build and run on Windows for both Python and C++,
   confirming padding, centering, square sizing, click selection, and render-mode
-  switching behave identically to macOS/Linux.
+  switching behave identically to macOS/Linux. Result on 2026-06-21: the
+  Windows-only compare failure was caused by C++ `imageDisplayPath()` returning
+  raw/generic slash-separated relative paths while Python `image_display_path()`
+  resolves paths through `os.path.abspath()`/`os.path.relpath()`, which uses
+  backslashes on Windows. C++ now mirrors the Python algorithm by absolutizing
+  the source path against the project root, returning a relative path for
+  project-local files, and using `std::filesystem::path::make_preferred()` for
+  user-visible display text. Parity decision: this is example application data
+  formatting, not image runtime rendering or Sixel behavior; macOS/Linux remain
+  unchanged because their preferred separator is `/`. Validation passed:
+  regenerated `python\examples\image_browser` for Python and
+  `cpp\examples\image_browser` for C++, rebuilt
+  `cpp\build-windows-mingw\examples\image_browser\image_browser.exe`, ran
+  `image_browser.exe --logic-test`, ran
+  `tests\mcp\image_browser_compare.yaml` with `--mcp-fast --compare-app-size
+  90x35` (`113 asserts passed`), ran
+  `tests\mcp\image_gallery_compare.yaml` with `--mcp-fast --compare-app-size
+  90x35` (`13 asserts passed`), and reran CTest for the Windows MinGW build
+  (`26/26` passed).
+- [x] **Audit Windows path separator display parity beyond image_browser**.
+  Check other user-visible Python/C++ paths and labels for the same
+  slash/backslash mismatch class found in `image_browser`, especially standard
+  dialogs, text/file examples, MCP tester output, and generator-emitted paths.
+  Record which `generic_string()`/`relpath()` uses are intentionally
+  slash-normalized internal paths versus OS-native display text, and fix any
+  user-visible cross-platform parity bug found. Result on 2026-06-21: no second
+  user-visible delimiter parity bug was found. `text_editor` displays only file
+  basenames, and the standard `FileBrowser` full path label is covered by the
+  Windows Python/C++ `text_editor` compare (`208 asserts passed`). The remaining
+  `generic_string()` uses in `NativePythonGenerator` and `NativeCppGenerator`
+  are intentional internal slash-normalized module/import/include paths rather
+  than UI text. MCP tester relpaths are tester log/snapshot paths; the
+  Python-only `_display_relpath()` intentionally normalizes to `/` for portable
+  commands, while raw `os.path.relpath()` outputs are not Python/C++ UI compare
+  surfaces. Extra validation: a Windows all-example compare run passed scripts
+  1-12 of 13 before the 20-minute command timeout while running the final
+  `expense_tracker` script, and the remaining
+  `tests\mcp\expense_tracker_compare.yaml` passed separately (`116 asserts
+  passed`).
 - [ ] **Windows visual MCP tester window parity**. Windows MCP compare commands
   currently execute correctly through the Python tester's plain/console progress
   mode, but they do not show the same interactive UIMD tester window with
@@ -91,13 +177,13 @@ Date: 2026-06-21
   `50 passed, 2 skipped, 2 warnings`; full `python -m pytest python\tests`
   with `435 passed, 18 skipped, 2 warnings`; and
   `cmd /c .\uimd.cmd mcp-test --plain --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast`
-  with `47 asserts passed`. The full Windows all-example compare currently
-  reaches `tests/mcp/image_browser_compare.yaml` and reports an existing
-  Python/C++ snapshot mismatch at row 6 col 6; the Windows plain log output now
-  escapes the unencodable `\u2580` character instead of crashing with
-  `UnicodeEncodeError`. Remaining validation: user-visible interactive Windows
-  SSH compare pane check, full compare smoke after image_browser parity is
-  fixed, and a POSIX/macOS smoke or documented audit.
+  with `47 asserts passed`. Earlier full Windows all-example compare runs
+  reached `tests/mcp/image_browser_compare.yaml` before the display-path parity
+  fix above; the Windows plain log output now escapes the unencodable `\u2580`
+  character instead of crashing with `UnicodeEncodeError`. Remaining
+  validation: user-visible interactive Windows SSH compare pane check, full
+  compare smoke now that image_browser parity is fixed, and a POSIX/macOS smoke
+  or documented audit.
 
 ## MCP Tester
 

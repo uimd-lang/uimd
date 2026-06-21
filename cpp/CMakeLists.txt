@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.4.7 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.4.8 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -150,7 +150,9 @@ if(MSVC)
     target_compile_options(ui_cpp_runtime PRIVATE /W4 /permissive-)
 else()
     target_compile_options(ui_cpp_runtime PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(uimd_mcp_tester PRIVATE -Wall -Wextra -Wpedantic)
+    if(TARGET uimd_mcp_tester)
+        target_compile_options(uimd_mcp_tester PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
     target_compile_options(uimd PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(uimd_init PRIVATE -Wall -Wextra -Wpedantic)
 endif()

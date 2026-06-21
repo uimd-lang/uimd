@@ -58,8 +58,12 @@
 #endif
 
 #ifdef _WIN32
+#ifndef STDIN_FILENO
 constexpr int STDIN_FILENO = 0;
+#endif
+#ifndef STDOUT_FILENO
 constexpr int STDOUT_FILENO = 1;
+#endif
 #endif
 
 namespace ui {
