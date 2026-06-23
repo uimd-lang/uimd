@@ -1096,6 +1096,34 @@ class TestMcpTesterConfig(unittest.TestCase):
 
         self.assertIn("\\u2580", stdout.getvalue())
 
+    def test_plain_log_ignores_stdout_flush_os_error(self):
+        class FlushFailingStdout(io.StringIO):
+            def flush(self):
+                raise OSError(22, "Invalid argument")
+
+        script = McpTestScript("unit.yaml", {}, [])
+        config = McpTesterConfig(
+            root=os.getcwd(),
+            apps=script.apps,
+            action_delay_ms=0,
+            type_delay_ms=0,
+            step_delay_seconds=0,
+            source_path="unit.yaml",
+            steps=[],
+            scripts=[script],
+            plain=True,
+        )
+        tester = McpTester(config)
+        tester.open()
+        stdout = FlushFailingStdout()
+        try:
+            with patch("uimd.testing.mcp_tester.sys.stdout", stdout):
+                tester._append_log("flush can fail on Windows stdout")
+        finally:
+            tester.close()
+
+        self.assertIn("flush can fail on Windows stdout", stdout.getvalue())
+
     def test_pause_button_toggles_to_play_and_back(self):
         script = McpTestScript("unit.yaml", {"missing": "missing.py"}, [])
         config = McpTesterConfig(

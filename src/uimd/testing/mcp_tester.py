@@ -3062,8 +3062,13 @@ def _write_plain_log(entry):
     except UnicodeEncodeError:
         encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
         safe_text = text.encode(encoding, errors="backslashreplace").decode(encoding)
-        sys.stdout.write(safe_text)
-        sys.stdout.flush()
+        try:
+            sys.stdout.write(safe_text)
+            sys.stdout.flush()
+        except OSError:
+            return
+    except OSError:
+        return
 
 
 def _find_free_port():

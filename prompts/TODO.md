@@ -4,6 +4,54 @@
 
 Date: 2026-06-21
 
+- [x] **Windows MCP transport smoke tests fail before starting Python app**.
+  `python/tests/test_mcp_transports.py` currently fails eight Python transport
+  smoke tests on Windows with `FileNotFoundError: [WinError 2] The system
+  cannot find the file specified` from `subprocess.py`, before MCP stdio/http/tcp
+  assertions can run. Affected area: Python MCP transport test launch path and
+  any generated/example command path it uses. Parity decision: this is Windows
+  process-spawn/test harness behavior unless investigation shows a shared MCP
+  command contract issue; do not change the MCP protocol or C++ transport
+  behavior without an explicit parity audit. Result on 2026-06-23: fixed the
+  Python MCP transport smoke tests to launch subprocesses with `sys.executable`
+  instead of the non-portable `python3` command. Validation:
+  `python -m pytest python\tests\test_mcp_transports.py -q` passed with
+  `8 passed, 8 skipped`, and `python -m pytest python\tests -q` passed with
+  `447 passed, 12 skipped, 3 subtests passed`.
+- [x] **Windows MCP tester plain log can crash flushing stdout**. After the
+  Python MCP transport spawn fix, `cmd /c .\tools\test_all.cmd` progressed into
+  MCP tester execution but timed out with `OSError: [Errno 22] Invalid argument`
+  from `src/uimd/testing/mcp_tester.py` `_write_plain_log` while flushing
+  `sys.stdout`. Affected area: tester plain/console progress logging on Windows.
+  Parity decision: this is tester output robustness only; do not change MCP
+  runtime behavior, app examples, render snapshots, or transport contracts.
+  Result on 2026-06-23: `_write_plain_log` now ignores `OSError` from stdout
+  write/flush after preserving existing Unicode backslash replacement behavior,
+  and `python/tests/test_mcp_tester.py` covers the Windows-style flush failure.
+  Validation: `python -m pytest python\tests\test_mcp_tester.py -q` passed with
+  `52 passed, 1 skipped`; focused calculator Python/C++ MCP compare passed with
+  `43 asserts passed, 0 failed, 0 step failures`.
+- [x] **Windows full build can fail when example executables are locked**.
+  `.\tools\test_all.cmd` can fail during the full C++ build with
+  `LINK : fatal error LNK1104: cannot open file` for built example `.exe`
+  outputs such as `image_browser.exe`, `task_board.exe`, and `text_editor.exe`.
+  Affected area: Windows build/test workflow and cleanup of example processes
+  after MCP compare or manual runs. Parity decision: this is Windows build
+  process hygiene unless investigation shows the runtime or tester is leaving
+  child processes alive after normal completion; do not change compiler,
+  runtime behavior, or generated app code for a linker file-lock issue. Result
+  on 2026-06-23: confirmed the three failing outputs were locked by still-running
+  headless MCP example processes from earlier interrupted compare runs
+  (`image_browser.exe`, `task_board.exe`, and `text_editor.exe`). Stopped those
+  processes and reran `cmake --build cpp\build-windows --config Release`,
+  which completed successfully.
+- [x] **Document raw regression compare commands with fixed viewport size**.
+  Raw regression compare commands can be copied without
+  `--compare-app-size 90x35`, causing visual tester auto-sizing such as
+  `89x36` and false `stale_scrollview_focus` snapshot mismatches. Updated
+  `docs/example_cli_commands.md` to make the macOS/Linux POSIX form explicit
+  and to include raw Windows `.cmd` MCP compare commands with
+  `--compare-app-size 90x35` alongside the existing PowerShell form.
 - [ ] **Nested ScrollView edit-scope dim overlay has a one-column Python/C++
   edge mismatch**. While adding arrow navigation coverage to
   `stale_scrollview_focus`, pressing `Enter` on the focused `page.fields`

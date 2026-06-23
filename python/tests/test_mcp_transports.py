@@ -16,22 +16,23 @@ sys.path.insert(0, os.path.join(ROOT_DIR, "python"))
 from runtime.mcp import MCPController
 
 PYTHON_FORMULAR = os.path.join(ROOT_DIR, "python", "examples", "formular", "formular.py")
+PYTHON_COMMAND = [sys.executable]
 CPP_FORMULAR = os.path.join(ROOT_DIR, "cpp", "build", "examples", "formular", "formular")
 EXPECTED_TOOL_NAMES = {tool["name"] for tool in MCPController(app=None).list_tools()}
 
 
 class TestMCPTransportSmoke(unittest.TestCase):
     def test_python_headless_defaults_to_stdio(self):
-        result = _stdio_call(["python3", PYTHON_FORMULAR, "--mcp-server", "--headless"])
+        result = _stdio_call(PYTHON_COMMAND + [PYTHON_FORMULAR, "--mcp-server", "--headless"])
         self.assertEqual(result["result"]["content"][0]["type"], "text")
         self.assertIn("FormApp", result["result"]["content"][0]["text"])
 
     def test_python_stdio_exposes_complete_tool_inventory(self):
-        result = _stdio_call(["python3", PYTHON_FORMULAR, "--mcp-server", "--headless"], _tools_list_request())
+        result = _stdio_call(PYTHON_COMMAND + [PYTHON_FORMULAR, "--mcp-server", "--headless"], _tools_list_request())
         self.assertEqual(_tool_names(result), EXPECTED_TOOL_NAMES)
 
     def test_python_stdio_accepts_batch_requests(self):
-        result = _stdio_call(["python3", PYTHON_FORMULAR, "--mcp-server", "--headless"], _batch_request())
+        result = _stdio_call(PYTHON_COMMAND + [PYTHON_FORMULAR, "--mcp-server", "--headless"], _batch_request())
         _assert_batch_get_window_result(result)
 
     @unittest.skipUnless(os.path.exists(CPP_FORMULAR), "C++ formular binary is not built")
@@ -51,11 +52,11 @@ class TestMCPTransportSmoke(unittest.TestCase):
         _assert_batch_get_window_result(result)
 
     def test_python_tcp_exposes_complete_tool_inventory(self):
-        result = _tcp_call(["python3", PYTHON_FORMULAR], _unused_tcp_port(), _tools_list_request())
+        result = _tcp_call(PYTHON_COMMAND + [PYTHON_FORMULAR], _unused_tcp_port(), _tools_list_request())
         self.assertEqual(_tool_names(result), EXPECTED_TOOL_NAMES)
 
     def test_python_tcp_accepts_batch_requests(self):
-        result = _tcp_call(["python3", PYTHON_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())
+        result = _tcp_call(PYTHON_COMMAND + [PYTHON_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())
         _assert_batch_get_window_result(result)
 
     @unittest.skipUnless(
@@ -75,15 +76,15 @@ class TestMCPTransportSmoke(unittest.TestCase):
         _assert_batch_get_window_result(result)
 
     def test_python_http_transport(self):
-        result = _http_call(["python3", PYTHON_FORMULAR], _unused_tcp_port())
+        result = _http_call(PYTHON_COMMAND + [PYTHON_FORMULAR], _unused_tcp_port())
         self.assertIn("FormApp", result["result"]["content"][0]["text"])
 
     def test_python_http_exposes_complete_tool_inventory(self):
-        result = _http_call(["python3", PYTHON_FORMULAR], _unused_tcp_port(), _tools_list_request())
+        result = _http_call(PYTHON_COMMAND + [PYTHON_FORMULAR], _unused_tcp_port(), _tools_list_request())
         self.assertEqual(_tool_names(result), EXPECTED_TOOL_NAMES)
 
     def test_python_http_accepts_batch_requests(self):
-        result = _http_call(["python3", PYTHON_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())
+        result = _http_call(PYTHON_COMMAND + [PYTHON_FORMULAR, "--headless"], _unused_tcp_port(), _batch_request())
         _assert_batch_get_window_result(result)
 
     @unittest.skipUnless(
