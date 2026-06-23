@@ -9,7 +9,8 @@ repo-local native `uimd.exe`. Legacy Python compiler wrappers have been removed;
 use the native UIMD launcher for all generation and run commands.
 
 C++ build outputs are local artifacts under `cpp/build` or `cpp/build-windows`.
-They are not committed to Git.
+C# build outputs are local artifacts under `csharp/examples/*/bin`. They are
+not committed to Git.
 
 Python tests require `pytest` in the Python environment used by the `python` or
 `python3` command. Install it once if `python -m pytest ...` reports
@@ -65,10 +66,10 @@ Windows PowerShell only:
 ## Full Rebuild and Test
 
 This runs the full local gate: regenerate/build all supported sources including
-reported-bug regression corpora, compile Python sources, run Python unit tests,
-run C++ `ctest`, run Python/C++ MCP example compare tests with
-`--compare-app-size 90x35`, and run the UIMD regression parity compare corpus
-when `tests/regressions/uimd/parity` exists.
+reported-bug regression corpora, build C# examples, compile Python sources, run
+Python unit tests, run C++ `ctest`, run Python/C++ and C++/C# MCP example
+compare tests with `--compare-app-size 90x35`, and run the UIMD regression
+parity compare corpus when `tests/regressions/uimd/parity` exists.
 
 macOS/Linux (POSIX shell):
 
@@ -83,6 +84,7 @@ Equivalent explicit command sequence:
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ```
 
@@ -98,6 +100,7 @@ Equivalent explicit command sequence:
 .\tools\rebuild_all.cmd -Test
 python -m pytest python\tests
 .\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 ```
 
@@ -113,6 +116,7 @@ Equivalent explicit command sequence:
 .\tools\rebuild_all.ps1 -Test
 python -m pytest python\tests
 .\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 ```
 
@@ -322,6 +326,54 @@ cmake --build cpp\build-windows --target activity_feed --config Release
 .\cpp\build-windows\examples\activity_feed\Release\activity_feed.exe
 ```
 
+## C# Examples
+
+Recommended cross-platform helper commands:
+
+POSIX:
+
+```bash
+python3 tools/uimd_dev.py run-csharp-example activity_feed
+python3 tools/uimd_dev.py run-csharp-example calculator
+python3 tools/uimd_dev.py run-csharp-example cells
+python3 tools/uimd_dev.py run-csharp-example contacts_manager
+python3 tools/uimd_dev.py run-csharp-example expense_tracker
+python3 tools/uimd_dev.py run-csharp-example formular
+python3 tools/uimd_dev.py run-csharp-example image_browser
+python3 tools/uimd_dev.py run-csharp-example image_gallery
+python3 tools/uimd_dev.py run-csharp-example markdown_viewer
+python3 tools/uimd_dev.py run-csharp-example special_elements
+python3 tools/uimd_dev.py run-csharp-example task_board
+python3 tools/uimd_dev.py run-csharp-example text_editor
+python3 tools/uimd_dev.py run-csharp-example widget_gallery
+```
+
+Raw macOS/Linux POSIX shell form:
+
+```bash
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/activity_feed/activity_feed.csproj --configuration Debug && dotnet csharp/examples/activity_feed/bin/Debug/net10.0/activity_feed.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/calculator/calculator.csproj --configuration Debug && dotnet csharp/examples/calculator/bin/Debug/net10.0/calculator.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/cells/cells.csproj --configuration Debug && dotnet csharp/examples/cells/bin/Debug/net10.0/cells.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/contacts_manager/contacts_manager.csproj --configuration Debug && dotnet csharp/examples/contacts_manager/bin/Debug/net10.0/contacts_manager.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/expense_tracker/expense_tracker.csproj --configuration Debug && dotnet csharp/examples/expense_tracker/bin/Debug/net10.0/expense_tracker.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/formular/formular.csproj --configuration Debug && dotnet csharp/examples/formular/bin/Debug/net10.0/formular.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/image_browser/image_browser.csproj --configuration Debug && dotnet csharp/examples/image_browser/bin/Debug/net10.0/image_browser.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/image_gallery/image_gallery.csproj --configuration Debug && dotnet csharp/examples/image_gallery/bin/Debug/net10.0/image_gallery.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/markdown_viewer/markdown_viewer.csproj --configuration Debug && dotnet csharp/examples/markdown_viewer/bin/Debug/net10.0/markdown_viewer.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/special_elements/special_elements.csproj --configuration Debug && dotnet csharp/examples/special_elements/bin/Debug/net10.0/special_elements.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/task_board/task_board.csproj --configuration Debug && dotnet csharp/examples/task_board/bin/Debug/net10.0/task_board.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/text_editor/text_editor.csproj --configuration Debug && dotnet csharp/examples/text_editor/bin/Debug/net10.0/text_editor.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/widget_gallery/widget_gallery.csproj --configuration Debug && dotnet csharp/examples/widget_gallery/bin/Debug/net10.0/widget_gallery.dll
+```
+
+Raw Windows PowerShell form for one example:
+
+```powershell
+.\uimd.ps1 generate csharp\examples --target csharp
+dotnet build csharp\examples\activity_feed\activity_feed.csproj --configuration Debug
+dotnet csharp\examples\activity_feed\bin\Debug\net10.0\activity_feed.dll
+```
+
 ## Source Regeneration
 
 ```bash
@@ -331,6 +383,7 @@ cmake --build cpp\build-windows --target activity_feed --config Release
 ./uimd generate src/uimd/testing --target python
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
+./uimd generate csharp/examples --target csharp
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
 ```
@@ -346,10 +399,12 @@ POSIX raw form:
 ./uimd generate src/uimd/testing --target python
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
+./uimd generate csharp/examples --target csharp
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
 cmake -S cpp -B cpp/build
 cmake --build cpp/build
+for proj in csharp/examples/*/*.csproj; do dotnet build "$proj" --configuration Debug; done
 python3 -m compileall python src tests tools
 ```
 
@@ -362,10 +417,12 @@ Windows raw form:
 .\uimd.ps1 generate src\uimd\testing --target python
 .\uimd.ps1 generate cpp\dialogs --target cpp
 .\uimd.ps1 generate cpp\examples --target cpp
+.\uimd.ps1 generate csharp\examples --target csharp
 .\uimd.ps1 generate tests\regressions\uimd\parity\python --target python
 .\uimd.ps1 generate tests\regressions\uimd\parity\cpp --target cpp
 cmake -S cpp -B cpp\build-windows -G "Visual Studio 17 2022" -A x64
 cmake --build cpp\build-windows --config Release
+Get-ChildItem csharp\examples -Filter *.csproj -Recurse | ForEach-Object { dotnet build $_.FullName --configuration Debug }
 python -m compileall python src tests tools
 ```
 
@@ -548,6 +605,47 @@ Raw Windows PowerShell form for one example:
 .\uimd.ps1 mcp-test cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --mcp-fast --compare-app-size 90x35
 ```
 
+## C# App MCP Tests
+
+Recommended cross-platform helper commands:
+
+POSIX:
+
+```bash
+python3 tools/uimd_dev.py mcp-csharp-example activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+```
+
+Raw POSIX form:
+
+```bash
+./uimd mcp-test --backend python --headless csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/activity_feed/bin/Debug/net10.0/activity_feed.dll tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/calculator/bin/Debug/net10.0/calculator.dll tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/cells/bin/Debug/net10.0/cells.dll tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/contacts_manager/bin/Debug/net10.0/contacts_manager.dll tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/expense_tracker/bin/Debug/net10.0/expense_tracker.dll tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/formular/bin/Debug/net10.0/formular.dll tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/image_browser/bin/Debug/net10.0/image_browser.dll tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/image_gallery/bin/Debug/net10.0/image_gallery.dll tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/markdown_viewer/bin/Debug/net10.0/markdown_viewer.dll tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/special_elements/bin/Debug/net10.0/special_elements.dll tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/task_board/bin/Debug/net10.0/task_board.dll tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/text_editor/bin/Debug/net10.0/text_editor.dll tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/widget_gallery/bin/Debug/net10.0/widget_gallery.dll tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+```
+
 ## Compare MCP Tests
 
 Recommended cross-platform helper commands:
@@ -612,6 +710,8 @@ Raw POSIX form:
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-action-delay-ms 1 --mcp-type-delay-ms 1 --step-delay-ms 1 --compare-app-size 90x35
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --compare-app-size 90x35
+./uimd mcp-test --headless --compare python/examples csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
@@ -633,6 +733,8 @@ Raw Windows PowerShell form:
 
 ```powershell
 .\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
@@ -642,6 +744,8 @@ Raw Windows cmd.exe form:
 
 ```bat
 .\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast

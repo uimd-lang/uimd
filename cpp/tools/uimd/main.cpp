@@ -1,4 +1,5 @@
 #include "NativeModel.hpp"
+#include "NativeCSharpGenerator.hpp"
 #include "NativeCppGenerator.hpp"
 #include "NativePythonGenerator.hpp"
 #include "IssueReport.hpp"
@@ -68,7 +69,7 @@ const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
 const std::string RELEASE_PUBLIC_KEY{"RWR71aDOUx1vHQeAYhBjmL71qWnPzCp3kXGe2HLHPORARHbM2Al77AsD"};
 const std::string RELEASE_MANIFEST_PREFIX = "uimd-sdk-";
 const std::string RELEASE_MANIFEST_SUFFIX = ".manifest";
-const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp"};
+const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp"};
 
 struct GlobalOptions
 {
@@ -3414,7 +3415,7 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         }
         if (!isSdkTargetNameSafe(target) || !isSupportedSdkTarget(target))
         {
-            std::cerr << "error: supported SDK targets are: python, cpp\n";
+            std::cerr << "error: supported SDK targets are: python, cpp, csharp\n";
             return EXIT_USAGE;
         }
         if (version.empty())
@@ -4294,9 +4295,9 @@ int runNew(const std::vector<std::string>& args)
         std::cerr << "error: application name cannot be empty\n";
         return EXIT_ERROR;
     }
-    if (target != "python" && target != "cpp")
+    if (target != "python" && target != "cpp" && target != "csharp")
     {
-        std::cerr << "error: --target must be python or cpp\n";
+        std::cerr << "error: --target must be python, cpp, or csharp\n";
         return EXIT_USAGE;
     }
 
@@ -4313,6 +4314,49 @@ int runNew(const std::vector<std::string>& args)
     {
         files.emplace_back(project + ".cpp", applyTemplate(cppAppTemplate(), values));
         files.emplace_back("CMakeLists.txt", applyTemplate(cppCMakeTemplate(), values));
+    }
+    else if (target == "csharp")
+    {
+        files.emplace_back(project + ".cs", applyTemplate(
+            "using Uimd;\n"
+            "\n"
+            "public class @CLASS@App : @CLASS@UI\n"
+            "{\n"
+            "    protected override void onHelloButtonClick()\n"
+            "    {\n"
+            "        string value = name.Value;\n"
+            "        if (string.IsNullOrEmpty(value))\n"
+            "        {\n"
+            "            value = \"world\";\n"
+            "        }\n"
+            "        headline.SetText(\"Hello, \" + value + \"!\");\n"
+            "    }\n"
+            "}\n"
+            "\n"
+            "public static class Program\n"
+            "{\n"
+            "    public static int Main(string[] args)\n"
+            "    {\n"
+            "        return GeneratedWindowRuntime.RunGeneratedAppMain(() =>\n"
+            "        {\n"
+            "            @CLASS@App app = new();\n"
+            "            return GeneratedWindowRuntime.RunGeneratedWindow(app, app.RuntimeOptions(), args);\n"
+            "        });\n"
+            "    }\n"
+            "}\n", values));
+        files.emplace_back(project + ".csproj", applyTemplate(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+            "  <PropertyGroup>\n"
+            "    <OutputType>Exe</OutputType>\n"
+            "    <TargetFramework>net10.0</TargetFramework>\n"
+            "    <ImplicitUsings>enable</ImplicitUsings>\n"
+            "    <Nullable>enable</Nullable>\n"
+            "    <LangVersion>preview</LangVersion>\n"
+            "  </PropertyGroup>\n"
+            "  <ItemGroup>\n"
+            "    <ProjectReference Include=\"../uimd/csharp/src/Uimd/Uimd.csproj\" />\n"
+            "  </ItemGroup>\n"
+            "</Project>\n", values));
     }
     else
     {
@@ -4418,9 +4462,9 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
         std::cerr << "error: generate path is required\n";
         return EXIT_USAGE;
     }
-    if (target != "python" && target != "cpp")
+    if (target != "python" && target != "cpp" && target != "csharp")
     {
-        std::cerr << "error: --target must be python or cpp\n";
+        std::cerr << "error: --target must be python, cpp, or csharp\n";
         return EXIT_USAGE;
     }
 
@@ -4443,6 +4487,15 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
             cppOptions.generateAppStub = generateAppStub;
             cppOptions.mcpEnabled = options.mcpEnabled;
             generated = uimd::tool::generateCppSources(sourcePath, cppOptions);
+        }
+        else if (target == "csharp")
+        {
+            uimd::tool::NativeCSharpGenerateOptions csharpOptions;
+            csharpOptions.outputDir = options.outputDir;
+            csharpOptions.hasOutputDir = options.hasOutputDir;
+            csharpOptions.generateAppStub = generateAppStub;
+            csharpOptions.mcpEnabled = options.mcpEnabled;
+            generated = uimd::tool::generateCSharpSources(sourcePath, csharpOptions);
         }
         else
         {

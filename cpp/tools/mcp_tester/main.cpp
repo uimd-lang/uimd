@@ -139,6 +139,84 @@ std::string absolutePath(const std::string& root, const std::string& value)
     return pathString(fs::absolute(fs::path(root) / path));
 }
 
+std::string environmentValue(const char* name)
+{
+    const char* value = std::getenv(name);
+    return value == nullptr ? std::string{} : std::string{value};
+}
+
+std::string userHomeDirectory()
+{
+    std::string value = environmentValue("HOME");
+    if (!value.empty())
+    {
+        return value;
+    }
+    value = environmentValue("USERPROFILE");
+    return value;
+}
+
+std::string dotnetRoot()
+{
+    std::string value = environmentValue("DOTNET_ROOT");
+    if (!value.empty() && fs::exists(value))
+    {
+        return value;
+    }
+    value = environmentValue("DOTNET_ROOT_X64");
+    if (!value.empty() && fs::exists(value))
+    {
+        return value;
+    }
+
+    const std::string home = userHomeDirectory();
+    if (!home.empty())
+    {
+        const fs::path candidate = fs::path(home) / ".dotnet";
+        if (fs::exists(candidate / "dotnet") || fs::exists(candidate / "dotnet.exe"))
+        {
+            return pathString(candidate);
+        }
+    }
+    return std::string{};
+}
+
+std::string dotnetExecutable()
+{
+    const std::string root = dotnetRoot();
+    if (!root.empty())
+    {
+        const fs::path candidate = fs::path(root) / "dotnet";
+        if (fs::exists(candidate))
+        {
+            return pathString(candidate);
+        }
+        const fs::path windowsCandidate = fs::path(root) / "dotnet.exe";
+        if (fs::exists(windowsCandidate))
+        {
+            return pathString(windowsCandidate);
+        }
+    }
+    return "dotnet";
+}
+
+void applyDotnetRootToEnvironment()
+{
+    if (!environmentValue("DOTNET_ROOT").empty())
+    {
+        return;
+    }
+    const std::string root = dotnetRoot();
+    if (!root.empty())
+    {
+        ::setenv("DOTNET_ROOT", root.c_str(), 1);
+        if (environmentValue("DOTNET_ROOT_X64").empty())
+        {
+            ::setenv("DOTNET_ROOT_X64", root.c_str(), 1);
+        }
+    }
+}
+
 std::string resolveConfigPath(const std::string& root, const std::string& configPath, const std::string& value)
 {
     fs::path path(value);
@@ -214,12 +292,37 @@ std::string findProjectRoot(const char* executablePath)
 
 std::string appPathFromExamplesRoot(const std::string& examplesRoot, const std::string& name)
 {
+    const fs::path root{examplesRoot};
     std::vector<fs::path> candidates = {
-        fs::path(examplesRoot) / name / (name + ".py"),
-        fs::path(examplesRoot) / name / name,
-        fs::path(examplesRoot) / (name + ".py"),
-        fs::path(examplesRoot) / name,
+        root / name / (name + ".py"),
+        root / name / (name + ".exe"),
+        root / name / name,
+        root / (name + ".py"),
+        root / (name + ".exe"),
     };
+    const fs::path buildRoot = root / name / "bin";
+    if (fs::exists(buildRoot))
+    {
+        for (const std::string& configuration : {"Debug", "Release"})
+        {
+            const fs::path configurationRoot = buildRoot / configuration;
+            if (!fs::exists(configurationRoot))
+            {
+                continue;
+            }
+            for (const fs::directory_entry& entry : fs::directory_iterator(configurationRoot))
+            {
+                if (!entry.is_directory() || !startsWith(entry.path().filename().string(), "net"))
+                {
+                    continue;
+                }
+                candidates.push_back(entry.path() / (name + ".dll"));
+                candidates.push_back(entry.path() / (name + ".exe"));
+                candidates.push_back(entry.path() / name);
+            }
+        }
+    }
+    candidates.push_back(root / name);
     for (const auto& candidate : candidates)
     {
         if (fs::exists(candidate))
@@ -1310,11 +1413,17 @@ public:
             {
                 ::setenv(key.c_str(), value.c_str(), 1);
             }
+            applyDotnetRootToEnvironment();
 
             std::vector<std::string> args;
             if (endsWith(path_, ".py"))
             {
                 args.push_back("python3");
+                args.push_back(path_);
+            }
+            else if (endsWith(path_, ".dll"))
+            {
+                args.push_back(dotnetExecutable());
                 args.push_back(path_);
             }
             else
@@ -2476,6 +2585,10 @@ private:
         if (normalized.find("/cpp/") != std::string::npos)
         {
             return "cpp";
+        }
+        if (normalized.find("/csharp/") != std::string::npos || endsWith(normalized, ".dll"))
+        {
+            return "csharp";
         }
         std::string base = basenameWithoutExtension(normalized);
         return base.empty() ? "app_" + std::to_string(index + 1) : base;

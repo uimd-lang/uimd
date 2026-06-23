@@ -25,6 +25,7 @@ GENERATE_TARGETS = (
     ("src/uimd/testing", "python"),
     ("cpp/dialogs", "cpp"),
     ("cpp/examples", "cpp"),
+    ("csharp/examples", "csharp"),
 )
 DEFAULT_COMPARE_APP_SIZE = "90x35"
 REGRESSION_PARITY_ROOT = Path("tests/regressions/uimd/parity")
@@ -152,6 +153,18 @@ def ctest_command() -> str:
     return "ctest"
 
 
+def dotnet_command() -> str:
+    if os.environ.get("DOTNET"):
+        return os.environ["DOTNET"]
+    found = shutil.which("dotnet")
+    if found:
+        return found
+    home_candidate = Path.home() / ".dotnet" / ("dotnet.exe" if is_windows() else "dotnet")
+    if home_candidate.exists():
+        return str(home_candidate)
+    return "dotnet"
+
+
 def ensure_configured(build_dir: Path) -> None:
     if not (ROOT / build_dir / "CMakeCache.txt").exists():
         run(cmake_configure_args(build_dir))
@@ -189,6 +202,29 @@ def example_binary_path(name: str, build_dir: Path, *, config: str | None = None
     )
 
 
+def csharp_example_project_path(name: str) -> Path:
+    project = ROOT / "csharp/examples" / name / f"{name}.csproj"
+    if project.exists():
+        return project
+    raise FileNotFoundError(f"C# example project not found for {name!r}: {project.relative_to(ROOT)}")
+
+
+def csharp_example_dll_path(name: str, configuration: str = "Debug") -> Path:
+    output_root = ROOT / "csharp/examples" / name / "bin" / configuration
+    candidates = sorted(output_root.glob(f"net*/{name}.dll"))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"C# example output not found for {name!r} under {output_root.relative_to(ROOT)}; "
+        f"run: {dotnet_command()} build {csharp_example_project_path(name).relative_to(ROOT)}"
+    )
+
+
+def csharp_example_projects() -> list[Path]:
+    return sorted((ROOT / "csharp/examples").glob("*/*.csproj"))
+
+
 def ensure_native_uimd(build_dir: Path, *, config: str | None = None) -> Path:
     ensure_configured(build_dir)
     run(cmake_build_args(build_dir, target="uimd", config=config))
@@ -199,6 +235,26 @@ def generate_all(uimd: Path) -> None:
     for path, target in GENERATE_TARGETS:
         run([uimd, "generate", path, "--target", target])
     generate_regression_parity_if_available(uimd)
+
+
+def build_csharp_example(name: str, configuration: str = "Debug") -> Path:
+    project = csharp_example_project_path(name)
+    command: list[str | Path] = [dotnet_command(), "build", project]
+    if configuration:
+        command.extend(["--configuration", configuration])
+    run(command)
+    return csharp_example_dll_path(name, configuration)
+
+
+def build_all_csharp_examples(configuration: str = "Debug") -> None:
+    projects = csharp_example_projects()
+    if not projects:
+        raise FileNotFoundError("no C# example projects found under csharp/examples")
+    for project in projects:
+        command: list[str | Path] = [dotnet_command(), "build", project]
+        if configuration:
+            command.extend(["--configuration", configuration])
+        run(command)
 
 
 def generate_regression_parity_if_available(uimd: Path) -> None:
@@ -219,6 +275,7 @@ def rebuild_all(args: argparse.Namespace) -> None:
     generate_all(uimd)
     run(cmake_configure_args(build_dir))
     run(cmake_build_args(build_dir, config=args.config))
+    build_all_csharp_examples(args.csharp_config)
     run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"])
     if args.test:
         run(ctest_args(build_dir, config=args.config))
@@ -259,6 +316,30 @@ def run_example_compare(
     ]
     if is_windows():
         command.extend(["--backend", "python"])
+    if mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", compare_app_size])
+    run(command)
+
+
+def run_csharp_example_compare(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+) -> None:
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--backend",
+        "python",
+        "--headless",
+        "--all",
+        "--compare",
+        build_dir / "examples",
+        "csharp/examples",
+    ]
     if mcp_fast:
         command.append("--mcp-fast")
     command.extend(["--compare-app-size", compare_app_size])
@@ -325,6 +406,11 @@ def test_all(args: argparse.Namespace) -> None:
             )
             run_full_test_phase(
                 phases,
+                "Build C# runtime and examples",
+                lambda: build_all_csharp_examples(args.csharp_config),
+            )
+            run_full_test_phase(
+                phases,
                 "Compile Python sources",
                 lambda: run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"]),
             )
@@ -332,6 +418,7 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Generate UIMD sources", "--no-rebuild")
             record_skipped_phase(phases, "Configure CMake", "--no-rebuild")
             record_skipped_phase(phases, "Build C++ runtime, tools, examples, regressions", "--no-rebuild")
+            record_skipped_phase(phases, "Build C# runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
         run_full_test_phase(phases, "Python tests", run_python_tests)
         run_full_test_phase(phases, "CTest", lambda: run(ctest_args(build_dir, config=args.config)))
@@ -339,6 +426,16 @@ def test_all(args: argparse.Namespace) -> None:
             phases,
             "MCP example compare",
             lambda: run_example_compare(
+                uimd,
+                build_dir,
+                compare_app_size=args.compare_app_size,
+                mcp_fast=not args.no_mcp_fast,
+            ),
+        )
+        run_full_test_phase(
+            phases,
+            "MCP C# example compare",
+            lambda: run_csharp_example_compare(
                 uimd,
                 build_dir,
                 compare_app_size=args.compare_app_size,
@@ -368,6 +465,14 @@ def run_cpp_example(args: argparse.Namespace) -> None:
     run([binary, *args.app_args])
 
 
+def run_csharp_example(args: argparse.Namespace) -> None:
+    build_dir = Path(args.build_dir)
+    uimd = ensure_native_uimd(build_dir, config=args.config)
+    run([uimd, "generate", "csharp/examples", "--target", "csharp"])
+    app = build_csharp_example(args.name, args.csharp_config)
+    run([dotnet_command(), app, *args.app_args])
+
+
 def mcp_cpp_example(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     uimd = ensure_native_uimd(build_dir, config=args.config)
@@ -377,6 +482,19 @@ def mcp_cpp_example(args: argparse.Namespace) -> None:
     command: list[str | Path] = [uimd, "mcp-test", "--headless", str(binary), args.yaml]
     if is_windows():
         command.extend(["--backend", "python"])
+    if args.mcp_fast:
+        command.append("--mcp-fast")
+    if args.compare_app_size:
+        command.extend(["--compare-app-size", args.compare_app_size])
+    run(command)
+
+
+def mcp_csharp_example(args: argparse.Namespace) -> None:
+    build_dir = Path(args.build_dir)
+    uimd = ensure_native_uimd(build_dir, config=args.config)
+    run([uimd, "generate", "csharp/examples", "--target", "csharp"])
+    app = build_csharp_example(args.name, args.csharp_config)
+    command: list[str | Path] = [uimd, "mcp-test", "--backend", "python", "--headless", app, args.yaml]
     if args.mcp_fast:
         command.append("--mcp-fast")
     if args.compare_app_size:
@@ -409,6 +527,35 @@ def mcp_compare_example(args: argparse.Namespace) -> None:
     run(command)
 
 
+def mcp_compare_csharp_example(args: argparse.Namespace) -> None:
+    build_dir = Path(args.build_dir)
+    uimd = ensure_native_uimd(build_dir, config=args.config)
+    run([uimd, "generate", "csharp/examples", "--target", "csharp"])
+    csharp_app = build_csharp_example(args.name, args.csharp_config)
+    if args.against == "python":
+        run([uimd, "generate", "python/examples", "--target", "python"])
+        baseline: Path = ROOT / "python/examples" / args.name / f"{args.name}.py"
+    else:
+        run([uimd, "generate", "cpp/examples", "--target", "cpp"])
+        run(cmake_build_args(build_dir, target=args.name, config=args.config))
+        baseline = example_binary_path(args.name, build_dir, config=args.config)
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--backend",
+        "python",
+        "--headless",
+        "--compare",
+        baseline,
+        csharp_app,
+        args.yaml,
+    ]
+    if args.mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", args.compare_app_size])
+    run(command)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", default=str(default_build_dir()))
@@ -416,6 +563,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     rebuild = subparsers.add_parser("rebuild-all")
+    rebuild.add_argument("--csharp-config", default="Debug")
     rebuild.add_argument("--test", action="store_true")
     rebuild.set_defaults(func=rebuild_all)
 
@@ -423,12 +571,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     all_tests.add_argument("--compare-app-size", default=DEFAULT_COMPARE_APP_SIZE)
     all_tests.add_argument("--no-mcp-fast", action="store_true")
     all_tests.add_argument("--no-rebuild", action="store_true")
+    all_tests.add_argument("--csharp-config", default="Debug")
     all_tests.set_defaults(func=test_all)
 
     run_example = subparsers.add_parser("run-cpp-example")
     run_example.add_argument("name")
     run_example.add_argument("app_args", nargs=argparse.REMAINDER)
     run_example.set_defaults(func=run_cpp_example)
+
+    run_csharp = subparsers.add_parser("run-csharp-example")
+    run_csharp.add_argument("name")
+    run_csharp.add_argument("--csharp-config", default="Debug")
+    run_csharp.add_argument("app_args", nargs=argparse.REMAINDER)
+    run_csharp.set_defaults(func=run_csharp_example)
 
     mcp_example = subparsers.add_parser("mcp-cpp-example")
     mcp_example.add_argument("name")
@@ -437,12 +592,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     mcp_example.add_argument("--mcp-fast", action="store_true")
     mcp_example.set_defaults(func=mcp_cpp_example)
 
+    mcp_csharp = subparsers.add_parser("mcp-csharp-example")
+    mcp_csharp.add_argument("name")
+    mcp_csharp.add_argument("yaml")
+    mcp_csharp.add_argument("--csharp-config", default="Debug")
+    mcp_csharp.add_argument("--compare-app-size", default=None)
+    mcp_csharp.add_argument("--mcp-fast", action="store_true")
+    mcp_csharp.set_defaults(func=mcp_csharp_example)
+
     compare = subparsers.add_parser("mcp-compare-example")
     compare.add_argument("name")
     compare.add_argument("yaml")
     compare.add_argument("--compare-app-size", default=DEFAULT_COMPARE_APP_SIZE)
     compare.add_argument("--mcp-fast", action="store_true")
     compare.set_defaults(func=mcp_compare_example)
+
+    compare_csharp = subparsers.add_parser("mcp-compare-csharp-example")
+    compare_csharp.add_argument("name")
+    compare_csharp.add_argument("yaml")
+    compare_csharp.add_argument("--against", choices=("cpp", "python"), default="cpp")
+    compare_csharp.add_argument("--csharp-config", default="Debug")
+    compare_csharp.add_argument("--compare-app-size", default=DEFAULT_COMPARE_APP_SIZE)
+    compare_csharp.add_argument("--mcp-fast", action="store_true")
+    compare_csharp.set_defaults(func=mcp_compare_csharp_example)
 
     return parser.parse_args(argv)
 

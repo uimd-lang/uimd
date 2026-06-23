@@ -12,6 +12,8 @@ dist/
 
 cpp/build/
 cpp/build-*/
+csharp/**/bin/
+csharp/**/obj/
 CMakeFiles/
 CMakeCache.txt
 

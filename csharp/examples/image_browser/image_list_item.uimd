@@ -1,0 +1,115 @@
+# Image List Item
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+description: "Reusable row for one image item."
+tags: [example, image, list]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+sel:
+  type: checkbox
+  title: ""
+  value: false
+  description: "Select this image item."
+
+thumb:
+  type: image
+  source: ""
+  alt: ""
+  fit: contain
+  render_mode: auto
+  description: "Small image thumbnail."
+
+name_label:
+  type: label
+  text: ""
+  description: "Image file name."
+
+path_label:
+  type: label
+  text: ""
+  description: "Full image path."
+
+spacer:
+  type: label
+  text: ""
+  description: "Flexible spacer before item actions."
+  expose: false
+
+show_btn:
+  type: button
+  title: Show
+  description: "Show this image in a dialog."
+
+browse_btn:
+  type: button
+  title: Browse
+  description: "Choose a replacement image."
+
+delete_btn:
+  type: button
+  title: Delete
+  description: "Delete this image item after confirmation."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@card:
+  background: "#172033"
+  padding: 0, 0, 0, 0
+@name_label:
+  color: "#f8fafc"
+  user-select: text
+@path_label:
+  color: "#64748b"
+  user-select: text
+checkbox:
+  color: "#cbd5e1"
+  focus-color: "#facc15"
+  checked-color: "#22c55e"
+  unchecked-color: "#94a3b8"
+image:
+  background: transparent
+  color: "#d1d5db"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@show_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+@delete_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+```
+
+## User Interface
+
+```ui
++-card-**---------------------------------------------------------------+
+|                                                                       |
+|  sel thumb...  name_label..**..  show_btn... browse_btn. delete_btn.  |
+|  ... ........  .....................................................  |
+|  ... ........  path_label..**.......................................  |
+|  ... ........  .....................................................  |
+|  ... ........  spacer..**...........................................  |
+|                                                                       |
++-----------------------------------------------------------------------+
+```

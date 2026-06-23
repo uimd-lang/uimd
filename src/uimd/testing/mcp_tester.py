@@ -3,6 +3,7 @@
 import argparse
 import ast
 import datetime
+import glob
 import json
 import math
 import os
@@ -576,6 +577,7 @@ class TargetApp:
         self.port = _find_free_port()
         process_env = os.environ.copy()
         process_env.update({str(key): str(value) for key, value in self.env.items()})
+        _apply_dotnet_root(process_env)
         if _supports_pty():
             command = self._command(action_delay_ms, type_delay_ms, controlled_render, terminal_capture=True)
             self._start_with_pty(command, process_env)
@@ -843,6 +845,8 @@ class TargetApp:
         path = _abs_path(self.root, self.path)
         if path.endswith(".py"):
             command = [sys.executable, path]
+        elif path.endswith(".dll"):
+            command = [_dotnet_executable(), path]
         else:
             command = [path]
         if terminal_capture is None:
@@ -2648,6 +2652,8 @@ def _compare_target_name(path, index):
         return "python"
     if "cpp" in parts:
         return "cpp"
+    if "csharp" in parts or str(path).endswith(".dll"):
+        return "csharp"
     base = _target_name_from_path(str(path))
     return base or f"app_{index + 1}"
 
@@ -2668,6 +2674,12 @@ def _app_path_from_examples_root(examples_root, name):
         os.path.join(examples_root, name, f"{name}.py"),
         os.path.join(examples_root, name, f"{name}.exe"),
         os.path.join(examples_root, name, name),
+        os.path.join(examples_root, name, "bin", "Debug", "net*", f"{name}.dll"),
+        os.path.join(examples_root, name, "bin", "Debug", "net*", f"{name}.exe"),
+        os.path.join(examples_root, name, "bin", "Debug", "net*", name),
+        os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.dll"),
+        os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.exe"),
+        os.path.join(examples_root, name, "bin", "Release", "net*", name),
         os.path.join(examples_root, f"{name}.py"),
         os.path.join(examples_root, f"{name}.exe"),
     ]
@@ -2675,9 +2687,42 @@ def _app_path_from_examples_root(examples_root, name):
         candidates.append(os.path.join(examples_root, name, config, f"{name}.exe"))
     candidates.append(os.path.join(examples_root, name))
     for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
+        for match in glob.glob(candidate):
+            if os.path.exists(match):
+                return match
     raise ValueError(f"cannot resolve app {name!r} under examples root: {examples_root}")
+
+
+def _dotnet_root():
+    for key in ("DOTNET_ROOT", "DOTNET_ROOT_X64"):
+        value = os.environ.get(key)
+        if value and os.path.isdir(value):
+            return value
+    home_candidate = os.path.join(os.path.expanduser("~"), ".dotnet")
+    if os.path.exists(os.path.join(home_candidate, "dotnet")) or os.path.exists(os.path.join(home_candidate, "dotnet.exe")):
+        return home_candidate
+    found = shutil.which("dotnet")
+    if found:
+        return os.path.dirname(found)
+    return ""
+
+
+def _dotnet_executable():
+    root = _dotnet_root()
+    if root:
+        executable = os.path.join(root, "dotnet.exe" if os.name == "nt" else "dotnet")
+        if os.path.exists(executable):
+            return executable
+    return shutil.which("dotnet") or "dotnet"
+
+
+def _apply_dotnet_root(env):
+    if env.get("DOTNET_ROOT"):
+        return
+    root = _dotnet_root()
+    if root:
+        env["DOTNET_ROOT"] = root
+        env.setdefault("DOTNET_ROOT_X64", root)
 
 
 def _load_yaml_test_scripts(root, path, seen=None):

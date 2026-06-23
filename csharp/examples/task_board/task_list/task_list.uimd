@@ -1,0 +1,49 @@
+# Task List
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Reusable scroll view for interactive task rows."
+tags: [component, example]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - ../task_row/task_row
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#00000000"
+@panel:
+  gap: 1
+  padding: 1, 1, 1, 1
+  background: "#00000000"
+```
+
+## User Interface
+
+```ui
++-panel-**--------------------------------------------------+
+|                                                           |
+|                                                           |
+|                                                           |
+|                                                           |
+|                                                           |
+*                                                           |
+*                                                           |
+*                                                           |
+*                                                           |
+|                                                           |
++-----------------------------------------------------------+
+```

@@ -1,0 +1,191 @@
+# Image Browser
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+description: "Image browser with a thumbnail sidebar and full-size image panel."
+tags: [example, image, viewhost]
+```
+
+## Definition
+
+```yaml
+uses:
+  - image_view
+  - gallery_view
+  - gallery_mosaic
+  - image_button
+  - image_list_button
+  - image_list_view
+  - image_show_dialog
+```
+
+## Members
+
+```yaml
+title:
+  type: label
+  text: "Image Browser"
+  description: "Window title."
+  expose: false
+
+close_btn:
+  type: button
+  title: Quit
+  description: "Close the image browser."
+
+render_label:
+  type: label
+  text: "Render"
+  description: "Label above the render mode selector."
+  expose: false
+
+mode_select:
+  type: combobox
+  options: [Normal, Fallback]
+  selected_item: Normal
+  description: "Switch between Sixel and fallback image rendering."
+
+sidebar_title:
+  type: label
+  text: "Photos"
+  description: "Sidebar section label."
+  expose: false
+
+camera_thumb:
+  type: image_button
+  description: "Camera thumbnail. Click to view full size."
+
+astro_thumb:
+  type: image_button
+  description: "Astronaut thumbnail. Click to view full size."
+
+coffee_thumb:
+  type: image_button
+  description: "Coffee thumbnail. Click to view full size."
+
+gallery_label:
+  type: label
+  text: "Gallery"
+  description: "Label above the gallery mosaic."
+  expose: false
+
+image_list_label:
+  type: label
+  text: "Image items"
+  description: "List preview label."
+  expose: false
+
+gallery_mosaic:
+  type: gallery_mosaic
+  description: "Click any image to open the full scrollable gallery."
+
+image_list_btn:
+  type: image_list_button
+  description: "Click to open the image item list."
+
+spacer:
+  type: label
+  text: ""
+  description: "Spacer that absorbs leftover sidebar height."
+  expose: false
+
+main:
+  type: viewhost
+  description: "Full-size image panel."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+cell:
+  padding: 1
+@header:
+  background: "#1f2937"
+  padding: 0
+@sidebar:
+  background: "#172033"
+  padding: 0
+@content:
+  background: "#030712"
+@title:
+  color: "#ffffff"
+  text-align: center
+@close_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+  color: "#ffffff"
+@render_label:
+  color: "#93c5fd"
+@sidebar_title:
+  color: "#93c5fd"
+@gallery_label:
+  color: "#93c5fd"
+@image_list_label:
+  color: "#93c5fd"
+combobox:
+  background: "#0b1220"
+  color: "#e5e7eb"
+  focus-background: "#25364f"
+  edit-background: "#0b1220"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+viewhost:
+  background: "#030712"
+```
+
+## User Interface
+
+```ui
++--header-**-------------------------------------------------------------------+
+| title..**....................................................... close_btn.. |
++--sidebar-------------------+--content-**-------------------------------------+
+| render_label.............. | main..**....................................... |
+* mode_select............... | ............................................... |
+*                            | *.............................................. |
+| sidebar_title............. | *.............................................. |
+| camera_thumb.............. | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| astro_thumb............... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| coffee_thumb.............. | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| gallery_label............. | ............................................... |
+| gallery_mosaic............ | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| image_list_label.......... | ............................................... |
+| image_list_btn............ | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+| .......................... | ............................................... |
+* spacer.................... | ............................................... |
+* .......................... | ............................................... |
+| .......................... | ............................................... |
++----------------------------+-------------------------------------------------+
+```

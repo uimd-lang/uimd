@@ -4,54 +4,112 @@
 
 Date: 2026-06-21
 
-- [x] **Windows MCP transport smoke tests fail before starting Python app**.
-  `python/tests/test_mcp_transports.py` currently fails eight Python transport
-  smoke tests on Windows with `FileNotFoundError: [WinError 2] The system
-  cannot find the file specified` from `subprocess.py`, before MCP stdio/http/tcp
-  assertions can run. Affected area: Python MCP transport test launch path and
-  any generated/example command path it uses. Parity decision: this is Windows
-  process-spawn/test harness behavior unless investigation shows a shared MCP
-  command contract issue; do not change the MCP protocol or C++ transport
-  behavior without an explicit parity audit. Result on 2026-06-23: fixed the
-  Python MCP transport smoke tests to launch subprocesses with `sys.executable`
-  instead of the non-portable `python3` command. Validation:
-  `python -m pytest python\tests\test_mcp_transports.py -q` passed with
-  `8 passed, 8 skipped`, and `python -m pytest python\tests -q` passed with
-  `447 passed, 12 skipped, 3 subtests passed`.
-- [x] **Windows MCP tester plain log can crash flushing stdout**. After the
-  Python MCP transport spawn fix, `cmd /c .\tools\test_all.cmd` progressed into
-  MCP tester execution but timed out with `OSError: [Errno 22] Invalid argument`
-  from `src/uimd/testing/mcp_tester.py` `_write_plain_log` while flushing
-  `sys.stdout`. Affected area: tester plain/console progress logging on Windows.
-  Parity decision: this is tester output robustness only; do not change MCP
-  runtime behavior, app examples, render snapshots, or transport contracts.
-  Result on 2026-06-23: `_write_plain_log` now ignores `OSError` from stdout
-  write/flush after preserving existing Unicode backslash replacement behavior,
-  and `python/tests/test_mcp_tester.py` covers the Windows-style flush failure.
-  Validation: `python -m pytest python\tests\test_mcp_tester.py -q` passed with
-  `52 passed, 1 skipped`; focused calculator Python/C++ MCP compare passed with
-  `43 asserts passed, 0 failed, 0 step failures`.
-- [x] **Windows full build can fail when example executables are locked**.
-  `.\tools\test_all.cmd` can fail during the full C++ build with
-  `LINK : fatal error LNK1104: cannot open file` for built example `.exe`
-  outputs such as `image_browser.exe`, `task_board.exe`, and `text_editor.exe`.
-  Affected area: Windows build/test workflow and cleanup of example processes
-  after MCP compare or manual runs. Parity decision: this is Windows build
-  process hygiene unless investigation shows the runtime or tester is leaving
-  child processes alive after normal completion; do not change compiler,
-  runtime behavior, or generated app code for a linker file-lock issue. Result
-  on 2026-06-23: confirmed the three failing outputs were locked by still-running
-  headless MCP example processes from earlier interrupted compare runs
-  (`image_browser.exe`, `task_board.exe`, and `text_editor.exe`). Stopped those
-  processes and reran `cmake --build cpp\build-windows --config Release`,
-  which completed successfully.
-- [x] **Document raw regression compare commands with fixed viewport size**.
-  Raw regression compare commands can be copied without
-  `--compare-app-size 90x35`, causing visual tester auto-sizing such as
-  `89x36` and false `stale_scrollview_focus` snapshot mismatches. Updated
-  `docs/example_cli_commands.md` to make the macOS/Linux POSIX form explicit
-  and to include raw Windows `.cmd` MCP compare commands with
-  `--compare-app-size 90x35` alongside the existing PowerShell form.
+- [x] **Begin C# target implementation**. User wants to start implementing C#
+  support as a new UIMD backend/SDK target. Initial target name should be
+  `csharp`, matching the existing SDK Store planning text (`targets/csharp`).
+  MOST IMPORTANT RULE: C# must be implemented 1:1 with the Python reference
+  behavior. C++ may be used as the faster implementation/compare baseline only
+  where it is already demonstrably 1:1 with Python; if Python and C++ differ,
+  Python wins and C++ parity must be treated as suspect. Every C#, C++, and
+  Python branch of the same example, regression example, dialog, tester UI, or
+  reusable component must use byte-for-byte identical `.uimd` sources except
+  for unavoidable repository path mechanics. Do not finish the C# work until
+  every generated API, event hook, layout result, runtime behavior, example,
+  regression example, compare script, and documented command that exists for
+  Python/C++ has an equivalent C# implementation and all tests pass.
+  PORTING RULE: C# implementation work must be a direct port/translation of the
+  existing Python reference and/or already-parity-validated C++ implementation.
+  Do not design a fresh C# architecture, invent new public classes, introduce
+  new behavior helpers, rename concepts, or add C#-only feature surfaces just
+  because they feel idiomatic. Runtime, generator, UIMD target plumbing, tools,
+  dialogs, examples, and tester integration should reuse the same concepts,
+  state transitions, function responsibilities, public names, and file
+  organization patterns as the source implementation being ported. Exceptions
+  are allowed only for unavoidable C#/.NET language, runtime, terminal, build,
+  or packaging specifics; every exception must preserve public behavior and be
+  recorded as a parity exception before it is accepted.
+  CONTINUATION RULE: If context is compacted/autocompacted at any point during
+  the C# implementation, the resumed agent must reread `AGENTS.md` and
+  `prompts/TODO.md` before continuing implementation, validation, or reporting
+  completion.
+  Required first implementation steps: add/update this TODO with parity notes
+  before code changes, extend native `./uimd generate <path> --target csharp`
+  in `cpp/tools/uimd`, add a minimal `NativeCSharpGenerator`, create the
+  initial C# runtime/project tree, generate from the same Python-reference
+  `.uimd` sources rather than C#-specific copies, and document new build/test
+  commands in `docs/example_cli_commands.md`. Parity decision: this is a new
+  cross-platform target, so public generated APIs, event hook names, layout,
+  style, focus/input behavior, and reusable/window behavior must follow the
+  Python runtime reference and stay architecturally aligned with C++ where the
+  behavior already exists. Local toolchain state recorded on 2026-06-23: user
+  installed .NET SDK `10.0.301` into `/Users/marekdubovsky/.dotnet` using
+  `dotnet-install.sh`; `dotnet --info` reported RID `osx-x64`, OS Platform
+  `Darwin`, host runtime `10.0.9`, and no workloads installed. If `dotnet` is
+  not on PATH after restart, use `/Users/marekdubovsky/.dotnet/dotnet`
+  directly or add `export PATH="$HOME/.dotnet:$PATH"` to the active shell
+  profile.
+  Implementation breakdown:
+  1. Inventory Python/C++ surface area before coding: native generator targets,
+     generated public classes/members/hooks, runtime public API, standard
+     dialogs, reusable elements, examples, regression examples, MCP scripts,
+     rebuild scripts, and docs command lists.
+  2. Add C# target plumbing in the native C++ CLI/generator only:
+     `cpp/tools/uimd` target parsing, diagnostics, recursive generation, output
+     naming, dependency generation, and rebuild integration. Do not create a
+     Python compiler/CLI path.
+  3. Build the C# generator to mirror Python/C++ output contracts: generated
+     window class, element fields, constructor options, style mapping, event
+     override hooks, reusable-component embedding, dialogs, imports/namespaces,
+     and dependency path handling.
+  4. Create the canonical C# runtime with the same architecture as Python/C++:
+     window/modal stack, UIBase/UIControl model, elements, focus/edit mode,
+     layout/rendering, styles, text input selection/cursor behavior, listbox and
+     combobox behavior, scrollview, reusable components, label text selection,
+     image/Sixel handling or explicit parity-gated unsupported diagnostics, MCP
+     runtime contract, and post-event cleanup.
+  5. Add C# examples for every Python/C++ example, generated from the same
+     `.uimd` source. Application logic may be target-specific C#, but no
+     example-specific runtime/layout workarounds are allowed.
+  6. Add C# regression examples/tests for every relevant Python/C++ regression
+     case. Regression `.uimd` files must be exact copies across Python, C++,
+     and C# branches or generated from one shared source.
+  7. Extend MCP compare support so C# can be compared against C++ for speed and
+     against Python when needed to settle parity disagreements. All automated
+     compare commands must use `--compare-app-size 90x35`.
+  8. Update `docs/example_cli_commands.md` with every new C# example, C#
+     regression example, generation/build/run command, and compare/test command
+     in the correct sorted sections.
+  9. Validate in layers: generator unit/smoke tests, C# build, focused
+     example/regression compares, all C# examples, all Python tests, all C++
+     tests/builds, full all-platform MCP compare suite, and final clean working
+     tree review. Record any unavoidable unsupported C# platform primitive as a
+     TODO parity exception before accepting it.
+  Implemented parity notes: `expense_tracker` compare found that C# highlighted
+  only rendered-content rows for a ScrollView child whose descendant checkbox
+  has focus, while Python `UIScrollView._apply_selected_background_to_viewport_rows`
+  and `UIScrollView._apply_self_focus_to_viewport` highlight the whole visible
+  ScrollView row range, including blank/padding rows. C# `ScrollView.Render`
+  now ports that behavior in the shared runtime rather than adding an
+  example-specific workaround. `formular` and `expense_tracker` compare found
+  that C# MCP mouse clicks in the right compare pane were using terminal
+  coordinates directly, while C++ uses `windowPointFromTerminalPoint` and
+  Python translates mouse events relative to the app viewport. C#
+  `GeneratedWindow` now parses and stores viewport row/col/width/height,
+  returns that viewport from MCP viewport tools, converts terminal mouse
+  coordinates to window coordinates before hit testing, and keeps ComboBox
+  dropdown clicks aligned with the shared behavior by selecting only option rows
+  and closing edit mode without changing selection when the closed row is
+  clicked. Focused validation passed for `tests/mcp/expense_tracker_compare.yaml`;
+  focused `formular` validation passed for both C++/C# with 135 asserts and
+  Python/C# with 76 asserts; full C# vs Python all-examples compare passed with
+  626 asserts; standalone C# all-examples MCP passed with 313 asserts; C++/C#
+  all-examples compare passed with 1224 asserts. Final validation passed with
+  `./tools/test_all.sh --compare-app-size 90x35`: repo-local native tool build,
+  UIMD source regeneration, CMake configure, C++ runtime/tools/examples/regression
+  build, C# runtime/examples build, Python compile, Python tests, CTest, Python/C++
+  MCP example compare, C++/C# MCP example compare, and Python/C++ regression
+  parity compare all passed. Final source parity check confirmed all 42 C#
+  example `.uimd` files match the Python example `.uimd` files byte-for-byte.
 - [ ] **Nested ScrollView edit-scope dim overlay has a one-column Python/C++
   edge mismatch**. While adding arrow navigation coverage to
   `stale_scrollview_focus`, pressing `Enter` on the focused `page.fields`
@@ -93,28 +151,6 @@ Date: 2026-06-21
   `UIMD_LIBSIXEL_DIR=C:\msys64\ucrt64\bin`, Python `_load_libsixel()` returns
   `True`, and `.\uimd.cmd doctor` reports C++ libsixel found from
   `UIMD_LIBSIXEL_DIR`.
-- [x] **Windows image fallback render frames mismatch Python/C++ compare**.
-  Focused Windows compare for `image_browser` and `image_gallery` fails on step
-  1 because the C++ app snapshot renders half-block image fallback cells such
-  as `\u2580` with gray foreground/background where the Python/reference frame
-  has a normal blank cell with the themed background. Repro:
-  `.\uimd.cmd mcp-test --compare python\examples\image_browser\image_browser.py
-  cpp\build-windows\examples\image_browser\Release\image_browser.exe
-  tests\mcp\image_browser_compare.yaml --mcp-fast --compare-app-size 90x35`
-  and the equivalent `image_gallery` command. Setting `UIMD_DISABLE_SIXEL=1`
-  does not change the mismatch, so audit fallback/MCP render frame behavior
-  rather than only missing-dependency handling. Parity decision: Python
-  `src/uimd/runtime/elements.py` / `src/uimd/runtime/image.py` image fallback
-  and snapshot cell output are the reference; C++ `cpp/src/elements/Image.cpp`
-  and any MCP render-frame conversion must match the same visible cells and
-  style inheritance. Result on 2026-06-22: the immediate Windows failure was
-  caused by the newly installed `sshuser` Python missing `Pillow`, so Python
-  image elements rendered placeholders/blanks while C++ loaded the image
-  assets. Installed `Pillow` into
-  `C:\Users\sshuser\AppData\Local\Programs\Python\Python312`; focused
-  `image_browser_compare.yaml` and `image_gallery_compare.yaml` both pass with
-  `--mcp-fast --compare-app-size 90x35`. Installed `pytest` into the same
-  Python environment so `python -m pytest python\tests` can start.
 - [ ] **Flatscraper admin project filters/table layout still differs between
   Python and C++ runtimes**. After the scrollview focus parity fix, the
   flatscraper admin compare still fails on the initial Projects page even
