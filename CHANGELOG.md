@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.11 - Unreleased
+## 0.4.12 - Unreleased
 
 - Fix C++ runtime focus and ScrollView scope cleanup after generated callbacks
   replace the visible layout, keeping MCP snapshots in parity with Python.
