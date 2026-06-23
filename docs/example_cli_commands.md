@@ -296,7 +296,7 @@ Windows PowerShell:
 .\tools\run_cpp_example.ps1 widget_gallery
 ```
 
-Raw POSIX form:
+Raw macOS/Linux POSIX shell form:
 
 ```bash
 ./uimd generate cpp/examples --target cpp && cmake --build cpp/build --target activity_feed && cpp/build/examples/activity_feed/activity_feed
@@ -636,6 +636,15 @@ Raw Windows PowerShell form:
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
+```
+
+Raw Windows cmd.exe form:
+
+```bat
+.\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
 ## Project Scaffold Smoke Test
