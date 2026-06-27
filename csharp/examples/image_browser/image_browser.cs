@@ -79,6 +79,12 @@ public sealed class ImageButton : ImageButtonUI
         onClick = callback;
     }
 
+    public override bool ActivateGeneratedControl()
+    {
+        onPhotoClick();
+        return onClick is not null;
+    }
+
     protected override void onPhotoClick()
     {
         onClick?.Invoke();
@@ -115,6 +121,12 @@ public sealed class GalleryMosaic : GalleryMosaicUI
     public void SetSelected(bool selected)
     {
         ImageBrowserStyles.SetLayoutCellBackground(this, selected ? TileSelectedBackground : TileNormalBackground);
+    }
+
+    public override bool ActivateGeneratedControl()
+    {
+        Fire();
+        return onClick is not null;
     }
 
     protected override void onGal1Click()
@@ -199,6 +211,12 @@ public sealed class ImageListButton : ImageListButtonUI
         onClick = callback;
     }
 
+    public override bool ActivateGeneratedControl()
+    {
+        Fire();
+        return onClick is not null;
+    }
+
     protected override void onPrw1Click()
     {
         Fire();
@@ -252,6 +270,7 @@ public sealed class GalleryScroll : GalleryScrollUI
             reusable.Frame = new Rect(0, 0, 0, ImageBrowserStyles.MeasuredLayoutHeight(item));
             AddChild(reusable);
         }
+        ScrollToTop();
     }
 }
 
@@ -354,17 +373,7 @@ public sealed class ImageListItem : ImageListItemUI
 
     private static string ImageDisplayPath(string source)
     {
-        if (string.IsNullOrEmpty(source))
-        {
-            return "";
-        }
-        if (!Path.IsPathRooted(source))
-        {
-            return source;
-        }
-        string root = Directory.GetCurrentDirectory();
-        string relative = Path.GetRelativePath(root, source);
-        return relative.StartsWith("..", StringComparison.Ordinal) ? source : relative;
+        return ImageBrowser.ImageDisplayPath(source);
     }
 }
 
@@ -380,6 +389,7 @@ public sealed class ImageListScroll : ImageListScrollUI
         bool scrollToEnd = false,
         bool preserveScroll = false)
     {
+        ScrollViewPosition position = ScrollPosition();
         ClearChildren();
         SetAutoScroll(scrollToEnd);
         for (int index = 0; index < records.Count; ++index)
@@ -391,6 +401,18 @@ public sealed class ImageListScroll : ImageListScrollUI
             reusable.Frame = new Rect(0, 0, 0, ImageBrowserStyles.MeasuredLayoutHeight(item));
             AddChild(reusable);
         }
+        if (scrollToEnd)
+        {
+            ScrollToBottom();
+        }
+        else if (preserveScroll)
+        {
+            RestoreScrollPosition(position);
+        }
+        else
+        {
+            ScrollToTop();
+        }
     }
 }
 
@@ -398,14 +420,25 @@ public sealed class ImageListView : ImageListViewUI
 {
     private readonly IList<ImageRecord> records;
     private readonly ImageListScroll scroll;
+    private readonly Action<GeneratedWindowBase, GeneratedWindowRuntimeOptions> openModal;
+    private readonly Action closeModal;
     private string renderMode;
+    private FileBrowser? browser;
+    private MessageBoxYesNo? deleteDialog;
+    private ImageShowDialog? showDialog;
+    private ImageRecord? pendingBrowseRecord;
+    private ImageRecord? pendingDeleteRecord;
 
-    public Action<ImageRecord>? ShowRequested { get; set; }
-
-    public ImageListView(IList<ImageRecord> records, string renderMode = "sixel")
+    public ImageListView(
+        IList<ImageRecord> records,
+        string renderMode,
+        Action<GeneratedWindowBase, GeneratedWindowRuntimeOptions> openModal,
+        Action closeModal)
     {
         this.records = records;
         this.renderMode = renderMode;
+        this.openModal = openModal;
+        this.closeModal = closeModal;
         scroll = new ImageListScroll();
         items.SetChild(scroll);
         RefreshItems();
@@ -419,6 +452,7 @@ public sealed class ImageListView : ImageListViewUI
 
     protected override void onAddBtnClick()
     {
+        OpenBrowser(null);
     }
 
     private void RefreshItems(bool scrollToEnd = false, bool preserveScroll = false)
@@ -426,12 +460,116 @@ public sealed class ImageListView : ImageListViewUI
         scroll.SetItems(
             records,
             renderMode,
-            record => ShowRequested?.Invoke(record),
-            null,
-            null,
-            null,
+            ShowImage,
+            OpenBrowser,
+            ConfirmDelete,
+            _ => { },
             scrollToEnd,
             preserveScroll);
+    }
+
+    private void ShowImage(ImageRecord record)
+    {
+        CloseShowDialog();
+        showDialog = new ImageShowDialog(record.Source, record.Name, renderMode);
+        GeneratedWindowRuntimeOptions options = showDialog.RuntimeOptions();
+        options.InitialFocusName = "close_btn";
+        options.OnButton = name =>
+        {
+            if (name == "close_btn")
+            {
+                CloseShowDialog();
+            }
+        };
+        options.OnKey = key =>
+        {
+            if (key == "Escape")
+            {
+                CloseShowDialog();
+                return true;
+            }
+            return false;
+        };
+        openModal(showDialog, options);
+    }
+
+    private void OpenBrowser(ImageRecord? record)
+    {
+        CloseBrowser();
+        pendingBrowseRecord = record;
+        string startPath = record is null ? ImageBrowser.ImageSampleDir() : record.Source;
+        browser = new FileBrowser(
+            ImageBrowser.ProjectRoot(),
+            startPath,
+            "open",
+            OnBrowserClosed,
+            "",
+            ImageBrowser.ImageExtensionFilter);
+        openModal(browser, browser.RuntimeOptions());
+    }
+
+    private void OnBrowserClosed(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            CloseBrowser();
+            return;
+        }
+        if (pendingBrowseRecord is null)
+        {
+            records.Add(new ImageRecord(ImageBrowser.ImageNameFromPath(path), path));
+            CloseBrowser();
+            RefreshItems(scrollToEnd: true);
+            return;
+        }
+        pendingBrowseRecord.Name = ImageBrowser.ImageNameFromPath(path);
+        pendingBrowseRecord.Source = path;
+        CloseBrowser();
+        RefreshItems(preserveScroll: true);
+    }
+
+    private void ConfirmDelete(ImageRecord record)
+    {
+        CloseDeleteDialog();
+        pendingDeleteRecord = record;
+        deleteDialog = new MessageBoxYesNo("Delete Image", "Delete " + record.Name + "?");
+        deleteDialog.OnClose = DeleteConfirmed;
+        openModal(deleteDialog, deleteDialog.RuntimeOptions());
+    }
+
+    private void DeleteConfirmed(bool confirmed)
+    {
+        ImageRecord? record = pendingDeleteRecord;
+        deleteDialog = null;
+        pendingDeleteRecord = null;
+        if (!confirmed || record is null)
+        {
+            return;
+        }
+        records.Remove(record);
+        RefreshItems(preserveScroll: true);
+    }
+
+    private void CloseBrowser()
+    {
+        browser = null;
+        pendingBrowseRecord = null;
+    }
+
+    private void CloseDeleteDialog()
+    {
+        deleteDialog = null;
+        pendingDeleteRecord = null;
+    }
+
+    private void CloseShowDialog()
+    {
+        if (showDialog is null)
+        {
+            return;
+        }
+        showDialog = null;
+        closeModal();
     }
 }
 
@@ -466,7 +604,10 @@ public sealed class ImageBrowser : ImageBrowserUI
 
     public ImageBrowser()
     {
-        imageRecords = images.Take(20).ToList();
+        imageRecords = images
+            .Take(20)
+            .Select(record => new ImageRecord(record.Name, record.Source, record.Selected))
+            .ToList();
         galleryMosaicControl = new GalleryMosaic();
         gallery_mosaic.SetChild(galleryMosaicControl);
         galleryMosaicControl.SetOnGalleryClick(ShowGallery);
@@ -556,8 +697,11 @@ public sealed class ImageBrowser : ImageBrowserUI
         DeselectAllThumbs();
         galleryMosaicControl.SetSelected(false);
         imageListButtonControl.SetSelected(true);
-        ImageListView view = new(imageRecords, renderMode);
-        view.ShowRequested = record => OpenShowDialog(record.Source, record.Name);
+        ImageListView view = new(
+            imageRecords,
+            renderMode,
+            (window, options) => OpenWindow(window, options),
+            CloseWindow);
         main.SetChild(view);
     }
 
@@ -567,11 +711,6 @@ public sealed class ImageBrowser : ImageBrowserUI
         galleryMosaicControl.SetSelected(true);
         imageListButtonControl.SetSelected(false);
         main.SetChild(new GalleryView(renderMode));
-    }
-
-    private void OpenShowDialog(string source, string caption)
-    {
-        OpenWindow(new ImageShowDialog(source, caption, renderMode));
     }
 
     private void ApplyRenderMode(string mode)
@@ -640,6 +779,66 @@ public sealed class ImageBrowser : ImageBrowserUI
             3 => ".tga",
             _ => ".jpg",
         };
+    }
+
+    public const string ImageExtensionFilter = "(png|jpg|jpeg|gif|bmp|tga|ppm|pgm)";
+
+    public static string ProjectRoot()
+    {
+        return Directory.GetCurrentDirectory();
+    }
+
+    public static string ImageSampleDir()
+    {
+        return Path.Combine(ProjectRoot(), "shared", "assets", "image_samples");
+    }
+
+    public static string ImageDisplayPath(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return "";
+        }
+        string absoluteSourcePath = Path.GetFullPath(path);
+        string root = ProjectRoot();
+        if (PathStartsWith(absoluteSourcePath, root))
+        {
+            return Path.GetRelativePath(root, absoluteSourcePath);
+        }
+        return path;
+    }
+
+    public static string ImageNameFromPath(string path)
+    {
+        string stem = Path.GetFileNameWithoutExtension(path);
+        if (string.IsNullOrEmpty(stem))
+        {
+            return path;
+        }
+        stem = stem.Replace('_', ' ').Replace('-', ' ');
+        string[] words = stem.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0)
+        {
+            return stem;
+        }
+        for (int index = 0; index < words.Length; ++index)
+        {
+            string word = words[index];
+            if (word.Length > 0)
+            {
+                words[index] = char.ToUpperInvariant(word[0]) + word[1..];
+            }
+        }
+        return string.Join(" ", words);
+    }
+
+    private static bool PathStartsWith(string path, string root)
+    {
+        string normalizedPath = Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string normalizedRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return normalizedPath.StartsWith(normalizedRoot, StringComparison.Ordinal);
     }
 
 }

@@ -121,6 +121,10 @@ public sealed class TaskList : TaskListUI
             reusable.Frame = new Rect(0, 0, 0, GeneratedWindowRuntime.GeneratedWindowContentSize(row).Height);
             AddChild(reusable);
         }
+        if (ScrollView().Frame.Width > 0 && ScrollView().Frame.Height > 0)
+        {
+            ScrollToTop();
+        }
     }
 }
 

@@ -184,7 +184,7 @@ class FileBrowser(FileBrowserUI):
     def _flash_close_button(self):
         self.set_focus(self.close_btn)
         app = getattr(self, "_app", None)
-        if app is not None:
+        if app is not None and not getattr(app, "_mcp_headless", False):
             app.mark_dirty()
             app._render_to_terminal()
         time.sleep(FILE_BROWSER_ESCAPE_FLASH_SECONDS)

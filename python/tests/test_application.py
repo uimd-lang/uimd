@@ -817,6 +817,14 @@ class TestUIApplication(unittest.TestCase):
         self.assertEqual(app._decode_escape_sequence(b"[1;3C"), "Alt+Right")
         self.assertEqual(app._decode_escape_sequence(b"[1;3D"), "Alt+Left")
 
+    def test_decode_escape_sequence_decodes_application_cursor_arrows(self):
+        app = UIApplication()
+
+        self.assertEqual(app._decode_escape_sequence(b"OA"), "Up")
+        self.assertEqual(app._decode_escape_sequence(b"OB"), "Down")
+        self.assertEqual(app._decode_escape_sequence(b"OC"), "Right")
+        self.assertEqual(app._decode_escape_sequence(b"OD"), "Left")
+
     def test_decode_escape_sequence_decodes_ctrl_arrows(self):
         app = UIApplication()
 

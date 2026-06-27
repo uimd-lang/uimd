@@ -964,6 +964,8 @@ class UIScrollView(UIControl):
         return self._apply_focus_backgrounds(rendered, viewport, child_row_indexes) if use_cell_render else rendered
 
     def _restore_pending_proxy_focus(self):
+        if self._suppress_active_scrollview_scope_visuals_for_render():
+            return
         if not getattr(self, "_pending_proxy_focus_restore", False):
             return
         self._pending_proxy_focus_restore = False
@@ -1412,6 +1414,8 @@ class UIScrollView(UIControl):
         return next_rows
 
     def _apply_self_focus_to_viewport(self, rendered, viewport):
+        if self._suppress_active_scrollview_scope_visuals_for_render():
+            return rendered
         proxy = getattr(self, "parent", None)
         proxy_focused = bool(getattr(proxy, "focused", False))
         self_focused = bool(getattr(self, "_focused", False))
@@ -1538,6 +1542,14 @@ class UIScrollView(UIControl):
                 ))
             next_rows.append(next_row)
         return next_rows
+
+    def _suppress_active_scrollview_scope_visuals_for_render(self):
+        owner = self
+        while owner is not None:
+            if getattr(owner, "_suppress_active_scrollview_scope_visuals", False):
+                return True
+            owner = getattr(owner, "parent", None)
+        return False
 
     @staticmethod
     def _row_rendered_content_start(row):

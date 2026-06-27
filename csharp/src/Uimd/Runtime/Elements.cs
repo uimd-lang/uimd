@@ -1,3 +1,5 @@
+using System.Text;
+using System.Runtime.InteropServices;
 using StbImageSharp;
 
 namespace Uimd;
@@ -161,6 +163,8 @@ public class Label : Element
 {
     public string Text { get; private set; }
     private readonly List<LabelSpan> spans = new();
+    private int? selectionStart;
+    private int? selectionEnd;
 
     public Label(string name, string text = "") : base(name)
     {
@@ -181,50 +185,136 @@ public class Label : Element
         Text = string.Concat(spans.Select(span => span.Text));
     }
 
+    public void SelectRange(int start, int end)
+    {
+        int textLength = Text.Length;
+        selectionStart = Math.Clamp(start, 0, textLength);
+        selectionEnd = Math.Clamp(end, 0, textLength);
+    }
+
+    public void ClearSelection()
+    {
+        selectionStart = null;
+        selectionEnd = null;
+    }
+
+    public bool HasSelection()
+    {
+        return selectionStart.HasValue &&
+            selectionEnd.HasValue &&
+            selectionStart.Value != selectionEnd.Value;
+    }
+
+    public string SelectedText()
+    {
+        if (!HasSelection())
+        {
+            return "";
+        }
+        int low = Math.Min(selectionStart!.Value, selectionEnd!.Value);
+        int high = Math.Max(selectionStart.Value, selectionEnd.Value);
+        int from = Math.Clamp(low, 0, Text.Length);
+        int to = Math.Clamp(high, 0, Text.Length);
+        return Text.Substring(from, to - from);
+    }
+
+    public int TextPositionFromPoint(int localRow, int localCol, Size size)
+    {
+        int width = Math.Max(1, size.Width > 0 ? size.Width : Text.Length);
+        int textLength = Text.Length;
+        Style style = EffectiveStyle(false, false);
+        if (size.Height == 1)
+        {
+            int newline = Text.IndexOf('\n', StringComparison.Ordinal);
+            int segmentEnd = newline < 0 ? Text.Length : newline;
+            List<RenderHelpers.VisualGlyph> glyphs = RenderHelpers.VisualGlyphs(Text[..segmentEnd], 0, 0);
+            RenderHelpers.LabelVisualRow visible = new(
+                glyphs.Count == 0 ? 0 : glyphs[0].SourceStart,
+                glyphs.Count == 0 ? 0 : glyphs[^1].SourceEnd,
+                glyphs);
+            int offset = style.TextAlign switch
+            {
+                "center" => Math.Max(0, (width - RenderHelpers.VisualWidthForLabelRow(visible)) / 2),
+                "right" => Math.Max(0, width - RenderHelpers.VisualWidthForLabelRow(visible)),
+                _ => 0,
+            };
+            int raw = RenderHelpers.RawIndexForLabelVisualColumn(visible, localCol - offset);
+            return Math.Clamp(raw, 0, textLength);
+        }
+
+        List<RenderHelpers.LabelVisualRow> rows = RenderHelpers.BuildLabelVisualRows(Text, width);
+        if (rows.Count == 0 || localRow < 0)
+        {
+            return 0;
+        }
+        if (localRow >= rows.Count)
+        {
+            return textLength;
+        }
+        RenderHelpers.LabelVisualRow row = rows[localRow];
+        int rowOffset = style.TextAlign switch
+        {
+            "center" => Math.Max(0, (width - RenderHelpers.VisualWidthForLabelRow(row)) / 2),
+            "right" => Math.Max(0, width - RenderHelpers.VisualWidthForLabelRow(row)),
+            _ => 0,
+        };
+        int rowRaw = RenderHelpers.RawIndexForLabelVisualColumn(row, localCol - rowOffset);
+        return Math.Min(textLength, rowRaw);
+    }
+
     public override List<List<TerminalCell>> Render(Size size, ElementRenderState? state = null)
     {
         state ??= new ElementRenderState();
         Style style = EffectiveStyle(state.Focused, state.EditMode);
-        if (spans.Count == 0)
+        bool activeSelection = HasSelection();
+        int selectionLow = activeSelection ? Math.Min(selectionStart!.Value, selectionEnd!.Value) : 0;
+        int selectionHigh = activeSelection ? Math.Max(selectionStart!.Value, selectionEnd!.Value) : 0;
+        if (spans.Count == 0 && !activeSelection)
         {
             return RenderHelpers.RenderPlainText(Text, size.Width, size.Height, style);
+        }
+        Style cursorStyle = style.Clone();
+        if (CursorStyle is not null)
+        {
+            cursorStyle.Merge(CursorStyle);
         }
         int width = Math.Max(1, size.Width > 0 ? size.Width : Text.Length);
         int height = Math.Max(1, size.Height);
         List<List<TerminalCell>> rendered = new();
         List<TerminalCell> row = new(width);
         bool clippingLine = false;
-        foreach (LabelSpan span in spans)
+        IEnumerable<(char Ch, Color? Foreground, Color? Background)> styledChars = StyledChars();
+        int sourceIndex = 0;
+        foreach ((char ch, Color? foreground, Color? background) in styledChars)
         {
-            Color? foreground = string.IsNullOrEmpty(span.Foreground) ? null : new Color(span.Foreground);
-            Color? background = string.IsNullOrEmpty(span.Background) ? null : new Color(span.Background);
-            foreach (char ch in span.Text)
+            if (ch == '\r')
             {
-                if (ch == '\r')
-                {
-                    continue;
-                }
-                if (ch == '\n')
-                {
-                    AppendBlankCells(row, width, style);
-                    rendered.Add(row);
-                    if (rendered.Count >= height)
-                    {
-                        return rendered;
-                    }
-                    row = new List<TerminalCell>(width);
-                    clippingLine = false;
-                    continue;
-                }
-                if (row.Count >= width)
-                {
-                    clippingLine = true;
-                }
-                if (!clippingLine)
-                {
-                    row.Add(StyledSpanCell(ch, style, foreground, background));
-                }
+                ++sourceIndex;
+                continue;
             }
+            if (ch == '\n')
+            {
+                AppendBlankCells(row, width, style);
+                rendered.Add(row);
+                ++sourceIndex;
+                if (rendered.Count >= height)
+                {
+                    return rendered;
+                }
+                row = new List<TerminalCell>(width);
+                clippingLine = false;
+                continue;
+            }
+            if (row.Count >= width)
+            {
+                clippingLine = true;
+            }
+            if (!clippingLine)
+            {
+                bool selected = activeSelection && sourceIndex >= selectionLow && sourceIndex < selectionHigh;
+                row.Add(StyledSpanCell(ch, selected ? cursorStyle : style, foreground, background));
+            }
+            ++sourceIndex;
         }
         if (rendered.Count < height)
         {
@@ -236,6 +326,27 @@ public class Label : Element
             rendered.Add(RenderHelpers.RenderPlainText("", width, 1, style)[0]);
         }
         return rendered;
+    }
+
+    private IEnumerable<(char Ch, Color? Foreground, Color? Background)> StyledChars()
+    {
+        if (spans.Count == 0)
+        {
+            foreach (char ch in Text)
+            {
+                yield return (ch, null, null);
+            }
+            yield break;
+        }
+        foreach (LabelSpan span in spans)
+        {
+            Color? foreground = string.IsNullOrEmpty(span.Foreground) ? null : new Color(span.Foreground);
+            Color? background = string.IsNullOrEmpty(span.Background) ? null : new Color(span.Background);
+            foreach (char ch in span.Text)
+            {
+                yield return (ch, foreground, background);
+            }
+        }
     }
 
     private static TerminalCell StyledSpanCell(char ch, Style style, Color? foreground, Color? background)
@@ -616,20 +727,43 @@ public sealed class MessageTable : Label
 
 public sealed class Image : Element
 {
-    private const int ImageCellPixelWidth = 8;
-    private const int ImageCellPixelHeight = 16;
+    private const int DefaultImageCellPixelWidth = 8;
+    private const int DefaultImageCellPixelHeight = 16;
     private const int FallbackVerticalSamplesPerCell = 2;
+    private const int SixelBitsPerGlyph = 6;
+    private const int SixelColorComponentScale = 100;
+    private const int SixelColorLevels = 6;
+    private const int SixelMaxColors = 256;
+    private const int SixelFalseStatusMask = 0x1000;
+    private const int SixelPixelFormatRgb888 = 0x03;
+    private const int SixelLargeAuto = 0x0;
+    private const int SixelRepAuto = 0x0;
+    private const int SixelQualityHigh = 0x1;
     private const int TestFallbackBlendDenominator = 255;
     private const int TestFallbackCheckerTilePixels = 4;
     private const int TestFallbackCheckerLightAlpha = 160;
     private const int TestFallbackCheckerDarkAlpha = 0;
     private const int TestFallbackColorQuantum = 32;
     private const string FallbackUpperHalfBlock = "▀";
+    private const string FallbackFullBlock = "█";
+    private const string DeterministicImageFallbackEnv = "UIMD_DETERMINISTIC_IMAGE_FALLBACK";
+    private const string ForceSixelEnv = "UIMD_FORCE_SIXEL";
+    private const string DisableSixelEnv = "UIMD_DISABLE_SIXEL";
     private const string DefaultImageFit = "contain";
     private const string DefaultImageRenderMode = "auto";
     private const string DefaultImageAlign = "center";
     private const string DefaultImageVerticalAlign = "middle";
     private const string MissingImagePlaceholder = "image";
+
+    [ThreadStatic]
+    private static int forceCellBackgroundRenderingDepth;
+
+    private static readonly object RasterCacheLock = new();
+    private static readonly Dictionary<string, Raster> RasterCache = new();
+    private static readonly object SixelPayloadCacheLock = new();
+    private static readonly Dictionary<ImageRenderCacheKey, string> SixelPayloadCache = new();
+
+    private static Size? terminalCellPixelOverride;
 
     public string Source { get; private set; }
     public string Alt { get; private set; }
@@ -693,13 +827,144 @@ public sealed class Image : Element
         Style style = EffectiveStyle(state.Focused, state.EditMode);
         try
         {
-            Raster raster = LoadRaster(ImagePath());
-            return DeterministicImageContent(raster, width, height, style, RenderMode != "fallback");
+            string imagePath = ImagePath();
+            Raster raster = LoadRaster(imagePath);
+            if (raster.Width <= 0 || raster.Height <= 0)
+            {
+                return PlaceholderContent(width, height, style);
+            }
+            if (forceCellBackgroundRenderingDepth > 0)
+            {
+                return CellBackgroundImageContent(raster, width, height, style);
+            }
+            if (DeterministicImageFallbackEnabled())
+            {
+                return DeterministicImageContent(raster, width, height, style, RenderMode != "fallback");
+            }
+            if (ShouldRenderSixel())
+            {
+                return SixelImageContent(imagePath, raster, width, height, style, state);
+            }
+            return FallbackImageContent(raster, width, height, style);
         }
         catch
         {
             return PlaceholderContent(width, height, style);
         }
+    }
+
+    internal static IDisposable ForceCellBackgroundRendering()
+    {
+        forceCellBackgroundRenderingDepth += 1;
+        return new ForceCellBackgroundRenderingScope();
+    }
+
+    internal static void SetTerminalCellPixels(Size size)
+    {
+        if (size.Width > 0 && size.Height > 0)
+        {
+            terminalCellPixelOverride = size;
+        }
+    }
+
+    private static Size TerminalCellPixels()
+    {
+        return terminalCellPixelOverride ?? new Size(DefaultImageCellPixelWidth, DefaultImageCellPixelHeight);
+    }
+
+    private static bool DeterministicImageFallbackEnabled()
+    {
+        string value = (Environment.GetEnvironmentVariable(DeterministicImageFallbackEnv) ?? "").Trim().ToLowerInvariant();
+        return value is "1" or "true" or "yes" or "on";
+    }
+
+    private static bool TruthyEnv(string name)
+    {
+        string value = (Environment.GetEnvironmentVariable(name) ?? "").Trim().ToLowerInvariant();
+        return value is "1" or "true" or "yes" or "on";
+    }
+
+    private static bool SixelDisabled()
+    {
+        return TruthyEnv(DisableSixelEnv);
+    }
+
+    private static bool TerminalSupportsSixel()
+    {
+        if (TruthyEnv(ForceSixelEnv))
+        {
+            return true;
+        }
+        if (SixelDisabled())
+        {
+            return false;
+        }
+        string term = (Environment.GetEnvironmentVariable("TERM") ?? "").Trim().ToLowerInvariant();
+        return term.Contains("sixel", StringComparison.Ordinal);
+    }
+
+    private bool ShouldRenderSixel()
+    {
+        if (SixelDisabled())
+        {
+            return false;
+        }
+        return RenderMode == "sixel" || RenderMode == "auto" && TerminalSupportsSixel();
+    }
+
+    private List<List<TerminalCell>> FallbackImageContent(
+        Raster raster,
+        int width,
+        int height,
+        Style style)
+    {
+        List<List<TerminalCell>> content = BlankContent(width, height, style);
+        (int cols, int rows, int colOffset, int rowOffset) =
+            ImageCellRegion(width, height, raster.Width, raster.Height);
+        string regionFit = Fit == "contain" ? "cover" : Fit;
+        RgbSample background = LetterboxRgb(style);
+        Raster image = ResizeRaster(
+            raster,
+            cols,
+            rows * FallbackVerticalSamplesPerCell,
+            regionFit,
+            Align,
+            VerticalAlign,
+            background);
+        if (image.Width <= 0 || image.Height <= 0)
+        {
+            return content;
+        }
+
+        for (int row = 0; row < rows; ++row)
+        {
+            int targetRow = rowOffset + row;
+            if (targetRow < 0 || targetRow >= height)
+            {
+                continue;
+            }
+            int topY = row * FallbackVerticalSamplesPerCell;
+            int bottomY = Math.Min(image.Height - 1, topY + 1);
+            for (int col = 0; col < cols; ++col)
+            {
+                int targetCol = colOffset + col;
+                if (targetCol < 0 || targetCol >= width)
+                {
+                    continue;
+                }
+                RgbaSample top = image.PixelAt(col, topY);
+                RgbaSample bottom = image.PixelAt(col, bottomY);
+                content[targetRow][targetCol] = new TerminalCell
+                {
+                    Text = FallbackUpperHalfBlock,
+                    Foreground = ColorFromRgb(new RgbSample(top.Red, top.Green, top.Blue)),
+                    Background = ColorFromRgb(new RgbSample(bottom.Red, bottom.Green, bottom.Blue)),
+                    BackgroundFromImageSample = true,
+                };
+            }
+        }
+
+        return content;
     }
 
     private List<List<TerminalCell>> DeterministicImageContent(
@@ -763,6 +1028,124 @@ public sealed class Image : Element
         return content;
     }
 
+    private List<List<TerminalCell>> CellBackgroundImageContent(
+        Raster raster,
+        int width,
+        int height,
+        Style style)
+    {
+        List<List<TerminalCell>> content = BlankContent(width, height, style);
+        (int cols, int rows, int colOffset, int rowOffset) =
+            ImageCellRegion(width, height, raster.Width, raster.Height);
+        string regionFit = Fit == "contain" ? "cover" : Fit;
+        RgbSample background = LetterboxRgb(style);
+        Raster image = ResizeRaster(
+            raster,
+            cols,
+            rows,
+            regionFit,
+            Align,
+            VerticalAlign,
+            background);
+        if (image.Width <= 0 || image.Height <= 0)
+        {
+            return content;
+        }
+
+        for (int row = 0; row < rows; ++row)
+        {
+            int targetRow = rowOffset + row;
+            if (targetRow < 0 || targetRow >= height)
+            {
+                continue;
+            }
+            for (int col = 0; col < cols; ++col)
+            {
+                int targetCol = colOffset + col;
+                if (targetCol < 0 || targetCol >= width)
+                {
+                    continue;
+                }
+                RgbaSample pixel = image.PixelAt(col, row);
+                Color color = ColorFromRgb(new RgbSample(pixel.Red, pixel.Green, pixel.Blue));
+                content[targetRow][targetCol] = new TerminalCell
+                {
+                    Text = FallbackFullBlock,
+                    Foreground = color,
+                    Background = color,
+                };
+            }
+        }
+
+        return content;
+    }
+
+    private List<List<TerminalCell>> SixelImageContent(
+        string source,
+        Raster raster,
+        int width,
+        int height,
+        Style style,
+        ElementRenderState state)
+    {
+        List<List<TerminalCell>> content = BlankContent(width, height, style);
+        (int cols, int rows, int colOffset, int rowOffset) =
+            ImageCellRegion(width, height, raster.Width, raster.Height);
+        int visibleTop = rowOffset;
+        int visibleBottom = rowOffset + rows;
+        if (state.ClipTop.HasValue || state.ClipBottom.HasValue)
+        {
+            visibleTop = Math.Max(visibleTop, state.ClipTop ?? 0);
+            visibleBottom = Math.Min(visibleBottom, state.ClipBottom ?? height);
+        }
+        int visibleRows = Math.Max(0, visibleBottom - visibleTop);
+        if (visibleRows <= 0)
+        {
+            return content;
+        }
+        string regionFit = Fit == "contain" ? "cover" : Fit;
+        RgbSample background = LetterboxRgb(style);
+        string raw = CachedSixelPayload(
+            source,
+            raster,
+            cols,
+            visibleRows,
+            regionFit,
+            Align,
+            VerticalAlign,
+            background,
+            rows,
+            visibleTop - rowOffset);
+        if (string.IsNullOrEmpty(raw))
+        {
+            return FallbackImageContent(raster, width, height, style);
+        }
+
+        for (int row = visibleTop; row < visibleBottom; ++row)
+        {
+            if (row < 0 || row >= height)
+            {
+                continue;
+            }
+            for (int col = colOffset; col < colOffset + cols; ++col)
+            {
+                if (col < 0 || col >= width)
+                {
+                    continue;
+                }
+                content[row][col].RawSkip = true;
+            }
+        }
+        int anchorRow = Math.Clamp(visibleTop, 0, height - 1);
+        int anchorCol = Math.Clamp(colOffset, 0, width - 1);
+        TerminalCell anchor = content[anchorRow][anchorCol];
+        anchor.Raw = raw;
+        anchor.RawWidth = cols;
+        anchor.RawHeight = visibleRows;
+        anchor.RawSkip = false;
+        return content;
+    }
+
     private (int Cols, int Rows, int ColOffset, int RowOffset) ImageCellRegion(
         int width,
         int height,
@@ -773,11 +1156,12 @@ public sealed class Image : Element
         {
             return (width, height, 0, 0);
         }
+        Size cellPixels = TerminalCellPixels();
         double scale = Math.Min(
-            width * ImageCellPixelWidth / (double)sourceWidth,
-            height * ImageCellPixelHeight / (double)sourceHeight);
-        int cols = Math.Max(1, Math.Min(width, RoundLikePython(sourceWidth * scale / ImageCellPixelWidth)));
-        int rows = Math.Max(1, Math.Min(height, RoundLikePython(sourceHeight * scale / ImageCellPixelHeight)));
+            width * cellPixels.Width / (double)sourceWidth,
+            height * cellPixels.Height / (double)sourceHeight);
+        int cols = Math.Max(1, Math.Min(width, RoundLikePython(sourceWidth * scale / cellPixels.Width)));
+        int rows = Math.Max(1, Math.Min(height, RoundLikePython(sourceHeight * scale / cellPixels.Height)));
         int colOffset = AlignmentOffset(width, cols, Align, "left", "right");
         int rowOffset = AlignmentOffset(height, rows, VerticalAlign, "top", "bottom");
         return (cols, rows, colOffset, rowOffset);
@@ -880,6 +1264,365 @@ public sealed class Image : Element
         return new RgbSample(Quantize(color.Red), Quantize(color.Green), Quantize(color.Blue));
     }
 
+    private static int SixelComponent(int value)
+    {
+        return Math.Clamp((int)Math.Round(value * SixelColorComponentScale / 255.0), 0, SixelColorComponentScale);
+    }
+
+    private static int QuantizeChannel(int value)
+    {
+        int index = (int)Math.Round(value * (SixelColorLevels - 1) / 255.0);
+        return Math.Clamp(index * 255 / (SixelColorLevels - 1), 0, 255);
+    }
+
+    private static Raster QuantizeRaster(Raster raster)
+    {
+        byte[] data = new byte[Math.Max(0, raster.Width * raster.Height * 4)];
+        for (int y = 0; y < raster.Height; ++y)
+        {
+            for (int x = 0; x < raster.Width; ++x)
+            {
+                RgbaSample pixel = raster.PixelAt(x, y);
+                int offset = (y * raster.Width + x) * 4;
+                data[offset] = (byte)QuantizeChannel(pixel.Red);
+                data[offset + 1] = (byte)QuantizeChannel(pixel.Green);
+                data[offset + 2] = (byte)QuantizeChannel(pixel.Blue);
+                data[offset + 3] = (byte)Math.Clamp(pixel.Alpha, 0, 255);
+            }
+        }
+        return new Raster(raster.Width, raster.Height, data);
+    }
+
+    private static void AppendSixelRun(StringBuilder output, char ch, int count)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+        if (count >= 4)
+        {
+            output.Append('!');
+            output.Append(count);
+            output.Append(ch);
+        }
+        else
+        {
+            output.Append(ch, count);
+        }
+    }
+
+    private static string SixelPayload(Raster raster)
+    {
+        if (raster.Width <= 0 || raster.Height <= 0)
+        {
+            return "";
+        }
+        List<RgbSample> colors = new();
+        Dictionary<RgbSample, int> colorIndexes = new();
+        for (int y = 0; y < raster.Height; ++y)
+        {
+            for (int x = 0; x < raster.Width; ++x)
+            {
+                RgbaSample pixel = raster.PixelAt(x, y);
+                if (pixel.Alpha == 0)
+                {
+                    continue;
+                }
+                RgbSample color = new(pixel.Red, pixel.Green, pixel.Blue);
+                if (colorIndexes.ContainsKey(color))
+                {
+                    continue;
+                }
+                colorIndexes[color] = colors.Count;
+                colors.Add(color);
+            }
+        }
+
+        StringBuilder output = new();
+        output.Append("\x1bPq");
+        foreach (RgbSample color in colors)
+        {
+            int index = colorIndexes[color];
+            output.Append('#');
+            output.Append(index);
+            output.Append(";2;");
+            output.Append(SixelComponent(color.Red));
+            output.Append(';');
+            output.Append(SixelComponent(color.Green));
+            output.Append(';');
+            output.Append(SixelComponent(color.Blue));
+        }
+        for (int y = 0; y < raster.Height; y += SixelBitsPerGlyph)
+        {
+            foreach (RgbSample color in colors)
+            {
+                StringBuilder run = new();
+                bool hasPixels = false;
+                char previous = '\0';
+                int count = 0;
+                for (int x = 0; x < raster.Width; ++x)
+                {
+                    int bits = 0;
+                    for (int bit = 0; bit < SixelBitsPerGlyph; ++bit)
+                    {
+                        int py = y + bit;
+                        if (py < raster.Height)
+                        {
+                            RgbaSample pixel = raster.PixelAt(x, py);
+                            if (pixel.Alpha > 0 &&
+                                new RgbSample(pixel.Red, pixel.Green, pixel.Blue).Equals(color))
+                            {
+                                bits |= 1 << bit;
+                            }
+                        }
+                    }
+                    if (bits != 0)
+                    {
+                        hasPixels = true;
+                    }
+                    char ch = (char)(63 + bits);
+                    if (ch == previous)
+                    {
+                        ++count;
+                    }
+                    else
+                    {
+                        AppendSixelRun(run, previous, count);
+                        previous = ch;
+                        count = 1;
+                    }
+                }
+                if (!hasPixels)
+                {
+                    continue;
+                }
+                AppendSixelRun(run, previous, count);
+                output.Append('#');
+                output.Append(colorIndexes[color]);
+                output.Append(run);
+                output.Append('$');
+            }
+            output.Append('-');
+        }
+        output.Append("\x1b\\");
+        return output.ToString();
+    }
+
+    private static string CachedSixelPayload(
+        string source,
+        Raster sourceRaster,
+        int width,
+        int height,
+        string fit,
+        string align,
+        string verticalAlign,
+        RgbSample background,
+        int sourceHeight = 0,
+        int cropTop = 0)
+    {
+        sourceHeight = sourceHeight > 0 ? sourceHeight : height;
+        cropTop = Math.Max(0, cropTop);
+        ImageRenderCacheKey key = new(source, width, height, fit, align, verticalAlign, background, sourceHeight, cropTop);
+        lock (SixelPayloadCacheLock)
+        {
+            if (SixelPayloadCache.TryGetValue(key, out string? cached))
+            {
+                return cached;
+            }
+        }
+
+        Size cellPixels = TerminalCellPixels();
+        Raster fitted = ResizeRaster(
+            sourceRaster,
+            width * cellPixels.Width,
+            sourceHeight * cellPixels.Height,
+            fit,
+            align,
+            verticalAlign,
+            background);
+        Raster payloadRaster = CropRasterRows(
+            fitted,
+            cropTop * cellPixels.Height,
+            height * cellPixels.Height);
+        string raw = LibsixelEncode(payloadRaster);
+        if (string.IsNullOrEmpty(raw))
+        {
+            raw = SixelPayload(QuantizeRaster(payloadRaster));
+        }
+
+        lock (SixelPayloadCacheLock)
+        {
+            SixelPayloadCache[key] = raw;
+        }
+        return raw;
+    }
+
+    private static string LibsixelEncode(Raster raster)
+    {
+        if (raster.Width <= 0 || raster.Height <= 0)
+        {
+            return "";
+        }
+        SixelApi? api = LoadSixelApi();
+        if (api is null)
+        {
+            return "";
+        }
+
+        byte[] rgb = raster.ToRgbBytes();
+        StringBuilder outputText = new();
+        GCHandle outputHandle = GCHandle.Alloc(outputText);
+        GCHandle rgbHandle = GCHandle.Alloc(rgb, GCHandleType.Pinned);
+        IntPtr output = IntPtr.Zero;
+        IntPtr dither = IntPtr.Zero;
+        try
+        {
+            IntPtr rgbData = rgbHandle.AddrOfPinnedObject();
+            if (!SixelStatusSucceeded(api.OutputNew(out output, SixelWriteCallback, GCHandle.ToIntPtr(outputHandle), IntPtr.Zero)))
+            {
+                return "";
+            }
+            if (!SixelStatusSucceeded(api.DitherNew(out dither, SixelMaxColors, IntPtr.Zero)))
+            {
+                api.OutputUnref(output);
+                output = IntPtr.Zero;
+                return "";
+            }
+            int status = api.DitherInitialize(
+                dither,
+                rgbData,
+                raster.Width,
+                raster.Height,
+                SixelPixelFormatRgb888,
+                SixelLargeAuto,
+                SixelRepAuto,
+                SixelQualityHigh);
+            if (SixelStatusSucceeded(status))
+            {
+                _ = api.Encode(rgbData, raster.Width, raster.Height, 3, dither, output);
+            }
+            return outputText.ToString();
+        }
+        finally
+        {
+            if (dither != IntPtr.Zero)
+            {
+                api.DitherUnref(dither);
+            }
+            if (output != IntPtr.Zero)
+            {
+                api.OutputUnref(output);
+            }
+            rgbHandle.Free();
+            outputHandle.Free();
+        }
+    }
+
+    private static bool SixelStatusSucceeded(int status)
+    {
+        return (status & SixelFalseStatusMask) == 0;
+    }
+
+    private static readonly SixelWriteFunction SixelWriteCallback = SixelWrite;
+
+    private static int SixelWrite(IntPtr data, int size, IntPtr priv)
+    {
+        if (size <= 0 || data == IntPtr.Zero || priv == IntPtr.Zero)
+        {
+            return size;
+        }
+        GCHandle handle = GCHandle.FromIntPtr(priv);
+        if (handle.Target is not StringBuilder builder)
+        {
+            return size;
+        }
+        byte[] bytes = new byte[size];
+        Marshal.Copy(data, bytes, 0, size);
+        builder.Append(Encoding.ASCII.GetString(bytes));
+        return size;
+    }
+
+    private static Raster ResizeRaster(
+        Raster raster,
+        int targetWidth,
+        int targetHeight,
+        string fit,
+        string align,
+        string verticalAlign,
+        RgbSample background)
+    {
+        targetWidth = Math.Max(1, targetWidth);
+        targetHeight = Math.Max(1, targetHeight);
+        byte[] data = new byte[targetWidth * targetHeight * 4];
+        if (raster.Width <= 0 || raster.Height <= 0)
+        {
+            return new Raster(targetWidth, targetHeight, data);
+        }
+        fit = NormalizedMode(fit, DefaultImageFit);
+        bool stretch = fit == "stretch";
+        double scale = stretch
+            ? 0.0
+            : fit == "cover"
+                ? Math.Max(targetWidth / (double)raster.Width, targetHeight / (double)raster.Height)
+                : Math.Min(targetWidth / (double)raster.Width, targetHeight / (double)raster.Height);
+        double drawnWidth = stretch ? targetWidth : Math.Max(1.0, raster.Width * scale);
+        double drawnHeight = stretch ? targetHeight : Math.Max(1.0, raster.Height * scale);
+        double xOffset = stretch ? 0.0 : AlignmentOffsetFloat(targetWidth, drawnWidth, align, "left", "right");
+        double yOffset = stretch ? 0.0 : AlignmentOffsetFloat(targetHeight, drawnHeight, verticalAlign, "top", "bottom");
+        for (int y = 0; y < targetHeight; ++y)
+        {
+            for (int x = 0; x < targetWidth; ++x)
+            {
+                RgbSample color = background;
+                double sourceX = stretch ? x * raster.Width / (double)targetWidth : (x - xOffset) / scale;
+                double sourceY = stretch ? y * raster.Height / (double)targetHeight : (y - yOffset) / scale;
+                if (sourceX >= 0.0 &&
+                    sourceY >= 0.0 &&
+                    sourceX < raster.Width &&
+                    sourceY < raster.Height)
+                {
+                    RgbaSample pixel = raster.PixelAt((int)Math.Floor(sourceX), (int)Math.Floor(sourceY));
+                    color = BlendRgb(new RgbSample(pixel.Red, pixel.Green, pixel.Blue), background, pixel.Alpha);
+                }
+                int offset = (y * targetWidth + x) * 4;
+                data[offset] = (byte)color.Red;
+                data[offset + 1] = (byte)color.Green;
+                data[offset + 2] = (byte)color.Blue;
+                data[offset + 3] = byte.MaxValue;
+            }
+        }
+        return new Raster(targetWidth, targetHeight, data);
+    }
+
+    private static Raster CropRasterRows(Raster raster, int top, int height)
+    {
+        top = Math.Max(0, top);
+        height = Math.Max(1, height);
+        if (raster.Width <= 0 || raster.Height <= 0 || top <= 0 && height >= raster.Height)
+        {
+            return raster;
+        }
+        int bottom = Math.Min(raster.Height, top + height);
+        if (bottom <= top)
+        {
+            return new Raster(raster.Width, 0, Array.Empty<byte>());
+        }
+        byte[] data = new byte[raster.Width * (bottom - top) * 4];
+        for (int y = top; y < bottom; ++y)
+        {
+            for (int x = 0; x < raster.Width; ++x)
+            {
+                RgbaSample pixel = raster.PixelAt(x, y);
+                int offset = ((y - top) * raster.Width + x) * 4;
+                data[offset] = (byte)pixel.Red;
+                data[offset + 1] = (byte)pixel.Green;
+                data[offset + 2] = (byte)pixel.Blue;
+                data[offset + 3] = (byte)pixel.Alpha;
+            }
+        }
+        return new Raster(raster.Width, bottom - top, data);
+    }
+
     private RgbSample LetterboxRgb(Style style)
     {
         Color? background = style.Background;
@@ -953,15 +1696,40 @@ public sealed class Image : Element
         return Path.GetFullPath(Source);
     }
 
+    private static SixelApi? LoadSixelApi()
+    {
+        return SixelApiLoader.Load();
+    }
+
     private static Raster LoadRaster(string path)
     {
-        using FileStream stream = File.OpenRead(path);
-        ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
-        if (image.Width <= 0 || image.Height <= 0 || image.Data.Length == 0)
+        lock (RasterCacheLock)
         {
-            throw new InvalidOperationException("Image could not be decoded.");
+            if (RasterCache.TryGetValue(path, out Raster? cached))
+            {
+                return cached;
+            }
         }
-        return new Raster(image.Width, image.Height, image.Data);
+
+        Raster raster;
+        try
+        {
+            using FileStream stream = File.OpenRead(path);
+            ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
+            raster = image.Width <= 0 || image.Height <= 0 || image.Data.Length == 0
+                ? Raster.Empty
+                : new Raster(image.Width, image.Height, image.Data);
+        }
+        catch
+        {
+            raster = Raster.Empty;
+        }
+
+        lock (RasterCacheLock)
+        {
+            RasterCache[path] = raster;
+        }
+        return raster;
     }
 
     private static Color ColorFromRgb(RgbSample color)
@@ -1020,9 +1788,322 @@ public sealed class Image : Element
         return color.Rgba is Rgba rgba && rgba.Alpha >= byte.MaxValue;
     }
 
+    private readonly record struct ImageRenderCacheKey(
+        string Source,
+        int Width,
+        int Height,
+        string Fit,
+        string Align,
+        string VerticalAlign,
+        RgbSample Background,
+        int SourceHeight,
+        int CropTop);
+
     private readonly record struct RgbSample(int Red, int Green, int Blue);
 
     private readonly record struct RgbaSample(int Red, int Green, int Blue, int Alpha);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SixelWriteFunction(IntPtr data, int size, IntPtr priv);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SixelOutputNewFunction(out IntPtr output, SixelWriteFunction write, IntPtr priv, IntPtr allocator);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SixelDitherNewFunction(out IntPtr dither, int colors, IntPtr allocator);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SixelDitherInitializeFunction(
+        IntPtr dither,
+        IntPtr pixels,
+        int width,
+        int height,
+        int format,
+        int largest,
+        int representative,
+        int quality);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SixelEncodeFunction(IntPtr pixels, int width, int height, int depth, IntPtr dither, IntPtr output);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SixelOutputUnrefFunction(IntPtr output);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SixelDitherUnrefFunction(IntPtr dither);
+
+    private sealed class SixelApi
+    {
+        public SixelApi(
+            IntPtr handle,
+            SixelOutputNewFunction outputNew,
+            SixelDitherNewFunction ditherNew,
+            SixelDitherInitializeFunction ditherInitialize,
+            SixelEncodeFunction encode,
+            SixelOutputUnrefFunction outputUnref,
+            SixelDitherUnrefFunction ditherUnref)
+        {
+            Handle = handle;
+            OutputNew = outputNew;
+            DitherNew = ditherNew;
+            DitherInitialize = ditherInitialize;
+            Encode = encode;
+            OutputUnref = outputUnref;
+            DitherUnref = ditherUnref;
+        }
+
+        public IntPtr Handle { get; }
+        public SixelOutputNewFunction OutputNew { get; }
+        public SixelDitherNewFunction DitherNew { get; }
+        public SixelDitherInitializeFunction DitherInitialize { get; }
+        public SixelEncodeFunction Encode { get; }
+        public SixelOutputUnrefFunction OutputUnref { get; }
+        public SixelDitherUnrefFunction DitherUnref { get; }
+    }
+
+    private static class SixelApiLoader
+    {
+        private static readonly object LoadLock = new();
+        private static bool loaded;
+        private static SixelApi? api;
+
+        public static SixelApi? Load()
+        {
+            lock (LoadLock)
+            {
+                if (loaded)
+                {
+                    return api;
+                }
+                loaded = true;
+                api = LoadFromCandidates();
+                return api;
+            }
+        }
+
+        private static SixelApi? LoadFromCandidates()
+        {
+            foreach (string candidate in SixelLibraryCandidates())
+            {
+                if (!NativeLibrary.TryLoad(candidate, out IntPtr handle))
+                {
+                    continue;
+                }
+                SixelApi? loadedApi = ApiFromHandle(handle);
+                if (loadedApi is not null)
+                {
+                    return loadedApi;
+                }
+                NativeLibrary.Free(handle);
+            }
+            return null;
+        }
+
+        private static IEnumerable<string> SixelLibraryCandidates()
+        {
+            foreach (string name in SixelLibraryNames())
+            {
+                yield return name;
+            }
+            foreach (string directory in SixelSearchDirectories())
+            {
+                foreach (string name in SixelLibraryNames())
+                {
+                    yield return Path.Combine(directory, name);
+                }
+            }
+            string configuredPath = Environment.GetEnvironmentVariable("UIMD_LIBSIXEL_PATH") ?? "";
+            if (!string.IsNullOrWhiteSpace(configuredPath))
+            {
+                yield return configuredPath;
+            }
+            foreach (string directory in EnvironmentSearchDirectories("UIMD_LIBSIXEL_DIR", Path.PathSeparator))
+            {
+                foreach (string name in SixelLibraryNames())
+                {
+                    yield return Path.Combine(directory, name);
+                }
+            }
+        }
+
+        private static IEnumerable<string> SixelLibraryNames()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                yield return "libsixel.dll";
+                yield return "sixel.dll";
+                yield return "libsixel-1.dll";
+                yield break;
+            }
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+            {
+                yield return "libsixel.1.dylib";
+                yield return "libsixel.dylib";
+                yield break;
+            }
+            yield return "libsixel.so.1";
+            yield return "libsixel.so";
+        }
+
+        private static IEnumerable<string> SixelSearchDirectories()
+        {
+            HashSet<string> directories = new(StringComparer.Ordinal);
+            if (OperatingSystem.IsWindows())
+            {
+                AppendEnvironmentSearchDirectories(directories, "PATH", ';');
+                AppendEnvironmentSearchDirectories(directories, "LIB", ';');
+            }
+            else
+            {
+                AppendEnvironmentSearchDirectories(directories, "LD_LIBRARY_PATH", ':');
+                if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+                {
+                    AppendEnvironmentSearchDirectories(directories, "DYLD_LIBRARY_PATH", ':');
+                    AppendEnvironmentSearchDirectories(directories, "DYLD_FALLBACK_LIBRARY_PATH", ':');
+                }
+            }
+
+            string homebrewPrefix = Environment.GetEnvironmentVariable("HOMEBREW_PREFIX") ?? "";
+            if (!string.IsNullOrWhiteSpace(homebrewPrefix))
+            {
+                AppendSearchDirectory(directories, Path.Combine(homebrewPrefix, "lib"));
+                AppendSearchDirectory(directories, Path.Combine(homebrewPrefix, "opt", "libsixel", "lib"));
+            }
+            string macportsPrefix = Environment.GetEnvironmentVariable("MACPORTS_PREFIX") ?? "";
+            if (!string.IsNullOrWhiteSpace(macportsPrefix))
+            {
+                AppendSearchDirectory(directories, Path.Combine(macportsPrefix, "lib"));
+            }
+
+            string baseDirectory = AppContext.BaseDirectory;
+            if (!string.IsNullOrWhiteSpace(baseDirectory))
+            {
+                AppendSearchDirectory(directories, baseDirectory);
+                AppendSearchDirectory(directories, Path.Combine(baseDirectory, "lib"));
+                AppendSearchDirectory(directories, Path.Combine(baseDirectory, "..", "lib"));
+                AppendSearchDirectory(directories, Path.Combine(baseDirectory, "..", "..", "lib"));
+            }
+
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+            {
+                AppendSearchDirectory(directories, "/opt/homebrew/opt/libsixel/lib");
+                AppendSearchDirectory(directories, "/opt/homebrew/lib");
+                AppendSearchDirectory(directories, "/usr/local/opt/libsixel/lib");
+                AppendSearchDirectory(directories, "/usr/local/lib");
+                AppendSearchDirectory(directories, "/opt/local/lib");
+            }
+            else if (OperatingSystem.IsWindows())
+            {
+                AppendSearchDirectory(directories, "C:/Program Files/libsixel/bin");
+                AppendSearchDirectory(directories, "C:/Program Files/libsixel/lib");
+                AppendSearchDirectory(directories, "C:/Program Files (x86)/libsixel/bin");
+                AppendSearchDirectory(directories, "C:/Program Files (x86)/libsixel/lib");
+            }
+            else
+            {
+                AppendSearchDirectory(directories, "/usr/local/lib");
+                AppendSearchDirectory(directories, "/usr/lib");
+                AppendSearchDirectory(directories, "/usr/lib64");
+                AppendSearchDirectory(directories, "/lib");
+                AppendSearchDirectory(directories, "/lib64");
+                AppendSearchDirectory(directories, "/usr/lib/x86_64-linux-gnu");
+                AppendSearchDirectory(directories, "/usr/lib/aarch64-linux-gnu");
+                AppendSearchDirectory(directories, "/usr/lib/arm-linux-gnueabihf");
+            }
+
+            return directories;
+        }
+
+        private static IEnumerable<string> EnvironmentSearchDirectories(string variable, char delimiter)
+        {
+            string value = Environment.GetEnvironmentVariable(variable) ?? "";
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                yield break;
+            }
+            foreach (string item in value.Split(delimiter))
+            {
+                string normalized = NormalizeDirectory(item);
+                if (!string.IsNullOrEmpty(normalized))
+                {
+                    yield return normalized;
+                }
+            }
+        }
+
+        private static void AppendEnvironmentSearchDirectories(HashSet<string> directories, string variable, char delimiter)
+        {
+            foreach (string directory in EnvironmentSearchDirectories(variable, delimiter))
+            {
+                AppendSearchDirectory(directories, directory);
+            }
+        }
+
+        private static void AppendSearchDirectory(HashSet<string> directories, string directory)
+        {
+            string normalized = NormalizeDirectory(directory);
+            if (!string.IsNullOrEmpty(normalized))
+            {
+                directories.Add(normalized);
+            }
+        }
+
+        private static string NormalizeDirectory(string directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return "";
+            }
+            return Path.GetFullPath(directory);
+        }
+
+        private static SixelApi? ApiFromHandle(IntPtr handle)
+        {
+            if (!TryGet(handle, "sixel_output_new", out SixelOutputNewFunction? outputNew) ||
+                !TryGet(handle, "sixel_dither_new", out SixelDitherNewFunction? ditherNew) ||
+                !TryGet(handle, "sixel_dither_initialize", out SixelDitherInitializeFunction? ditherInitialize) ||
+                !TryGet(handle, "sixel_encode", out SixelEncodeFunction? encode) ||
+                !TryGet(handle, "sixel_output_unref", out SixelOutputUnrefFunction? outputUnref) ||
+                !TryGet(handle, "sixel_dither_unref", out SixelDitherUnrefFunction? ditherUnref))
+            {
+                return null;
+            }
+            return new SixelApi(
+                handle,
+                outputNew!,
+                ditherNew!,
+                ditherInitialize!,
+                encode!,
+                outputUnref!,
+                ditherUnref!);
+        }
+
+        private static bool TryGet<T>(IntPtr handle, string name, out T? function) where T : Delegate
+        {
+            if (NativeLibrary.TryGetExport(handle, name, out IntPtr pointer))
+            {
+                function = Marshal.GetDelegateForFunctionPointer<T>(pointer);
+                return true;
+            }
+            function = null;
+            return false;
+        }
+    }
+
+    private sealed class ForceCellBackgroundRenderingScope : IDisposable
+    {
+        private bool disposed;
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+            disposed = true;
+            forceCellBackgroundRenderingDepth = Math.Max(0, forceCellBackgroundRenderingDepth - 1);
+        }
+    }
 
     private sealed class Raster
     {
@@ -1037,6 +2118,8 @@ public sealed class Image : Element
         public int Height { get; }
         private byte[] Data { get; }
 
+        public static Raster Empty { get; } = new(0, 0, Array.Empty<byte>());
+
         public RgbaSample PixelAt(int x, int y)
         {
             x = Math.Clamp(x, 0, Width - 1);
@@ -1047,6 +2130,19 @@ public sealed class Image : Element
                 Data[offset + 1],
                 Data[offset + 2],
                 Data[offset + 3]);
+        }
+
+        public byte[] ToRgbBytes()
+        {
+            byte[] rgb = new byte[Math.Max(0, Width * Height * 3)];
+            int target = 0;
+            for (int offset = 0; offset + 3 < Data.Length && target + 2 < rgb.Length; offset += 4)
+            {
+                rgb[target++] = Data[offset];
+                rgb[target++] = Data[offset + 1];
+                rgb[target++] = Data[offset + 2];
+            }
+            return rgb;
         }
     }
 }
@@ -1154,16 +2250,22 @@ public sealed class CheckBox : Element
 
 public class TextInput : Element
 {
+    private const int TextInputOptionHorizontalSteps = 5;
+    private const int TextInputOptionVerticalSteps = 3;
+
     public string Value { get; private set; }
     public int Cursor { get; private set; }
     public int? SelectionStart { get; private set; }
     public int? SelectionEnd { get; private set; }
     public int MaxLength { get; }
     public bool Multiline { get; }
+    private int colScrollOffset;
+    private int rowScrollOffset;
+    private bool manualRowScroll;
 
     public TextInput(string name, string value = "", int maxLength = 0, bool multiline = false) : base(name)
     {
-        Value = value;
+        Value = NormalizeTextInputValue(value, multiline);
         MaxLength = maxLength;
         Multiline = multiline;
         Cursor = Value.Length;
@@ -1171,19 +2273,24 @@ public class TextInput : Element
 
     public void SetValue(string value)
     {
-        Value = value;
+        Value = NormalizeTextInputValue(value, Multiline);
         if (MaxLength > 0 && Value.Length > MaxLength)
         {
             Value = Value[..MaxLength];
         }
-        Cursor = Value.Length;
-        ClearSelection();
+        SetCursor(Cursor);
     }
 
     public void SetCursor(int cursor)
     {
+        manualRowScroll = false;
         Cursor = Math.Clamp(cursor, 0, Value.Length);
         ClearSelection();
+    }
+
+    private void SetCursorKeepingSelection(int cursor)
+    {
+        Cursor = Math.Clamp(cursor, 0, Value.Length);
     }
 
     public void SetSelection(int start, int end)
@@ -1191,6 +2298,23 @@ public class TextInput : Element
         SelectionStart = Math.Clamp(start, 0, Value.Length);
         SelectionEnd = Math.Clamp(end, 0, Value.Length);
         Cursor = SelectionEnd.Value;
+    }
+
+    public void SelectRange(int start, int end)
+    {
+        manualRowScroll = false;
+        int clampedStart = Math.Clamp(start, 0, Value.Length);
+        int clampedEnd = Math.Clamp(end, 0, Value.Length);
+        if (clampedStart == clampedEnd)
+        {
+            SelectionStart = null;
+            SelectionEnd = null;
+            Cursor = clampedEnd;
+            return;
+        }
+        SelectionStart = clampedStart;
+        SelectionEnd = clampedEnd;
+        Cursor = clampedEnd;
     }
 
     public void ClearSelection()
@@ -1210,12 +2334,30 @@ public class TextInput : Element
         return Value[start..end];
     }
 
+    private bool HasSelection()
+    {
+        return SelectionStart.HasValue && SelectionEnd.HasValue && SelectionStart.Value != SelectionEnd.Value;
+    }
+
+    private void DeleteSelection()
+    {
+        if (!HasSelection())
+        {
+            return;
+        }
+        int start = Math.Min(SelectionStart!.Value, SelectionEnd!.Value);
+        int end = Math.Max(SelectionStart.Value, SelectionEnd.Value);
+        Value = Value.Remove(start, end - start);
+        Cursor = start;
+        ClearSelection();
+    }
+
     public void InsertText(string text)
     {
         text = text.Replace("\r\n", "\n").Replace('\r', '\n');
         if (!Multiline)
         {
-            text = text.Replace("\n", "");
+            text = text.Replace('\n', ' ');
         }
         string prefix = Value[..Cursor];
         string suffix = Value[Cursor..];
@@ -1237,31 +2379,192 @@ public class TextInput : Element
         ClearSelection();
     }
 
+    public int CursorForPoint(int row, int col, Size size)
+    {
+        int width = SafeWidth(size, Value);
+        if (!Multiline)
+        {
+            RenderHelpers.LabelVisualRow inputVisualRow = MakeVisualTextRow(0, RenderHelpers.VisualGlyphs(Value, 0, 0));
+            return Math.Clamp(
+                RawIndexForVisualColumn(inputVisualRow, colScrollOffset + col),
+                0,
+                Value.Length);
+        }
+
+        int height = SafeHeight(size);
+        List<RenderHelpers.LabelVisualRow> rows = BuildVisualRows(Value, width);
+        int targetRow = Math.Clamp(row, 0, height - 1) + rowScrollOffset;
+        if (targetRow >= rows.Count)
+        {
+            return Value.Length;
+        }
+        RenderHelpers.LabelVisualRow rowAtPoint = rows[targetRow];
+        return Math.Clamp(RawIndexForVisualColumn(rowAtPoint, col), rowAtPoint.Start, rowAtPoint.End);
+    }
+
+    public bool ScrollByRows(int delta, int viewportHeight, bool manual = true)
+    {
+        if (!Multiline)
+        {
+            return false;
+        }
+        int height = SafeHeight(new Size(1, viewportHeight));
+        if (height <= 1)
+        {
+            return false;
+        }
+        int width = SafeWidth(new Size(Frame.Width, viewportHeight), Value);
+        List<RenderHelpers.LabelVisualRow> rows = BuildVisualRows(Value, width);
+        int maxOffset = Math.Max(0, rows.Count - height);
+        int nextOffset = Math.Clamp(rowScrollOffset + delta, 0, maxOffset);
+        if (nextOffset == rowScrollOffset)
+        {
+            return false;
+        }
+        rowScrollOffset = nextOffset;
+        manualRowScroll = manual;
+        return true;
+    }
+
     public override bool HandleKey(string key)
     {
+        manualRowScroll = false;
+        bool hasSelection = HasSelection();
         switch (key)
         {
+            case "Shift+Left":
+                SelectionStart ??= Cursor;
+                SetCursorKeepingSelection(Cursor - 1);
+                SelectionEnd = Cursor;
+                return true;
+            case "Shift+Right":
+                SelectionStart ??= Cursor;
+                SetCursorKeepingSelection(Cursor + 1);
+                SelectionEnd = Cursor;
+                return true;
+            case "Shift+Home":
+                SelectionStart ??= Cursor;
+                SetCursorKeepingSelection(LineStartForCursor());
+                SelectionEnd = Cursor;
+                return true;
+            case "Shift+End":
+                SelectionStart ??= Cursor;
+                SetCursorKeepingSelection(LineEndForCursor());
+                SelectionEnd = Cursor;
+                return true;
+            case "Shift+Up":
+                if (!Multiline)
+                {
+                    return false;
+                }
+                SelectionStart ??= Cursor;
+                MoveCursorVerticalKeepingSelection(-1);
+                SelectionEnd = Cursor;
+                return true;
+            case "Shift+Down":
+                if (!Multiline)
+                {
+                    return false;
+                }
+                SelectionStart ??= Cursor;
+                MoveCursorVerticalKeepingSelection(1);
+                SelectionEnd = Cursor;
+                return true;
             case "Left":
-                SetCursor(Cursor - 1);
+                if (hasSelection)
+                {
+                    Cursor = Math.Min(SelectionStart!.Value, SelectionEnd!.Value);
+                    ClearSelection();
+                }
+                else
+                {
+                    SetCursor(Cursor - 1);
+                }
                 return true;
             case "Right":
-                SetCursor(Cursor + 1);
+                if (hasSelection)
+                {
+                    Cursor = Math.Max(SelectionStart!.Value, SelectionEnd!.Value);
+                    ClearSelection();
+                }
+                else
+                {
+                    SetCursor(Cursor + 1);
+                }
+                return true;
+            case "Alt+Left":
+                ClearSelection();
+                for (int step = 0; step < TextInputOptionHorizontalSteps; ++step)
+                {
+                    SetCursor(Cursor - 1);
+                }
+                return true;
+            case "Alt+Right":
+                ClearSelection();
+                for (int step = 0; step < TextInputOptionHorizontalSteps; ++step)
+                {
+                    SetCursor(Cursor + 1);
+                }
+                return true;
+            case "Up":
+                if (!Multiline)
+                {
+                    return false;
+                }
+                MoveCursorVertical(-1);
+                return true;
+            case "Down":
+                if (!Multiline)
+                {
+                    return false;
+                }
+                MoveCursorVertical(1);
+                return true;
+            case "Alt+Up":
+                if (!Multiline)
+                {
+                    return false;
+                }
+                ClearSelection();
+                for (int step = 0; step < TextInputOptionVerticalSteps; ++step)
+                {
+                    MoveCursorVertical(-1);
+                }
+                return true;
+            case "Alt+Down":
+                if (!Multiline)
+                {
+                    return false;
+                }
+                ClearSelection();
+                for (int step = 0; step < TextInputOptionVerticalSteps; ++step)
+                {
+                    MoveCursorVertical(1);
+                }
                 return true;
             case "Home":
-                SetCursor(0);
+                SetCursor(LineStartForCursor());
                 return true;
             case "End":
-                SetCursor(Value.Length);
+                SetCursor(LineEndForCursor());
                 return true;
             case "Backspace":
-                if (Cursor > 0)
+                if (hasSelection)
+                {
+                    DeleteSelection();
+                }
+                else if (Cursor > 0)
                 {
                     Value = Value.Remove(Cursor - 1, 1);
                     --Cursor;
                 }
                 return true;
             case "Delete":
-                if (Cursor < Value.Length)
+                if (hasSelection)
+                {
+                    DeleteSelection();
+                }
+                else if (Cursor < Value.Length)
                 {
                     Value = Value.Remove(Cursor, 1);
                 }
@@ -1283,87 +2586,350 @@ public class TextInput : Element
         }
     }
 
+    private int LineStartForCursor()
+    {
+        if (Cursor <= 0)
+        {
+            return 0;
+        }
+        int index = Value.LastIndexOf('\n', Math.Max(0, Cursor - 1));
+        return index < 0 ? 0 : index + 1;
+    }
+
+    private int LineEndForCursor()
+    {
+        int index = Value.IndexOf('\n', Cursor);
+        return index < 0 ? Value.Length : index;
+    }
+
+    private void MoveCursorVertical(int delta)
+    {
+        MoveCursorVertical(delta, clearSelection: true);
+    }
+
+    private void MoveCursorVerticalKeepingSelection(int delta)
+    {
+        MoveCursorVertical(delta, clearSelection: false);
+    }
+
+    private void MoveCursorVertical(int delta, bool clearSelection)
+    {
+        if (Multiline && Frame.Width > 0)
+        {
+            int width = SafeWidth(new Size(Frame.Width, Frame.Height), Value);
+            List<RenderHelpers.LabelVisualRow> rows = BuildVisualRows(Value, width);
+            int currentRow = VisualRowForCursor(rows, width, Cursor);
+            int targetRow = currentRow + delta;
+            if (targetRow < 0 || targetRow >= rows.Count)
+            {
+                return;
+            }
+            RenderHelpers.LabelVisualRow current = rows[currentRow];
+            RenderHelpers.LabelVisualRow target = rows[targetRow];
+            int currentVisualCol = Math.Clamp(
+                VisualColumnForCursor(current, Cursor, width),
+                0,
+                current.Cells.Count);
+            int nextCursor = RawIndexForVisualColumn(target, currentVisualCol);
+            if (clearSelection)
+            {
+                SetCursor(nextCursor);
+            }
+            else
+            {
+                SetCursorKeepingSelection(nextCursor);
+            }
+            return;
+        }
+
+        int currentStart = LineStartForCursor();
+        int currentTextCol = Cursor - currentStart;
+        int targetStart = currentStart;
+        if (delta < 0)
+        {
+            if (currentStart == 0)
+            {
+                return;
+            }
+            int previousNewline = Value.LastIndexOf('\n', Math.Max(0, currentStart - 2));
+            targetStart = previousNewline < 0 ? 0 : previousNewline + 1;
+        }
+        else if (delta > 0)
+        {
+            int nextNewline = Value.IndexOf('\n', Cursor);
+            if (nextNewline < 0)
+            {
+                return;
+            }
+            targetStart = nextNewline + 1;
+        }
+
+        int targetEndPos = Value.IndexOf('\n', targetStart);
+        int targetEnd = targetEndPos < 0 ? Value.Length : targetEndPos;
+        int next = Math.Min(targetStart + currentTextCol, targetEnd);
+        if (clearSelection)
+        {
+            SetCursor(next);
+        }
+        else
+        {
+            SetCursorKeepingSelection(next);
+        }
+    }
+
     public override List<List<TerminalCell>> Render(Size size, ElementRenderState? state = null)
     {
         state ??= new ElementRenderState();
-        int width = Math.Max(1, size.Width);
+        int width = SafeWidth(size, Value) + (size.Width > 0 ? 0 : 1);
         int height = Math.Max(1, Multiline ? size.Height : 1);
         Style style = EffectiveStyle(state.Focused, state.EditMode);
-        List<List<TerminalCell>> rendered = RenderHelpers.RenderPlainText(Value, width, height, style);
-        if (Multiline)
-        {
-            List<string> rows = RenderHelpers.WrapText(Value, width);
-            if (rows.Count > height && rows[Math.Min(height - 1, rows.Count - 1)].Length < width)
-            {
-                rendered[height - 1][width - 1].Text = "v";
-            }
-        }
-        if (!state.EditMode)
-        {
-            return rendered;
-        }
-
         Style cursorStyle = style.Clone();
         if (CursorStyle is not null)
         {
             cursorStyle.Merge(CursorStyle);
         }
-        ApplySelectionOrCursor(rendered, width, height, cursorStyle);
+
+        if (!Multiline)
+        {
+            RenderHelpers.LabelVisualRow inputVisualRow = MakeVisualTextRow(0, RenderHelpers.VisualGlyphs(Value, 0, 0));
+            int textWidth = inputVisualRow.Cells.Count;
+            colScrollOffset = Math.Max(0, colScrollOffset);
+            if (textWidth <= width)
+            {
+                colScrollOffset = 0;
+            }
+            int cursorVisualCol = VisualColumnForCursor(inputVisualRow, Cursor, Math.Max(width, textWidth + 1));
+            if (state.EditMode)
+            {
+                if (cursorVisualCol < colScrollOffset)
+                {
+                    colScrollOffset = cursorVisualCol;
+                }
+                else if (cursorVisualCol >= colScrollOffset + width)
+                {
+                    colScrollOffset = Math.Max(0, cursorVisualCol - width + 1);
+                }
+            }
+
+            List<RenderHelpers.VisualGlyph> visibleCells = new();
+            if (colScrollOffset < textWidth)
+            {
+                int end = Math.Min(textWidth, colScrollOffset + width);
+                visibleCells = inputVisualRow.Cells.GetRange(colScrollOffset, end - colScrollOffset);
+            }
+            List<TerminalCell> renderedRow = GlyphRow(visibleCells, width, style);
+            if (!state.EditMode && width > 0 && textWidth > colScrollOffset + width)
+            {
+                renderedRow[width - 1].Text = ">";
+            }
+            List<List<TerminalCell>> single = new() { renderedRow };
+            if (state.EditMode && HasSelection())
+            {
+                int singleSelectionLow = SelectionLow();
+                int singleSelectionHigh = SelectionHigh();
+                for (int col = 0; col < width; ++col)
+                {
+                    int source = col < visibleCells.Count ? visibleCells[col].SourceStart : -1;
+                    if (source >= singleSelectionLow && source < singleSelectionHigh)
+                    {
+                        single[0][col].Foreground = cursorStyle.Color;
+                        single[0][col].Background = cursorStyle.Background;
+                    }
+                }
+            }
+            else if (state.EditMode)
+            {
+                int visibleCol = Math.Clamp(cursorVisualCol - colScrollOffset, 0, width - 1);
+                single[0][visibleCol].Foreground = cursorStyle.Color;
+                single[0][visibleCol].Background = cursorStyle.Background;
+            }
+            return single;
+        }
+
+        List<RenderHelpers.LabelVisualRow> rows = BuildVisualRows(Value, width);
+        int cursorRow = VisualRowForCursor(rows, width, Cursor);
+        rowScrollOffset = Math.Clamp(rowScrollOffset, 0, Math.Max(0, rows.Count - height));
+        if (state.EditMode && !manualRowScroll)
+        {
+            if (cursorRow < rowScrollOffset)
+            {
+                rowScrollOffset = cursorRow;
+            }
+            else if (cursorRow >= rowScrollOffset + height)
+            {
+                rowScrollOffset = cursorRow - height + 1;
+            }
+        }
+
+        bool hasAbove = rowScrollOffset > 0;
+        bool hasBelow = rowScrollOffset + height < rows.Count;
+        bool selectionActive = state.EditMode && HasSelection();
+        int selectionLow = selectionActive ? SelectionLow() : 0;
+        int selectionHigh = selectionActive ? SelectionHigh() : 0;
+        List<List<TerminalCell>> rendered = new();
+
+        for (int row = 0; row < height; ++row)
+        {
+            int rowIndex = rowScrollOffset + row;
+            bool hasVisualRow = rowIndex < rows.Count;
+            RenderHelpers.LabelVisualRow visualRow = hasVisualRow
+                ? rows[rowIndex]
+                : new RenderHelpers.LabelVisualRow(0, 0, new List<RenderHelpers.VisualGlyph>());
+            List<TerminalCell> renderedRow = GlyphRow(visualRow.Cells, width, style);
+            rendered.Add(renderedRow);
+
+            int cursorCol = -1;
+            if (state.EditMode && hasVisualRow)
+            {
+                cursorCol = VisualColumnForCursor(visualRow, Cursor, width);
+            }
+
+            bool firstVisibleRow = row == 0;
+            bool lastVisibleRow = row == height - 1;
+            bool indicatorVisible = width > 0 &&
+                visualRow.Cells.Count < width &&
+                ((firstVisibleRow && hasAbove) || (lastVisibleRow && hasBelow));
+            int indicatorCol = width - 1;
+            bool indicatorOverlapsCursor = cursorCol == indicatorCol;
+            if (indicatorVisible && !indicatorOverlapsCursor)
+            {
+                rendered[^1][indicatorCol].Text = firstVisibleRow && hasAbove ? "^" : "v";
+            }
+
+            if (selectionActive)
+            {
+                for (int col = 0; col < Math.Min(width, visualRow.Cells.Count); ++col)
+                {
+                    int source = visualRow.Cells[col].SourceStart;
+                    if (source < selectionLow || source >= selectionHigh)
+                    {
+                        continue;
+                    }
+                    rendered[^1][col].Foreground = cursorStyle.Color;
+                    rendered[^1][col].Background = cursorStyle.Background;
+                }
+            }
+            else if (state.EditMode && cursorCol >= 0 && cursorCol < width)
+            {
+                rendered[^1][cursorCol].Foreground = cursorStyle.Color;
+                rendered[^1][cursorCol].Background = cursorStyle.Background;
+            }
+        }
         return rendered;
     }
 
-    private void ApplySelectionOrCursor(List<List<TerminalCell>> rendered, int width, int height, Style cursorStyle)
+    private static string NormalizeTextInputValue(string value, bool multiline)
     {
-        if (SelectionStart.HasValue && SelectionEnd.HasValue && SelectionStart.Value != SelectionEnd.Value)
-        {
-            int start = Math.Min(SelectionStart.Value, SelectionEnd.Value);
-            int end = Math.Max(SelectionStart.Value, SelectionEnd.Value);
-            for (int index = start; index < end; ++index)
-            {
-                (int row, int col) = VisualPosition(index, width);
-                if (row >= 0 && row < height && col >= 0 && col < width)
-                {
-                    rendered[row][col].Foreground = cursorStyle.Color;
-                    rendered[row][col].Background = cursorStyle.Background;
-                }
-            }
-            return;
-        }
-
-        (int cursorRow, int cursorCol) = VisualPosition(Cursor, width);
-        cursorRow = Math.Clamp(cursorRow, 0, height - 1);
-        cursorCol = Math.Clamp(cursorCol, 0, width - 1);
-        rendered[cursorRow][cursorCol].Foreground = cursorStyle.Color;
-        rendered[cursorRow][cursorCol].Background = cursorStyle.Background;
+        return multiline ? value : value.Replace('\r', ' ').Replace('\n', ' ');
     }
 
-    private (int Row, int Col) VisualPosition(int rawIndex, int width)
+    private static int SafeWidth(Size size, string text)
     {
-        rawIndex = Math.Clamp(rawIndex, 0, Value.Length);
-        width = Math.Max(1, width);
-        int row = 0;
-        int col = 0;
-        for (int index = 0; index < rawIndex; ++index)
+        return Math.Max(1, size.Width > 0 ? size.Width : RenderHelpers.VisualGlyphs(text, 0, 0).Count);
+    }
+
+    private static int SafeHeight(Size size)
+    {
+        return Math.Max(1, size.Height > 0 ? size.Height : 1);
+    }
+
+    private static RenderHelpers.LabelVisualRow MakeVisualTextRow(
+        int fallbackStart,
+        List<RenderHelpers.VisualGlyph> cells)
+    {
+        if (cells.Count == 0)
         {
-            char ch = Value[index];
-            if (ch == '\r')
+            return new RenderHelpers.LabelVisualRow(fallbackStart, fallbackStart, cells);
+        }
+        return new RenderHelpers.LabelVisualRow(cells[0].SourceStart, cells[^1].SourceEnd, cells);
+    }
+
+    private static List<RenderHelpers.LabelVisualRow> BuildVisualRows(string text, int width)
+    {
+        return RenderHelpers.BuildLabelVisualRows(text, width);
+    }
+
+    private static int VisualRowForCursor(List<RenderHelpers.LabelVisualRow> rows, int width, int cursor)
+    {
+        for (int index = 0; index < rows.Count; ++index)
+        {
+            RenderHelpers.LabelVisualRow row = rows[index];
+            if (cursor <= row.End && (row.Cells.Count < width || cursor < row.End))
             {
-                continue;
-            }
-            if (ch == '\n')
-            {
-                ++row;
-                col = 0;
-                continue;
-            }
-            ++col;
-            if (col >= width)
-            {
-                ++row;
-                col = 0;
+                return index;
             }
         }
-        return (row, col);
+        return Math.Max(0, rows.Count - 1);
+    }
+
+    private static int VisualColumnForCursor(RenderHelpers.LabelVisualRow row, int cursor, int width)
+    {
+        if (cursor < row.Start || cursor > row.End)
+        {
+            return -1;
+        }
+        for (int index = 0; index < row.Cells.Count; ++index)
+        {
+            RenderHelpers.VisualGlyph glyph = row.Cells[index];
+            if (glyph.SourceStart >= 0 && cursor <= glyph.SourceStart)
+            {
+                return index;
+            }
+            if (glyph.SourceStart >= 0 &&
+                glyph.SourceEnd >= 0 &&
+                cursor > glyph.SourceStart &&
+                cursor < glyph.SourceEnd)
+            {
+                return index;
+            }
+        }
+        if (cursor >= row.Start && cursor <= row.End)
+        {
+            return Math.Min(row.Cells.Count, Math.Max(0, width - 1));
+        }
+        return -1;
+    }
+
+    private static int RawIndexForVisualColumn(RenderHelpers.LabelVisualRow row, int col)
+    {
+        return RenderHelpers.RawIndexForLabelVisualColumn(row, col);
+    }
+
+    private int SelectionLow()
+    {
+        return HasSelection() ? Math.Min(SelectionStart!.Value, Cursor) : Cursor;
+    }
+
+    private int SelectionHigh()
+    {
+        return HasSelection() ? Math.Max(SelectionStart!.Value, Cursor) : Cursor;
+    }
+
+    private static List<TerminalCell> GlyphRow(
+        List<RenderHelpers.VisualGlyph> glyphs,
+        int width,
+        Style style)
+    {
+        List<TerminalCell> row = new(width);
+        for (int index = 0; index < Math.Min(width, glyphs.Count); ++index)
+        {
+            row.Add(StyledCell(glyphs[index].Text, style));
+        }
+        while (row.Count < width)
+        {
+            row.Add(StyledCell(" ", style));
+        }
+        return row;
+    }
+
+    private static TerminalCell StyledCell(string text, Style style)
+    {
+        return new TerminalCell
+        {
+            Text = string.IsNullOrEmpty(text) ? " " : text,
+            Foreground = style.Color,
+            Background = style.Background,
+        };
     }
 }
 
@@ -1382,6 +2948,8 @@ public sealed class NumberInput : Element
     private string editText = "";
     private int editCursor;
     private bool editing;
+    private double editOriginalValue;
+    private bool replaceOnFirstTextInput;
 
     public NumberInput(string name, double value = 0.0, double stepSize = 1.0) : base(name)
     {
@@ -1395,18 +2963,137 @@ public sealed class NumberInput : Element
         editText = "";
         editCursor = 0;
         editing = false;
+        editOriginalValue = value;
+        replaceOnFirstTextInput = false;
+    }
+
+    public string DisplayText()
+    {
+        return DisplayValue();
+    }
+
+    public void BeginEdit()
+    {
+        if (editing)
+        {
+            return;
+        }
+        editOriginalValue = Value;
+        editText = DisplayValue();
+        editCursor = editText.Length;
+        editing = true;
+        replaceOnFirstTextInput = Value == 0.0;
+    }
+
+    public void CancelEdit()
+    {
+        if (!editing)
+        {
+            return;
+        }
+        Value = editOriginalValue;
+        editText = "";
+        editCursor = 0;
+        editing = false;
+        replaceOnFirstTextInput = false;
+    }
+
+    public void CommitEdit()
+    {
+        EnsureEditText();
+        if (string.IsNullOrEmpty(editText))
+        {
+            Value = 0.0;
+        }
+        else if (double.TryParse(
+            editText,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out double parsed))
+        {
+            Value = parsed;
+        }
+        else
+        {
+            Value = editOriginalValue;
+        }
+        editText = "";
+        editCursor = 0;
+        editing = false;
+        replaceOnFirstTextInput = false;
+    }
+
+    public void SetEditCursor(int cursor)
+    {
+        EnsureEditText();
+        editCursor = Math.Clamp(cursor, 0, editText.Length);
+        replaceOnFirstTextInput = false;
     }
 
     public override bool HandleKey(string key)
     {
+        EnsureEditText();
         if (key == "Up")
         {
             Value += StepSize;
+            editText = DisplayValue();
+            editCursor = editText.Length;
+            replaceOnFirstTextInput = false;
             return true;
         }
         if (key == "Down")
         {
             Value -= StepSize;
+            editText = DisplayValue();
+            editCursor = editText.Length;
+            replaceOnFirstTextInput = false;
+            return true;
+        }
+        if (key == "Left")
+        {
+            SetEditCursor(editCursor - 1);
+            return true;
+        }
+        if (key == "Right")
+        {
+            SetEditCursor(editCursor + 1);
+            return true;
+        }
+        if (key == "Home")
+        {
+            SetEditCursor(0);
+            return true;
+        }
+        if (key == "End")
+        {
+            SetEditCursor(editText.Length);
+            return true;
+        }
+        if (key == "Backspace")
+        {
+            replaceOnFirstTextInput = false;
+            if (editCursor > 0)
+            {
+                editText = editText.Remove(editCursor - 1, 1);
+                --editCursor;
+            }
+            return true;
+        }
+        if (key == "Enter")
+        {
+            CommitEdit();
+            return true;
+        }
+        if (key.Length == 1 && (char.IsDigit(key[0]) || key == "." || key == "-"))
+        {
+            if (replaceOnFirstTextInput)
+            {
+                editText = "";
+                editCursor = 0;
+                replaceOnFirstTextInput = false;
+            }
+            editText = editText.Insert(editCursor, key);
+            ++editCursor;
             return true;
         }
         return false;
@@ -1448,9 +3135,7 @@ public sealed class NumberInput : Element
         {
             return;
         }
-        editText = DisplayValue();
-        editCursor = editText.Length;
-        editing = true;
+        BeginEdit();
     }
 }
 
@@ -1458,7 +3143,6 @@ public sealed class ComboBox : Element
 {
     public List<string> Options { get; }
     public int SelectedIndex { get; private set; }
-    public bool MenuOpen { get; private set; }
 
     public ComboBox(string name, IEnumerable<string>? options = null) : base(name)
     {
@@ -1485,40 +3169,20 @@ public sealed class ComboBox : Element
         SelectedIndex = Math.Clamp(index, 0, Options.Count - 1);
     }
 
-    public void CloseMenu()
-    {
-        MenuOpen = false;
-    }
-
     public override bool HandleKey(string key)
     {
-        if (!MenuOpen)
+        if (Options.Count == 0)
         {
-            if (key == "Enter")
-            {
-                MenuOpen = true;
-                return true;
-            }
             return false;
-        }
-        if (key == "Escape")
-        {
-            MenuOpen = false;
-            return true;
-        }
-        if (key == "Up")
-        {
-            SetSelectedIndex(SelectedIndex - 1);
-            return true;
         }
         if (key == "Down")
         {
             SetSelectedIndex(SelectedIndex + 1);
             return true;
         }
-        if (key == "Enter")
+        if (key == "Up")
         {
-            MenuOpen = false;
+            SetSelectedIndex(SelectedIndex - 1);
             return true;
         }
         return false;
@@ -1528,20 +3192,20 @@ public sealed class ComboBox : Element
     {
         state ??= new ElementRenderState();
         int width = Math.Max(1, size.Width);
-        int height = MenuOpen ? Options.Count + 1 : 1;
+        int height = state.EditMode ? Options.Count + 1 : 1;
         Style baseStyle = EffectiveStyle(state.Focused, state.EditMode);
         List<List<TerminalCell>> rendered = new();
 
         string closed = FitText(SelectedText, width);
-        if (width > 0 && (state.Focused || state.EditMode || MenuOpen))
+        if (width > 0 && (state.Focused || state.EditMode))
         {
             char[] chars = closed.ToCharArray();
-            chars[width - 1] = MenuOpen ? 'v' : '>';
+            chars[width - 1] = state.EditMode ? 'v' : '>';
             closed = new string(chars);
         }
         rendered.Add(RenderRow(closed, width, baseStyle));
 
-        if (MenuOpen)
+        if (state.EditMode)
         {
             for (int row = 1; row < height; ++row)
             {
@@ -1578,60 +3242,159 @@ public sealed class ComboBox : Element
 public sealed class ListBox : Element
 {
     public List<string> Options { get; }
+    public IReadOnlyList<string> DisabledValues => disabledValues;
     public int SelectedIndex { get; private set; }
     public bool Multiple { get; private set; }
-    private readonly HashSet<string> selectedValues = new();
+    private readonly List<int> selectedIndices = new();
+    private readonly List<string> disabledValues = new();
     private int scrollOffset;
     private int lastViewportHeight;
 
     public ListBox(string name, IEnumerable<string>? options = null) : base(name)
     {
         Options = options?.ToList() ?? new List<string>();
-        SelectedIndex = Options.Count > 0 ? 0 : -1;
+        SetSelectedIndex(SelectedIndex);
     }
 
-    public IReadOnlyCollection<string> SelectedValues => selectedValues.Count > 0 ? selectedValues : SelectedIndex >= 0 && SelectedIndex < Options.Count ? new[] { Options[SelectedIndex] } : Array.Empty<string>();
+    public IReadOnlyCollection<string> SelectedValues =>
+        selectedIndices
+            .Where(index => index >= 0 && index < Options.Count)
+            .Select(index => Options[index])
+            .ToList();
+    public int ScrollOffset => scrollOffset;
 
     public void SetOptions(IEnumerable<string> options)
     {
         Options.Clear();
         Options.AddRange(options);
-        selectedValues.Clear();
-        SelectedIndex = Options.Count > 0 ? Math.Clamp(SelectedIndex, 0, Options.Count - 1) : -1;
-        EnsureSelectedVisible();
+        if (selectedIndices.Count == 0)
+        {
+            SetSelectedIndex(SelectedIndex);
+        }
+        else
+        {
+            SetSelectedIndices(selectedIndices.ToList());
+        }
+        if (Options.Count == 0)
+        {
+            scrollOffset = 0;
+        }
+    }
+
+    public void SetDisabledValues(IEnumerable<string> values)
+    {
+        disabledValues.Clear();
+        disabledValues.AddRange(values);
     }
 
     public void SetMultiple(bool multiple)
     {
         Multiple = multiple;
+        if (!Multiple && selectedIndices.Count > 1)
+        {
+            SetSelectedIndex(SelectedIndex);
+        }
     }
 
     public void SetSelectedIndex(int index)
     {
         if (Options.Count == 0)
         {
-            SelectedIndex = -1;
+            SelectedIndex = 0;
+            selectedIndices.Clear();
+            scrollOffset = 0;
             return;
         }
         SelectedIndex = Math.Clamp(index, 0, Options.Count - 1);
-        EnsureSelectedVisible();
+        if (!Multiple)
+        {
+            selectedIndices.Clear();
+            selectedIndices.Add(SelectedIndex);
+        }
+        else if (selectedIndices.Count == 0)
+        {
+            selectedIndices.Add(SelectedIndex);
+        }
+        else
+        {
+            selectedIndices[^1] = SelectedIndex;
+        }
+        if (lastViewportHeight > 0)
+        {
+            EnsureSelectedVisible(lastViewportHeight);
+        }
+    }
+
+    public void SetSelectedIndices(IEnumerable<int> indices)
+    {
+        selectedIndices.Clear();
+        if (Options.Count == 0)
+        {
+            SelectedIndex = 0;
+            scrollOffset = 0;
+            return;
+        }
+        foreach (int index in indices)
+        {
+            int clamped = Math.Clamp(index, 0, Options.Count - 1);
+            if (!selectedIndices.Contains(clamped))
+            {
+                selectedIndices.Add(clamped);
+            }
+            if (!Multiple)
+            {
+                break;
+            }
+        }
+        if (selectedIndices.Count == 0)
+        {
+            SelectedIndex = Math.Clamp(SelectedIndex, 0, Options.Count - 1);
+            return;
+        }
+        SelectedIndex = selectedIndices[^1];
+        if (lastViewportHeight > 0)
+        {
+            EnsureSelectedVisible(lastViewportHeight);
+        }
+    }
+
+    public void ToggleSelectedIndex(int index)
+    {
+        if (Options.Count == 0)
+        {
+            SelectedIndex = 0;
+            selectedIndices.Clear();
+            scrollOffset = 0;
+            return;
+        }
+        SelectedIndex = Math.Clamp(index, 0, Options.Count - 1);
+        int existing = selectedIndices.IndexOf(SelectedIndex);
+        if (existing < 0)
+        {
+            selectedIndices.Add(SelectedIndex);
+        }
+        else
+        {
+            selectedIndices.RemoveAt(existing);
+        }
+        if (lastViewportHeight > 0)
+        {
+            EnsureSelectedVisible(lastViewportHeight);
+        }
     }
 
     public void SetSelectedValues(IEnumerable<string> values)
     {
-        selectedValues.Clear();
+        List<int> indices = new();
         foreach (string value in values)
         {
-            if (Options.Contains(value))
+            int index = Options.IndexOf(value);
+            if (index >= 0)
             {
-                selectedValues.Add(value);
+                indices.Add(index);
             }
         }
-        if (selectedValues.Count == 1)
-        {
-            SelectedIndex = Options.IndexOf(selectedValues.First());
-            EnsureSelectedVisible();
-        }
+        SetSelectedIndices(indices);
     }
 
     public bool ScrollLines(int delta)
@@ -1659,12 +3422,16 @@ public sealed class ListBox : Element
             SetSelectedIndex(SelectedIndex + 1);
             return true;
         }
-        if (key == " " && Multiple && SelectedIndex >= 0 && SelectedIndex < Options.Count)
+        if (key == "Enter" && Multiple && SelectedIndex >= 0 && SelectedIndex < Options.Count)
         {
-            string value = Options[SelectedIndex];
-            if (!selectedValues.Add(value))
+            int existing = selectedIndices.IndexOf(SelectedIndex);
+            if (existing < 0)
             {
-                selectedValues.Remove(value);
+                selectedIndices.Add(SelectedIndex);
+            }
+            else
+            {
+                selectedIndices.RemoveAt(existing);
             }
             return true;
         }
@@ -1687,11 +3454,20 @@ public sealed class ListBox : Element
         {
             int optionIndex = scrollOffset + row;
             string text = optionIndex < Options.Count ? Options[optionIndex] : "";
-            bool selected = optionIndex < Options.Count && (selectedValues.Count > 0 ? selectedValues.Contains(Options[optionIndex]) : optionIndex == SelectedIndex);
+            bool selected = optionIndex < Options.Count && selectedIndices.Contains(optionIndex);
+            bool disabled = optionIndex < Options.Count && disabledValues.Contains(Options[optionIndex]);
             Style rowStyle = style.Clone();
             if (selected && SelectedStyle is not null)
             {
                 rowStyle.Merge(SelectedStyle);
+            }
+            if (disabled)
+            {
+                rowStyle = style.Clone();
+                if (DisabledStyle is not null)
+                {
+                    rowStyle.Merge(DisabledStyle);
+                }
             }
             List<TerminalCell> rendered = RenderHelpers.RenderPlainText(text, width, 1, rowStyle)[0];
             if (row == 0 && hasAbove && width > 0)
@@ -1707,33 +3483,46 @@ public sealed class ListBox : Element
         return rows;
     }
 
-    private void EnsureSelectedVisible()
+    private void EnsureSelectedVisible(int height)
     {
-        if (lastViewportHeight <= 0 || SelectedIndex < 0)
-        {
-            return;
-        }
         if (SelectedIndex < scrollOffset)
         {
             scrollOffset = SelectedIndex;
         }
-        else if (SelectedIndex >= scrollOffset + lastViewportHeight)
+        else if (SelectedIndex >= scrollOffset + height)
         {
-            scrollOffset = SelectedIndex - lastViewportHeight + 1;
+            scrollOffset = SelectedIndex - height + 1;
         }
-        scrollOffset = Math.Clamp(scrollOffset, 0, Math.Max(0, Options.Count - lastViewportHeight));
     }
 }
 
+public readonly record struct ScrollViewPosition(int ScrollOffset, int ViewOffset, bool AutoScroll);
+
+public readonly record struct ScrollViewChildView(
+    Element? Element,
+    Rect Frame,
+    bool Visible,
+    int Index,
+    bool Clipped);
+
 public class ScrollView : Element
 {
+    private const int DefaultWheelScrollLines = 4;
+    private const int WheelScrollViewportFraction = 3;
+
     public int Gap { get; private set; }
     public bool AutoScroll { get; private set; }
     public int ScrollOffset { get; private set; }
+    public int ViewOffset { get; private set; }
+    public int HViewOffset { get; private set; }
     public Style? DescendantFocusStyle { get; private set; }
     private readonly List<List<List<TerminalCell>>> renderedChildren = new();
     private Func<int, List<List<List<TerminalCell>>>>? dynamicChildrenRenderer;
     private int? dynamicChildrenWidth;
+    private int? cachedChildHeightsWidth;
+    private List<int>? cachedChildHeights;
+    private int lastNaturalSkip;
+    private int pendingTerminalScrollDelta;
 
     public ScrollView(string name, int gap = 0) : base(name)
     {
@@ -1743,11 +3532,16 @@ public class ScrollView : Element
     public void SetGap(int gap)
     {
         Gap = Math.Max(0, gap);
+        InvalidateHeightCache();
     }
 
     public void SetAutoScroll(bool autoScroll)
     {
         AutoScroll = autoScroll;
+        if (AutoScroll)
+        {
+            ViewOffset = 0;
+        }
     }
 
     public void SetDescendantFocusStyle(Style style)
@@ -1755,25 +3549,51 @@ public class ScrollView : Element
         DescendantFocusStyle = style;
     }
 
+    public ScrollViewPosition ScrollPosition()
+    {
+        return new ScrollViewPosition(ScrollOffset, ViewOffset, AutoScroll);
+    }
+
+    public void RestoreScrollPosition(ScrollViewPosition position)
+    {
+        _ = DynamicRenderedChildren(Math.Max(1, Frame.Width));
+        int total = renderedChildren.Count + Children.Count;
+        ScrollOffset = Math.Clamp(position.ScrollOffset, 0, Math.Max(0, total - 1));
+        ViewOffset = Math.Max(0, position.ViewOffset);
+        AutoScroll = position.AutoScroll;
+        InvalidateHeightCache();
+    }
+
     public void ClearChildren()
     {
         Children.Clear();
         renderedChildren.Clear();
         dynamicChildrenWidth = null;
+        InvalidateHeightCache();
         ScrollOffset = 0;
+        ViewOffset = 0;
+        lastNaturalSkip = 0;
     }
 
     public T AddChild<T>(T child) where T : Element
     {
         Children.Add(child);
-        dynamicChildrenWidth = null;
+        InvalidateHeightCache();
+        if (AutoScroll)
+        {
+            ViewOffset = 0;
+        }
         return child;
     }
 
     public void AddChild(List<List<TerminalCell>> child)
     {
         renderedChildren.Add(child);
-        dynamicChildrenWidth = null;
+        InvalidateHeightCache();
+        if (AutoScroll)
+        {
+            ViewOffset = 0;
+        }
     }
 
     public void SetDynamicChildrenRenderer(Func<int, List<List<List<TerminalCell>>>> renderer)
@@ -1785,29 +3605,143 @@ public class ScrollView : Element
     public void InvalidateDynamicChildren()
     {
         dynamicChildrenWidth = null;
+        InvalidateHeightCache();
     }
 
     public bool ScrollBy(int delta, Size viewport)
     {
         Style style = EffectiveStyle();
         Size paddedViewport = PaddedViewportSize(viewport, style);
-        int max = Math.Max(0, ContentHeight(Math.Max(1, paddedViewport.Width)) - Math.Max(1, paddedViewport.Height));
-        int next = Math.Clamp(ScrollOffset + delta, 0, max);
-        bool changed = next != ScrollOffset;
-        ScrollOffset = next;
+        return ScrollTo(ScrollOffset + delta, paddedViewport);
+    }
+
+    public bool ScrollLines(int delta, Size viewport)
+    {
+        Style style = EffectiveStyle();
+        Size paddedViewport = PaddedViewportSize(viewport, style);
+        int maxOffset = MaxViewOffset(paddedViewport);
+        int previous = Math.Clamp(ViewOffset, 0, maxOffset);
+        ViewOffset = Math.Clamp(previous + delta, 0, maxOffset);
+        AutoScroll = ViewOffset == 0;
+        if (ViewOffset != previous)
+        {
+            pendingTerminalScrollDelta += ViewOffset - previous;
+        }
+        return ViewOffset != previous;
+    }
+
+    public bool ScrollToTop(Size viewport)
+    {
+        Style style = EffectiveStyle();
+        Size paddedViewport = PaddedViewportSize(viewport, style);
+        int previous = ViewOffset;
+        ViewOffset = MaxViewOffset(paddedViewport);
+        AutoScroll = false;
+        return ViewOffset != previous;
+    }
+
+    public bool ScrollToBottom(Size viewport)
+    {
+        Style style = EffectiveStyle();
+        Size paddedViewport = PaddedViewportSize(viewport, style);
+        _ = MaxViewOffset(paddedViewport);
+        bool changed = ScrollOffset != 0 || ViewOffset != 0 || !AutoScroll;
+        if (ViewOffset != 0)
+        {
+            pendingTerminalScrollDelta -= ViewOffset;
+        }
+        ScrollOffset = 0;
+        ViewOffset = 0;
+        AutoScroll = true;
         return changed;
+    }
+
+    public bool ScrollPageUp(Size viewport)
+    {
+        Style style = EffectiveStyle();
+        Size paddedViewport = PaddedViewportSize(viewport, style);
+        return ScrollLines(Math.Max(1, paddedViewport.Height), viewport);
+    }
+
+    public bool ScrollPageDown(Size viewport)
+    {
+        Style style = EffectiveStyle();
+        Size paddedViewport = PaddedViewportSize(viewport, style);
+        return ScrollLines(-Math.Max(1, paddedViewport.Height), viewport);
+    }
+
+    public bool ScrollHorizontal(int delta)
+    {
+        int previous = HViewOffset;
+        HViewOffset = Math.Max(0, HViewOffset + delta);
+        return HViewOffset != previous;
+    }
+
+    public bool HandleWheel(int wheelDelta, Size viewport)
+    {
+        if (wheelDelta == 0)
+        {
+            return false;
+        }
+        int step = WheelScrollLines(viewport) * Math.Max(1, Math.Abs(wheelDelta));
+        return wheelDelta > 0
+            ? ScrollLines(step, viewport)
+            : ScrollLines(-step, viewport);
+    }
+
+    public bool EnsureVisibleRange(int targetTop, int targetBottom, Size size)
+    {
+        Style style = EffectiveStyle();
+        Size viewport = PaddedViewportSize(size, style);
+        int naturalSkip = MaxViewOffset(viewport);
+        int currentActualSkip = naturalSkip - Math.Min(ViewOffset, naturalSkip);
+        int nextActualSkip = currentActualSkip;
+        if (targetTop < currentActualSkip)
+        {
+            nextActualSkip = targetTop;
+        }
+        else if (targetBottom > currentActualSkip + viewport.Height)
+        {
+            nextActualSkip = targetBottom - viewport.Height;
+        }
+        nextActualSkip = Math.Clamp(nextActualSkip, 0, naturalSkip);
+        int nextViewOffset = naturalSkip - nextActualSkip;
+        int previous = ViewOffset;
+        ViewOffset = nextViewOffset;
+        AutoScroll = ViewOffset == 0;
+        if (ViewOffset != previous)
+        {
+            pendingTerminalScrollDelta += ViewOffset - previous;
+        }
+        return ViewOffset != previous;
+    }
+
+    public int ConsumeTerminalScrollDelta()
+    {
+        int delta = pendingTerminalScrollDelta;
+        pendingTerminalScrollDelta = 0;
+        return delta;
     }
 
     public int ContentHeight(int width)
     {
-        int renderedHeight = DynamicRenderedChildren(Math.Max(1, width)).Sum(child => Math.Max(1, child.Count));
-        int elementHeight = Children.Sum(child => Math.Max(1, child.Frame.Height));
-        int childCount = renderedChildren.Count + Children.Count;
-        if (childCount == 0)
+        EnsureHeightCache(Math.Max(1, width));
+        if (cachedChildHeights is null || cachedChildHeights.Count == 0)
         {
             return 0;
         }
-        return renderedHeight + elementHeight + Math.Max(0, childCount - 1) * Gap;
+        int height = 0;
+        int itemCount = 0;
+        for (int index = Math.Max(0, ScrollOffset); index < cachedChildHeights.Count; ++index)
+        {
+            height += cachedChildHeights[index];
+            ++itemCount;
+        }
+        if (itemCount > 0)
+        {
+            height += Math.Max(0, Gap) * (itemCount - 1);
+        }
+        return height;
     }
 
     public int ContentHeight()
@@ -1815,14 +3749,125 @@ public class ScrollView : Element
         return ContentHeight(Math.Max(1, Frame.Width));
     }
 
+    public List<ScrollViewChildView> ChildViews(Size size)
+    {
+        Style style = Style;
+        int paddingTop = ConstrainedPaddingTop(size, style);
+        int paddingLeft = ConstrainedPaddingLeft(size, style);
+        Size viewport = PaddedViewportSize(size, style);
+        _ = DynamicRenderedChildren(viewport.Width);
+        EnsureHeightCache(viewport.Width);
+        int skip = ActualSkip(viewport);
+
+        List<ScrollViewChildView> views = new();
+        int globalRow = 0;
+        int totalItems = renderedChildren.Count + Children.Count;
+        int itemIndex = 0;
+
+        void AppendGap()
+        {
+            if (itemIndex >= ScrollOffset && itemIndex + 1 < totalItems)
+            {
+                globalRow += Gap;
+            }
+            ++itemIndex;
+        }
+
+        foreach (List<List<TerminalCell>> child in renderedChildren)
+        {
+            if (itemIndex >= ScrollOffset)
+            {
+                int childHeight = Math.Max(0, child.Count);
+                int localRow = paddingTop + globalRow - skip;
+                int visibleTop = Math.Max(localRow, paddingTop);
+                int visibleBottom = Math.Min(localRow + childHeight, paddingTop + viewport.Height);
+                bool visible = visibleBottom > visibleTop;
+                bool clipped = visible && (visibleTop > localRow || visibleBottom < localRow + childHeight);
+                int visibleHeight = visible ? visibleBottom - visibleTop : 0;
+                views.Add(new ScrollViewChildView(
+                    null,
+                    new Rect(visibleTop, paddingLeft, Math.Max(1, viewport.Width), visibleHeight),
+                    visible,
+                    itemIndex,
+                    clipped));
+                globalRow += childHeight;
+            }
+            AppendGap();
+        }
+
+        foreach (Element child in Children)
+        {
+            int childWidth = viewport.Width;
+            int childHeight = itemIndex >= 0 &&
+                cachedChildHeights is not null &&
+                itemIndex < cachedChildHeights.Count
+                    ? cachedChildHeights[itemIndex]
+                    : NativeChildHeight(child, childWidth);
+            if (itemIndex >= ScrollOffset)
+            {
+                int localRow = paddingTop + globalRow - skip;
+                int visibleTop = Math.Max(localRow, paddingTop);
+                int visibleBottom = Math.Min(localRow + childHeight, paddingTop + viewport.Height);
+                bool visible = visibleBottom > visibleTop;
+                bool clipped = visible && (visibleTop > localRow || visibleBottom < localRow + childHeight);
+                views.Add(new ScrollViewChildView(
+                    child,
+                    new Rect(localRow, paddingLeft, Math.Max(1, childWidth), childHeight),
+                    visible,
+                    itemIndex,
+                    clipped));
+                globalRow += childHeight;
+            }
+            AppendGap();
+        }
+
+        return views;
+    }
+
     public override bool HandleKey(string key)
     {
-        return key switch
+        Style style = EffectiveStyle();
+        bool scrollY = style.ScrollY ?? true;
+        bool scrollX = style.ScrollX ?? false;
+        if (scrollY)
         {
-            "Up" => ScrollBy(-1, new Size(Frame.Width, Frame.Height)),
-            "Down" => ScrollBy(1, new Size(Frame.Width, Frame.Height)),
-            _ => false,
-        };
+            if (key is "ArrowUp" or "Up")
+            {
+                return ScrollLines(1, new Size(Frame.Width, Frame.Height));
+            }
+            if (key is "ArrowDown" or "Down")
+            {
+                return ScrollLines(-1, new Size(Frame.Width, Frame.Height));
+            }
+            if (key == "PageUp")
+            {
+                return ScrollPageUp(new Size(Frame.Width, Frame.Height));
+            }
+            if (key == "PageDown")
+            {
+                return ScrollPageDown(new Size(Frame.Width, Frame.Height));
+            }
+            if (key == "Home")
+            {
+                return ScrollToTop(new Size(Frame.Width, Frame.Height));
+            }
+            if (key == "End")
+            {
+                return ScrollToBottom(new Size(Frame.Width, Frame.Height));
+            }
+        }
+        if (scrollX)
+        {
+            if (key is "ArrowLeft" or "Left")
+            {
+                return ScrollHorizontal(-1);
+            }
+            if (key is "ArrowRight" or "Right")
+            {
+                return ScrollHorizontal(1);
+            }
+        }
+        return false;
     }
 
     public override List<List<TerminalCell>> Render(Size size, ElementRenderState? state = null)
@@ -1833,122 +3878,74 @@ public class ScrollView : Element
         int paddingTop = ConstrainedPaddingTop(size, style);
         int paddingLeft = ConstrainedPaddingLeft(size, style);
         Size viewport = PaddedViewportSize(size, style);
-        List<List<List<TerminalCell>>> dynamicChildren = DynamicRenderedChildren(Math.Max(1, viewport.Width));
-        if (AutoScroll)
-        {
-            ScrollOffset = Math.Max(0, ContentHeight(Math.Max(1, viewport.Width)) - Math.Max(1, viewport.Height));
-        }
-        int cursor = paddingTop - ScrollOffset;
+        int hOffset = Math.Max(0, HViewOffset);
+        int renderWidth = Math.Max(1, viewport.Width + hOffset);
+        List<List<List<TerminalCell>>> dynamicChildren = DynamicRenderedChildren(renderWidth);
+        int naturalSkip = MaxViewOffset(new Size(renderWidth, viewport.Height));
+        int clampedViewOffset = Math.Min(ViewOffset, naturalSkip);
+        int skip = naturalSkip - clampedViewOffset;
+        int cursor = paddingTop - skip;
+        int totalItems = dynamicChildren.Count + Children.Count;
+        int itemIndex = 0;
         foreach (List<List<TerminalCell>> rendered in dynamicChildren)
         {
-            for (int row = 0; row < rendered.Count; ++row)
+            int childHeight = Math.Max(1, rendered.Count);
+            if (itemIndex >= ScrollOffset)
             {
-                int targetRow = cursor + row;
-                if (targetRow < paddingTop || targetRow >= paddingTop + viewport.Height || targetRow >= canvas.Count)
+                for (int row = 0; row < rendered.Count; ++row)
                 {
-                    continue;
-                }
-                for (int col = 0; col < Math.Min(viewport.Width, rendered[row].Count); ++col)
-                {
-                    int targetCol = paddingLeft + col;
-                    if (targetCol < 0 || targetCol >= canvas[targetRow].Count)
+                    int targetRow = cursor + row;
+                    if (targetRow < paddingTop || targetRow >= paddingTop + viewport.Height || targetRow >= canvas.Count)
                     {
                         continue;
                     }
-                    canvas[targetRow][targetCol] = rendered[row][col].Clone();
+                    for (int col = 0; col < Math.Min(viewport.Width, rendered[row].Count - hOffset); ++col)
+                    {
+                        int targetCol = paddingLeft + col;
+                        int sourceCol = hOffset + col;
+                        if (targetCol < 0 || targetCol >= canvas[targetRow].Count || sourceCol < 0 || sourceCol >= rendered[row].Count)
+                        {
+                            continue;
+                        }
+                        canvas[targetRow][targetCol] = rendered[row][sourceCol].Clone();
+                    }
                 }
+                cursor += childHeight;
             }
-            cursor += Math.Max(1, rendered.Count) + Gap;
+            if (itemIndex >= ScrollOffset && itemIndex + 1 < totalItems)
+            {
+                cursor += Gap;
+            }
+            ++itemIndex;
         }
-        (ComboBox ComboBox, int RowStart, int ColStart)? openComboBoxOverlay = null;
         foreach (Element child in Children)
         {
-            int childTop = cursor;
-            int childHeight = Math.Max(1, child.Frame.Height);
-            bool childHasFocusedDescendant = state.FocusedElement is not null && ElementTreeContains(child, state.FocusedElement);
-            bool applyViewportFocusBackground = state.Focused || childHasFocusedDescendant;
-            List<List<TerminalCell>> rendered = child.Render(
-                new Size(viewport.Width, childHeight),
-                new ElementRenderState
-                {
-                    FocusedElement = state.FocusedElement,
-                    EditMode = state.EditMode,
-                });
-            if (childHasFocusedDescendant)
+            int childHeight = NativeChildHeight(child, renderWidth);
+            if (itemIndex >= ScrollOffset)
             {
-                ApplyFocusedDescendantBackground(rendered, child, state.Focused);
+                cursor += childHeight;
             }
-            for (int row = 0; row < rendered.Count; ++row)
+            if (itemIndex >= ScrollOffset && itemIndex + 1 < totalItems)
             {
-                int targetRow = cursor + row;
-                if (targetRow < paddingTop || targetRow >= paddingTop + viewport.Height || targetRow >= canvas.Count)
-                {
-                    continue;
-                }
-                for (int col = 0; col < Math.Min(viewport.Width, rendered[row].Count); ++col)
-                {
-                    int targetCol = paddingLeft + col;
-                    if (targetCol < 0 || targetCol >= canvas[targetRow].Count)
-                    {
-                        continue;
-                    }
-                    canvas[targetRow][targetCol] = rendered[row][col].Clone();
-                }
-                if (applyViewportFocusBackground)
-                {
-                    ApplyFocusedDescendantBackground(canvas[targetRow], child, state.Focused || childHasFocusedDescendant);
-                }
+                cursor += Gap;
             }
-            if (state.FocusedElement is ComboBox comboBox &&
-                comboBox.MenuOpen &&
-                ElementTreeContains(child, comboBox))
-            {
-                openComboBoxOverlay = (comboBox, childTop + comboBox.Frame.Row, paddingLeft + comboBox.Frame.Col);
-            }
-            int childFrameRow = Frame.Row + childTop;
-            int childFrameCol = Frame.Col + paddingLeft;
-            child.Frame = new Rect(childFrameRow, childFrameCol, Math.Max(1, viewport.Width), childHeight);
-            if (child is ReusableElement reusable && reusable.Child is not null)
-            {
-                GeneratedWindowRuntime.OffsetWindowElementFrames(reusable.Child, childFrameRow, childFrameCol);
-            }
-            cursor += childHeight + Gap;
+            ++itemIndex;
         }
-        if (openComboBoxOverlay.HasValue)
-        {
-            OverlayOpenComboBox(
-                canvas,
-                openComboBoxOverlay.Value.ComboBox,
-                openComboBoxOverlay.Value.RowStart,
-                openComboBoxOverlay.Value.ColStart,
-                paddingTop,
-                paddingLeft,
-                viewport);
-            if (state.Focused)
-            {
-                int top = Math.Max(0, paddingTop);
-                int bottom = Math.Min(canvas.Count, paddingTop + Math.Max(1, viewport.Height));
-                for (int row = top; row < bottom; ++row)
-                {
-                    ApplyFocusedDescendantBackground(canvas[row], this, true);
-                }
-            }
-        }
-        int maxOffset = Math.Max(0, ContentHeight(Math.Max(1, viewport.Width)) - Math.Max(1, viewport.Height));
         int indicatorCol = Math.Min(canvas[0].Count, paddingLeft + Math.Max(1, viewport.Width)) - 1;
         int topIndicatorRow = Math.Clamp(paddingTop, 0, Math.Max(0, canvas.Count - 1));
         int bottomIndicatorRow = Math.Clamp(paddingTop + Math.Max(1, viewport.Height) - 1, 0, Math.Max(0, canvas.Count - 1));
-        if (ScrollOffset > 0 && canvas.Count > 0 && canvas[topIndicatorRow].Count > 0)
+        if (skip > 0 && canvas.Count > 0 && canvas[topIndicatorRow].Count > 0)
         {
             ApplyScrollIndicator(canvas[topIndicatorRow], "^", indicatorCol);
         }
-        if (ScrollOffset < maxOffset && canvas.Count > 0 && canvas[bottomIndicatorRow].Count > 0)
+        if (clampedViewOffset > 0 && canvas.Count > 0 && canvas[bottomIndicatorRow].Count > 0)
         {
             ApplyScrollIndicator(canvas[bottomIndicatorRow], "v", indicatorCol);
         }
         bool viewportFocused =
-            state.Focused ||
-            Children.Any(child => state.FocusedElement is not null && ElementTreeContains(child, state.FocusedElement));
+            !state.SuppressActiveScrollViewScopeVisuals &&
+            (state.Focused ||
+                Children.Any(child => state.FocusedElement is not null && ElementTreeContains(child, state.FocusedElement)));
         if (viewportFocused)
         {
             int top = 0;
@@ -2007,47 +4004,6 @@ public class ScrollView : Element
         return row.Any(cell => !string.IsNullOrEmpty(cell.Text) && cell.Text != " ");
     }
 
-    private static void OverlayOpenComboBox(
-        List<List<TerminalCell>> canvas,
-        ComboBox comboBox,
-        int rowStart,
-        int colStart,
-        int paddingTop,
-        int paddingLeft,
-        Size viewport)
-    {
-        int width = Math.Max(1, comboBox.Frame.Width);
-        List<List<TerminalCell>> rendered = comboBox.Render(
-            new Size(width, Math.Max(1, comboBox.Options.Count + 1)),
-            new ElementRenderState
-            {
-                Focused = true,
-                EditMode = true,
-            });
-        int viewportTop = paddingTop;
-        int viewportBottom = paddingTop + Math.Max(1, viewport.Height);
-        int viewportLeft = paddingLeft;
-        int viewportRight = paddingLeft + Math.Max(1, viewport.Width);
-        for (int row = 0; row < rendered.Count; ++row)
-        {
-            int targetRow = rowStart + row;
-            if (targetRow < viewportTop || targetRow >= viewportBottom || targetRow < 0 || targetRow >= canvas.Count)
-            {
-                continue;
-            }
-            for (int col = 0; col < rendered[row].Count; ++col)
-            {
-                int targetCol = colStart + col;
-                if (targetCol < viewportLeft || targetCol >= viewportRight ||
-                    targetCol < 0 || targetCol >= canvas[targetRow].Count)
-                {
-                    continue;
-                }
-                canvas[targetRow][targetCol] = rendered[row][col].Clone();
-            }
-        }
-    }
-
     private static bool ElementTreeContains(Element root, Element target)
     {
         if (ReferenceEquals(root, target))
@@ -2072,6 +4028,152 @@ public class ScrollView : Element
             }
         }
         return false;
+    }
+
+    private bool ScrollTo(int index, Size paddedViewport)
+    {
+        _ = DynamicRenderedChildren(Math.Max(1, paddedViewport.Width));
+        int total = renderedChildren.Count + Children.Count;
+        if (total == 0)
+        {
+            int previous = ScrollOffset;
+            ScrollOffset = 0;
+            return ScrollOffset != previous;
+        }
+
+        int previousOffset = ScrollOffset;
+        int maxVisible = MaxChildrenInViewport(paddedViewport);
+        int maxOffset = Math.Max(0, total - maxVisible);
+        ScrollOffset = Math.Clamp(index, 0, maxOffset);
+        if (ScrollOffset == 0)
+        {
+            AutoScroll = false;
+        }
+        return ScrollOffset != previousOffset;
+    }
+
+    public int MaxViewOffset(Size viewport)
+    {
+        int naturalSkip = Math.Max(0, ContentHeight(Math.Max(1, viewport.Width)) - Math.Max(1, viewport.Height));
+        SyncViewOffsetForNaturalSkip(naturalSkip);
+        lastNaturalSkip = naturalSkip;
+        return naturalSkip;
+    }
+
+    private int ActualSkip(Size viewport)
+    {
+        int naturalSkip = MaxViewOffset(viewport);
+        int clampedViewOffset = Math.Min(ViewOffset, naturalSkip);
+        return naturalSkip - clampedViewOffset;
+    }
+
+    private void SyncViewOffsetForNaturalSkip(int naturalSkip)
+    {
+        int previousNaturalSkip = Math.Max(0, lastNaturalSkip);
+        naturalSkip = Math.Max(0, naturalSkip);
+        if (AutoScroll)
+        {
+            ViewOffset = 0;
+        }
+        else if (ViewOffset >= previousNaturalSkip)
+        {
+            ViewOffset = naturalSkip;
+        }
+        else if (ViewOffset > naturalSkip)
+        {
+            ViewOffset = naturalSkip;
+        }
+    }
+
+    private int MaxChildrenInViewport(Size viewport)
+    {
+        _ = DynamicRenderedChildren(Math.Max(1, viewport.Width));
+        int total = renderedChildren.Count + Children.Count;
+        if (total == 0)
+        {
+            return 0;
+        }
+
+        int totalHeight = Math.Max(1, viewport.Height);
+        int sampleSize = Math.Min(WheelScrollViewportFraction + 2, total);
+        if (sampleSize == 0)
+        {
+            return 1;
+        }
+
+        EnsureHeightCache(Math.Max(1, viewport.Width));
+        double measured = 0.0;
+        int measuredCount = 0;
+        if (cachedChildHeights is not null)
+        {
+            for (int index = 0; index < sampleSize && index < cachedChildHeights.Count; ++index)
+            {
+                measured += cachedChildHeights[index];
+                ++measuredCount;
+            }
+        }
+        double averageHeight = Math.Max(1.0, measuredCount == 0 ? 1.0 : measured / measuredCount);
+        int denominator = (int)averageHeight + Math.Max(0, Gap);
+        if (denominator <= 0)
+        {
+            return 1;
+        }
+        return Math.Max(1, (totalHeight + Math.Max(0, Gap)) / denominator);
+    }
+
+    private int WheelScrollLines(Size viewport)
+    {
+        Style style = EffectiveStyle();
+        Size paddedViewport = PaddedViewportSize(viewport, style);
+        int viewportLimited = Math.Max(1, paddedViewport.Height / WheelScrollViewportFraction);
+        return Math.Max(1, Math.Min(DefaultWheelScrollLines, viewportLimited));
+    }
+
+    private void EnsureHeightCache(int width)
+    {
+        width = Math.Max(1, width);
+        if (cachedChildHeights is not null &&
+            cachedChildHeightsWidth.HasValue &&
+            cachedChildHeightsWidth.Value == width)
+        {
+            return;
+        }
+
+        _ = DynamicRenderedChildren(width);
+        if (cachedChildHeights is not null &&
+            cachedChildHeightsWidth.HasValue &&
+            cachedChildHeightsWidth.Value == width)
+        {
+            return;
+        }
+
+        List<int> heights = new(renderedChildren.Count + Children.Count);
+        foreach (List<List<TerminalCell>> child in renderedChildren)
+        {
+            heights.Add(Math.Max(0, child.Count));
+        }
+        foreach (Element child in Children)
+        {
+            heights.Add(NativeChildHeight(child, width));
+        }
+        cachedChildHeightsWidth = width;
+        cachedChildHeights = heights;
+    }
+
+    private void InvalidateHeightCache()
+    {
+        cachedChildHeightsWidth = null;
+        cachedChildHeights = null;
+    }
+
+    private static int NativeChildHeight(Element child, int width)
+    {
+        if (child is ReusableElement reusable && reusable.Child is not null)
+        {
+            Size resolved = GeneratedWindowRuntime.GeneratedWindowContentSizeForWidth(reusable.Child, Math.Max(1, width));
+            return Math.Max(1, resolved.Height);
+        }
+        return Math.Max(1, child.Frame.Height);
     }
 
     private static Size PaddedViewportSize(Size size, Style style)
@@ -2166,6 +4268,11 @@ public class ScrollView : Element
         renderedChildren.Clear();
         renderedChildren.AddRange(dynamicChildrenRenderer(width));
         dynamicChildrenWidth = width;
+        InvalidateHeightCache();
+        if (AutoScroll)
+        {
+            ViewOffset = 0;
+        }
         return renderedChildren;
     }
 }

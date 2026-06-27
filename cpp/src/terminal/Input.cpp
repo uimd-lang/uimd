@@ -193,6 +193,13 @@ constexpr int kMetaShiftModifier = 10;
     return modifiedArrowKey(final, modifier);
 }
 
+[[nodiscard]] std::string parseSs3Key(std::string_view sequence) {
+    if (!startsWith(sequence, "\x1bO") || sequence.size() != 3) {
+        return {};
+    }
+    return keyForCsiFinal(sequence.back());
+}
+
 }  // namespace
 
 std::vector<Event> InputParser::feed(std::string_view bytes) {
@@ -364,6 +371,16 @@ bool InputParser::consumeSimpleEscape(std::vector<Event>& events) {
         const std::string key = parseCsiKey(sequence);
         if (!key.empty()) {
             buffer_.erase(0, finalIndex + 1);
+            events.push_back(Event{.type = EventType::Key, .key = key});
+            return true;
+        }
+    }
+
+    if (startsWith(buffer_, "\x1bO") && buffer_.size() >= 3) {
+        const std::string_view sequence(buffer_.data(), 3);
+        const std::string key = parseSs3Key(sequence);
+        if (!key.empty()) {
+            buffer_.erase(0, sequence.size());
             events.push_back(Event{.type = EventType::Key, .key = key});
             return true;
         }

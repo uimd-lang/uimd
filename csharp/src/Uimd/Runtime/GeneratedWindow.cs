@@ -1,5 +1,9 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -154,6 +158,11 @@ public class GeneratedWindowBase : Window
         return false;
     }
 
+    public virtual bool ActivateGeneratedControl()
+    {
+        return false;
+    }
+
     public virtual GeneratedWindowRuntimeOptions RuntimeOptions()
     {
         GeneratedWindowRuntimeOptions options = new();
@@ -236,6 +245,28 @@ public class GeneratedScrollViewBase : GeneratedWindowBase
         ScrollView().SetAutoScroll(autoScroll);
     }
 
+    public bool ScrollToTop()
+    {
+        ScrollView scrollView = ScrollView();
+        return scrollView.ScrollToTop(new Size(scrollView.Frame.Width, scrollView.Frame.Height));
+    }
+
+    public bool ScrollToBottom()
+    {
+        ScrollView scrollView = ScrollView();
+        return scrollView.ScrollToBottom(new Size(scrollView.Frame.Width, scrollView.Frame.Height));
+    }
+
+    public ScrollViewPosition ScrollPosition()
+    {
+        return ScrollView().ScrollPosition();
+    }
+
+    public void RestoreScrollPosition(ScrollViewPosition position)
+    {
+        ScrollView().RestoreScrollPosition(position);
+    }
+
     public void ClearChildren()
     {
         ScrollView().ClearChildren();
@@ -267,6 +298,7 @@ public sealed class GeneratedWindowRuntimeOptions
     public string Footer { get; set; } = "";
     public string InitialFocusName { get; set; } = "";
     public bool StartInEditMode { get; set; }
+    public bool DimBackground { get; set; } = true;
     public bool KeepEditModeAfterConfirm { get; set; }
     public bool KeepEditModeAfterEscape { get; set; }
     public Action<string>? OnButton { get; set; }
@@ -298,12 +330,94 @@ public sealed class McpRuntimeConfig
     public int ViewportHeight { get; set; } = DefaultViewportHeight;
 }
 
+internal readonly record struct ScrollRegionHint(Rect Rect, int Delta);
+
 public static class GeneratedWindowRuntime
 {
-    private const int MinimumRenderableSize = 1;
+    internal const int MinimumRenderableSize = 1;
+    private const int ContentTopRow = 0;
+    private const int ContentLeftCol = 0;
     private const int FallbackTerminalWidth = 100;
     private const int FallbackTerminalHeight = 32;
+    private const char TerminalEscape = '\x1b';
+    private const char TerminalCtrlC = '\x03';
+    private const char TerminalCarriageReturn = '\r';
+    private const char TerminalLineFeed = '\n';
+    private const char TerminalTab = '\t';
+    private const char TerminalBackspace = '\b';
+    private const char TerminalDeleteBackspace = '\x7f';
+    private const int DirectInputEscapeSequenceTimeoutMilliseconds = 25;
+    private const int DirectInputEscapeSequencePollMilliseconds = 1;
+    private const int DirectInputIdleSleepMilliseconds = 10;
+    private const int AnimatedRenderIntervalMilliseconds = 70;
+    private const int DialogButtonCloseDelayMilliseconds = 180;
+    private const int CopyNotificationDurationMilliseconds = 3000;
+    private const int CopyNotificationRow = 0;
+    private const int CopyNotificationRightMargin = 1;
+    private const int TerminalExitDrainTimeoutMilliseconds = 20;
+    private const int TerminalExitDrainBytes = 1024;
+    private const int TerminalExitDrainMaxReads = 64;
+    private const int TerminalCellPixelResponseMaxBytes = 64;
+    private const int TerminalCellPixelQueryTimeoutMilliseconds = 50;
+    private const double ModalBackgroundDimFactor = 0.5;
+    private const int TerminalCoordinateBase = 1;
+    private const int SgrMouseFieldCount = 3;
+    private const int SgrMouseDragMask = 32;
+    private const int SgrMouseWheelUpButton = 64;
+    private const int SgrMouseWheelDownButton = 65;
+    private const int SgrMouseWheelUpDelta = 1;
+    private const int SgrMouseWheelDownDelta = -1;
+    private const int MaxCoalescedMouseWheelDelta = 12;
+    internal const int TextInputWheelScrollRows = 1;
+    private const int CsiPrefixLength = 2;
+    private const int SgrMousePrefixLength = 3;
+    private const int CtrlCCodepoint = 3;
+    private const int UppercaseCCodepoint = 67;
+    private const int LowercaseCCodepoint = 99;
+    private const int UppercaseVCodepoint = 86;
+    private const int LowercaseVCodepoint = 118;
+    private const int CtrlModifier = 5;
+    private const int CtrlShiftModifier = 6;
+    private const int MetaModifier = 9;
+    private const int MetaShiftModifier = 10;
+    private const short PosixPollInput = 0x0001;
+    private const string SgrMousePrefix = "\x1b[<";
+    private const string BracketedPasteStart = "\x1b[200~";
+    private const string BracketedPasteEnd = "\x1b[201~";
+    private const string AnsiHome = "\x1b[H";
+    private const string AnsiEnterAlternateScreen = "\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?7l\x1b[>4;2m\x1b[?25l\x1b[H\x1b[2J";
+    private const string AnsiLeaveAlternateScreen = "\x1b[0m\x1b[2J\x1b[H\x1b[>4;0m\x1b[?25h\x1b[?7h\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l\r\n";
+    private const string AnsiLeaveApplicationKeypadMode = "\x1b[?1l\x1b>";
+    private const string TerminalTitlePrefix = "\x1b]0;";
+    private const string TerminalTitleSuffix = " [C#]";
+    private const string TerminalTitleTerminator = "\x07";
+    private const string TerminalCellPixelQuery = "\x1b[16t";
+    private const string TerminalTextAreaPixelQuery = "\x1b[14t";
+    private const string TerminalCellPixelResponsePrefix = "\x1b[6;";
+    private const string TerminalTextAreaPixelResponsePrefix = "\x1b[4;";
+    private const char TerminalCellPixelResponseSeparator = ';';
+    private const char TerminalCellPixelResponseTerminator = 't';
+    private const string TerminalImageHalfBlockGlyph = "▀";
+    private const string CopyNotificationText = "Copied to clipboard";
+    private const int SttySuccessExitCode = 0;
+    private const int WindowsStdInputHandle = -10;
+    private const int WindowsStdOutputHandle = -11;
+    private const int WindowsStdErrorHandle = -12;
+    private const uint WindowsEnableProcessedInput = 0x0001;
+    private const uint WindowsEnableLineInput = 0x0002;
+    private const uint WindowsEnableEchoInput = 0x0004;
+    private const uint WindowsEnableWindowInput = 0x0008;
+    private const uint WindowsEnableMouseInput = 0x0010;
+    private const uint WindowsEnableVirtualTerminalInput = 0x0200;
+    private const uint WindowsEnableVirtualTerminalProcessing = 0x0004;
+    private const uint WindowsDisableNewlineAutoReturn = 0x0008;
+    private const int PosixStdinFileDescriptor = 0;
+    private const int PosixStdoutFileDescriptor = 1;
+    private const ulong LinuxTiocgwinsz = 0x5413;
+    private const ulong DarwinTiocgwinsz = 0x40087468;
     private static readonly Color DefaultTerminalBackground = new("#000000");
+    private static readonly Color CopyNotificationForeground = new("#ffffff");
+    private static readonly Color CopyNotificationBackground = new("#2255bb");
 
     private enum GeneratedWindowMode
     {
@@ -311,6 +425,198 @@ public static class GeneratedWindowRuntime
         ExpandWidth,
         ExpandHeight,
         Fullscreen,
+    }
+
+    private enum DirectTerminalEventKind
+    {
+        Key,
+        MousePress,
+        MouseRelease,
+        MouseDrag,
+        MouseWheel,
+    }
+
+    private sealed class DirectTerminalEvent
+    {
+        private DirectTerminalEvent(DirectTerminalEventKind kind, string? key, Point position, int wheelDelta)
+        {
+            Kind = kind;
+            Key = key;
+            Position = position;
+            WheelDelta = wheelDelta;
+        }
+
+        public DirectTerminalEventKind Kind { get; }
+        public string? Key { get; }
+        public Point Position { get; }
+        public int WheelDelta { get; }
+
+        public static DirectTerminalEvent FromKey(string key)
+        {
+            return new DirectTerminalEvent(DirectTerminalEventKind.Key, key, new Point(), 0);
+        }
+
+        public static DirectTerminalEvent FromMouse(DirectTerminalEventKind kind, Point position)
+        {
+            return new DirectTerminalEvent(kind, null, position, 0);
+        }
+
+        public static DirectTerminalEvent FromMouseWheel(Point position, int wheelDelta)
+        {
+            return new DirectTerminalEvent(DirectTerminalEventKind.MouseWheel, null, position, wheelDelta);
+        }
+    }
+
+    private sealed class TerminalModeScope : IDisposable
+    {
+        private readonly string? savedPosixMode;
+        private readonly List<(IntPtr Handle, uint Mode)> savedWindowsModes = new();
+        private bool disposed;
+
+        public TerminalModeScope()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                ConfigureWindowsConsoleMode();
+            }
+            else
+            {
+                savedPosixMode = CapturePosixTerminalMode();
+                if (!string.IsNullOrWhiteSpace(savedPosixMode))
+                {
+                    SetPosixRawMode();
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+            disposed = true;
+            if (OperatingSystem.IsWindows())
+            {
+                RestoreWindowsConsoleMode();
+            }
+            else if (!string.IsNullOrWhiteSpace(savedPosixMode))
+            {
+                RestorePosixTerminalMode(savedPosixMode);
+            }
+        }
+
+        private static string? CapturePosixTerminalMode()
+        {
+            try
+            {
+                using Process process = StartStty("-g", redirectOutput: true);
+                string output = process.StandardOutput.ReadToEnd().Trim();
+                process.WaitForExit();
+                return process.ExitCode == SttySuccessExitCode ? output : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void SetPosixRawMode()
+        {
+            RunStty("raw", "-echo", "min", "0", "time", "1");
+        }
+
+        private static void RestorePosixTerminalMode(string savedMode)
+        {
+            RunStty(savedMode);
+        }
+
+        private static void RunStty(params string[] arguments)
+        {
+            try
+            {
+                using Process process = StartStty(arguments, redirectOutput: false);
+                process.WaitForExit();
+            }
+            catch
+            {
+            }
+        }
+
+        private static Process StartStty(string argument, bool redirectOutput)
+        {
+            return StartStty(new[] { argument }, redirectOutput);
+        }
+
+        private static Process StartStty(string[] arguments, bool redirectOutput)
+        {
+            ProcessStartInfo startInfo = new("stty")
+            {
+                RedirectStandardOutput = redirectOutput,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            foreach (string argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+            return Process.Start(startInfo) ?? throw new InvalidOperationException("failed to start stty");
+        }
+
+        private void ConfigureWindowsConsoleMode()
+        {
+            ConfigureWindowsInputMode(WindowsStdInputHandle);
+            ConfigureWindowsOutputMode(WindowsStdOutputHandle);
+            ConfigureWindowsOutputMode(WindowsStdErrorHandle);
+        }
+
+        private void ConfigureWindowsInputMode(int standardHandle)
+        {
+            IntPtr handle = GetStdHandle(standardHandle);
+            if (handle == IntPtr.Zero || handle == new IntPtr(-1) || !GetConsoleMode(handle, out uint mode))
+            {
+                return;
+            }
+            savedWindowsModes.Add((handle, mode));
+            uint nextMode = mode;
+            nextMode |= WindowsEnableProcessedInput;
+            nextMode |= WindowsEnableWindowInput;
+            nextMode |= WindowsEnableMouseInput;
+            nextMode |= WindowsEnableVirtualTerminalInput;
+            nextMode &= ~WindowsEnableLineInput;
+            nextMode &= ~WindowsEnableEchoInput;
+            _ = SetConsoleMode(handle, nextMode);
+        }
+
+        private void ConfigureWindowsOutputMode(int standardHandle)
+        {
+            IntPtr handle = GetStdHandle(standardHandle);
+            if (handle == IntPtr.Zero || handle == new IntPtr(-1) || !GetConsoleMode(handle, out uint mode))
+            {
+                return;
+            }
+            savedWindowsModes.Add((handle, mode));
+            uint nextMode = mode | WindowsEnableVirtualTerminalProcessing | WindowsDisableNewlineAutoReturn;
+            _ = SetConsoleMode(handle, nextMode);
+        }
+
+        private void RestoreWindowsConsoleMode()
+        {
+            for (int index = savedWindowsModes.Count - 1; index >= 0; --index)
+            {
+                (IntPtr handle, uint mode) = savedWindowsModes[index];
+                _ = SetConsoleMode(handle, mode);
+            }
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr GetStdHandle(int nStdHandle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
     }
 
     public static int RunGeneratedWindow(GeneratedWindowBase window, GeneratedWindowRuntimeOptions? options = null, string[]? args = null)
@@ -334,6 +640,10 @@ public static class GeneratedWindowRuntime
                 controller.ServeTcp();
             }
             return 0;
+        }
+        if (!Console.IsInputRedirected && !Console.IsOutputRedirected)
+        {
+            return RunInteractiveTerminal(window, options);
         }
         RenderToConsole(window, options, new Size(FallbackTerminalWidth, FallbackTerminalHeight));
         return 0;
@@ -365,32 +675,61 @@ public static class GeneratedWindowRuntime
         bool editMode = false,
         ScrollView? activeScrollView = null,
         ReusableElement? activeScrollViewProxy = null,
+        Element? activeScrollViewEditElement = null,
         bool activeScrollViewFresh = false,
-        bool applyActiveScrollViewDim = true)
+        bool applyActiveScrollViewDim = true,
+        Color? activeScrollViewFocusBackgroundOverride = null,
+        bool suppressActiveScrollViewScopeVisuals = false,
+        Style? windowStyleOverride = null,
+        int? clipTop = null,
+        int? clipBottom = null,
+        bool forceFullscreenLayout = false,
+        bool useHostViewportForRootScrollViewIndicators = false)
     {
-        SyncWindowElementFramesTo(window, new Rect(0, 0, Math.Max(1, size.Width), Math.Max(1, size.Height)));
-        TerminalBuffer buffer = new(size.Width, size.Height);
-        FillRect(buffer, new Rect(0, 0, size.Width, size.Height), window.GeneratedWindowStyle);
-        List<Element> focusable = FocusableElements(window, activeScrollView);
+        int width = Math.Max(MinimumRenderableSize, size.Width);
+        int height = Math.Max(MinimumRenderableSize, size.Height);
+        SyncWindowElementFramesTo(window, new Rect(0, 0, width, height));
+        ScrollView? effectiveActiveScrollView =
+            activeScrollView is not null && ActiveScrollViewRepresentedInCurrentLayout(window, activeScrollView)
+                ? activeScrollView
+                : null;
+        Element? effectiveActiveScrollViewEditElement =
+            activeScrollViewEditElement is not null && ElementRepresentedInCurrentLayout(window, activeScrollViewEditElement)
+                ? activeScrollViewEditElement
+                : null;
+        ReusableElement? effectiveActiveScrollViewProxy =
+            effectiveActiveScrollView is not null &&
+            activeScrollViewProxy is not null &&
+            WindowContainsElement(window, activeScrollViewProxy)
+                ? activeScrollViewProxy
+                : null;
+        if (effectiveActiveScrollView is not null && effectiveActiveScrollViewProxy is null)
+        {
+            effectiveActiveScrollViewProxy = ReusableContainingElement(window, effectiveActiveScrollView);
+        }
+        TerminalBuffer buffer = new(width, height);
+        Style windowStyle = windowStyleOverride ?? window.GeneratedWindowStyle;
+        FillRect(buffer, new Rect(0, 0, width, height), windowStyle);
+        List<Element> focusable = FocusableElements(window, effectiveActiveScrollView);
         Element? focused = focusedElement is not null && focusable.Contains(focusedElement)
             ? focusedElement
             : focusedIndex >= 0 && focusedIndex < focusable.Count
             ? focusable[focusedIndex]
             : null;
-        ScrollView? scopedActiveScrollView = activeScrollView is not null && WindowContainsElement(window, activeScrollView)
-            ? activeScrollView
-            : null;
-        ReusableElement? scopedActiveScrollViewProxy =
-            scopedActiveScrollView is not null &&
-            activeScrollViewProxy is not null &&
-            WindowContainsElement(window, activeScrollViewProxy)
-                ? activeScrollViewProxy
-                : null;
-        if (scopedActiveScrollView is not null && scopedActiveScrollViewProxy is null)
+        if (editMode && effectiveActiveScrollView is null)
         {
-            scopedActiveScrollViewProxy = ReusableContainingElement(window, scopedActiveScrollView);
+            effectiveActiveScrollView =
+                ScrollViewContainingElement(window, focused) ??
+                ScrollViewContainingElement(window, effectiveActiveScrollViewEditElement);
+            if (effectiveActiveScrollView is not null && effectiveActiveScrollViewProxy is null)
+            {
+                effectiveActiveScrollViewProxy = ReusableContainingElement(window, effectiveActiveScrollView);
+            }
         }
-        List<ResolvedRuntimeCell> resolvedCells = ResolveRuntimeCells(window, size);
+        List<ResolvedRuntimeCell> resolvedCells = ResolveRuntimeCells(
+            window,
+            new Size(width, height),
+            forceFullscreenLayout ? GeneratedWindowMode.Fullscreen : WindowMode(window));
 
         List<ResolvedRuntimeCell> paintedCells = new();
         foreach (GeneratedLayoutEntry entry in window.GeneratedLayout)
@@ -404,18 +743,6 @@ public static class GeneratedWindowRuntime
             {
                 paintedCells.Add(cell);
                 RenderEntryCellStyle(buffer, entry, cell.Rect);
-            }
-        }
-
-        if (editMode && scopedActiveScrollView is not null)
-        {
-            Color? focusBackground = ActiveScrollViewScopeFocusBackground(
-                scopedActiveScrollView,
-                activeScrollViewProxy ?? scopedActiveScrollViewProxy);
-            if (focusBackground is not null)
-            {
-                Rect active = ActiveScrollViewScopeRect(scopedActiveScrollView, scopedActiveScrollViewProxy, activeScrollViewFresh);
-                ApplyActiveScrollViewFocusBackground(buffer, active, focusBackground);
             }
         }
 
@@ -435,9 +762,15 @@ public static class GeneratedWindowRuntime
                 focused,
                 editMode,
                 cell.Rect,
-                activeScrollView,
-                activeScrollViewProxy,
-                activeScrollViewFresh);
+                effectiveActiveScrollView,
+                effectiveActiveScrollViewProxy,
+                effectiveActiveScrollViewEditElement,
+                activeScrollViewFresh,
+                activeScrollViewFocusBackgroundOverride,
+                suppressActiveScrollViewScopeVisuals,
+                clipTop,
+                clipBottom,
+                useHostViewportForRootScrollViewIndicators);
         }
         if (applyActiveScrollViewDim)
         {
@@ -446,12 +779,67 @@ public static class GeneratedWindowRuntime
                 window,
                 focused,
                 editMode,
-                scopedActiveScrollView,
-                scopedActiveScrollViewProxy,
-                activeScrollViewProxy ?? scopedActiveScrollViewProxy,
+                effectiveActiveScrollView,
+                effectiveActiveScrollViewProxy,
+                activeScrollViewProxy ?? effectiveActiveScrollViewProxy,
                 activeScrollViewFresh);
         }
-        return ContentFromBuffer(buffer);
+        List<List<TerminalCell>> rendered = ContentFromBuffer(buffer);
+        if (useHostViewportForRootScrollViewIndicators &&
+            window is GeneratedScrollViewBase generatedScrollViewWindow)
+        {
+            ScrollView generatedScrollView = generatedScrollViewWindow.ScrollView();
+            Rect scrollFrame = GeneratedScrollViewSourceFrame(window, generatedScrollView, new Size(width, height));
+            Rect scrollViewport = ScrollViewViewportClipClampedToContent(
+                scrollFrame,
+                generatedScrollView.Style,
+                new Size(width, height));
+            if (scrollViewport.Width > 0 && scrollViewport.Height > 0)
+            {
+                bool childContentAboveViewport = false;
+                bool childContentBelowViewport = false;
+                foreach (ScrollViewChildView childView in generatedScrollView.ChildViews(new Size(scrollFrame.Width, scrollFrame.Height)))
+                {
+                    Rect childFrame = new(
+                        scrollFrame.Row + childView.Frame.Row,
+                        scrollFrame.Col + childView.Frame.Col,
+                        childView.Frame.Width,
+                        childView.Frame.Height);
+                    if (childFrame.Row < scrollViewport.Row)
+                    {
+                        childContentAboveViewport = true;
+                    }
+                    if (childFrame.Row + childFrame.Height > scrollViewport.Row + scrollViewport.Height)
+                    {
+                        childContentBelowViewport = true;
+                    }
+                }
+
+                Size viewportSize = new(scrollViewport.Width, scrollViewport.Height);
+                int indicatorCol = scrollViewport.Col + scrollViewport.Width - MinimumRenderableSize;
+                int maxViewOffset = generatedScrollView.MaxViewOffset(viewportSize);
+                int viewOffset = generatedScrollView.ViewOffset;
+                if (viewOffset < maxViewOffset || childContentAboveViewport)
+                {
+                    ApplyScrollIndicator(rendered, scrollViewport.Row, indicatorCol, "^", scrollViewport.Col);
+                }
+                if (viewOffset > 0 || childContentBelowViewport)
+                {
+                    ApplyScrollIndicator(
+                        rendered,
+                        scrollViewport.Row + scrollViewport.Height - MinimumRenderableSize,
+                        indicatorCol,
+                        "v",
+                        scrollViewport.Col);
+                }
+            }
+        }
+        if (activeScrollViewFocusBackgroundOverride is not null &&
+            window is not GeneratedScrollViewBase)
+        {
+            ApplyReusableFocusBackground(rendered, activeScrollViewFocusBackgroundOverride, window.GeneratedWindowStyle.Background);
+        }
+        return rendered;
     }
 
     public static Element? FindElement(GeneratedWindowBase window, string name)
@@ -534,16 +922,19 @@ public static class GeneratedWindowRuntime
         {
             AddFocusableElements(element, result, activeScrollView);
         }
-        return result
-            .OrderBy(element => element.Frame.Row)
-            .ThenBy(element => element.Frame.Col)
-            .ToList();
+        return result;
+    }
+
+    private static bool HasMultipleFocusableElements(GeneratedWindowBase window, ScrollView? activeScrollView)
+    {
+        return FocusableElements(window, activeScrollView).Count > 1;
     }
 
     private static void AddFocusableElements(Element element, List<Element> result, ScrollView? activeScrollView)
     {
         if (element is ReusableElement reusable && reusable.Child is not null)
         {
+            SyncWindowElementFramesTo(reusable.Child, reusable.Frame);
             if (reusable.Child is GeneratedScrollViewBase generatedScrollView)
             {
                 if (IsFocusable(reusable))
@@ -586,9 +977,28 @@ public static class GeneratedWindowRuntime
             }
             if (ReferenceEquals(activeScrollView, scrollView))
             {
-                foreach (Element child in scrollView.Children)
+                Rect frame = scrollView.Frame;
+                foreach (ScrollViewChildView childView in scrollView.ChildViews(new Size(frame.Width, frame.Height)))
                 {
-                    AddFocusableElements(child, result, activeScrollView);
+                    if (childView.Element is null)
+                    {
+                        continue;
+                    }
+                    childView.Element.Frame = new Rect(
+                        frame.Row + childView.Frame.Row,
+                        frame.Col + childView.Frame.Col,
+                        childView.Frame.Width,
+                        childView.Frame.Height);
+                    if (childView.Element is ReusableElement childReusable && childReusable.Child is not null)
+                    {
+                        SyncWindowElementFramesTo(childReusable.Child, childView.Element.Frame);
+                        result.AddRange(FocusableElements(childReusable.Child, activeScrollView));
+                        continue;
+                    }
+                    if (IsFocusable(childView.Element))
+                    {
+                        result.Add(childView.Element);
+                    }
                 }
             }
             return;
@@ -712,11 +1122,14 @@ public static class GeneratedWindowRuntime
         bool editMode = false,
         ScrollView? activeScrollView = null,
         ReusableElement? activeScrollViewProxy = null,
-        bool activeScrollViewFresh = false)
+        Element? activeScrollViewEditElement = null,
+        bool activeScrollViewFresh = false,
+        bool applyActiveScrollViewDim = true,
+        bool suppressActiveScrollViewScopeVisuals = false)
     {
         viewportSize = new Size(
-            Math.Max(MinimumRenderableSize, viewportSize.Width),
-            Math.Max(MinimumRenderableSize, viewportSize.Height));
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, viewportSize.Width),
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, viewportSize.Height));
         Size contentSize = ActiveWindowReportedSize(window, viewportSize);
         TerminalBuffer buffer = new(viewportSize.Width, viewportSize.Height);
         GeneratedWindowMode mode = WindowMode(window);
@@ -736,14 +1149,59 @@ public static class GeneratedWindowRuntime
                 editMode,
                 activeScrollView,
                 activeScrollViewProxy,
-                activeScrollViewFresh),
+                activeScrollViewEditElement,
+                activeScrollViewFresh,
+                applyActiveScrollViewDim,
+                suppressActiveScrollViewScopeVisuals),
             row,
             col);
         OffsetWindowElementFrames(
             window,
             row + BorderWidthHorizontal(window.GeneratedWindowStyle),
             col + BorderWidthVertical(window.GeneratedWindowStyle));
-        OverlayFocusedComboBox(buffer, window, focusedIndex, editMode, activeScrollView);
+        OverlayFocusedComboBox(buffer, window, focusedIndex, focusedElement, editMode, activeScrollView, activeScrollViewEditElement);
+        return ContentFromBuffer(buffer);
+    }
+
+    public static List<List<TerminalCell>> RenderTerminalContent(
+        GeneratedWindowBase window,
+        Size terminalSize,
+        int focusedIndex = -1,
+        Element? focusedElement = null,
+        bool editMode = false,
+        ScrollView? activeScrollView = null,
+        ReusableElement? activeScrollViewProxy = null,
+        Element? activeScrollViewEditElement = null,
+        bool activeScrollViewFresh = false,
+        bool applyActiveScrollViewDim = true,
+        bool suppressActiveScrollViewScopeVisuals = false)
+    {
+        terminalSize = new Size(
+            Math.Max(MinimumRenderableSize, terminalSize.Width),
+            Math.Max(MinimumRenderableSize, terminalSize.Height));
+        TerminalBuffer buffer = new(terminalSize.Width, terminalSize.Height);
+        Rect bounds = WindowBounds(window, terminalSize);
+        Blit(
+            buffer,
+            RenderWindowFrameContent(
+                window,
+                new Size(bounds.Width, bounds.Height),
+                focusedIndex,
+                focusedElement,
+                editMode,
+                activeScrollView,
+                activeScrollViewProxy,
+                activeScrollViewEditElement,
+                activeScrollViewFresh,
+                applyActiveScrollViewDim,
+                suppressActiveScrollViewScopeVisuals),
+            bounds.Row,
+            bounds.Col);
+        OffsetWindowElementFrames(
+            window,
+            bounds.Row + BorderWidthHorizontal(window.GeneratedWindowStyle),
+            bounds.Col + BorderWidthVertical(window.GeneratedWindowStyle));
+        OverlayFocusedComboBox(buffer, window, focusedIndex, focusedElement, editMode, activeScrollView, activeScrollViewEditElement);
         return ContentFromBuffer(buffer);
     }
 
@@ -832,12 +1290,1023 @@ public static class GeneratedWindowRuntime
         return GeneratedWindowMode.Normal;
     }
 
+    private static Rect WindowBounds(GeneratedWindowBase window, Size terminalSize)
+    {
+        Style style = window.GeneratedWindowStyle;
+        Size content = GeneratedWindowContentSize(window);
+        GeneratedWindowMode mode = WindowMode(window);
+        int naturalWidth = content.Width + BorderWidthVertical(style) * 2;
+        int naturalHeight = content.Height + BorderWidthHorizontal(style) * 2;
+        int leftMargin = Math.Max(0, style.MarginLeft ?? style.Margin ?? 0);
+        int rightMargin = Math.Max(0, style.MarginRight ?? style.Margin ?? 0);
+        int topMargin = Math.Max(0, style.MarginTop ?? style.Margin ?? 0);
+        int bottomMargin = Math.Max(0, style.MarginBottom ?? style.Margin ?? 0);
+        int availableWidth = Math.Max(MinimumRenderableSize, terminalSize.Width - leftMargin - rightMargin);
+        int availableHeight = Math.Max(MinimumRenderableSize, terminalSize.Height - topMargin - bottomMargin - ContentTopRow);
+        int width = mode is GeneratedWindowMode.Fullscreen or GeneratedWindowMode.ExpandWidth
+            ? availableWidth
+            : Math.Min(naturalWidth, availableWidth);
+        int height = mode is GeneratedWindowMode.Fullscreen or GeneratedWindowMode.ExpandHeight
+            ? availableHeight
+            : Math.Min(naturalHeight, availableHeight);
+        int row = mode is GeneratedWindowMode.Fullscreen or GeneratedWindowMode.ExpandHeight
+            ? ContentTopRow + topMargin
+            : ContentTopRow + topMargin + Math.Max(0, (availableHeight - height) / 2);
+        int col = mode is GeneratedWindowMode.Fullscreen or GeneratedWindowMode.ExpandWidth
+            ? ContentLeftCol + leftMargin
+            : ContentLeftCol + leftMargin + Math.Max(0, (availableWidth - width) / 2);
+        return new Rect(row, col, width, height);
+    }
+
     private static void RenderToConsole(GeneratedWindowBase window, GeneratedWindowRuntimeOptions options, Size size)
     {
         List<List<TerminalCell>> content = RenderWindowFrameContent(window, size);
-        foreach (string line in RenderHelpers.RenderedText(content))
+        foreach (string line in RenderHelpers.RenderedAnsiText(content))
         {
             Console.WriteLine(line);
+        }
+    }
+
+    private static bool StyleHasAnimatedTextGradient(Style style)
+    {
+        return style.TextColorGradient is not null || style.TextBackgroundGradient is not null;
+    }
+
+    private static bool ElementHasAnimatedTextGradient(Element element)
+    {
+        if (StyleHasAnimatedTextGradient(element.Style))
+        {
+            return true;
+        }
+        if (element.FocusStyle is not null && StyleHasAnimatedTextGradient(element.FocusStyle))
+        {
+            return true;
+        }
+        if (element.EditStyle is not null && StyleHasAnimatedTextGradient(element.EditStyle))
+        {
+            return true;
+        }
+        if (element.CursorStyle is not null && StyleHasAnimatedTextGradient(element.CursorStyle))
+        {
+            return true;
+        }
+        if (element.SelectedStyle is not null && StyleHasAnimatedTextGradient(element.SelectedStyle))
+        {
+            return true;
+        }
+        foreach (Element child in element.Children)
+        {
+            if (ElementHasAnimatedTextGradient(child))
+            {
+                return true;
+            }
+        }
+        if (element is ReusableElement reusable && reusable.Child is not null)
+        {
+            return WindowHasAnimatedTextGradient(reusable.Child);
+        }
+        return false;
+    }
+
+    private static bool WindowHasAnimatedTextGradient(GeneratedWindowBase window)
+    {
+        if (StyleHasAnimatedTextGradient(window.GeneratedWindowStyle))
+        {
+            return true;
+        }
+        foreach (Element element in window.Elements)
+        {
+            if (ElementHasAnimatedTextGradient(element))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int RunInteractiveTerminal(GeneratedWindowBase window, GeneratedWindowRuntimeOptions options)
+    {
+        McpRuntimeConfig config = new()
+        {
+            ViewportWidth = TerminalViewportWidth(),
+            ViewportHeight = TerminalViewportHeight(),
+        };
+        McpController controller = new(window, options, config);
+        bool previousTreatControlCAsInput = Console.TreatControlCAsInput;
+        Console.TreatControlCAsInput = true;
+        TerminalModeScope terminalMode = new();
+        using Stream input = Console.OpenStandardInput();
+        UpdateImageTerminalCellPixels(input, new Size(config.ViewportWidth, config.ViewportHeight));
+        Console.Write(TerminalTitleSequence(window));
+        Console.Write(AnsiEnterAlternateScreen);
+        try
+        {
+            bool renderNeeded = true;
+            Size previousSize = new(config.ViewportWidth, config.ViewportHeight);
+            TerminalBuffer terminalBuffer = new(previousSize.Width, previousSize.Height);
+            bool hasAnimatedTextGradient = WindowHasAnimatedTextGradient(window);
+            DateTime lastAnimatedRenderAt = DateTime.UtcNow;
+            string notification = "";
+            DateTime notificationExpiresAt = DateTime.MinValue;
+            controller.BeforeStandardEscapeButtonAction = () =>
+            {
+                RenderControllerToConsole(
+                    controller,
+                    new Size(config.ViewportWidth, config.ViewportHeight),
+                    terminalBuffer,
+                    notification);
+                Thread.Sleep(DialogButtonCloseDelayMilliseconds);
+            };
+            controller.BeforeModalButtonAction = controller.BeforeStandardEscapeButtonAction;
+            while (true)
+            {
+                if (controller.ShouldCloseRequested())
+                {
+                    break;
+                }
+                Size terminalSize = new(TerminalViewportWidth(), TerminalViewportHeight());
+                if (terminalSize != previousSize)
+                {
+                    UpdateImageTerminalCellPixels(input, terminalSize);
+                    renderNeeded = true;
+                    previousSize = terminalSize;
+                    terminalBuffer = new TerminalBuffer(terminalSize.Width, terminalSize.Height);
+                }
+                config.ViewportWidth = terminalSize.Width;
+                config.ViewportHeight = terminalSize.Height;
+                DateTime now = DateTime.UtcNow;
+                if (hasAnimatedTextGradient &&
+                    (now - lastAnimatedRenderAt).TotalMilliseconds >= AnimatedRenderIntervalMilliseconds)
+                {
+                    renderNeeded = true;
+                    lastAnimatedRenderAt = now;
+                }
+                if (!string.IsNullOrEmpty(notification) && now >= notificationExpiresAt)
+                {
+                    notification = "";
+                    renderNeeded = true;
+                }
+                if (renderNeeded)
+                {
+                    RenderControllerToConsole(controller, terminalSize, terminalBuffer, notification);
+                    renderNeeded = false;
+                }
+
+                List<DirectTerminalEvent> inputEvents = ReadDirectTerminalEvents(input);
+                if (inputEvents.Count == 0)
+                {
+                    Thread.Sleep(DirectInputIdleSleepMilliseconds);
+                    continue;
+                }
+
+                bool shouldStop = false;
+                foreach (DirectTerminalEvent inputEvent in inputEvents)
+                {
+                    if (inputEvent.Kind == DirectTerminalEventKind.Key && inputEvent.Key == "Ctrl+C")
+                    {
+                        shouldStop = true;
+                        break;
+                    }
+                    if (inputEvent.Kind == DirectTerminalEventKind.Key && inputEvent.Key is not null)
+                    {
+                        controller.PressKey(inputEvent.Key);
+                        renderNeeded = true;
+                    }
+                    else if (inputEvent.Kind == DirectTerminalEventKind.MousePress)
+                    {
+                        controller.MousePressAt(inputEvent.Position);
+                        renderNeeded = true;
+                    }
+                    else if (inputEvent.Kind == DirectTerminalEventKind.MouseDrag)
+                    {
+                        controller.MouseDragAt(inputEvent.Position);
+                        renderNeeded = true;
+                    }
+                    else if (inputEvent.Kind == DirectTerminalEventKind.MouseRelease)
+                    {
+                        controller.MouseReleaseAt(inputEvent.Position);
+                        renderNeeded = true;
+                    }
+                    else if (inputEvent.Kind == DirectTerminalEventKind.MouseWheel)
+                    {
+                        controller.MouseWheelAt(inputEvent.Position, inputEvent.WheelDelta);
+                        renderNeeded = true;
+                    }
+                    if (controller.TakeCopyNotificationRequested())
+                    {
+                        notification = CopyNotificationText;
+                        notificationExpiresAt = DateTime.UtcNow.AddMilliseconds(CopyNotificationDurationMilliseconds);
+                        renderNeeded = true;
+                    }
+                }
+                if (shouldStop)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            Console.TreatControlCAsInput = previousTreatControlCAsInput;
+            Console.Write(AnsiLeaveAlternateScreen);
+            Console.Out.Flush();
+            DrainTerminalInput(input);
+            terminalMode.Dispose();
+            Console.Write(AnsiLeaveApplicationKeypadMode);
+            Console.Out.Flush();
+        }
+        return 0;
+    }
+
+    private static int TerminalViewportWidth()
+    {
+        try
+        {
+            return Math.Max(MinimumRenderableSize, Console.WindowWidth);
+        }
+        catch (IOException)
+        {
+            return FallbackTerminalWidth;
+        }
+    }
+
+    private static int TerminalViewportHeight()
+    {
+        try
+        {
+            return Math.Max(MinimumRenderableSize, Console.WindowHeight);
+        }
+        catch (IOException)
+        {
+            return FallbackTerminalHeight;
+        }
+    }
+
+    private static string TerminalTitleSequence(GeneratedWindowBase window)
+    {
+        return TerminalTitlePrefix + SanitizedTerminalTitle(window.Title + TerminalTitleSuffix) + TerminalTitleTerminator;
+    }
+
+    private static string SanitizedTerminalTitle(string title)
+    {
+        StringBuilder sanitized = new();
+        foreach (char value in title)
+        {
+            if (!char.IsControl(value))
+            {
+                sanitized.Append(value);
+            }
+        }
+        return sanitized.ToString();
+    }
+
+    private static void UpdateImageTerminalCellPixels(Stream input, Size terminalSize)
+    {
+        Size? cellPixels = TerminalCellPixelSize(input, terminalSize);
+        if (cellPixels.HasValue)
+        {
+            Image.SetTerminalCellPixels(cellPixels.Value);
+        }
+    }
+
+    private static Size? TerminalCellPixelSize(Stream input, Size terminalSize)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+        Size? ioctlSize = TerminalCellPixelSizeFromIoctl();
+        if (ioctlSize.HasValue)
+        {
+            return ioctlSize.Value;
+        }
+        Size? direct = QueryTerminalPixelReport(input, TerminalCellPixelQuery, TerminalCellPixelResponsePrefix);
+        if (direct.HasValue)
+        {
+            return direct.Value;
+        }
+        if (terminalSize.Width <= 0 || terminalSize.Height <= 0)
+        {
+            return null;
+        }
+        Size? textArea = QueryTerminalPixelReport(input, TerminalTextAreaPixelQuery, TerminalTextAreaPixelResponsePrefix);
+        if (!textArea.HasValue)
+        {
+            return null;
+        }
+        int width = Math.Max(1, (textArea.Value.Width + terminalSize.Width / 2) / terminalSize.Width);
+        int height = Math.Max(1, (textArea.Value.Height + terminalSize.Height / 2) / terminalSize.Height);
+        return new Size(width, height);
+    }
+
+    private static Size? TerminalCellPixelSizeFromIoctl()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+        PosixWinSize size = new();
+        ulong request = OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst()
+            ? DarwinTiocgwinsz
+            : LinuxTiocgwinsz;
+        if (PosixIoctl(PosixStdoutFileDescriptor, request, ref size) != 0 ||
+            size.Col == 0 ||
+            size.Row == 0 ||
+            size.XPixel == 0 ||
+            size.YPixel == 0)
+        {
+            return null;
+        }
+        int width = Math.Max(1, (size.XPixel + size.Col / 2) / size.Col);
+        int height = Math.Max(1, (size.YPixel + size.Row / 2) / size.Row);
+        return new Size(width, height);
+    }
+
+    private static Size? QueryTerminalPixelReport(Stream input, string query, string responsePrefix)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+        try
+        {
+            Console.Write(query);
+            Console.Out.Flush();
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+
+        StringBuilder response = new(TerminalCellPixelResponseMaxBytes);
+        while (response.Length < TerminalCellPixelResponseMaxBytes)
+        {
+            if (!PosixStdinInputAvailable(TerminalCellPixelQueryTimeoutMilliseconds))
+            {
+                break;
+            }
+            int maxRead = Math.Max(1, TerminalCellPixelResponseMaxBytes - response.Length);
+            byte[] buffer = new byte[maxRead];
+            nint count = PosixRead(PosixStdinFileDescriptor, buffer, (nuint)buffer.Length);
+            if (count <= 0)
+            {
+                break;
+            }
+            response.Append(Encoding.UTF8.GetString(buffer, 0, (int)count));
+            Size? parsed = ParseTerminalPixelResponse(response.ToString(), responsePrefix);
+            if (parsed.HasValue)
+            {
+                return parsed.Value;
+            }
+        }
+        return null;
+    }
+
+    private static Size? ParseTerminalPixelResponse(string response, string responsePrefix)
+    {
+        int prefix = response.IndexOf(responsePrefix, StringComparison.Ordinal);
+        if (prefix < 0)
+        {
+            return null;
+        }
+        int heightStart = prefix + responsePrefix.Length;
+        int separator = response.IndexOf(TerminalCellPixelResponseSeparator, heightStart);
+        if (separator < 0)
+        {
+            return null;
+        }
+        int terminator = response.IndexOf(TerminalCellPixelResponseTerminator, separator + 1);
+        if (terminator < 0)
+        {
+            return null;
+        }
+        bool parsedHeight = int.TryParse(
+            response.Substring(heightStart, separator - heightStart),
+            out int height);
+        bool parsedWidth = int.TryParse(
+            response.Substring(separator + 1, terminator - separator - 1),
+            out int width);
+        if (!parsedWidth || !parsedHeight || width <= 0 || height <= 0)
+        {
+            return null;
+        }
+        return new Size(width, height);
+    }
+
+    private static void RenderControllerToConsole(
+        McpController controller,
+        Size terminalSize,
+        TerminalBuffer terminalBuffer,
+        string notification = "")
+    {
+        terminalBuffer.Clear();
+        List<List<TerminalCell>> frame = controller.RenderTerminalFrame(terminalSize);
+        for (int row = 0; row < terminalBuffer.Height && row < frame.Count; ++row)
+        {
+            List<TerminalCell> cells = frame[row];
+            for (int col = 0; col < terminalBuffer.Width && col < cells.Count; ++col)
+            {
+                terminalBuffer.SetCell(row, col, cells[col].Clone());
+            }
+        }
+        if (!string.IsNullOrEmpty(notification))
+        {
+            RenderNotification(terminalBuffer, notification);
+        }
+        ScrollRegionHint? scrollRegion = controller.TakePendingScrollRegion();
+        string scrollOutput = "";
+        if (scrollRegion.HasValue &&
+            scrollRegion.Value.Rect.Col == 0 &&
+            scrollRegion.Value.Rect.Width >= terminalBuffer.Width)
+        {
+            scrollOutput = terminalBuffer.RenderScrollRegion(
+                0,
+                scrollRegion.Value.Rect.Row,
+                scrollRegion.Value.Rect.Height,
+                scrollRegion.Value.Delta);
+        }
+        Console.Write(scrollOutput + terminalBuffer.RenderDiff());
+        Console.Out.Flush();
+    }
+
+    private static void RenderNotification(TerminalBuffer buffer, string message)
+    {
+        string text = $" {message} ";
+        int col = Math.Max(0, buffer.Width - text.Length - CopyNotificationRightMargin);
+        for (int index = 0; index < text.Length && col + index < buffer.Width; ++index)
+        {
+            buffer.SetCell(CopyNotificationRow, col + index, new TerminalCell
+            {
+                Text = text[index].ToString(),
+                Foreground = CopyNotificationForeground,
+                Background = CopyNotificationBackground,
+            });
+        }
+    }
+
+    private static List<DirectTerminalEvent> ReadDirectTerminalEvents(Stream input)
+    {
+        DirectTerminalEvent? first = ReadDirectTerminalEvent(input);
+        if (first is null)
+        {
+            return new List<DirectTerminalEvent>();
+        }
+
+        List<DirectTerminalEvent> events = new() { first };
+        while (true)
+        {
+            DirectTerminalEvent? next = ReadDirectTerminalEvent(input);
+            if (next is null)
+            {
+                break;
+            }
+            events.Add(next);
+        }
+        return CoalesceMouseWheelEvents(events);
+    }
+
+    private static List<DirectTerminalEvent> CoalesceMouseWheelEvents(List<DirectTerminalEvent> events)
+    {
+        List<DirectTerminalEvent> coalesced = new(events.Count);
+        for (int index = 0; index < events.Count;)
+        {
+            DirectTerminalEvent inputEvent = events[index];
+            if (inputEvent.Kind != DirectTerminalEventKind.MouseWheel)
+            {
+                coalesced.Add(inputEvent);
+                ++index;
+                continue;
+            }
+
+            Point position = inputEvent.Position;
+            int delta = 0;
+            while (index < events.Count && events[index].Kind == DirectTerminalEventKind.MouseWheel)
+            {
+                position = events[index].Position;
+                delta += events[index].WheelDelta;
+                ++index;
+            }
+            delta = Math.Clamp(delta, -MaxCoalescedMouseWheelDelta, MaxCoalescedMouseWheelDelta);
+            if (delta != 0)
+            {
+                coalesced.Add(DirectTerminalEvent.FromMouseWheel(position, delta));
+            }
+        }
+        return coalesced;
+    }
+
+    private static DirectTerminalEvent? ReadDirectTerminalEvent(Stream input)
+    {
+        if (!OperatingSystem.IsWindows() && !PosixStdinInputAvailable(0))
+        {
+            return null;
+        }
+        if (OperatingSystem.IsWindows() && !ConsoleInputAvailable())
+        {
+            return null;
+        }
+        int value = ReadInputByte(input);
+        if (value < 0)
+        {
+            return null;
+        }
+        if (value == TerminalEscape)
+        {
+            return DirectTerminalEventFromEscapeSequence(ReadPendingEscapeSequence(input));
+        }
+
+        string? runtimeKey = RuntimeKeyFromInputByte(value);
+        return runtimeKey is null ? null : DirectTerminalEvent.FromKey(runtimeKey);
+    }
+
+    private static int ReadInputByte(Stream input)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return ReadPosixStdinByte();
+        }
+        try
+        {
+            return input.ReadByte();
+        }
+        catch (IOException)
+        {
+            return -1;
+        }
+        catch (ObjectDisposedException)
+        {
+            return -1;
+        }
+    }
+
+    private static int ReadPendingInputByte(Stream input)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            DateTime posixDeadline = DateTime.UtcNow.AddMilliseconds(DirectInputEscapeSequenceTimeoutMilliseconds);
+            while (DateTime.UtcNow <= posixDeadline)
+            {
+                int timeout = Math.Max(
+                    DirectInputEscapeSequencePollMilliseconds,
+                    (int)Math.Ceiling((posixDeadline - DateTime.UtcNow).TotalMilliseconds));
+                if (PosixStdinInputAvailable(timeout))
+                {
+                    return ReadPosixStdinByte();
+                }
+            }
+            return -1;
+        }
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(DirectInputEscapeSequenceTimeoutMilliseconds);
+        while (DateTime.UtcNow <= deadline)
+        {
+            if (ConsoleInputAvailable())
+            {
+                return ReadInputByte(input);
+            }
+            Thread.Sleep(DirectInputEscapeSequencePollMilliseconds);
+        }
+        return -1;
+    }
+
+    private static int ReadPosixStdinByte()
+    {
+        byte[] buffer = new byte[1];
+        nint read = PosixRead(PosixStdinFileDescriptor, buffer, (nuint)buffer.Length);
+        return read == 1 ? buffer[0] : -1;
+    }
+
+    private static void DrainTerminalInput(Stream input)
+    {
+        try
+        {
+            for (int reads = 0; reads < TerminalExitDrainMaxReads; ++reads)
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    if (!PosixStdinInputAvailable(TerminalExitDrainTimeoutMilliseconds))
+                    {
+                        break;
+                    }
+                    byte[] buffer = new byte[TerminalExitDrainBytes];
+                    if (PosixRead(PosixStdinFileDescriptor, buffer, (nuint)buffer.Length) <= 0)
+                    {
+                        break;
+                    }
+                    continue;
+                }
+
+                if (!ConsoleInputAvailable())
+                {
+                    break;
+                }
+                int drained = 0;
+                while (drained < TerminalExitDrainBytes && ConsoleInputAvailable())
+                {
+                    if (input.ReadByte() < 0)
+                    {
+                        break;
+                    }
+                    ++drained;
+                }
+                if (drained == 0)
+                {
+                    break;
+                }
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private static bool PosixStdinInputAvailable(int timeoutMilliseconds)
+    {
+        PollFd[] fds = { new() { Fd = PosixStdinFileDescriptor, Events = PosixPollInput } };
+        int ready = PosixPoll(fds, (nuint)fds.Length, Math.Max(0, timeoutMilliseconds));
+        return ready > 0 && (fds[0].Revents & PosixPollInput) != 0;
+    }
+
+    private static bool ConsoleInputAvailable()
+    {
+        try
+        {
+            return Console.KeyAvailable;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    private static string ReadPendingEscapeSequence(Stream input)
+    {
+        StringBuilder sequence = new();
+        sequence.Append(TerminalEscape);
+        while (true)
+        {
+            int value = ReadPendingInputByte(input);
+            if (value < 0)
+            {
+                return sequence.ToString();
+            }
+            sequence.Append((char)value);
+            if (IsCompleteEscapeSequence(sequence.ToString()))
+            {
+                return sequence.ToString();
+            }
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "read", SetLastError = true)]
+    private static extern nint PosixRead(int fd, byte[] buffer, nuint count);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PollFd
+    {
+        public int Fd;
+        public short Events;
+        public short Revents;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PosixWinSize
+    {
+        public ushort Row;
+        public ushort Col;
+        public ushort XPixel;
+        public ushort YPixel;
+    }
+
+    [DllImport("libc", EntryPoint = "poll", SetLastError = true)]
+    private static extern int PosixPoll([In, Out] PollFd[] fds, nuint nfds, int timeout);
+
+    [DllImport("libc", EntryPoint = "ioctl", SetLastError = true)]
+    private static extern int PosixIoctl(int fd, ulong request, ref PosixWinSize size);
+
+    private static bool IsCompleteEscapeSequence(string sequence)
+    {
+        if (sequence.Length <= 1)
+        {
+            return false;
+        }
+        if (sequence.StartsWith(BracketedPasteStart, StringComparison.Ordinal))
+        {
+            return sequence.Contains(BracketedPasteEnd, StringComparison.Ordinal);
+        }
+        if (sequence.StartsWith(SgrMousePrefix, StringComparison.Ordinal))
+        {
+            return sequence.IndexOf('M', SgrMousePrefixLength) >= 0 ||
+                sequence.IndexOf('m', SgrMousePrefixLength) >= 0;
+        }
+        if (sequence.StartsWith("\x1b[", StringComparison.Ordinal))
+        {
+            for (int index = CsiPrefixLength; index < sequence.Length; ++index)
+            {
+                if (IsCsiFinal(sequence[index]))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (sequence.StartsWith("\x1bO", StringComparison.Ordinal))
+        {
+            return sequence.Length >= SgrMousePrefixLength;
+        }
+        return true;
+    }
+
+    private static bool IsCsiFinal(char value)
+    {
+        return value >= '@' && value <= '~';
+    }
+
+    private static DirectTerminalEvent? DirectTerminalEventFromEscapeSequence(string sequence)
+    {
+        if (sequence == TerminalEscape.ToString())
+        {
+            return DirectTerminalEvent.FromKey("Escape");
+        }
+        if (sequence.StartsWith(SgrMousePrefix, StringComparison.Ordinal))
+        {
+            return DirectTerminalEventFromSgrMouseSequence(sequence);
+        }
+        if (sequence.StartsWith(BracketedPasteStart, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string? runtimeKey = RuntimeKeyFromEscapeSequence(sequence);
+        return DirectTerminalEvent.FromKey(runtimeKey ?? "Escape");
+    }
+
+    private static DirectTerminalEvent? DirectTerminalEventFromSgrMouseSequence(string sequence)
+    {
+        int finalIndex = sequence.IndexOf('M', SgrMousePrefixLength);
+        int releaseIndex = sequence.IndexOf('m', SgrMousePrefixLength);
+        if (finalIndex < 0 || (releaseIndex >= 0 && releaseIndex < finalIndex))
+        {
+            finalIndex = releaseIndex;
+        }
+        if (finalIndex < 0)
+        {
+            return null;
+        }
+
+        string payload = sequence.Substring(SgrMousePrefixLength, finalIndex - SgrMousePrefixLength);
+        string[] fields = payload.Split(';');
+        if (fields.Length != SgrMouseFieldCount ||
+            !int.TryParse(fields[0], out int button) ||
+            !int.TryParse(fields[1], out int col) ||
+            !int.TryParse(fields[2], out int row))
+        {
+            return null;
+        }
+
+        Point position = new(row - TerminalCoordinateBase, col - TerminalCoordinateBase);
+        if (button == SgrMouseWheelUpButton)
+        {
+            return DirectTerminalEvent.FromMouseWheel(position, SgrMouseWheelUpDelta);
+        }
+        if (button == SgrMouseWheelDownButton)
+        {
+            return DirectTerminalEvent.FromMouseWheel(position, SgrMouseWheelDownDelta);
+        }
+        if (sequence[finalIndex] == 'm')
+        {
+            return DirectTerminalEvent.FromMouse(DirectTerminalEventKind.MouseRelease, position);
+        }
+        if ((button & SgrMouseDragMask) != 0)
+        {
+            return DirectTerminalEvent.FromMouse(DirectTerminalEventKind.MouseDrag, position);
+        }
+        return DirectTerminalEvent.FromMouse(DirectTerminalEventKind.MousePress, position);
+    }
+
+    private static string? RuntimeKeyFromInputByte(int value)
+    {
+        char key = (char)value;
+        if (key == TerminalCtrlC)
+        {
+            return "Ctrl+C";
+        }
+        if (key is TerminalCarriageReturn or TerminalLineFeed)
+        {
+            return "Enter";
+        }
+        if (key == TerminalTab)
+        {
+            return "Tab";
+        }
+        if (key is TerminalBackspace or TerminalDeleteBackspace)
+        {
+            return "Backspace";
+        }
+        if (value is >= 1 and <= 26)
+        {
+            char control = (char)('a' + value - 1);
+            return "ctrl_" + control;
+        }
+        return key.ToString();
+    }
+
+    private static string? RuntimeKeyFromEscapeSequence(string sequence)
+    {
+        return sequence switch
+        {
+            "\x1b[A" => "Up",
+            "\x1b[B" => "Down",
+            "\x1b[C" => "Right",
+            "\x1b[D" => "Left",
+            "\x1bOA" => "Up",
+            "\x1bOB" => "Down",
+            "\x1bOC" => "Right",
+            "\x1bOD" => "Left",
+            "\x1b[H" => "Home",
+            "\x1b[F" => "End",
+            "\x1b[Z" => "Shift+Tab",
+            "\x1bOH" => "Home",
+            "\x1bOF" => "End",
+            "\x1b[1~" => "Home",
+            "\x1b[3~" => "Delete",
+            "\x1b[4~" => "End",
+            "\x1b[7~" => "Home",
+            "\x1b[8~" => "End",
+            "\x1b[1;2A" => "Shift+Up",
+            "\x1b[1;2B" => "Shift+Down",
+            "\x1b[1;2C" => "Shift+Right",
+            "\x1b[1;2D" => "Shift+Left",
+            "\x1b[1;2H" => "Shift+Home",
+            "\x1b[1;2F" => "Shift+End",
+            "\x1b[1;3A" => "Alt+Up",
+            "\x1b[1;3B" => "Alt+Down",
+            "\x1b[1;3C" => "Alt+Right",
+            "\x1b[1;3D" => "Alt+Left",
+            "\x1b[1;5A" => "Ctrl+Up",
+            "\x1b[1;5B" => "Ctrl+Down",
+            "\x1b[1;5C" => "Ctrl+Right",
+            "\x1b[1;5D" => "Ctrl+Left",
+            "\x1b\r" => "Alt+Enter",
+            "\x1b\n" => "Alt+Enter",
+            "\x1b\r\n" => "Alt+Enter",
+            "\x1b[13;3u" => "Alt+Enter",
+            "\x1b[13;5u" => "Alt+Enter",
+            "\x1b[27;3;13~" => "Alt+Enter",
+            "\x1b[27;5;13~" => "Alt+Enter",
+            _ => RuntimeModifiedKeyFromEscapeSequence(sequence) ?? RuntimeCsiKey(sequence),
+        };
+    }
+
+    private static string? RuntimeModifiedKeyFromEscapeSequence(string sequence)
+    {
+        if (sequence.StartsWith("\x1b[", StringComparison.Ordinal) && sequence.EndsWith("u", StringComparison.Ordinal))
+        {
+            string[] fields = sequence.Substring(CsiPrefixLength, sequence.Length - CsiPrefixLength - 1).Split(';');
+            if (fields.Length == 2 &&
+                int.TryParse(fields[0], out int codepoint) &&
+                int.TryParse(fields[1], out int modifier))
+            {
+                return RuntimeModifiedKey(codepoint, modifier);
+            }
+        }
+        if (sequence.StartsWith("\x1b[27;", StringComparison.Ordinal) && sequence.EndsWith("~", StringComparison.Ordinal))
+        {
+            string[] fields = sequence.Substring(CsiPrefixLength, sequence.Length - CsiPrefixLength - 1).Split(';');
+            if (fields.Length == SgrMouseFieldCount &&
+                int.TryParse(fields[1], out int modifier) &&
+                int.TryParse(fields[2], out int codepoint))
+            {
+                return RuntimeModifiedKey(codepoint, modifier);
+            }
+        }
+        return null;
+    }
+
+    private static string? RuntimeModifiedKey(int codepoint, int modifier)
+    {
+        if (IsControlCCodepoint(codepoint, modifier))
+        {
+            return "Ctrl+C";
+        }
+        if (IsCommandCCodepoint(codepoint, modifier))
+        {
+            return "cmd_c";
+        }
+        if (IsCommandVCodepoint(codepoint, modifier))
+        {
+            return "cmd_v";
+        }
+        return null;
+    }
+
+    private static bool IsControlCCodepoint(int codepoint, int modifier)
+    {
+        return codepoint == CtrlCCodepoint ||
+            ((codepoint == LowercaseCCodepoint || codepoint == UppercaseCCodepoint) &&
+                (modifier == CtrlModifier || modifier == CtrlShiftModifier));
+    }
+
+    private static bool IsCommandCCodepoint(int codepoint, int modifier)
+    {
+        return (codepoint == LowercaseCCodepoint || codepoint == UppercaseCCodepoint) &&
+            (modifier == MetaModifier || modifier == MetaShiftModifier);
+    }
+
+    private static bool IsCommandVCodepoint(int codepoint, int modifier)
+    {
+        return (codepoint == LowercaseVCodepoint || codepoint == UppercaseVCodepoint) &&
+            (modifier == MetaModifier || modifier == MetaShiftModifier);
+    }
+
+    private static string? RuntimeCsiKey(string sequence)
+    {
+        if (!sequence.StartsWith("\x1b[", StringComparison.Ordinal) || sequence.Length < SgrMousePrefixLength)
+        {
+            return null;
+        }
+        char final = sequence[^1];
+        if (sequence.Length == SgrMousePrefixLength)
+        {
+            return KeyForCsiFinal(final);
+        }
+
+        string payload = sequence.Substring(CsiPrefixLength, sequence.Length - CsiPrefixLength - 1);
+        int separator = payload.LastIndexOf(';');
+        if (separator < 0 || !int.TryParse(payload[(separator + 1)..], out int modifier))
+        {
+            return null;
+        }
+
+        string? key = KeyForCsiFinal(final);
+        if (key is null)
+        {
+            return null;
+        }
+        return modifier switch
+        {
+            2 => "Shift+" + key,
+            3 => "Alt+" + key,
+            4 => "Alt+Shift+" + key,
+            5 => "Ctrl+" + key,
+            6 => "Ctrl+Shift+" + key,
+            _ => key,
+        };
+    }
+
+    private static string? KeyForCsiFinal(char final)
+    {
+        return final switch
+        {
+            'A' => "Up",
+            'B' => "Down",
+            'C' => "Right",
+            'D' => "Left",
+            'H' => "Home",
+            'F' => "End",
+            'Z' => "Shift+Tab",
+            _ => null,
+        };
+    }
+
+    private static Color? DimColor(Color? color)
+    {
+        if (color is null || color.IsTransparent || !color.Rgba.HasValue)
+        {
+            return color;
+        }
+        Rgba rgba = color.Rgba.Value;
+        return Color.Rgb(
+            (byte)(rgba.Red * ModalBackgroundDimFactor),
+            (byte)(rgba.Green * ModalBackgroundDimFactor),
+            (byte)(rgba.Blue * ModalBackgroundDimFactor),
+            rgba.Alpha);
+    }
+
+    internal static void DimBufferForModalOverlay(TerminalBuffer buffer)
+    {
+        for (int row = 0; row < buffer.Height; ++row)
+        {
+            for (int col = 0; col < buffer.Width; ++col)
+            {
+                TerminalCell cell = buffer.Cell(row, col).Clone();
+                cell.Foreground = DimColor(cell.Foreground);
+                cell.Background = DimColor(cell.Background);
+                buffer.SetCell(row, col, cell);
+            }
         }
     }
 
@@ -861,6 +2330,34 @@ public static class GeneratedWindowRuntime
             Math.Max(MinimumRenderableSize, bounds.Height - horizontal * 2));
     }
 
+    internal static bool WindowStackFrameContains(GeneratedWindowBase window, Size terminalSize, Point terminalPoint)
+    {
+        return WindowBounds(window, terminalSize).Contains(terminalPoint);
+    }
+
+    internal static Point WindowStackContentPoint(
+        GeneratedWindowBase window,
+        Size terminalSize,
+        Point terminalPoint)
+    {
+        Rect bounds = WindowBounds(window, terminalSize);
+        Rect content = ContentBounds(
+            new Rect(0, 0, bounds.Width, bounds.Height),
+            window.GeneratedWindowStyle);
+        return new Point(
+            terminalPoint.Row - bounds.Row - content.Row,
+            terminalPoint.Col - bounds.Col - content.Col);
+    }
+
+    internal static Size WindowStackContentSize(GeneratedWindowBase window, Size terminalSize)
+    {
+        Rect bounds = WindowBounds(window, terminalSize);
+        Rect content = ContentBounds(
+            new Rect(0, 0, bounds.Width, bounds.Height),
+            window.GeneratedWindowStyle);
+        return new Size(content.Width, content.Height);
+    }
+
     private static List<List<TerminalCell>> RenderWindowFrameContent(
         GeneratedWindowBase window,
         Size frameSize,
@@ -869,7 +2366,10 @@ public static class GeneratedWindowRuntime
         bool editMode = false,
         ScrollView? activeScrollView = null,
         ReusableElement? activeScrollViewProxy = null,
-        bool activeScrollViewFresh = false)
+        Element? activeScrollViewEditElement = null,
+        bool activeScrollViewFresh = false,
+        bool applyActiveScrollViewDim = true,
+        bool suppressActiveScrollViewScopeVisuals = false)
     {
         frameSize = new Size(
             Math.Max(MinimumRenderableSize, frameSize.Width),
@@ -890,10 +2390,69 @@ public static class GeneratedWindowRuntime
                 editMode,
                 activeScrollView,
                 activeScrollViewProxy,
-                activeScrollViewFresh),
+                activeScrollViewEditElement,
+                activeScrollViewFresh,
+                applyActiveScrollViewDim,
+                null,
+                suppressActiveScrollViewScopeVisuals),
             content.Row,
             content.Col);
         return ContentFromBuffer(frameBuffer);
+    }
+
+    internal static void RenderWindowStackOverlay(
+        TerminalBuffer buffer,
+        GeneratedWindowBase window,
+        GeneratedWindowRuntimeOptions options,
+        int focusedIndex = -1,
+        Element? focusedElement = null,
+        bool editMode = false,
+        ScrollView? activeScrollView = null,
+        ReusableElement? activeScrollViewProxy = null,
+        Element? activeScrollViewEditElement = null,
+        bool activeScrollViewFresh = false,
+        bool topFrame = true,
+        bool dimFrame = false)
+    {
+        Rect bounds = WindowBounds(window, new Size(buffer.Width, buffer.Height));
+        Style style = window.GeneratedWindowStyle;
+        TerminalBuffer frameBuffer = new(bounds.Width, bounds.Height);
+        Rect localBounds = new(0, 0, bounds.Width, bounds.Height);
+        FillRect(frameBuffer, localBounds, BorderStyleFor(style));
+        Rect content = ContentBounds(localBounds, style);
+        FillRect(frameBuffer, content, style);
+        Blit(
+            frameBuffer,
+            RenderGeneratedWindowContent(
+                window,
+                new Size(content.Width, content.Height),
+                focusedIndex,
+                focusedElement,
+                topFrame && editMode,
+                topFrame ? activeScrollView : null,
+                topFrame ? activeScrollViewProxy : null,
+                topFrame ? activeScrollViewEditElement : null,
+                topFrame && activeScrollViewFresh),
+            content.Row,
+            content.Col);
+        if (dimFrame)
+        {
+            DimBufferForModalOverlay(frameBuffer);
+        }
+        Blit(buffer, ContentFromBuffer(frameBuffer), bounds.Row, bounds.Col);
+        if (topFrame)
+        {
+            OverlayFocusedComboBox(
+                buffer,
+                window,
+                focusedIndex,
+                focusedElement,
+                editMode,
+                activeScrollView,
+                activeScrollViewEditElement,
+                bounds.Row,
+                bounds.Col);
+        }
     }
 
     private static void FillRect(TerminalBuffer buffer, Rect rect, Style style)
@@ -935,7 +2494,13 @@ public static class GeneratedWindowRuntime
         Rect cellRect,
         ScrollView? activeScrollView = null,
         ReusableElement? activeScrollViewProxy = null,
-        bool activeScrollViewFresh = false)
+        Element? activeScrollViewEditElement = null,
+        bool activeScrollViewFresh = false,
+        Color? activeScrollViewFocusBackgroundOverride = null,
+        bool suppressActiveScrollViewScopeVisuals = false,
+        int? renderClipTop = null,
+        int? renderClipBottom = null,
+        bool useHostViewportForRootScrollViewIndicators = false)
     {
         if (element is null)
         {
@@ -969,6 +2534,17 @@ public static class GeneratedWindowRuntime
         Size size = RenderSizeFor(entry, cellRect, element);
         int row = RenderRowFor(window.GeneratedLayout, entry, cellRect, size);
         int col = RenderColFor(window.GeneratedLayout, entry, cellRect, size);
+        int? elementClipTop = null;
+        int? elementClipBottom = null;
+        if (renderClipTop.HasValue || renderClipBottom.HasValue)
+        {
+            int clipTop = renderClipTop ?? row;
+            int clipBottom = renderClipBottom ?? row + size.Height;
+            int visibleTop = Math.Max(row, clipTop);
+            int visibleBottom = Math.Min(row + size.Height, clipBottom);
+            elementClipTop = Math.Max(0, visibleTop - row);
+            elementClipBottom = Math.Max(0, visibleBottom - row);
+        }
         element.Frame = new Rect(row, col, size.Width, size.Height);
         Color? parentBackground =
             row >= 0 && row < buffer.Height && col >= 0 && col < buffer.Width
@@ -983,116 +2559,588 @@ public static class GeneratedWindowRuntime
                     activeScrollView is not null && WindowContainsElement(reusable.Child, activeScrollView);
                 bool childOwnsActiveScrollViewProxy =
                     activeScrollViewProxy is not null && WindowContainsElement(reusable.Child, activeScrollViewProxy);
+                bool childOwnsActiveScrollViewEditElement =
+                    activeScrollViewEditElement is not null && WindowContainsElement(reusable.Child, activeScrollViewEditElement);
                 List<Element> childFocusable = FocusableElements(
                     reusable.Child,
                     childOwnsActiveScrollView ? activeScrollView : null);
                 int childFocusedIndex = focusedElement is not null
                     ? childFocusable.IndexOf(focusedElement)
                     : -1;
+                if (childFocusedIndex < 0 && childOwnsActiveScrollViewEditElement)
+                {
+                    childFocusedIndex = childFocusable.IndexOf(activeScrollViewEditElement!);
+                }
                 if (childFocusedIndex < 0 &&
                     ReferenceEquals(element, focusedElement) &&
                     reusable.Child is GeneratedScrollViewBase generatedScrollView)
                 {
                     childFocusedIndex = childFocusable.IndexOf(generatedScrollView.ScrollView());
                 }
-                if (childFocusedIndex < 0 && childOwnsActiveScrollViewProxy)
-                {
-                    childFocusedIndex = childFocusable.IndexOf(activeScrollViewProxy!);
-                }
-                if (childFocusedIndex < 0 && childOwnsActiveScrollView)
+                if (!suppressActiveScrollViewScopeVisuals && childFocusedIndex < 0 && childOwnsActiveScrollView)
                 {
                     childFocusedIndex = childFocusable.IndexOf(activeScrollView!);
                 }
 
+                bool childHasFocusedElement =
+                    focusedElement is not null && WindowContainsElement(reusable.Child, focusedElement);
+                bool reusableDescendantFocused =
+                    ReferenceEquals(element, focusedElement) ||
+                    (editMode && childOwnsActiveScrollView) ||
+                    (editMode && childOwnsActiveScrollViewEditElement) ||
+                    (editMode && childHasFocusedElement);
+                bool directFocus = ReferenceEquals(element, focusedElement);
+                ScrollView? reusableGeneratedScrollView =
+                    reusable.Child is GeneratedScrollViewBase reusableScrollViewWindow
+                        ? reusableScrollViewWindow.ScrollView()
+                        : null;
+                Size childRenderSize = size;
+                Size childContentSizeForWidth = GeneratedWindowContentSizeForWidth(
+                    reusable.Child,
+                    Math.Max(MinimumRenderableSize, childRenderSize.Width));
+                if (reusableGeneratedScrollView is null)
+                {
+                    childRenderSize = new Size(
+                        childRenderSize.Width,
+                        Math.Max(childRenderSize.Height, childContentSizeForWidth.Height));
+                }
+                Style? childWindowStyle = null;
+                Color? childActiveScrollViewFocusBackground = null;
+                bool applyChildDescendantFocusBackground = true;
+                if (reusableDescendantFocused)
+                {
+                    childWindowStyle = reusable.Child.GeneratedWindowStyle.Clone();
+                    bool applyReusableFocusStyle = ReusableFocusStyleAppliesToChild(
+                        reusable,
+                        directFocus,
+                        reusableDescendantFocused && !directFocus);
+                    if (applyReusableFocusStyle)
+                    {
+                        if (reusableGeneratedScrollView is null)
+                        {
+                            childWindowStyle.Merge(reusable.FocusStyle!);
+                        }
+                        if (reusable.FocusStyle?.Background is not null)
+                        {
+                            childActiveScrollViewFocusBackground = reusable.FocusStyle.Background;
+                        }
+                    }
+                    if (childActiveScrollViewFocusBackground is null &&
+                        !childOwnsActiveScrollView &&
+                        reusableGeneratedScrollView is not null)
+                    {
+                        if (reusableGeneratedScrollView.DescendantFocusStyle?.Background is not null)
+                        {
+                            childActiveScrollViewFocusBackground =
+                                reusableGeneratedScrollView.DescendantFocusStyle.Background;
+                        }
+                        else if (reusableGeneratedScrollView.FocusStyle?.Background is not null)
+                        {
+                            childActiveScrollViewFocusBackground =
+                                reusableGeneratedScrollView.FocusStyle.Background;
+                        }
+                        applyChildDescendantFocusBackground =
+                            childOwnsActiveScrollView ||
+                            childOwnsActiveScrollViewEditElement ||
+                            (focusedElement is not null &&
+                                WindowContainsElement(reusable.Child, focusedElement) &&
+                                !ReferenceEquals(focusedElement, reusableGeneratedScrollView));
+                    }
+                }
+
+                if (!suppressActiveScrollViewScopeVisuals &&
+                    ReferenceEquals(element, focusedElement) &&
+                    reusable.Child is GeneratedScrollViewBase focusedGeneratedScrollView)
+                {
+                    childActiveScrollViewFocusBackground = GeneratedScrollViewProxyFocusBackground(
+                        focusedGeneratedScrollView.ScrollView(),
+                        reusable);
+                }
+
                 bool childEditMode =
                     editMode &&
-                    (childFocusedIndex >= 0 || childOwnsActiveScrollView) &&
-                    (activeScrollView is null || childOwnsActiveScrollView || childOwnsActiveScrollViewProxy);
+                    childFocusedIndex >= 0 &&
+                    (activeScrollView is null ||
+                        childOwnsActiveScrollView ||
+                        childOwnsActiveScrollViewEditElement);
+                bool useHostViewportForRootScrollViewChild =
+                    element is ViewHost &&
+                    reusableGeneratedScrollView is not null;
                 rendered = RenderGeneratedWindowContent(
                     reusable.Child,
-                    size,
+                    childRenderSize,
                     childFocusedIndex,
                     focusedElement,
                     childEditMode,
-                    childOwnsActiveScrollView ? activeScrollView : null,
-                    childOwnsActiveScrollView || childOwnsActiveScrollViewProxy ? activeScrollViewProxy : null,
+                    activeScrollView,
+                    activeScrollViewProxy,
+                    activeScrollViewEditElement,
                     activeScrollViewFresh,
-                    false);
-                if (childOwnsActiveScrollView &&
-                    activeScrollView is not null &&
-                    activeScrollViewProxy is not null &&
-                    !childOwnsActiveScrollViewProxy)
+                    false,
+                    childActiveScrollViewFocusBackground,
+                    suppressActiveScrollViewScopeVisuals,
+                    childWindowStyle,
+                    elementClipTop,
+                    elementClipBottom,
+                    true,
+                    useHostViewportForRootScrollViewChild);
+                if (childActiveScrollViewFocusBackground is not null &&
+                    reusableGeneratedScrollView is null)
                 {
-                    RestoreExternalProxyActiveScrollViewContentBackground(rendered, activeScrollView);
-                }
-                if (ReferenceEquals(element, focusedElement) && reusable.Child is GeneratedScrollViewBase focusedGeneratedScrollView)
-                {
-                    ApplyGeneratedScrollViewProxyFocusBackground(rendered, focusedGeneratedScrollView);
+                    if (applyChildDescendantFocusBackground)
+                    {
+                        List<Color> descendantBackgrounds = new();
+                        CollectDescendantBaseStyleBackgrounds(reusable.Child, descendantBackgrounds);
+                        ApplyReusableFocusBackgroundToDescendantBackgrounds(
+                            rendered,
+                            childActiveScrollViewFocusBackground,
+                            descendantBackgrounds);
+                    }
+                    ApplyReusableFocusBackground(
+                        rendered,
+                        childActiveScrollViewFocusBackground,
+                        ReusableFocusBaseBackground(reusable, entry));
                 }
                 OffsetWindowElementFrames(reusable.Child, row, col);
             }
             else
             {
-                bool activeScrollViewHasExternalProxy =
-                    element is ScrollView candidateScrollView &&
-                    ReferenceEquals(candidateScrollView, activeScrollView) &&
-                    activeScrollViewProxy is not null &&
-                    !WindowContainsElement(window, activeScrollViewProxy);
-                bool elementFocused =
-                    ReferenceEquals(element, focusedElement) ||
-                    (element is ScrollView scrollView &&
-                        ReferenceEquals(scrollView, activeScrollView) &&
-                        !activeScrollViewHasExternalProxy);
+                bool focused = ReferenceEquals(element, focusedElement);
+                bool activeScrollViewFocused =
+                    !suppressActiveScrollViewScopeVisuals &&
+                    editMode &&
+                    (ReferenceEquals(activeScrollView, element) ||
+                        (element is ScrollView activeFocusedScrollView &&
+                            (ReferenceEquals(ScrollViewContainingElement(window, focusedElement), activeFocusedScrollView) ||
+                                ReferenceEquals(ScrollViewContainingElement(window, activeScrollViewEditElement), activeFocusedScrollView))));
+                bool scrollViewSelfFocused =
+                    element is ScrollView &&
+                    focused &&
+                    !activeScrollViewFocused;
+                bool elementEditMode =
+                    focused &&
+                    editMode &&
+                    (activeScrollView is null || ReferenceEquals(activeScrollViewEditElement, element));
                 rendered = element.Render(size, new ElementRenderState
-            {
-                Focused = elementFocused,
-                EditMode = ReferenceEquals(element, focusedElement) && editMode,
-                FocusedElement = focusedElement,
-            });
+                    {
+                        Focused = focused && !scrollViewSelfFocused && !activeScrollViewFocused,
+                        EditMode = elementEditMode && !activeScrollViewFocused,
+                        PassiveFocus =
+                            !scrollViewSelfFocused &&
+                            !activeScrollViewFocused &&
+                            activeScrollView is not null &&
+                            focused &&
+                            !elementEditMode,
+                        FocusedElement = focusedElement,
+                        SuppressActiveScrollViewScopeVisuals = suppressActiveScrollViewScopeVisuals,
+                        ClipTop = elementClipTop,
+                        ClipBottom = elementClipBottom,
+                    });
             }
         }
         Blit(buffer, rendered, row, col, EntryContentClip(cellRect, entry.CellStyle));
+        if (element is ReusableElement renderedReusable &&
+            renderedReusable.Child is not null &&
+            !suppressActiveScrollViewScopeVisuals)
+        {
+            bool childOwnsActiveScrollView =
+                activeScrollView is not null && WindowContainsElement(renderedReusable.Child, activeScrollView);
+            bool childOwnsActiveScrollViewEditElement =
+                activeScrollViewEditElement is not null && WindowContainsElement(renderedReusable.Child, activeScrollViewEditElement);
+            bool directFocus = ReferenceEquals(element, focusedElement);
+            bool reusableDescendantFocused =
+                directFocus ||
+                (editMode && childOwnsActiveScrollView) ||
+                (editMode && childOwnsActiveScrollViewEditElement) ||
+                (editMode &&
+                    focusedElement is not null &&
+                    WindowContainsElement(renderedReusable.Child, focusedElement));
+            bool applyReusableFocusStyle = ReusableFocusStyleAppliesToChild(
+                renderedReusable,
+                directFocus,
+                reusableDescendantFocused && !directFocus);
+            if (reusableDescendantFocused &&
+                applyReusableFocusStyle &&
+                renderedReusable.Child is not GeneratedScrollViewBase &&
+                renderedReusable.FocusStyle?.Background is not null)
+            {
+                ApplyReusableFocusBackgroundToBuffer(
+                    buffer,
+                    new Rect(row, col, size.Width, size.Height),
+                    renderedReusable.FocusStyle.Background,
+                    ReusableFocusBaseBackground(renderedReusable, entry));
+            }
+        }
+        if (element is ScrollView renderedScrollView)
+        {
+            RenderScrollViewChildrenOverlay(
+                window,
+                buffer,
+                entry,
+                renderedScrollView,
+                new Rect(row, col, size.Width, size.Height),
+                focusedElement,
+                editMode,
+                activeScrollView,
+                activeScrollViewProxy,
+                activeScrollViewEditElement,
+                activeScrollViewFresh,
+                activeScrollViewFocusBackgroundOverride,
+                suppressActiveScrollViewScopeVisuals,
+                parentBackground,
+                useHostViewportForRootScrollViewIndicators);
+        }
         if (element is ReusableElement focusedReusable &&
+            !suppressActiveScrollViewScopeVisuals &&
             ReferenceEquals(element, focusedElement) &&
             focusedReusable.Child is GeneratedScrollViewBase)
         {
-            ApplyFocusedReusableProxyBackground(
+            ApplyFocusedReusableProxyBackgroundGaps(
                 buffer,
                 new Rect(row, col, size.Width, size.Height),
-                focusedReusable,
-                editMode &&
-                    activeScrollView is not null &&
-                    ReferenceEquals(activeScrollViewProxy, focusedReusable));
+                focusedReusable);
         }
     }
 
-    private static void ApplyGeneratedScrollViewProxyFocusBackground(
-        List<List<TerminalCell>> rendered,
-        GeneratedScrollViewBase generatedScrollView)
+    private static void RenderScrollViewChildrenOverlay(
+        GeneratedWindowBase window,
+        TerminalBuffer buffer,
+        GeneratedLayoutEntry entry,
+        ScrollView scrollView,
+        Rect frame,
+        Element? focusedElement,
+        bool editMode,
+        ScrollView? activeScrollView,
+        ReusableElement? activeScrollViewProxy,
+        Element? activeScrollViewEditElement,
+        bool activeScrollViewFresh,
+        Color? activeScrollViewFocusBackgroundOverride,
+        bool suppressActiveScrollViewScopeVisuals,
+        Color? parentBackground,
+        bool useHostViewportForRootScrollViewIndicators)
     {
-        Color? focusBackground = generatedScrollView.ScrollView().FocusStyle?.Background;
-        if (focusBackground is null)
+        Rect scrollViewport = ScrollViewViewportClip(frame, scrollView.Style);
+        Rect scrollClip = scrollViewport;
+        List<(Element Element, Rect Frame, int Height)> overlays = new();
+        bool childContentAboveViewport = false;
+        bool childContentBelowViewport = false;
+
+        foreach (ScrollViewChildView childView in scrollView.ChildViews(new Size(frame.Width, frame.Height)))
         {
-            return;
-        }
-        Color? baseBackground = generatedScrollView.ScrollView().Style.Background ?? generatedScrollView.GeneratedWindowStyle.Background;
-        foreach (List<TerminalCell> row in rendered)
-        {
-            foreach (TerminalCell cell in row)
+            Rect childFrame = new(
+                frame.Row + childView.Frame.Row,
+                frame.Col + childView.Frame.Col,
+                childView.Frame.Width,
+                childView.Frame.Height);
+            if (childFrame.Row < scrollViewport.Row)
             {
-                if (baseBackground is null || ColorEquals(cell.Background, baseBackground))
+                childContentAboveViewport = true;
+            }
+            if (childFrame.Row + childFrame.Height > scrollViewport.Row + scrollViewport.Height)
+            {
+                childContentBelowViewport = true;
+            }
+            if (!childView.Visible || childView.Element is null)
+            {
+                continue;
+            }
+
+            childView.Element.Frame = childFrame;
+            if (childView.Element is ReusableElement reusable && reusable.Child is not null)
+            {
+                List<Element> childFocusable = FocusableElements(reusable.Child, activeScrollView);
+                int childFocusedIndex = focusedElement is not null
+                    ? childFocusable.IndexOf(focusedElement)
+                    : -1;
+                int effectiveChildFocusedIndex = childFocusedIndex;
+                if (effectiveChildFocusedIndex < 0 &&
+                    activeScrollViewEditElement is not null &&
+                    WindowContainsElement(reusable.Child, activeScrollViewEditElement))
                 {
-                    cell.Background = BlendBackgroundOverExisting(focusBackground, cell.Background);
+                    effectiveChildFocusedIndex = childFocusable.IndexOf(activeScrollViewEditElement);
                 }
+                if (effectiveChildFocusedIndex < 0 &&
+                    activeScrollView is not null &&
+                    WindowContainsElement(reusable.Child, activeScrollView))
+                {
+                    effectiveChildFocusedIndex = childFocusable.IndexOf(activeScrollView);
+                }
+
+                ComboBox? activeChildComboBox = activeScrollViewEditElement as ComboBox;
+                bool childOwnsActiveScrollView =
+                    activeScrollView is not null &&
+                    WindowContainsElement(reusable.Child, activeScrollView);
+                bool childOwnsActiveScrollViewEditElement =
+                    activeScrollViewEditElement is not null &&
+                    WindowContainsElement(reusable.Child, activeScrollViewEditElement);
+                bool overlayActiveChildComboBox = childOwnsActiveScrollViewEditElement && activeChildComboBox is not null;
+                bool childHasFocusedElement =
+                    focusedElement is not null &&
+                    WindowContainsElement(reusable.Child, focusedElement);
+                bool reusableDescendantFocused =
+                    ReferenceEquals(childView.Element, focusedElement) ||
+                    (editMode &&
+                        (childFocusedIndex >= 0 ||
+                            effectiveChildFocusedIndex >= 0 ||
+                            childOwnsActiveScrollViewEditElement ||
+                            childHasFocusedElement ||
+                            childOwnsActiveScrollView));
+                bool reusableWholeChildFocus =
+                    reusableDescendantFocused &&
+                    !HasMultipleFocusableElements(reusable.Child, activeScrollView);
+                bool reusableChildEditMode =
+                    effectiveChildFocusedIndex >= 0 &&
+                    editMode &&
+                    (activeScrollView is null ||
+                        childOwnsActiveScrollView ||
+                        childOwnsActiveScrollViewEditElement);
+                Style? childWindowStyle = null;
+                Color? childActiveScrollViewFocusBackground = null;
+                Color? childDescendantFocusBackground = null;
+                ScrollView? reusableGeneratedScrollView =
+                    reusable.Child is GeneratedScrollViewBase reusableScrollViewWindow
+                        ? reusableScrollViewWindow.ScrollView()
+                        : null;
+                if (reusableWholeChildFocus)
+                {
+                    childWindowStyle = reusable.Child.GeneratedWindowStyle.Clone();
+                    bool reusableDirectFocus = ReferenceEquals(childView.Element, focusedElement);
+                    bool applyReusableFocusStyle = ReusableFocusStyleAppliesToChild(
+                        reusable,
+                        reusableDirectFocus,
+                        reusableDescendantFocused && !reusableDirectFocus);
+                    if (applyReusableFocusStyle)
+                    {
+                        if (reusableGeneratedScrollView is null)
+                        {
+                            childWindowStyle.Merge(reusable.FocusStyle!);
+                        }
+                        if (reusable.FocusStyle?.Background is not null)
+                        {
+                            childActiveScrollViewFocusBackground = reusable.FocusStyle.Background;
+                        }
+                    }
+                    if (childActiveScrollViewFocusBackground is null &&
+                        activeScrollView?.DescendantFocusStyle?.Background is not null)
+                    {
+                        childActiveScrollViewFocusBackground = activeScrollView.DescendantFocusStyle.Background;
+                    }
+                    if (childActiveScrollViewFocusBackground is null &&
+                        scrollView.DescendantFocusStyle?.Background is not null)
+                    {
+                        childActiveScrollViewFocusBackground = scrollView.DescendantFocusStyle.Background;
+                    }
+                    if (childActiveScrollViewFocusBackground is null &&
+                        scrollView.FocusStyle?.Background is not null)
+                    {
+                        childActiveScrollViewFocusBackground = scrollView.FocusStyle.Background;
+                    }
+                    childDescendantFocusBackground = childActiveScrollViewFocusBackground;
+                }
+
+                bool activeScrollViewDescendantFocused =
+                    ReferenceEquals(activeScrollView, scrollView) &&
+                    focusedElement is not null &&
+                    !ReferenceEquals(focusedElement, scrollView) &&
+                    ReferenceEquals(ScrollViewContainingElement(window, focusedElement), scrollView);
+                if (childDescendantFocusBackground is null &&
+                    activeScrollViewDescendantFocused &&
+                    reusableWholeChildFocus)
+                {
+                    childDescendantFocusBackground =
+                        scrollView.DescendantFocusStyle?.Background ??
+                        scrollView.FocusStyle?.Background;
+                }
+
+                int? childClipTop = null;
+                int? childClipBottom = null;
+                if (childView.Clipped)
+                {
+                    childClipTop = Math.Max(0, scrollClip.Row - childFrame.Row);
+                    childClipBottom = Math.Max(0, Math.Min(
+                        childFrame.Height,
+                        scrollClip.Row + scrollClip.Height - childFrame.Row));
+                }
+
+                bool useHostViewportForRootScrollViewChild =
+                    reusable is ViewHost &&
+                    reusableGeneratedScrollView is not null;
+                List<List<TerminalCell>> reusableChildContent = RenderGeneratedWindowContent(
+                    reusable.Child,
+                    new Size(childFrame.Width, childFrame.Height),
+                    effectiveChildFocusedIndex,
+                    focusedElement,
+                    reusableChildEditMode,
+                    activeScrollView,
+                    activeScrollViewProxy,
+                    activeScrollViewEditElement,
+                    activeScrollViewFresh,
+                    false,
+                    childActiveScrollViewFocusBackground,
+                    suppressActiveScrollViewScopeVisuals,
+                    childWindowStyle,
+                    childClipTop,
+                    childClipBottom,
+                    true,
+                    useHostViewportForRootScrollViewChild);
+                if (childDescendantFocusBackground is not null &&
+                    reusableGeneratedScrollView is null)
+                {
+                    List<Color> descendantBackgrounds = new();
+                    CollectDescendantBaseStyleBackgrounds(reusable.Child, descendantBackgrounds);
+                    ApplyReusableFocusBackgroundToDescendantBackgrounds(
+                        reusableChildContent,
+                        childDescendantFocusBackground,
+                        descendantBackgrounds);
+                    if (reusableWholeChildFocus &&
+                        scrollView.SelectedStyle?.Background is not null)
+                    {
+                        ApplySelectedBackgroundToFocusedReusableChild(
+                            reusableChildContent,
+                            scrollView.SelectedStyle.Background,
+                            childDescendantFocusBackground,
+                            descendantBackgrounds);
+                    }
+                }
+                if (childActiveScrollViewFocusBackground is not null &&
+                    reusableGeneratedScrollView is null)
+                {
+                    ApplyReusableFocusBackground(
+                        reusableChildContent,
+                        childActiveScrollViewFocusBackground,
+                        reusable.Style.Background);
+                }
+                Blit(buffer, reusableChildContent, childFrame.Row, childFrame.Col, scrollClip);
+                OffsetWindowElementFrames(reusable.Child, childFrame.Row, childFrame.Col);
+                if (overlayActiveChildComboBox && activeChildComboBox is not null)
+                {
+                    Rect comboFrame = activeChildComboBox.Frame;
+                    int comboRenderHeight = Math.Max(
+                        comboFrame.Height,
+                        scrollClip.Row + scrollClip.Height - comboFrame.Row);
+                    overlays.Add((activeChildComboBox, comboFrame, comboRenderHeight));
+                }
+                continue;
+            }
+
+            bool childFocused = ReferenceEquals(childView.Element, focusedElement);
+            bool childEditMode =
+                childFocused &&
+                editMode &&
+                (activeScrollView is null || ReferenceEquals(activeScrollViewEditElement, childView.Element));
+            int? directChildClipTop = null;
+            int? directChildClipBottom = null;
+            if (childView.Clipped)
+            {
+                directChildClipTop = Math.Max(0, scrollClip.Row - childFrame.Row);
+                directChildClipBottom = Math.Max(0, Math.Min(
+                    childFrame.Height,
+                    scrollClip.Row + scrollClip.Height - childFrame.Row));
+            }
+            Blit(
+                buffer,
+                childView.Element.Render(
+                    new Size(childFrame.Width, childFrame.Height),
+                    new ElementRenderState
+                    {
+                        Focused = childFocused,
+                        EditMode = childEditMode,
+                        PassiveFocus = activeScrollView is not null && childFocused && !childEditMode,
+                        ClipTop = directChildClipTop,
+                        ClipBottom = directChildClipBottom,
+                    }),
+                childFrame.Row,
+                childFrame.Col,
+                scrollClip);
+            if (childEditMode && childView.Element is ComboBox)
+            {
+                int comboRenderHeight = Math.Max(
+                    childFrame.Height,
+                    scrollClip.Row + scrollClip.Height - childFrame.Row);
+                overlays.Add((childView.Element, childFrame, comboRenderHeight));
             }
         }
+
+        foreach ((Element element, Rect overlayFrame, int height) in overlays)
+        {
+            element.Frame = new Rect(overlayFrame.Row, overlayFrame.Col, overlayFrame.Width, height);
+            Blit(
+                buffer,
+                element.Render(
+                    new Size(overlayFrame.Width, height),
+                    new ElementRenderState
+                    {
+                        Focused = true,
+                        EditMode = true,
+                    }),
+                overlayFrame.Row,
+                overlayFrame.Col,
+                scrollClip);
+        }
+
+        if (scrollClip.Width > 0 &&
+            scrollClip.Height > 0 &&
+            !(useHostViewportForRootScrollViewIndicators &&
+                window is GeneratedScrollViewBase generatedScrollViewIndicatorWindow &&
+                ReferenceEquals(generatedScrollViewIndicatorWindow.ScrollView(), scrollView)))
+        {
+            Size viewportSize = new(scrollViewport.Width, scrollViewport.Height);
+            int indicatorCol = scrollViewport.Col + scrollViewport.Width - MinimumRenderableSize;
+            int maxViewOffset = scrollView.MaxViewOffset(viewportSize);
+            int viewOffset = scrollView.ViewOffset;
+            if (viewOffset < maxViewOffset || childContentAboveViewport)
+            {
+                ApplyScrollIndicator(buffer, scrollViewport.Row, indicatorCol, "^", scrollViewport.Col);
+            }
+            if (viewOffset > 0 || childContentBelowViewport)
+            {
+                ApplyScrollIndicator(
+                    buffer,
+                    scrollViewport.Row + scrollViewport.Height - MinimumRenderableSize,
+                    indicatorCol,
+                    "v",
+                    scrollViewport.Col);
+            }
+        }
+
+        bool activeScrollViewFocused =
+            editMode &&
+            (ReferenceEquals(activeScrollView, scrollView) ||
+                ReferenceEquals(ScrollViewContainingElement(window, focusedElement), scrollView) ||
+                ReferenceEquals(ScrollViewContainingElement(window, activeScrollViewEditElement), scrollView));
+        bool scrollViewSelfFocused =
+            ReferenceEquals(scrollView, focusedElement) &&
+            !activeScrollViewFocused;
+        bool generatedScrollViewProxyFocused =
+            activeScrollViewFocusBackgroundOverride is not null &&
+            window is GeneratedScrollViewBase generatedScrollViewWindow &&
+            ReferenceEquals(generatedScrollViewWindow.ScrollView(), scrollView) &&
+            !activeScrollViewFocused &&
+            !scrollViewSelfFocused;
+        if (!suppressActiveScrollViewScopeVisuals &&
+            (activeScrollViewFocused || generatedScrollViewProxyFocused || scrollViewSelfFocused))
+        {
+            Color? scrollViewBaseBackground =
+                scrollView.Style.Background ??
+                parentBackground ??
+                entry.CellStyle.Background;
+            ApplyActiveScrollViewFocusBackgroundGaps(
+                buffer,
+                scrollView,
+                frame,
+                scrollViewBaseBackground,
+                activeScrollViewFocusBackgroundOverride,
+                parentBackground ?? entry.CellStyle.Background,
+                Array.Empty<Rect>(),
+                false,
+                true);
+        }
     }
 
-    private static void ApplyFocusedReusableProxyBackground(
+    private static void ApplyFocusedReusableProxyBackgroundGaps(
         TerminalBuffer buffer,
         Rect rect,
-        ReusableElement reusable,
-        bool skipContentCells)
+        ReusableElement reusable)
     {
         Color? focusBackground = reusable.FocusStyle?.Background;
         Color? baseBackground = VisibleBackground(reusable.Style.Background);
@@ -1104,15 +3152,13 @@ public static class GeneratedWindowRuntime
         int firstRow = Math.Max(0, rect.Row);
         int lastRow = Math.Min(buffer.Height, rect.Row + rect.Height);
         int firstCol = Math.Max(0, rect.Col);
-        int lastCol = Math.Min(buffer.Width, rect.Col + rect.Width + (skipContentCells ? 1 : 0));
+        int lastCol = Math.Min(buffer.Width, rect.Col + rect.Width);
         for (int row = firstRow; row < lastRow; ++row)
         {
-            (int First, int Last)? contentBounds = skipContentCells
-                ? RowRenderedVisualContentBounds(buffer, row, firstCol, lastCol)
-                : null;
-            (int First, int Last)? renderedContentBounds = skipContentCells
-                ? RowRenderedContentBounds(buffer, row, firstCol, lastCol)
-                : null;
+            (int First, int Last)? contentBounds =
+                RowRenderedVisualContentBounds(buffer, row, firstCol, lastCol);
+            (int First, int Last)? renderedContentBounds =
+                RowRenderedContentBounds(buffer, row, firstCol, lastCol);
             int? contentStartCol = renderedContentBounds?.First - 1 ?? contentBounds?.First - 1;
             int? contentEndCol = null;
             if (contentBounds.HasValue)
@@ -1165,6 +3211,19 @@ public static class GeneratedWindowRuntime
             Math.Max(0, bottom - top));
     }
 
+    private static Rect ScrollViewViewportClip(Rect frame, Style style)
+    {
+        int top = PaddingTop(style);
+        int right = PaddingRight(style);
+        int bottom = PaddingBottom(style);
+        int left = PaddingLeft(style);
+        return new Rect(
+            frame.Row + top,
+            frame.Col + left,
+            Math.Max(0, frame.Width - left - right),
+            Math.Max(0, frame.Height - top - bottom));
+    }
+
     private static void Blit(TerminalBuffer buffer, List<List<TerminalCell>> content, int row, int col, Rect? clip = null)
     {
         for (int localRow = 0; localRow < content.Count; ++localRow)
@@ -1194,15 +3253,28 @@ public static class GeneratedWindowRuntime
         TerminalBuffer buffer,
         GeneratedWindowBase window,
         int focusedIndex,
+        Element? focusedElement,
         bool editMode,
-        ScrollView? activeScrollView)
+        ScrollView? activeScrollView,
+        Element? activeScrollViewEditElement,
+        int windowRow = 0,
+        int windowCol = 0)
     {
-        if (!editMode || activeScrollView is not null)
+        if (!editMode)
         {
             return;
         }
-        List<Element> focusable = FocusableElements(window, activeScrollView);
-        if (focusedIndex < 0 || focusedIndex >= focusable.Count || focusable[focusedIndex] is not ComboBox comboBox)
+        ComboBox? comboBox = focusedElement as ComboBox;
+        if (comboBox is null)
+        {
+            List<Element> focusable = FocusableElements(window, activeScrollView);
+            if (focusedIndex < 0 || focusedIndex >= focusable.Count || focusable[focusedIndex] is not ComboBox focusedComboBox)
+            {
+                return;
+            }
+            comboBox = focusedComboBox;
+        }
+        if (activeScrollView is not null && !ReferenceEquals(activeScrollViewEditElement, comboBox))
         {
             return;
         }
@@ -1212,7 +3284,7 @@ public static class GeneratedWindowRuntime
             Focused = true,
             EditMode = true,
         });
-        Blit(buffer, rendered, comboBox.Frame.Row, comboBox.Frame.Col);
+        Blit(buffer, rendered, windowRow + comboBox.Frame.Row, windowCol + comboBox.Frame.Col);
     }
 
     private static void DimOutsideActiveScrollViewScope(
@@ -1272,15 +3344,35 @@ public static class GeneratedWindowRuntime
                     buffer.SetCell(row, col, cell);
                     continue;
                 }
-                Color? dimBaseBackground = cell.BackgroundFromImageSample
-                    ? new Color("#000000")
-                    : cell.Background;
-                cell.Background = dim.Rgba.HasValue && dimBaseBackground is not null
-                    ? dim.BlendOver(dimBaseBackground)
-                    : dim;
+                if (cell.Text == TerminalImageHalfBlockGlyph)
+                {
+                    cell.Foreground = DimForegroundOverExisting(dim, cell.Foreground);
+                    cell.Background = DimBackgroundOverExisting(dim, cell.Background);
+                    buffer.SetCell(row, col, cell);
+                    continue;
+                }
+                cell.Background = DimBackgroundOverExisting(dim, cell.Background);
                 buffer.SetCell(row, col, cell);
             }
         }
+    }
+
+    private static Color? DimBackgroundOverExisting(Color dim, Color? background)
+    {
+        return dim.Rgba.HasValue && background is not null
+            ? dim.BlendOver(background)
+            : dim;
+    }
+
+    private static Color? DimForegroundOverExisting(Color dim, Color? foreground)
+    {
+        if (foreground is null)
+        {
+            return null;
+        }
+        return dim.Rgba.HasValue
+            ? dim.BlendOver(foreground)
+            : dim;
     }
 
     private static void ApplyActiveScrollViewGapFocusBackground(
@@ -1353,6 +3445,319 @@ public static class GeneratedWindowRuntime
         }
     }
 
+    private static void ApplyActiveScrollViewFocusBackgroundGaps(
+        List<List<TerminalCell>> content,
+        ScrollView activeScrollView,
+        Rect active,
+        Color? baseBackground,
+        Color? focusBackgroundOverride = null,
+        Color? fallbackBackground = null,
+        IReadOnlyList<Rect>? excludedRects = null,
+        bool doubleBlendBaseBackground = true,
+        bool exactAlphaBlend = false)
+    {
+        Color? focusBackground = focusBackgroundOverride ?? activeScrollView.FocusStyle?.Background;
+        if (focusBackground is null)
+        {
+            return;
+        }
+        Color? Blend(Color color, Color? background)
+        {
+            if (!color.Rgba.HasValue)
+            {
+                return color;
+            }
+            Rgba foreground = color.Rgba.Value;
+            if (foreground.Alpha >= byte.MaxValue)
+            {
+                return color;
+            }
+            if (foreground.Alpha == 0)
+            {
+                return background;
+            }
+            if (background?.Rgba is not Rgba baseRgba)
+            {
+                return color;
+            }
+            double alpha = exactAlphaBlend
+                ? foreground.Alpha / 255.0
+                : Math.Round((foreground.Alpha / 255.0) * 100.0) / 100.0;
+            static byte Channel(double alpha, byte foreground, byte background)
+            {
+                return (byte)Math.Round(alpha * foreground + (1.0 - alpha) * background);
+            }
+            return Color.Rgb(
+                Channel(alpha, foreground.Red, baseRgba.Red),
+                Channel(alpha, foreground.Green, baseRgba.Green),
+                Channel(alpha, foreground.Blue, baseRgba.Blue));
+        }
+        Color? effectiveBaseBackground = baseBackground;
+        if ((effectiveBaseBackground is null ||
+                effectiveBaseBackground.Rgba is Rgba effectiveRgba &&
+                effectiveRgba.Alpha < byte.MaxValue) &&
+            active.Row >= 0 &&
+            active.Row < content.Count &&
+            active.Col >= 0 &&
+            active.Col < content[active.Row].Count)
+        {
+            effectiveBaseBackground = content[active.Row][active.Col].Background;
+        }
+        Color? focusedBaseBackground = effectiveBaseBackground is not null
+            ? Blend(focusBackground, effectiveBaseBackground)
+            : null;
+        bool transparentViewportBackground =
+            baseBackground is not null &&
+            baseBackground.Rgba is Rgba baseRgba &&
+            baseRgba.Alpha < byte.MaxValue;
+        int firstRow = Math.Max(0, active.Row);
+        int lastRow = Math.Min(content.Count, active.Row + active.Height);
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            int firstCol = Math.Max(0, active.Col);
+            int lastCol = Math.Min(content[row].Count, active.Col + active.Width);
+            int? protectedContentStartCol = null;
+            int? protectedContentEndCol = null;
+            if (transparentViewportBackground)
+            {
+                (int First, int Last)? contentBounds = RowRenderedContentBounds(content[row], firstCol, lastCol);
+                if (contentBounds.HasValue)
+                {
+                    protectedContentStartCol = Math.Clamp(
+                        active.Col + PaddingLeft(activeScrollView.Style),
+                        active.Col,
+                        active.Col + active.Width);
+                    protectedContentEndCol = Math.Clamp(
+                        lastCol - PaddingRight(activeScrollView.Style) - 1,
+                        active.Col - 1,
+                        lastCol - 1);
+                }
+            }
+            for (int col = firstCol; col < lastCol; ++col)
+            {
+                if (excludedRects is not null &&
+                    excludedRects.Any(rect => rect.Contains(new Point(row, col))))
+                {
+                    continue;
+                }
+                if (protectedContentStartCol.HasValue &&
+                    protectedContentEndCol.HasValue &&
+                    col >= protectedContentStartCol.Value &&
+                    col <= protectedContentEndCol.Value)
+                {
+                    continue;
+                }
+                TerminalCell cell = content[row][col];
+                bool matchesBaseBackground =
+                    effectiveBaseBackground is null ||
+                    cell.Background is null ||
+                    ColorEquals(cell.Background, effectiveBaseBackground);
+                bool matchesFallbackBackground =
+                    fallbackBackground is not null &&
+                    cell.Background is not null &&
+                    ColorEquals(cell.Background, fallbackBackground);
+                bool matchesFocusedBaseBackground =
+                    focusedBaseBackground is not null &&
+                    cell.Background is not null &&
+                    ColorEquals(cell.Background, focusedBaseBackground);
+                if (!matchesBaseBackground && !matchesFallbackBackground && !matchesFocusedBaseBackground)
+                {
+                    continue;
+                }
+                if (matchesFocusedBaseBackground)
+                {
+                    continue;
+                }
+                cell.Background = Blend(focusBackground, cell.Background);
+                if (doubleBlendBaseBackground && (matchesBaseBackground || matchesFallbackBackground))
+                {
+                    cell.Background = Blend(focusBackground, cell.Background);
+                }
+                content[row][col] = cell;
+            }
+        }
+    }
+
+    private static void ApplyActiveScrollViewFocusBackgroundGaps(
+        TerminalBuffer buffer,
+        ScrollView activeScrollView,
+        Rect active,
+        Color? baseBackground,
+        Color? focusBackgroundOverride = null,
+        Color? fallbackBackground = null,
+        IReadOnlyList<Rect>? excludedRects = null,
+        bool doubleBlendBaseBackground = true,
+        bool exactAlphaBlend = false)
+    {
+        Color? focusBackground = focusBackgroundOverride ?? activeScrollView.FocusStyle?.Background;
+        if (focusBackground is null)
+        {
+            return;
+        }
+        Color? Blend(Color color, Color? background)
+        {
+            if (!color.Rgba.HasValue)
+            {
+                return color;
+            }
+            Rgba foreground = color.Rgba.Value;
+            if (foreground.Alpha >= byte.MaxValue)
+            {
+                return color;
+            }
+            if (foreground.Alpha == 0)
+            {
+                return background;
+            }
+            if (background?.Rgba is not Rgba baseRgba)
+            {
+                return color;
+            }
+            double alpha = exactAlphaBlend
+                ? foreground.Alpha / 255.0
+                : Math.Round((foreground.Alpha / 255.0) * 100.0) / 100.0;
+            static byte Channel(double alpha, byte foreground, byte background)
+            {
+                return (byte)Math.Round(alpha * foreground + (1.0 - alpha) * background);
+            }
+            return Color.Rgb(
+                Channel(alpha, foreground.Red, baseRgba.Red),
+                Channel(alpha, foreground.Green, baseRgba.Green),
+                Channel(alpha, foreground.Blue, baseRgba.Blue));
+        }
+        Color? effectiveBaseBackground = baseBackground;
+        if ((effectiveBaseBackground is null ||
+                effectiveBaseBackground.Rgba is Rgba effectiveRgba &&
+                effectiveRgba.Alpha < byte.MaxValue) &&
+            active.Row >= 0 &&
+            active.Row < buffer.Height &&
+            active.Col >= 0 &&
+            active.Col < buffer.Width)
+        {
+            effectiveBaseBackground = buffer.Cell(active.Row, active.Col).Background;
+        }
+        Color? focusedBaseBackground = effectiveBaseBackground is not null
+            ? Blend(focusBackground, effectiveBaseBackground)
+            : null;
+        bool transparentViewportBackground =
+            baseBackground is not null &&
+            baseBackground.Rgba is Rgba baseRgba &&
+            baseRgba.Alpha < byte.MaxValue;
+        int firstRow = Math.Max(0, active.Row);
+        int lastRow = Math.Min(buffer.Height, active.Row + active.Height);
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            int firstCol = Math.Max(0, active.Col);
+            int lastCol = Math.Min(buffer.Width, active.Col + active.Width);
+            int? protectedContentStartCol = null;
+            int? protectedContentEndCol = null;
+            if (transparentViewportBackground)
+            {
+                (int First, int Last)? contentBounds = RowRenderedContentBounds(buffer, row, firstCol, lastCol);
+                if (contentBounds.HasValue)
+                {
+                    protectedContentStartCol = Math.Clamp(
+                        active.Col + PaddingLeft(activeScrollView.Style),
+                        active.Col,
+                        active.Col + active.Width);
+                    protectedContentEndCol = Math.Clamp(
+                        lastCol - PaddingRight(activeScrollView.Style) - 1,
+                        active.Col - 1,
+                        lastCol - 1);
+                }
+            }
+            for (int col = firstCol; col < lastCol; ++col)
+            {
+                if (excludedRects is not null &&
+                    excludedRects.Any(rect => rect.Contains(new Point(row, col))))
+                {
+                    continue;
+                }
+                if (protectedContentStartCol.HasValue &&
+                    protectedContentEndCol.HasValue &&
+                    col >= protectedContentStartCol.Value &&
+                    col <= protectedContentEndCol.Value)
+                {
+                    continue;
+                }
+                TerminalCell cell = buffer.Cell(row, col);
+                bool matchesBaseBackground =
+                    effectiveBaseBackground is null ||
+                    cell.Background is null ||
+                    ColorEquals(cell.Background, effectiveBaseBackground);
+                bool matchesFallbackBackground =
+                    fallbackBackground is not null &&
+                    cell.Background is not null &&
+                    ColorEquals(cell.Background, fallbackBackground);
+                bool matchesFocusedBaseBackground =
+                    focusedBaseBackground is not null &&
+                    cell.Background is not null &&
+                    ColorEquals(cell.Background, focusedBaseBackground);
+                if (!matchesBaseBackground && !matchesFallbackBackground && !matchesFocusedBaseBackground)
+                {
+                    continue;
+                }
+                if (matchesFocusedBaseBackground)
+                {
+                    continue;
+                }
+                cell.Background = Blend(focusBackground, cell.Background);
+                if (doubleBlendBaseBackground && (matchesBaseBackground || matchesFallbackBackground))
+                {
+                    cell.Background = Blend(focusBackground, cell.Background);
+                }
+                buffer.SetCell(row, col, cell);
+            }
+        }
+    }
+
+    private static (int First, int Last)? RowRenderedContentBounds(
+        List<TerminalCell> row,
+        int firstCol,
+        int lastCol)
+    {
+        int? first = null;
+        int last = firstCol;
+        for (int col = firstCol; col < lastCol; ++col)
+        {
+            if (!CellHasRenderedContent(row[col]))
+            {
+                continue;
+            }
+            first ??= col;
+            last = col;
+        }
+        if (first is null)
+        {
+            return null;
+        }
+        return (first.Value, last);
+    }
+
+    private static (int First, int Last)? RowRenderedVisualContentBounds(
+        List<TerminalCell> row,
+        int firstCol,
+        int lastCol)
+    {
+        int? first = null;
+        int last = firstCol;
+        for (int col = firstCol; col < lastCol; ++col)
+        {
+            TerminalCell cell = row[col];
+            if (!CellHasRenderedContent(cell) && (cell.Foreground is null || cell.Foreground.IsTransparent))
+            {
+                continue;
+            }
+            first ??= col;
+            last = col;
+        }
+        if (first is null)
+        {
+            return null;
+        }
+        return (first.Value, last);
+    }
+
     private static bool CellHasRenderedContent(TerminalCell cell)
     {
         if (!string.IsNullOrEmpty(cell.Raw))
@@ -1363,39 +3768,6 @@ public static class GeneratedWindowRuntime
             cell.Text != " " &&
             cell.Text != "^" &&
             cell.Text != "v";
-    }
-
-    private static void RestoreExternalProxyActiveScrollViewContentBackground(
-        List<List<TerminalCell>> rendered,
-        ScrollView activeScrollView)
-    {
-        Color? focusBackground = activeScrollView.FocusStyle?.Background;
-        if (focusBackground is null)
-        {
-            return;
-        }
-        Color focusedTerminalBackground = focusBackground.Rgba is Rgba rgba && rgba.Alpha < byte.MaxValue
-            ? focusBackground.BlendOver(DefaultTerminalBackground)
-            : focusBackground;
-        for (int row = 0; row < rendered.Count; ++row)
-        {
-            List<TerminalCell> cells = rendered[row];
-            (int First, int Last)? bounds = RowRenderedContentBounds(cells);
-            if (bounds is null)
-            {
-                continue;
-            }
-            int contentStart = Math.Max(0, bounds.Value.First - 1);
-            int contentEnd = cells.Count - 1;
-            for (int col = contentStart; col <= contentEnd && col < cells.Count; ++col)
-            {
-                TerminalCell cell = cells[col];
-                if (ColorEquals(cell.Background, focusedTerminalBackground))
-                {
-                    cell.Background = DefaultTerminalBackground;
-                }
-            }
-        }
     }
 
     private static (int First, int Last)? RowRenderedContentBounds(List<TerminalCell> row)
@@ -1500,9 +3872,247 @@ public static class GeneratedWindowRuntime
         return scrollView.FocusStyle?.Background;
     }
 
+    private static Color? GeneratedScrollViewProxyFocusBackground(ScrollView scrollView, ReusableElement proxy)
+    {
+        Color? proxyBackground = proxy.FocusStyle?.Background;
+        if (proxyBackground is not null &&
+            (proxyBackground.Rgba is not Rgba rgba || rgba.Alpha == byte.MaxValue))
+        {
+            return proxyBackground;
+        }
+        return scrollView.DescendantFocusStyle?.Background ?? scrollView.FocusStyle?.Background;
+    }
+
     private static Color? VisibleBackground(Color? background)
     {
         return background is null || background.IsTransparent ? null : background;
+    }
+
+    private static bool OpaqueBackground(Color? background)
+    {
+        return background?.Rgba is Rgba rgba && rgba.Alpha == byte.MaxValue;
+    }
+
+    private static bool PartialBackground(Color? background)
+    {
+        return background?.Rgba is Rgba rgba && rgba.Alpha < byte.MaxValue;
+    }
+
+    private static bool ReusableFocusStyleAppliesToChild(
+        ReusableElement reusable,
+        bool directFocus,
+        bool descendantOnlyFocus)
+    {
+        if (reusable.FocusStyle is null)
+        {
+            return false;
+        }
+        Color? background = reusable.FocusStyle.Background;
+        if (!PartialBackground(background))
+        {
+            return true;
+        }
+        if (reusable.Child is GeneratedScrollViewBase)
+        {
+            return false;
+        }
+        return directFocus || !descendantOnlyFocus;
+    }
+
+    private static Color? ReusableFocusBaseBackground(
+        ReusableElement reusable,
+        GeneratedLayoutEntry entry)
+    {
+        return reusable.Style.Background ?? entry.CellStyle.Background;
+    }
+
+    private static void ApplyReusableFocusBackground(
+        List<List<TerminalCell>> content,
+        Color focusBackground,
+        Color? baseBackground)
+    {
+        Color? focusedBaseBackground = baseBackground is not null
+            ? BlendBackgroundOverExisting(focusBackground, baseBackground)
+            : null;
+        foreach (List<TerminalCell> row in content)
+        {
+            foreach (TerminalCell cell in row)
+            {
+                bool matchesBase =
+                    cell.Background is null ||
+                    (baseBackground is not null && ColorEquals(cell.Background, baseBackground));
+                bool matchesFocusedBase =
+                    focusedBaseBackground is not null &&
+                    ColorEquals(cell.Background, focusedBaseBackground);
+                if (!matchesBase && !matchesFocusedBase)
+                {
+                    continue;
+                }
+                if (matchesFocusedBase)
+                {
+                    continue;
+                }
+                cell.Background = focusBackground.Rgba.HasValue && cell.Background is not null
+                    ? BlendBackgroundOverExisting(focusBackground, cell.Background)
+                    : focusBackground;
+            }
+        }
+    }
+
+    private static void ApplyReusableFocusBackgroundToBuffer(
+        TerminalBuffer buffer,
+        Rect rect,
+        Color focusBackground,
+        Color? baseBackground)
+    {
+        Color? focusedBaseBackground = baseBackground is not null
+            ? BlendBackgroundOverExisting(focusBackground, baseBackground)
+            : null;
+        int firstRow = Math.Max(0, rect.Row);
+        int lastRow = Math.Min(buffer.Height, rect.Row + rect.Height);
+        int firstCol = Math.Max(0, rect.Col);
+        int lastCol = Math.Min(buffer.Width, rect.Col + rect.Width);
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            for (int col = firstCol; col < lastCol; ++col)
+            {
+                TerminalCell cell = buffer.Cell(row, col);
+                bool matchesBase =
+                    cell.Background is null ||
+                    (baseBackground is not null && ColorEquals(cell.Background, baseBackground)) ||
+                    (focusedBaseBackground is not null && ColorEquals(cell.Background, focusedBaseBackground));
+                if (!matchesBase)
+                {
+                    continue;
+                }
+                cell.Background = focusBackground.Rgba.HasValue && cell.Background is not null
+                    ? BlendBackgroundOverExisting(focusBackground, cell.Background)
+                    : focusBackground;
+                buffer.SetCell(row, col, cell);
+            }
+        }
+    }
+
+    private static void AppendUniqueBackground(List<Color> backgrounds, Color? background)
+    {
+        if (!OpaqueBackground(background))
+        {
+            return;
+        }
+        if (!backgrounds.Any(existing => existing.Equals(background)))
+        {
+            backgrounds.Add(background!);
+        }
+    }
+
+    private static void CollectDescendantBaseStyleBackgrounds(
+        GeneratedWindowBase window,
+        List<Color> backgrounds)
+    {
+        foreach (Element element in window.Elements)
+        {
+            CollectDescendantBaseStyleBackgrounds(element, backgrounds);
+        }
+    }
+
+    private static void CollectDescendantBaseStyleBackgrounds(
+        Element element,
+        List<Color> backgrounds)
+    {
+        AppendUniqueBackground(backgrounds, element.Style.Background);
+        AppendUniqueBackground(backgrounds, element.FocusStyle?.Background);
+        AppendUniqueBackground(backgrounds, element.EditStyle?.Background);
+        if (element is ReusableElement reusable && reusable.Child is not null)
+        {
+            CollectDescendantBaseStyleBackgrounds(reusable.Child, backgrounds);
+        }
+        if (element is ScrollView scrollView)
+        {
+            foreach (Element child in scrollView.Children)
+            {
+                CollectDescendantBaseStyleBackgrounds(child, backgrounds);
+            }
+        }
+    }
+
+    private static void ApplyReusableFocusBackgroundToDescendantBackgrounds(
+        List<List<TerminalCell>> content,
+        Color focusBackground,
+        List<Color> backgrounds)
+    {
+        if (backgrounds.Count == 0)
+        {
+            return;
+        }
+        foreach (List<TerminalCell> row in content)
+        {
+            foreach (TerminalCell cell in row)
+            {
+                if (cell.Background is null)
+                {
+                    continue;
+                }
+                foreach (Color background in backgrounds)
+                {
+                    Color? focusedBackground = focusBackground.Rgba.HasValue
+                        ? BlendBackgroundOverExisting(focusBackground, background)
+                        : focusBackground;
+                    if (ColorEquals(cell.Background, background) ||
+                        ColorEquals(cell.Background, focusedBackground))
+                    {
+                        cell.Background = focusedBackground;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private static void ApplySelectedBackgroundToFocusedReusableChild(
+        List<List<TerminalCell>> content,
+        Color selectedBackground,
+        Color? focusBackground,
+        List<Color> descendantBackgrounds)
+    {
+        foreach (List<TerminalCell> row in content)
+        {
+            foreach (TerminalCell cell in row)
+            {
+                if (cell.Background is null)
+                {
+                    continue;
+                }
+
+                bool descendantBackground = false;
+                foreach (Color background in descendantBackgrounds)
+                {
+                    if (ColorEquals(cell.Background, background))
+                    {
+                        descendantBackground = true;
+                        break;
+                    }
+                    if (focusBackground is not null)
+                    {
+                        Color? focusedBackground = focusBackground.Rgba.HasValue
+                            ? BlendBackgroundOverExisting(focusBackground, background)
+                            : focusBackground;
+                        if (ColorEquals(cell.Background, focusedBackground))
+                        {
+                            descendantBackground = true;
+                            break;
+                        }
+                    }
+                }
+                if (descendantBackground)
+                {
+                    continue;
+                }
+
+                cell.Background = selectedBackground.Rgba.HasValue
+                    ? BlendBackgroundOverExisting(selectedBackground, cell.Background)
+                    : selectedBackground;
+            }
+        }
     }
 
     private static bool ColorEquals(Color? left, Color? right)
@@ -1512,6 +4122,127 @@ public static class GeneratedWindowRuntime
             return left is null && right is null;
         }
         return left.Equals(right);
+    }
+
+    private static Color? InferredScrollIndicatorForeground(
+        TerminalBuffer buffer,
+        int row,
+        int startCol,
+        int endCol)
+    {
+        if (row < 0 || row >= buffer.Height)
+        {
+            return null;
+        }
+        Color? foreground = null;
+        int start = Math.Max(0, startCol);
+        int end = Math.Min(buffer.Width - MinimumRenderableSize, endCol);
+        for (int scanCol = start; scanCol <= end; ++scanCol)
+        {
+            Color? scanned = buffer.Cell(row, scanCol).Foreground;
+            if (scanned is not null && !scanned.IsTransparent)
+            {
+                foreground = scanned;
+            }
+        }
+        return foreground;
+    }
+
+    private static Color? InferredScrollIndicatorForeground(
+        List<TerminalCell> row,
+        int startCol,
+        int endCol)
+    {
+        Color? foreground = null;
+        int start = Math.Max(0, startCol);
+        int end = Math.Min(row.Count - MinimumRenderableSize, endCol);
+        for (int scanCol = start; scanCol <= end; ++scanCol)
+        {
+            Color? scanned = row[scanCol].Foreground;
+            if (scanned is not null && !scanned.IsTransparent)
+            {
+                foreground = scanned;
+            }
+        }
+        return foreground;
+    }
+
+    private static void ApplyScrollIndicator(
+        TerminalBuffer buffer,
+        int row,
+        int col,
+        string indicator,
+        int foregroundStartCol)
+    {
+        if (row < 0 || row >= buffer.Height || col < 0 || col >= buffer.Width)
+        {
+            return;
+        }
+        TerminalCell cell = buffer.Cell(row, col).Clone();
+        cell.Text = indicator;
+        if (cell.Foreground is null || cell.Foreground.IsTransparent)
+        {
+            cell.Foreground = InferredScrollIndicatorForeground(buffer, row, foregroundStartCol, col);
+        }
+        buffer.SetCell(row, col, cell);
+    }
+
+    private static void ApplyScrollIndicator(
+        List<List<TerminalCell>> content,
+        int row,
+        int col,
+        string indicator,
+        int foregroundStartCol)
+    {
+        if (row < 0 || row >= content.Count)
+        {
+            return;
+        }
+        List<TerminalCell> renderedRow = content[row];
+        if (col < 0 || col >= renderedRow.Count)
+        {
+            return;
+        }
+        TerminalCell cell = renderedRow[col];
+        cell.Text = indicator;
+        if (cell.Foreground is null || cell.Foreground.IsTransparent)
+        {
+            cell.Foreground = InferredScrollIndicatorForeground(renderedRow, foregroundStartCol, col);
+        }
+    }
+
+    private static Rect ScrollViewViewportClipClampedToContent(Rect frame, Style style, Size contentSize)
+    {
+        int left = PaddingLeft(style);
+        int right = PaddingRight(style);
+        int top = PaddingTop(style);
+        int bottom = PaddingBottom(style);
+        Rect viewport = new(
+            frame.Row + top,
+            frame.Col + left,
+            Math.Max(0, frame.Width - left - right),
+            Math.Max(0, frame.Height - top - bottom));
+        viewport = new Rect(
+            viewport.Row,
+            viewport.Col,
+            Math.Min(viewport.Width, Math.Max(0, contentSize.Width - viewport.Col)),
+            Math.Min(viewport.Height, Math.Max(0, contentSize.Height - viewport.Row)));
+        return viewport;
+    }
+
+    private static Rect GeneratedScrollViewSourceFrame(
+        GeneratedWindowBase window,
+        ScrollView scrollView,
+        Size fallback)
+    {
+        foreach (GeneratedLayoutEntry entry in window.GeneratedLayout)
+        {
+            if (entry.Name == scrollView.Name)
+            {
+                return entry.SourceCell;
+            }
+        }
+        return new Rect(0, 0, fallback.Width, fallback.Height);
     }
 
     private static Rect ActiveScrollViewScopeRect(ScrollView scrollView, ReusableElement? proxy, bool fresh)
@@ -1597,7 +4328,7 @@ public static class GeneratedWindowRuntime
             Math.Max(MinimumRenderableSize, reusable.Frame.Height - paddingTop - paddingBottom));
     }
 
-    private static ReusableElement? ReusableContainingElement(GeneratedWindowBase window, Element target)
+    internal static ReusableElement? ReusableContainingElement(GeneratedWindowBase window, Element target)
     {
         foreach (Element element in window.Elements)
         {
@@ -1631,6 +4362,159 @@ public static class GeneratedWindowRuntime
             }
         }
         return false;
+    }
+
+    private static bool ChildElementRepresentedInCurrentLayout(Element element, Element target)
+    {
+        if (ReferenceEquals(element, target))
+        {
+            return true;
+        }
+        if (element is ReusableElement reusable && reusable.Child is not null)
+        {
+            if (reusable.Frame.Width > 0 && reusable.Frame.Height > 0)
+            {
+                SyncWindowElementFramesTo(reusable.Child, reusable.Frame);
+            }
+            return ElementRepresentedInCurrentLayout(reusable.Child, target);
+        }
+        if (element is not ScrollView scrollView)
+        {
+            return false;
+        }
+        Rect frame = scrollView.Frame;
+        Size viewport = new(
+            Math.Max(MinimumRenderableSize, frame.Width),
+            Math.Max(MinimumRenderableSize, frame.Height));
+        foreach (ScrollViewChildView childView in scrollView.ChildViews(viewport))
+        {
+            if (childView.Element is not null &&
+                ChildElementRepresentedInCurrentLayout(childView.Element, target))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool ElementRepresentedInCurrentLayout(GeneratedWindowBase window, Element? target)
+    {
+        if (target is null)
+        {
+            return false;
+        }
+        foreach (GeneratedLayoutEntry entry in window.GeneratedLayout)
+        {
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                continue;
+            }
+            Element? element = FindElement(window, entry.Name);
+            if (element is not null && ChildElementRepresentedInCurrentLayout(element, target))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool ActiveScrollViewRepresentedInCurrentLayout(GeneratedWindowBase window, ScrollView? activeScrollView)
+    {
+        if (activeScrollView is null)
+        {
+            return false;
+        }
+        ReusableElement? proxy = ReusableContainingElement(window, activeScrollView);
+        return (proxy is not null && ElementRepresentedInCurrentLayout(window, proxy)) ||
+            ElementRepresentedInCurrentLayout(window, activeScrollView);
+    }
+
+    private static ScrollView? ScrollViewContainingElement(GeneratedWindowBase window, Element? target)
+    {
+        if (target is null)
+        {
+            return null;
+        }
+        foreach (Element element in window.Elements)
+        {
+            if (element is ReusableElement reusable && reusable.Child is not null)
+            {
+                ScrollView? nested = ScrollViewContainingElement(reusable.Child, target);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+            if (element is ScrollView scrollView)
+            {
+                ScrollView? found = ScrollViewContainingElement(scrollView, target);
+                if (found is not null)
+                {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static ScrollView? ScrollViewContainingElement(ScrollView scrollView, Element target)
+    {
+        foreach (Element child in scrollView.Children)
+        {
+            if (ReferenceEquals(child, target))
+            {
+                return scrollView;
+            }
+            if (child is ReusableElement reusable &&
+                reusable.Child is not null &&
+                WindowContainsElement(reusable.Child, target))
+            {
+                return scrollView;
+            }
+            if (child is ScrollView nestedScrollView)
+            {
+                ScrollView? nested = ScrollViewContainingElement(nestedScrollView, target);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+            ScrollView? descendant = ScrollViewContainingElementInTree(child, target);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+        return null;
+    }
+
+    private static ScrollView? ScrollViewContainingElementInTree(Element element, Element target)
+    {
+        if (element is ReusableElement reusable && reusable.Child is not null)
+        {
+            ScrollView? nested = ScrollViewContainingElement(reusable.Child, target);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+        foreach (Element child in element.Children)
+        {
+            if (child is ScrollView scrollView)
+            {
+                ScrollView? nested = ScrollViewContainingElement(scrollView, target);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+            ScrollView? descendant = ScrollViewContainingElementInTree(child, target);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+        return null;
     }
 
     private static bool WindowOwnsElement(GeneratedWindowBase window, Element target)
@@ -1738,7 +4622,10 @@ public static class GeneratedWindowRuntime
 
     private sealed record ResolvedRuntimeCell(RuntimeCell Cell, Rect Rect);
 
-    private static List<ResolvedRuntimeCell> ResolveRuntimeCells(GeneratedWindowBase window, Size size)
+    private static List<ResolvedRuntimeCell> ResolveRuntimeCells(
+        GeneratedWindowBase window,
+        Size size,
+        GeneratedWindowMode? modeOverride = null)
     {
         List<RuntimeCell> cells = CollectRuntimeCells(window);
         List<ResolvedRuntimeCell> resolved = new();
@@ -1748,7 +4635,7 @@ public static class GeneratedWindowRuntime
             new Rect(0, 0, Math.Max(MinimumRenderableSize, size.Width), Math.Max(MinimumRenderableSize, size.Height)),
             BorderWidthHorizontal(window.GeneratedWindowStyle),
             BorderWidthVertical(window.GeneratedWindowStyle),
-            WindowMode(window),
+            modeOverride ?? WindowMode(window),
             resolved);
         return resolved;
     }
@@ -2688,7 +5575,7 @@ public static class GeneratedWindowRuntime
         return Math.Max(0, style.BorderWidthVertical ?? 0);
     }
 
-    private static void SyncWindowElementFramesTo(GeneratedWindowBase window, Rect frame)
+    internal static void SyncWindowElementFramesTo(GeneratedWindowBase window, Rect frame)
     {
         Size size = new(Math.Max(1, frame.Width), Math.Max(1, frame.Height));
         List<ResolvedRuntimeCell> resolvedCells = ResolveRuntimeCells(window, size);
@@ -2758,6 +5645,10 @@ public static class GeneratedWindowRuntime
                 child.Frame.Col + colOffset,
                 child.Frame.Width,
                 child.Frame.Height);
+            if (child is ReusableElement reusable && reusable.Child is not null)
+            {
+                OffsetWindowElementFrames(reusable.Child, rowOffset, colOffset);
+            }
             OffsetElementChildFrames(child, rowOffset, colOffset);
         }
     }
@@ -2809,34 +5700,27 @@ public static class GeneratedWindowRuntime
         int viewportWidth = Math.Max(
             MinimumRenderableSize,
             scrollView.Frame.Width - PaddingLeft(scrollView.Style) - PaddingRight(scrollView.Style));
-        int viewportHeight = Math.Max(
-            MinimumRenderableSize,
-            scrollView.Frame.Height - PaddingTop(scrollView.Style) - PaddingBottom(scrollView.Style));
         int sequenceRow = 0;
+        int itemIndex = 0;
         for (int index = 0; index < scrollView.Children.Count; ++index)
         {
             Element child = scrollView.Children[index];
-            int childHeight = Math.Max(MinimumRenderableSize, child.Frame.Height);
+            int childHeight = child is ReusableElement reusable && reusable.Child is not null
+                ? Math.Max(MinimumRenderableSize, GeneratedWindowContentSizeForWidth(reusable.Child, viewportWidth).Height)
+                : Math.Max(MinimumRenderableSize, child.Frame.Height);
+            if (itemIndex < scrollView.ScrollOffset)
+            {
+                ++itemIndex;
+                continue;
+            }
             Rect? targetRect = FocusRectWithinScrollChild(child, target, viewportWidth, childHeight);
             if (targetRect is not null)
             {
                 int targetTop = sequenceRow + targetRect.Value.Row;
                 int targetBottom = sequenceRow + targetRect.Value.Row + Math.Max(MinimumRenderableSize, targetRect.Value.Height);
-                int nextOffset = scrollView.ScrollOffset;
-                if (targetTop < scrollView.ScrollOffset)
-                {
-                    nextOffset = targetTop;
-                }
-                else if (targetBottom > scrollView.ScrollOffset + viewportHeight)
-                {
-                    nextOffset = targetBottom - viewportHeight;
-                }
-                int naturalSkip = Math.Max(
-                    0,
-                    scrollView.ContentHeight(viewportWidth) - viewportHeight);
-                nextOffset = Math.Clamp(nextOffset, 0, naturalSkip);
-                return scrollView.ScrollBy(
-                    nextOffset - scrollView.ScrollOffset,
+                return scrollView.EnsureVisibleRange(
+                    targetTop,
+                    targetBottom,
                     new Size(scrollView.Frame.Width, scrollView.Frame.Height));
             }
             sequenceRow += childHeight;
@@ -2844,6 +5728,7 @@ public static class GeneratedWindowRuntime
             {
                 sequenceRow += Math.Max(0, scrollView.Gap);
             }
+            ++itemIndex;
         }
         return false;
     }
@@ -2877,7 +5762,7 @@ public static class GeneratedWindowRuntime
         return null;
     }
 
-    private static List<List<TerminalCell>> ContentFromBuffer(TerminalBuffer buffer)
+    internal static List<List<TerminalCell>> ContentFromBuffer(TerminalBuffer buffer)
     {
         List<List<TerminalCell>> rendered = new();
         for (int row = 0; row < buffer.Height; ++row)
@@ -2897,6 +5782,20 @@ public sealed class McpController
 {
     private const int ComboBoxClosedRows = 1;
 
+    private sealed class EditSnapshot
+    {
+        public Element Element { get; }
+        public string TextValue { get; set; } = "";
+        public int TextCursor { get; set; }
+        public double NumberValue { get; set; }
+        public int SelectedIndex { get; set; }
+
+        public EditSnapshot(Element element)
+        {
+            Element = element;
+        }
+    }
+
     private sealed class RuntimeFrame
     {
         public GeneratedWindowBase Window { get; }
@@ -2907,9 +5806,12 @@ public sealed class McpController
         public Element? EditScopeOwner { get; set; }
         public ScrollView? ActiveScrollView { get; set; }
         public ReusableElement? ActiveScrollViewProxy { get; set; }
+        public Element? ActiveScrollViewEditElement { get; set; }
         public bool ActiveScrollViewFresh { get; set; }
         public ScrollView? PendingModalScrollView { get; set; }
         public ReusableElement? PendingModalScrollViewProxy { get; set; }
+        public EditSnapshot? EditSnapshot { get; set; }
+        public Dictionary<ScrollView, Element> ScrollViewLastDescendant { get; } = new();
 
         public RuntimeFrame(GeneratedWindowBase window, GeneratedWindowRuntimeOptions options)
         {
@@ -2918,8 +5820,36 @@ public sealed class McpController
         }
     }
 
+    private readonly struct BackgroundFocusCleanupContext
+    {
+        public bool HadActiveStackFrame { get; }
+        public Element? FocusedElement { get; }
+        public int FocusedIndex { get; }
+        public ScrollView? ActiveScrollView { get; }
+        public ReusableElement? ActiveScrollViewProxy { get; }
+
+        public BackgroundFocusCleanupContext(
+            bool hadActiveStackFrame,
+            Element? focusedElement,
+            int focusedIndex,
+            ScrollView? activeScrollView,
+            ReusableElement? activeScrollViewProxy)
+        {
+            HadActiveStackFrame = hadActiveStackFrame;
+            FocusedElement = focusedElement;
+            FocusedIndex = focusedIndex;
+            ActiveScrollView = activeScrollView;
+            ActiveScrollViewProxy = activeScrollViewProxy;
+        }
+    }
+
     private readonly List<RuntimeFrame> frames = new();
     private readonly McpRuntimeConfig config;
+    private Element? mouseSelectionElement;
+    private int mouseSelectionAnchor;
+    private bool copyNotificationRequested;
+    private ScrollRegionHint? pendingScrollRegion;
+    private static string runtimeClipboardText = "";
 
     public McpController(GeneratedWindowBase window, GeneratedWindowRuntimeOptions options, McpRuntimeConfig config)
     {
@@ -2928,7 +5858,162 @@ public sealed class McpController
         ApplyInitialFocus(Current);
     }
 
+    public Action? BeforeStandardEscapeButtonAction { get; set; }
+    public Action? BeforeModalButtonAction { get; set; }
+
     private RuntimeFrame Current => frames[^1];
+
+    public void PressKey(string key)
+    {
+        _ = ToolPressKey(key);
+    }
+
+    public bool TakeCopyNotificationRequested()
+    {
+        bool requested = copyNotificationRequested;
+        copyNotificationRequested = false;
+        return requested;
+    }
+
+    public void MouseClickAt(Point position)
+    {
+        if (TryCurrentWindowContentPoint(position, out Point local))
+        {
+            _ = ToolMouseClickAt(local);
+        }
+    }
+
+    public void MousePressAt(Point position)
+    {
+        if (TryCurrentWindowContentPoint(position, out Point local))
+        {
+            _ = ToolMousePressAt(local);
+        }
+    }
+
+    public void MouseDragAt(Point position)
+    {
+        if (TryCurrentWindowContentPoint(position, out Point local))
+        {
+            _ = ToolMouseDragAt(local);
+        }
+    }
+
+    public void MouseReleaseAt(Point position)
+    {
+        if (TryCurrentWindowContentPoint(position, out Point local))
+        {
+            _ = ToolMouseReleaseAt(local);
+        }
+    }
+
+    public void MouseWheelAt(Point position, int wheelDelta)
+    {
+        if (TryCurrentWindowContentPoint(position, out Point local))
+        {
+            _ = ToolMouseWheelAt(local, wheelDelta);
+        }
+    }
+
+    public bool ShouldCloseRequested()
+    {
+        return frames.Count <= 1 && Current.Options.ShouldClose?.Invoke() == true;
+    }
+
+    public List<List<TerminalCell>> RenderFrame()
+    {
+        return RenderFrameContent(
+            new Size(config.ViewportWidth, config.ViewportHeight),
+            forceStackCellBackgroundRendering: true);
+    }
+
+    public List<List<TerminalCell>> RenderTerminalFrame(Size terminalSize)
+    {
+        return RenderFrameContent(terminalSize, forceStackCellBackgroundRendering: false);
+    }
+
+    internal ScrollRegionHint? TakePendingScrollRegion()
+    {
+        QueueScrollRegionHint(Current.ActiveScrollView);
+        ScrollRegionHint? hint = pendingScrollRegion;
+        pendingScrollRegion = null;
+        return hint;
+    }
+
+    private Size ViewportSize()
+    {
+        return new Size(
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, config.ViewportWidth),
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, config.ViewportHeight));
+    }
+
+    private void RefreshCurrentWindowLayoutForMouse()
+    {
+        if (frames.Count <= 1)
+        {
+            _ = RenderContent();
+            return;
+        }
+
+        Size contentSize = GeneratedWindowRuntime.WindowStackContentSize(Current.Window, ViewportSize());
+        (int focusedIndex, Element? focused) = FocusedElementForRender(
+            Current,
+            Current.ActiveScrollView,
+            true);
+        _ = GeneratedWindowRuntime.RenderGeneratedWindowContent(
+            Current.Window,
+            contentSize,
+            focusedIndex,
+            focused,
+            Current.EditMode,
+            Current.ActiveScrollView,
+            Current.ActiveScrollViewProxy,
+            Current.ActiveScrollViewEditElement,
+            Current.ActiveScrollViewFresh);
+    }
+
+    private bool TryCurrentWindowContentPoint(Point position, out Point local)
+    {
+        local = position;
+        if (frames.Count <= 1)
+        {
+            return true;
+        }
+
+        Size terminalSize = ViewportSize();
+        if (!GeneratedWindowRuntime.WindowStackFrameContains(Current.Window, terminalSize, position))
+        {
+            return false;
+        }
+
+        local = GeneratedWindowRuntime.WindowStackContentPoint(Current.Window, terminalSize, position);
+        return true;
+    }
+
+    private void QueueScrollRegionHint(ScrollView? scrollView)
+    {
+        if (scrollView is null)
+        {
+            return;
+        }
+        int delta = scrollView.ConsumeTerminalScrollDelta();
+        if (delta == 0)
+        {
+            return;
+        }
+        Rect rect = scrollView.Frame;
+        if (pendingScrollRegion.HasValue &&
+            pendingScrollRegion.Value.Rect.Row == rect.Row &&
+            pendingScrollRegion.Value.Rect.Col == rect.Col &&
+            pendingScrollRegion.Value.Rect.Width == rect.Width &&
+            pendingScrollRegion.Value.Rect.Height == rect.Height)
+        {
+            int nextDelta = pendingScrollRegion.Value.Delta + delta;
+            pendingScrollRegion = nextDelta == 0 ? null : new ScrollRegionHint(rect, nextDelta);
+            return;
+        }
+        pendingScrollRegion = new ScrollRegionHint(rect, delta);
+    }
 
     private void PushFrame(GeneratedWindowBase nextWindow, GeneratedWindowRuntimeOptions nextOptions)
     {
@@ -2938,7 +6023,11 @@ public sealed class McpController
 
     private void OpenWindow(GeneratedWindowBase nextWindow, GeneratedWindowRuntimeOptions? nextOptions)
     {
-        ClearActiveScrollViewScope(Current);
+        if (Current.ActiveScrollView is not null)
+        {
+            Current.PendingModalScrollView = Current.ActiveScrollView;
+            Current.PendingModalScrollViewProxy = Current.ActiveScrollViewProxy;
+        }
         PushFrame(nextWindow, nextOptions ?? nextWindow.RuntimeOptions());
         ApplyInitialFocus(Current);
     }
@@ -2949,45 +6038,184 @@ public sealed class McpController
         frame.EditScopeOwner = null;
         frame.ActiveScrollView = null;
         frame.ActiveScrollViewProxy = null;
+        frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.EditSnapshot = null;
     }
 
-    private static bool RestorePendingModalScrollViewScope(RuntimeFrame frame)
+    private static ScrollView? ActiveScrollViewForFrame(RuntimeFrame frame)
     {
-        ScrollView? scrollView = frame.PendingModalScrollView;
-        ReusableElement? proxy = frame.PendingModalScrollViewProxy;
+        return frame.ActiveScrollView ?? frame.PendingModalScrollView;
+    }
+
+    private static ReusableElement? ActiveScrollViewProxyForFrame(RuntimeFrame frame)
+    {
+        return frame.ActiveScrollViewProxy ?? frame.PendingModalScrollViewProxy;
+    }
+
+    private BackgroundFocusCleanupContext CaptureBackgroundFocusCleanupContext()
+    {
+        bool hadActiveStackFrame = frames.Count > 1;
+        if (!hadActiveStackFrame || frames.Count == 0)
+        {
+            return new BackgroundFocusCleanupContext(false, null, -1, null, null);
+        }
+
+        RuntimeFrame frame = frames[0];
+        ScrollView? activeScrollView = ActiveScrollViewForFrame(frame);
+        (int focusedIndex, Element? focused) = FocusedElementForRender(frame, activeScrollView, false);
+        if (focusedIndex < 0 && focused is not null)
+        {
+            focusedIndex = GeneratedWindowRuntime.FocusableElements(frame.Window, activeScrollView).IndexOf(focused);
+        }
+        return new BackgroundFocusCleanupContext(
+            true,
+            focused,
+            focusedIndex,
+            activeScrollView,
+            ActiveScrollViewProxyForFrame(frame));
+    }
+
+    private void CleanupBackgroundFocusAfterModalClose(BackgroundFocusCleanupContext context)
+    {
+        if (!context.HadActiveStackFrame || frames.Count != 1)
+        {
+            return;
+        }
+
+        RuntimeFrame frame = frames[0];
+        ScrollView? activeScrollView = ActiveScrollViewForFrame(frame);
+        if (activeScrollView is not null &&
+            !FocusIdentityPresentIn(frame, activeScrollView, context.FocusedElement))
+        {
+            if (RepairRemovedBackgroundScrollViewScope(frame, context))
+            {
+                return;
+            }
+            ClearRemovedBackgroundScrollViewScope(frame);
+            return;
+        }
+        if (ExitBackgroundEditModeAfterModalClose(frame))
+        {
+            return;
+        }
+        ClearFocusIfElementRemoved(frame, context.FocusedElement);
+    }
+
+    private static bool RepairRemovedBackgroundScrollViewScope(
+        RuntimeFrame frame,
+        BackgroundFocusCleanupContext context)
+    {
+        ScrollView? activeScrollView = context.ActiveScrollView ?? ActiveScrollViewForFrame(frame);
+        if (activeScrollView is null || !WindowContainsElementForActivation(frame.Window, activeScrollView))
+        {
+            return false;
+        }
+
+        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(frame.Window, activeScrollView);
+        if (focusable.Count == 0)
+        {
+            return false;
+        }
+
+        int index = context.FocusedIndex >= 0
+            ? Math.Min(context.FocusedIndex, focusable.Count - 1)
+            : Math.Min(Math.Max(0, frame.FocusedIndex), focusable.Count - 1);
+        Element nextFocus = focusable[index];
+        frame.EditMode = true;
+        frame.EditScopeOwner = context.ActiveScrollViewProxy ?? ActiveScrollViewProxyForFrame(frame);
+        frame.ActiveScrollView = activeScrollView;
+        frame.ActiveScrollViewProxy = context.ActiveScrollViewProxy ?? ActiveScrollViewProxyForFrame(frame);
+        frame.ActiveScrollViewEditElement = null;
+        frame.ActiveScrollViewFresh = false;
         frame.PendingModalScrollView = null;
         frame.PendingModalScrollViewProxy = null;
-        if (scrollView is null || proxy is null)
+        frame.EditSnapshot = null;
+        frame.FocusedIndex = index;
+        frame.FocusedElementRef = nextFocus;
+        if (!ReferenceEquals(nextFocus, activeScrollView))
+        {
+            frame.ScrollViewLastDescendant[activeScrollView] = nextFocus;
+        }
+        GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(frame.Window, nextFocus);
+        return true;
+    }
+
+    private static bool FocusIdentityPresentIn(RuntimeFrame frame, ScrollView activeScrollView, Element? previous)
+    {
+        if (previous is null)
+        {
+            return true;
+        }
+        return GeneratedWindowRuntime.FocusableElements(frame.Window, activeScrollView)
+            .Any(element => ReferenceEquals(element, previous));
+    }
+
+    private static void ClearRemovedBackgroundScrollViewScope(RuntimeFrame frame)
+    {
+        frame.EditMode = false;
+        frame.EditScopeOwner = null;
+        frame.ActiveScrollView = null;
+        frame.ActiveScrollViewProxy = null;
+        frame.ActiveScrollViewEditElement = null;
+        frame.ActiveScrollViewFresh = false;
+        frame.PendingModalScrollView = null;
+        frame.PendingModalScrollViewProxy = null;
+        frame.EditSnapshot = null;
+        frame.FocusedIndex = -1;
+        frame.FocusedElementRef = null;
+    }
+
+    private static bool ExitBackgroundEditModeAfterModalClose(RuntimeFrame frame)
+    {
+        ScrollView? activeScrollView = ActiveScrollViewForFrame(frame);
+        ReusableElement? activeScrollViewProxy = ActiveScrollViewProxyForFrame(frame);
+        Element? focused = FocusedElementForRender(frame, activeScrollView, false).FocusedElement;
+        if (activeScrollView is null)
         {
             return false;
         }
-        Element? focused = frame.FocusedElementRef;
-        if (focused is null)
+
+        List<Element> scopeFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window, activeScrollView);
+        int focusedIndex = focused is not null ? scopeFocusable.IndexOf(focused) : -1;
+        frame.EditMode = true;
+        frame.EditScopeOwner = activeScrollViewProxy;
+        frame.ActiveScrollView = activeScrollView;
+        frame.ActiveScrollViewProxy = activeScrollViewProxy;
+        frame.ActiveScrollViewEditElement = null;
+        frame.ActiveScrollViewFresh = false;
+        if (focusedIndex >= 0)
         {
-            return false;
+            frame.FocusedIndex = focusedIndex;
+            frame.FocusedElementRef = scopeFocusable[focusedIndex];
         }
-        (ReusableElement Proxy, ScrollView ScrollView)? context =
-            ScrollViewFocusContextContainingElement(frame.Window, focused);
-        if (context.HasValue &&
-            ReferenceEquals(context.Value.Proxy, proxy) &&
-            ReferenceEquals(context.Value.ScrollView, scrollView))
+        else if (focused is null)
         {
-            List<Element> focusable = GeneratedWindowRuntime.FocusableElements(frame.Window);
-            int proxyIndex = focusable.IndexOf(proxy);
-            if (proxyIndex >= 0)
-            {
-                frame.FocusedIndex = proxyIndex;
-                frame.FocusedElementRef = proxy;
-                frame.EditMode = false;
-                frame.EditScopeOwner = null;
-                frame.ActiveScrollView = null;
-                frame.ActiveScrollViewProxy = null;
-                frame.ActiveScrollViewFresh = false;
-                return true;
-            }
+            frame.FocusedIndex = -1;
+            frame.FocusedElementRef = null;
         }
-        return false;
+        frame.PendingModalScrollView = null;
+        frame.PendingModalScrollViewProxy = null;
+        frame.EditSnapshot = null;
+        return true;
+    }
+
+    private static void ClearFocusIfElementRemoved(RuntimeFrame frame, Element? previous)
+    {
+        if (previous is null)
+        {
+            return;
+        }
+        if (GeneratedWindowRuntime.FocusableElements(frame.Window)
+            .Any(element => ReferenceEquals(element, previous)))
+        {
+            return;
+        }
+        if (ReferenceEquals(frame.FocusedElementRef, previous))
+        {
+            frame.FocusedIndex = -1;
+            frame.FocusedElementRef = null;
+        }
     }
 
     private static void ApplyInitialFocus(RuntimeFrame frame)
@@ -3029,6 +6257,8 @@ public sealed class McpController
         frame.EditMode = frame.Options.StartInEditMode && IsEditableElement(focused);
         if (frame.EditMode)
         {
+            frame.EditSnapshot = CaptureSnapshot(focused);
+            BeginElementEdit(focused);
             frame.Options.OnEditStarted?.Invoke(focused.Name);
         }
     }
@@ -3051,7 +6281,7 @@ public sealed class McpController
         }
         (ReusableElement Proxy, ScrollView ScrollView)? scrollContext = element is null
             ? null
-            : ScrollViewFocusContextContainingElement(frame.Window, element);
+            : ScrollViewFocusContextForElement(frame.Window, element);
         List<Element> focusable = scrollContext.HasValue
             ? GeneratedWindowRuntime.FocusableElements(frame.Window, scrollContext.Value.ScrollView)
             : GeneratedWindowRuntime.FocusableElements(frame.Window);
@@ -3067,7 +6297,9 @@ public sealed class McpController
         frame.EditScopeOwner = null;
         frame.ActiveScrollView = scrollContext?.ScrollView;
         frame.ActiveScrollViewProxy = scrollContext?.Proxy;
+        frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.EditSnapshot = null;
         if (index >= 0)
         {
             frame.Options.OnFocusChanged?.Invoke(focusable[index].Name, true);
@@ -3087,27 +6319,192 @@ public sealed class McpController
         return element is TextInput or NumberInput or ComboBox or ListBox or ScrollView;
     }
 
+    private static bool IsButton(Element element)
+    {
+        return element.Enabled && element is Button;
+    }
+
+    private static bool IsClickableImage(Element element)
+    {
+        return element.Enabled && element is Image;
+    }
+
+    private static bool ActivateReusableControl(Element? element)
+    {
+        return element is ReusableElement { Enabled: true, Child: { } child } &&
+            child.GeneratedFocusable &&
+            child.ActivateGeneratedControl();
+    }
+
+    private static bool IsImmediateInput(Element element)
+    {
+        return element.Enabled && element is CheckBox;
+    }
+
+    private static bool UsesLeaveCommit(Element? element)
+    {
+        return element is not null && element.CommitMode == Element.CommitModeLeave;
+    }
+
+    private static bool IsStandardEscapeDialog(GeneratedWindowBase window)
+    {
+        string className = string.IsNullOrEmpty(window.McpClassName) ? window.GetType().Name : window.McpClassName;
+        return className == "FileBrowser" || className.StartsWith("MessageBox", StringComparison.Ordinal);
+    }
+
+    private static string StandardEscapeButtonName(GeneratedWindowBase window)
+    {
+        if (!IsStandardEscapeDialog(window))
+        {
+            return "";
+        }
+        string className = string.IsNullOrEmpty(window.McpClassName) ? window.GetType().Name : window.McpClassName;
+        if (className == "FileBrowser")
+        {
+            return GeneratedWindowRuntime.FindElement(window, "close_btn") is Button ? "close_btn" : "";
+        }
+        foreach (string buttonName in new[] { "cancel_btn", "no_btn", "ok_btn" })
+        {
+            if (GeneratedWindowRuntime.FindElement(window, buttonName) is Button)
+            {
+                return buttonName;
+            }
+        }
+        return "";
+    }
+
+    private bool HandleStandardEscapeButton(RuntimeFrame frame)
+    {
+        string buttonName = StandardEscapeButtonName(frame.Window);
+        if (string.IsNullOrEmpty(buttonName))
+        {
+            return false;
+        }
+        Element? button = GeneratedWindowRuntime.FindElement(frame.Window, buttonName);
+        if (button is null)
+        {
+            return false;
+        }
+        frame.EditMode = false;
+        frame.EditScopeOwner = null;
+        frame.ActiveScrollView = null;
+        frame.ActiveScrollViewProxy = null;
+        frame.ActiveScrollViewEditElement = null;
+        frame.ActiveScrollViewFresh = false;
+        frame.EditSnapshot = null;
+        SetFocusInFrame(frame, button);
+        BeforeStandardEscapeButtonAction?.Invoke();
+        OptionsFor(button).OnButton?.Invoke(button.Name);
+        CloseCurrentWindowIfRequested();
+        return true;
+    }
+
+    private static EditSnapshot CaptureSnapshot(Element element)
+    {
+        EditSnapshot snapshot = new(element);
+        if (element is TextInput textInput)
+        {
+            snapshot.TextValue = textInput.Value;
+            snapshot.TextCursor = textInput.Cursor;
+        }
+        else if (element is NumberInput numberInput)
+        {
+            snapshot.NumberValue = numberInput.Value;
+            numberInput.BeginEdit();
+        }
+        else if (element is ComboBox comboBox)
+        {
+            snapshot.SelectedIndex = comboBox.SelectedIndex;
+        }
+        else if (element is ListBox listBox)
+        {
+            snapshot.SelectedIndex = listBox.SelectedIndex;
+        }
+        return snapshot;
+    }
+
+    private static void BeginElementEdit(Element? element)
+    {
+        if (element is TextInput textInput)
+        {
+            textInput.SetCursor(textInput.Value.Length);
+        }
+        else if (element is NumberInput numberInput)
+        {
+            numberInput.BeginEdit();
+        }
+    }
+
+    private static void RestoreSnapshot(EditSnapshot snapshot)
+    {
+        if (snapshot.Element is TextInput textInput)
+        {
+            textInput.SetValue(snapshot.TextValue);
+            textInput.SetCursor(snapshot.TextCursor);
+        }
+        else if (snapshot.Element is NumberInput numberInput)
+        {
+            numberInput.CancelEdit();
+            numberInput.SetValue(snapshot.NumberValue);
+        }
+        else if (snapshot.Element is ComboBox comboBox)
+        {
+            comboBox.SetSelectedIndex(snapshot.SelectedIndex);
+        }
+        else if (snapshot.Element is ListBox listBox)
+        {
+            listBox.SetSelectedIndex(snapshot.SelectedIndex);
+        }
+    }
+
+    private static void CommitEdit(Element? element)
+    {
+        if (element is NumberInput numberInput)
+        {
+            numberInput.CommitEdit();
+        }
+    }
+
+    private static void ApplyEditEscape(RuntimeFrame frame)
+    {
+        if (frame.EditSnapshot is not null)
+        {
+            RestoreSnapshot(frame.EditSnapshot);
+            frame.EditSnapshot = null;
+        }
+        frame.EditMode = false;
+    }
+
+    private static void EscapeElementEdit(RuntimeFrame frame, Element? element)
+    {
+        if (UsesLeaveCommit(element))
+        {
+            CommitEdit(element);
+            frame.EditSnapshot = null;
+            frame.EditMode = false;
+            return;
+        }
+        ApplyEditEscape(frame);
+    }
+
+    private static int SelectedIndexOf(Element? element)
+    {
+        return element switch
+        {
+            ComboBox comboBox => comboBox.SelectedIndex,
+            ListBox listBox => listBox.SelectedIndex,
+            _ => -1,
+        };
+    }
+
     private void CloseWindow()
     {
+        BackgroundFocusCleanupContext cleanupContext = CaptureBackgroundFocusCleanupContext();
         if (frames.Count > 1)
         {
             frames.RemoveAt(frames.Count - 1);
         }
-        if (Current.ActiveScrollViewProxy is not null)
-        {
-            List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
-            int proxyIndex = focusable.IndexOf(Current.ActiveScrollViewProxy);
-            if (proxyIndex >= 0)
-            {
-                Current.FocusedIndex = proxyIndex;
-                Current.FocusedElementRef = focusable[proxyIndex];
-            }
-        }
-        Current.EditMode = false;
-        Current.EditScopeOwner = null;
-        Current.ActiveScrollView = null;
-        Current.ActiveScrollViewProxy = null;
-        Current.ActiveScrollViewFresh = false;
+        CleanupBackgroundFocusAfterModalClose(cleanupContext);
     }
 
     private void CloseCurrentWindowIfRequested()
@@ -3116,6 +6513,49 @@ public sealed class McpController
         {
             CloseWindow();
         }
+    }
+
+    private bool HasActiveStackFrame()
+    {
+        return frames.Count > 1;
+    }
+
+    private bool ActiveWindowIsRoot()
+    {
+        return frames.Count == 1;
+    }
+
+    private bool ActiveWindowIs(GeneratedWindowBase window)
+    {
+        return frames.Count > 0 && ReferenceEquals(Current.Window, window);
+    }
+
+    private JsonObject ActivatedElementResult(string elementName)
+    {
+        return new JsonObject
+        {
+            ["ok"] = true,
+            ["element_id"] = elementName,
+        };
+    }
+
+    private bool HandleActiveFrameButton(string name)
+    {
+        if (Current.Options.OnButton is not null)
+        {
+            Current.Options.OnButton(name);
+            return true;
+        }
+        return false;
+    }
+
+    private void DelayModalButtonActionForVisibleFocus()
+    {
+        if (!HasActiveStackFrame())
+        {
+            return;
+        }
+        BeforeModalButtonAction?.Invoke();
     }
 
     public void ServeStdio()
@@ -3308,7 +6748,7 @@ public sealed class McpController
             "set_viewport" => ToolSetViewport(arguments),
             "repaint" => new JsonObject(),
             "focus_element" => ToolFocusElement(arguments["element_id"]?.GetValue<string>() ?? ""),
-            "enter_edit_mode" => ToolEnterEditMode(arguments["element_id"]?.GetValue<string>() ?? ""),
+            "enter_edit_mode" => ToolEnterEditMode(arguments["element_id"]?.GetValue<string>()),
             "exit_edit_mode" => ToolExitEditMode(),
             "activate_element" => ToolActivateElement(arguments["element_id"]?.GetValue<string>() ?? ""),
             "click_element" => ToolClickElement(arguments["element_id"]?.GetValue<string>() ?? ""),
@@ -3465,7 +6905,7 @@ public sealed class McpController
 
     private JsonObject ToolGetRenderFrame()
     {
-        List<List<TerminalCell>> content = RenderContent();
+        List<List<TerminalCell>> content = RenderFrame();
         return new JsonObject
         {
             ["width"] = content.Count == 0 ? 0 : content[0].Count,
@@ -3479,7 +6919,7 @@ public sealed class McpController
         List<List<TerminalCell>> content;
         using (new GradientRenderTime(JsonInt64(arguments, "snapshot_time_ms")))
         {
-            content = RenderContent();
+            content = RenderSnapshotContent(arguments);
         }
         JsonArray textLines = new();
         foreach (string line in RenderHelpers.RenderedText(content))
@@ -3499,13 +6939,27 @@ public sealed class McpController
         List<List<TerminalCell>> content;
         using (new GradientRenderTime(JsonInt64(arguments, "snapshot_time_ms")))
         {
-            content = RenderContent();
+            content = RenderSnapshotContent(arguments);
         }
         return new JsonObject
         {
             ["format"] = "render-cells-v1",
             ["cells"] = RenderHelpers.CompactCells(content),
         };
+    }
+
+    private List<List<TerminalCell>> RenderSnapshotContent(JsonObject arguments)
+    {
+        string renderScope = JsonString(arguments, "render_scope", "full_surface");
+        if (renderScope == "full_surface" || renderScope.Length == 0)
+        {
+            return RenderFrame();
+        }
+        if (renderScope == "active_window")
+        {
+            return RenderContent();
+        }
+        throw new InvalidOperationException("unknown render_scope: " + renderScope);
     }
 
     private JsonObject ToolGetTextSnapshot()
@@ -3544,7 +6998,7 @@ public sealed class McpController
         Element element = RequireElement(elementId);
         GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, element);
         (ReusableElement Proxy, ScrollView ScrollView)? scrollContext =
-            ScrollViewFocusContextContainingElement(Current.Window, element);
+            ScrollViewFocusContextForElement(Current.Window, element);
         List<Element> focusable = scrollContext.HasValue
             ? GeneratedWindowRuntime.FocusableElements(Current.Window, scrollContext.Value.ScrollView)
             : GeneratedWindowRuntime.FocusableElements(Current.Window);
@@ -3568,25 +7022,26 @@ public sealed class McpController
         return Snapshot(element);
     }
 
-    private JsonNode ToolEnterEditMode(string elementId)
+    private JsonNode ToolEnterEditMode(string? elementId)
     {
-        JsonNode result = ToolFocusElement(elementId);
+        if (!string.IsNullOrEmpty(elementId))
+        {
+            _ = ToolFocusElement(elementId);
+        }
         Element? entered = FocusedElement();
         if (entered is not null && EnterScrollViewScope(entered))
         {
             Current.Options.OnEditStarted?.Invoke(entered.Name);
-            return result;
+            return new JsonObject { ["edit_mode"] = Current.EditMode };
         }
         Current.EditMode = true;
         if (entered is not null)
         {
-            if (entered is ComboBox comboBox && !comboBox.MenuOpen)
-            {
-                comboBox.HandleKey("Enter");
-            }
+            Current.EditSnapshot = CaptureSnapshot(entered);
+            BeginElementEdit(entered);
             Current.Options.OnEditStarted?.Invoke(entered.Name);
         }
-        return result;
+        return new JsonObject { ["edit_mode"] = Current.EditMode };
     }
 
     private bool EnterScrollViewScope(Element focused)
@@ -3597,7 +7052,9 @@ public sealed class McpController
             Current.EditScopeOwner = reusable;
             Current.ActiveScrollView = generatedScrollView.ScrollView();
             Current.ActiveScrollViewProxy = reusable;
+            Current.ActiveScrollViewEditElement = null;
             Current.ActiveScrollViewFresh = true;
+            Current.EditSnapshot = null;
             FocusFirstScrollViewScopeElement(Current, reusable, generatedScrollView.ScrollView());
             return true;
         }
@@ -3607,11 +7064,15 @@ public sealed class McpController
             Current.EditScopeOwner = null;
             Current.ActiveScrollView = scrollView;
             Current.ActiveScrollViewProxy = null;
+            Current.ActiveScrollViewEditElement = null;
             Current.ActiveScrollViewFresh = true;
+            Current.EditSnapshot = null;
+            FocusFirstScrollViewScopeElement(Current, null, scrollView);
             return true;
         }
         Current.ActiveScrollView = null;
         Current.ActiveScrollViewProxy = null;
+        Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
         return false;
     }
@@ -3632,7 +7093,9 @@ public sealed class McpController
         Current.EditMode = false;
         Current.ActiveScrollView = null;
         Current.ActiveScrollViewProxy = null;
+        Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
+        Current.EditSnapshot = null;
         return FocusedElement() is Element focused ? Snapshot(focused) : new JsonObject { ["ok"] = true };
     }
 
@@ -3644,23 +7107,65 @@ public sealed class McpController
         {
             return Snapshot(element);
         }
-        return ActivateResolvedElement(element, element is Button or Image);
+        return ActivateResolvedElement(element, IsButton(element) || IsClickableImage(element), elementId);
     }
 
-    private JsonNode ActivateResolvedElement(Element element, bool activateScrollScopeAfterActivation = true)
+    private JsonNode ActivateResolvedElement(
+        Element element,
+        bool activateScrollScopeAfterActivation = true,
+        string? elementId = null)
     {
         GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, element);
         RuntimeFrame activationFrame = Current;
         int frameCountBeforeActivation = frames.Count;
         (ReusableElement Proxy, ScrollView ScrollView)? activatedScrollContext =
-            ScrollViewFocusContextContainingElement(Current.Window, element);
-        FocusElement(element);
-        if (element is Button or Image or ReusableElement)
+            FocusElementWithScrollViewScope(element);
+        if (IsButton(element) || IsClickableImage(element))
         {
-            OptionsFor(element).OnButton?.Invoke(element.Name);
+            string activatedName = element.Name;
+            GeneratedWindowBase activatedWindow = activationFrame.Window;
+            bool hadActiveStackFrame = HasActiveStackFrame();
+            BackgroundFocusCleanupContext cleanupContext = CaptureBackgroundFocusCleanupContext();
+            if (IsButton(element) && HasActiveStackFrame())
+            {
+                DelayModalButtonActionForVisibleFocus();
+            }
+            activationFrame.EditMode = false;
+            if (OwnerWindowFor(activatedWindow, element) is GeneratedWindowBase owner &&
+                !ReferenceEquals(owner, activatedWindow))
+            {
+                owner.AttachRuntimeWindowStack(OpenWindow, CloseWindow, SetRuntimeWindowFocus);
+                owner.HandleGeneratedButton(activatedName);
+            }
+            else
+            {
+                HandleActiveFrameButton(activatedName);
+            }
+            if (hadActiveStackFrame && ActiveWindowIsRoot())
+            {
+                CleanupBackgroundFocusAfterModalClose(cleanupContext);
+            }
+            if (ActiveWindowIs(activatedWindow))
+            {
+                Element? activeElement = elementId is not null
+                    ? GeneratedWindowRuntime.FindElement(Current.Window, elementId)
+                    : element;
+                if (activeElement is not null)
+                {
+                    FocusElementWithScrollViewScope(activeElement);
+                    return Snapshot(activeElement);
+                }
+            }
+            return ActivatedElementResult(activatedName);
+        }
+        else if (ActivateReusableControl(element))
+        {
+            Current.EditMode = false;
         }
         else if (element is CheckBox)
         {
+            Current.EditMode = false;
+            Current.ActiveScrollViewEditElement = null;
             element.HandleKey("Enter");
         }
         else
@@ -3682,8 +7187,35 @@ public sealed class McpController
             activationFrame.PendingModalScrollView = activatedScrollContext.Value.ScrollView;
         }
         CloseCurrentWindowIfRequested();
-        RestorePendingModalScrollViewScope(Current);
         return Snapshot(element);
+    }
+
+    private (ReusableElement Proxy, ScrollView ScrollView)? FocusElementWithScrollViewScope(Element element)
+    {
+        FocusElement(element);
+        (ReusableElement Proxy, ScrollView ScrollView)? scrollContext =
+            ScrollViewFocusContextForElement(Current.Window, element);
+        if (!scrollContext.HasValue)
+        {
+            return null;
+        }
+
+        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, scrollContext.Value.ScrollView);
+        int index = focusable.IndexOf(element);
+        Current.EditMode = true;
+        Current.EditScopeOwner = scrollContext.Value.Proxy;
+        Current.ActiveScrollView = scrollContext.Value.ScrollView;
+        Current.ActiveScrollViewProxy = scrollContext.Value.Proxy;
+        Current.ActiveScrollViewEditElement = null;
+        Current.ActiveScrollViewFresh = false;
+        Current.EditSnapshot = null;
+        if (index >= 0)
+        {
+            Current.FocusedIndex = index;
+            Current.FocusedElementRef = focusable[index];
+            Current.ScrollViewLastDescendant[scrollContext.Value.ScrollView] = focusable[index];
+        }
+        return scrollContext;
     }
 
     private JsonNode ToolClickElement(string elementId)
@@ -3695,29 +7227,59 @@ public sealed class McpController
             return Snapshot(element);
         }
         FocusElement(element);
-        if (element is Button or CheckBox)
+        bool scrollViewScopeActive = Current.ActiveScrollView is not null;
+        if (IsButton(element) || IsClickableImage(element))
+        {
+            return ActivateResolvedElement(element);
+        }
+        if (ActivateReusableControl(element))
+        {
+            return Snapshot(element);
+        }
+        if (element is CheckBox)
         {
             return ActivateResolvedElement(element);
         }
         if (element is TextInput textInput)
         {
+            Current.EditSnapshot = CaptureSnapshot(textInput);
             Current.EditMode = true;
             textInput.SetCursor(textInput.Value.Length);
+            if (scrollViewScopeActive)
+            {
+                Current.ActiveScrollViewEditElement = textInput;
+            }
             Current.Options.OnEditStarted?.Invoke(textInput.Name);
         }
         else if (element is NumberInput numberInput)
         {
+            Current.EditSnapshot = CaptureSnapshot(numberInput);
             Current.EditMode = true;
+            if (scrollViewScopeActive)
+            {
+                Current.ActiveScrollViewEditElement = numberInput;
+            }
             Current.Options.OnEditStarted?.Invoke(numberInput.Name);
         }
         else if (element is ComboBox comboBox)
         {
+            Current.EditSnapshot = CaptureSnapshot(comboBox);
             Current.EditMode = true;
-            if (!comboBox.MenuOpen)
+            if (scrollViewScopeActive)
             {
-                comboBox.HandleKey("Enter");
+                Current.ActiveScrollViewEditElement = comboBox;
             }
             Current.Options.OnEditStarted?.Invoke(comboBox.Name);
+        }
+        else if (element is ListBox listBox)
+        {
+            Current.EditSnapshot = CaptureSnapshot(listBox);
+            Current.EditMode = true;
+            if (scrollViewScopeActive)
+            {
+                Current.ActiveScrollViewEditElement = listBox;
+            }
+            Current.Options.OnEditStarted?.Invoke(listBox.Name);
         }
         else
         {
@@ -3732,7 +7294,9 @@ public sealed class McpController
         frame.EditScopeOwner = proxy;
         frame.ActiveScrollView = scrollView;
         frame.ActiveScrollViewProxy = proxy;
+        frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = true;
+        frame.EditSnapshot = null;
     }
 
     private static void FocusScrollViewScopeInFrame(RuntimeFrame frame, ReusableElement proxy, ScrollView scrollView)
@@ -3741,26 +7305,61 @@ public sealed class McpController
         frame.EditScopeOwner = proxy;
         frame.ActiveScrollView = scrollView;
         frame.ActiveScrollViewProxy = proxy;
+        frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = true;
+        frame.EditSnapshot = null;
         FocusFirstScrollViewScopeElement(frame, proxy, scrollView);
     }
 
-    private static void FocusFirstScrollViewScopeElement(RuntimeFrame frame, ReusableElement proxy, ScrollView scrollView)
+    private static List<Element> ScrollViewScopeFocusableElements(RuntimeFrame frame, ScrollView scrollView)
+    {
+        List<Element> activeFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window, scrollView);
+        Element? scrollViewProxy =
+            frame.ActiveScrollViewProxy ??
+            GeneratedWindowRuntime.ReusableContainingElement(frame.Window, scrollView);
+        Element scopeRoot = scrollViewProxy ?? scrollView;
+        int scrollIndex = activeFocusable.IndexOf(scopeRoot);
+        if (scrollIndex < 0)
+        {
+            return new List<Element>();
+        }
+
+        Element? nextNavigationElement = null;
+        List<Element> navigationFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window);
+        int navigationIndex = navigationFocusable.IndexOf(scopeRoot);
+        if (navigationIndex >= 0 && navigationIndex + 1 < navigationFocusable.Count)
+        {
+            nextNavigationElement = navigationFocusable[navigationIndex + 1];
+        }
+
+        List<Element> scoped = new();
+        for (int index = scrollIndex; index < activeFocusable.Count; ++index)
+        {
+            Element element = activeFocusable[index];
+            if (index != scrollIndex &&
+                nextNavigationElement is not null &&
+                ReferenceEquals(element, nextNavigationElement))
+            {
+                break;
+            }
+            scoped.Add(element);
+        }
+        return scoped;
+    }
+
+    private static void FocusFirstScrollViewScopeElement(RuntimeFrame frame, ReusableElement? proxy, ScrollView scrollView)
     {
         List<Element> focusable = GeneratedWindowRuntime.FocusableElements(frame.Window, scrollView);
-        Element? target = focusable.FirstOrDefault(element =>
+        List<Element> scoped = ScrollViewScopeFocusableElements(frame, scrollView);
+        Element? target = null;
+        if (frame.ScrollViewLastDescendant.TryGetValue(scrollView, out Element? remembered) &&
+            scoped.Contains(remembered))
         {
-            if (ReferenceEquals(element, proxy))
-            {
-                return false;
-            }
-            (ReusableElement Proxy, ScrollView ScrollView)? context =
-                ScrollViewFocusContextContainingElement(frame.Window, element);
-            return context.HasValue &&
-                ReferenceEquals(context.Value.Proxy, proxy) &&
-                ReferenceEquals(context.Value.ScrollView, scrollView);
-        });
-        target ??= proxy;
+            target = remembered;
+        }
+        target ??= scoped.FirstOrDefault(element =>
+            !ReferenceEquals(element, scrollView) && !ReferenceEquals(element, proxy));
+        target ??= proxy is not null ? proxy : scrollView;
         int index = focusable.IndexOf(target);
         if (index < 0)
         {
@@ -3768,6 +7367,28 @@ public sealed class McpController
         }
         frame.FocusedIndex = index;
         frame.FocusedElementRef = focusable[index];
+    }
+
+    private static (ReusableElement Proxy, ScrollView ScrollView)? ScrollViewFocusContextForElement(
+        GeneratedWindowBase window,
+        Element target)
+    {
+        (ReusableElement Proxy, ScrollView ScrollView)? context =
+            ScrollViewFocusContextContainingElement(window, target);
+        if (context.HasValue)
+        {
+            return context;
+        }
+
+        ScrollView? scrollView = ScrollViewContainingElement(window, target);
+        if (scrollView is null)
+        {
+            return null;
+        }
+        ReusableElement? proxy =
+            GeneratedWindowRuntime.ReusableContainingElement(window, scrollView) ??
+            GeneratedWindowRuntime.ReusableContainingElement(window, target);
+        return proxy is null ? null : (proxy, scrollView);
     }
 
     private static (ReusableElement Proxy, ScrollView ScrollView)? ScrollViewFocusContextContainingElement(
@@ -3815,6 +7436,90 @@ public sealed class McpController
         return null;
     }
 
+    private static ScrollView? ScrollViewContainingElement(GeneratedWindowBase window, Element target)
+    {
+        foreach (Element element in window.Elements)
+        {
+            if (element is ReusableElement reusable && reusable.Child is not null)
+            {
+                ScrollView? nested = ScrollViewContainingElement(reusable.Child, target);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+            if (element is not ScrollView scrollView)
+            {
+                continue;
+            }
+            ScrollView? found = ScrollViewContainingElement(scrollView, target);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static ScrollView? ScrollViewContainingElement(ScrollView scrollView, Element target)
+    {
+        foreach (Element child in scrollView.Children)
+        {
+            if (ReferenceEquals(child, target))
+            {
+                return scrollView;
+            }
+            if (child is ReusableElement reusable && reusable.Child is not null &&
+                WindowContainsElementForActivation(reusable.Child, target))
+            {
+                return scrollView;
+            }
+            if (child is ScrollView nestedScrollView)
+            {
+                ScrollView? nested = ScrollViewContainingElement(nestedScrollView, target);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+            ScrollView? descendant = ScrollViewContainingElementInTree(child, target);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+        return null;
+    }
+
+    private static ScrollView? ScrollViewContainingElementInTree(Element element, Element target)
+    {
+        if (element is ReusableElement reusable && reusable.Child is not null)
+        {
+            ScrollView? nested = ScrollViewContainingElement(reusable.Child, target);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+        foreach (Element child in element.Children)
+        {
+            if (child is ScrollView scrollView)
+            {
+                ScrollView? nested = ScrollViewContainingElement(scrollView, target);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+            ScrollView? descendant = ScrollViewContainingElementInTree(child, target);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+        return null;
+    }
+
     private static bool WindowContainsElementForActivation(GeneratedWindowBase window, Element target)
     {
         foreach (Element element in window.Elements)
@@ -3834,6 +7539,21 @@ public sealed class McpController
 
     private static bool ElementTreeContainsForActivation(Element element, Element target)
     {
+        if (element is ScrollView scrollView)
+        {
+            foreach (Element child in scrollView.Children)
+            {
+                if (ReferenceEquals(child, target) || ElementTreeContainsForActivation(child, target))
+                {
+                    return true;
+                }
+                if (child is ReusableElement reusable && reusable.Child is not null &&
+                    WindowContainsElementForActivation(reusable.Child, target))
+                {
+                    return true;
+                }
+            }
+        }
         foreach (Element child in element.Children)
         {
             if (ReferenceEquals(child, target) || ElementTreeContainsForActivation(child, target))
@@ -3849,9 +7569,109 @@ public sealed class McpController
         return false;
     }
 
+    private static bool CopyTextToClipboard(string text)
+    {
+        runtimeClipboardText = text;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+        foreach ((string FileName, string[] Arguments) command in ClipboardCommands())
+        {
+            if (RunClipboardCommand(command.FileName, command.Arguments, text))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static IEnumerable<(string FileName, string[] Arguments)> ClipboardCommands()
+    {
+        yield return ("pbcopy", Array.Empty<string>());
+        yield return ("wl-copy", Array.Empty<string>());
+        yield return ("xclip", new[] { "-selection", "clipboard" });
+        yield return ("xsel", new[] { "--clipboard", "--input" });
+    }
+
+    private static bool RunClipboardCommand(string fileName, IReadOnlyList<string> arguments, string text)
+    {
+        try
+        {
+            ProcessStartInfo startInfo = new()
+            {
+                FileName = fileName,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            foreach (string argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+            using Process? process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
+            process.StandardInput.Write(text);
+            process.StandardInput.Close();
+            process.WaitForExit();
+            return process.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool CopyFocusedText(Element? focused)
+    {
+        if (focused is TextInput textInput)
+        {
+            string selectedText = textInput.SelectionText();
+            string text = string.IsNullOrEmpty(selectedText) ? textInput.Value : selectedText;
+            return !string.IsNullOrEmpty(text) && CopyTextToClipboard(text);
+        }
+        if (focused is NumberInput numberInput)
+        {
+            string text = numberInput.DisplayText();
+            return !string.IsNullOrEmpty(text) && CopyTextToClipboard(text);
+        }
+        return false;
+    }
+
+    private static bool PasteIntoFocused(Element? focused, string text)
+    {
+        if (focused is TextInput textInput)
+        {
+            textInput.InsertText(text);
+            return true;
+        }
+        if (focused is NumberInput numberInput)
+        {
+            foreach (char ch in text)
+            {
+                if (ch is '\r' or '\n')
+                {
+                    continue;
+                }
+                _ = numberInput.HandleKey(ch.ToString());
+            }
+            return true;
+        }
+        return false;
+    }
+
     private JsonNode ToolPressKey(string key)
     {
         RenderContent();
+        ClearLabelSelectionsInWindow(Current.Window);
         List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
         Element? focused = FocusedElement();
         int focusedListIndex = focused is null ? Current.FocusedIndex : focusable.IndexOf(focused);
@@ -3859,190 +7679,420 @@ public sealed class McpController
         {
             Current.FocusedIndex = focusedListIndex;
         }
+
+        if (key == "cmd_c")
+        {
+            if (CopyFocusedText(focused))
+            {
+                copyNotificationRequested = true;
+            }
+            return ToolGetAccessibilitySnapshot();
+        }
+        if (key == "cmd_v")
+        {
+            if (focused is not null && !Current.EditMode && IsEditableElement(focused))
+            {
+                Current.EditSnapshot = CaptureSnapshot(focused);
+                BeginElementEdit(focused);
+                Current.EditMode = true;
+                Current.Options.OnEditStarted?.Invoke(focused.Name);
+            }
+            if (PasteIntoFocused(focused, runtimeClipboardText) && focused is not null)
+            {
+                DispatchChanged(focused);
+            }
+            return ToolGetAccessibilitySnapshot();
+        }
+
+        if (Current.EditMode && key == "Escape")
+        {
+            if (Current.ActiveScrollView is not null)
+            {
+                if (Current.ActiveScrollViewEditElement is not null)
+                {
+                    if (!UsesLeaveCommit(Current.ActiveScrollViewEditElement) &&
+                        Current.EditSnapshot is not null &&
+                        ReferenceEquals(Current.EditSnapshot.Element, Current.ActiveScrollViewEditElement))
+                    {
+                        RestoreSnapshot(Current.EditSnapshot);
+                    }
+                    else
+                    {
+                        CommitEdit(Current.ActiveScrollViewEditElement);
+                    }
+                    Current.EditSnapshot = null;
+                    Current.ActiveScrollViewEditElement = null;
+                }
+                else
+                {
+                    ExitScrollViewScope(Current);
+                }
+            }
+            else
+            {
+                EscapeElementEdit(Current, focused);
+                if (Current.Options.KeepEditModeAfterEscape && focused is not null && IsEditableElement(focused))
+                {
+                    Current.EditSnapshot = CaptureSnapshot(focused);
+                    BeginElementEdit(focused);
+                    Current.EditMode = true;
+                    Current.Options.OnEditStarted?.Invoke(focused.Name);
+                }
+            }
+            CloseCurrentWindowIfRequested();
+            return FocusedElement() is Element escaped ? Snapshot(escaped) : new JsonObject { ["ok"] = true };
+        }
+
+        if (key == "Escape" && HandleStandardEscapeButton(Current))
+        {
+            return FocusedElement() is Element escapedButton ? Snapshot(escapedButton) : new JsonObject { ["ok"] = true };
+        }
+
+        if (focused is not null &&
+            Current.Options.OnKeyBeforeFocusedElement?.Invoke(key, focused.Name, Current.EditMode) == true)
+        {
+            CloseCurrentWindowIfRequested();
+            return Snapshot(focused);
+        }
+
+        if (Current.EditMode && focused is not null)
+        {
+            if (Current.ActiveScrollView is not null)
+            {
+                if (Current.ActiveScrollViewEditElement is not null)
+                {
+                    if (key == "Enter")
+                    {
+                        int previousSelectionIndex = SelectedIndexOf(Current.ActiveScrollViewEditElement);
+                        Current.ActiveScrollViewEditElement.HandleKey(key);
+                        DispatchChangedAfterHandledKey(Current.ActiveScrollViewEditElement, previousSelectionIndex);
+                        DispatchConfirmed(Current.ActiveScrollViewEditElement);
+                        CommitEdit(Current.ActiveScrollViewEditElement);
+                        Current.EditSnapshot = null;
+                        Current.ActiveScrollViewEditElement = null;
+                    }
+                    else
+                    {
+                        int previousSelectionIndex = SelectedIndexOf(Current.ActiveScrollViewEditElement);
+                        Current.ActiveScrollViewEditElement.HandleKey(key);
+                        DispatchChangedAfterHandledKey(Current.ActiveScrollViewEditElement, previousSelectionIndex);
+                    }
+                }
+                else if (IsDirectionalKey(key))
+                {
+                    MoveScrollViewScopeFocus(key);
+                }
+                else if (key is "Enter" or " ")
+                {
+                    focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
+                    focused = FocusedElement();
+                    if (focused is not null && (IsButton(focused) || IsClickableImage(focused)))
+                    {
+                        OptionsFor(focused).OnButton?.Invoke(focused.Name);
+                    }
+                    else if (focused is not null && ActivateReusableControl(focused))
+                    {
+                    }
+                    else if (focused is not null && IsImmediateInput(focused))
+                    {
+                        int previousSelectionIndex = SelectedIndexOf(focused);
+                        focused.HandleKey(key);
+                        DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+                    }
+                    else if (focused is not null && IsEditableElement(focused))
+                    {
+                        Current.EditSnapshot = CaptureSnapshot(focused);
+                        BeginElementEdit(focused);
+                        Current.ActiveScrollViewEditElement = focused;
+                        Current.Options.OnEditStarted?.Invoke(focused.Name);
+                    }
+                }
+            }
+            else if (key == "Enter" && UsesLeaveCommit(focused))
+            {
+                int previousSelectionIndex = SelectedIndexOf(focused);
+                focused.HandleKey(key);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+                Current.EditSnapshot = null;
+            }
+            else if (key == "Enter" && !UsesLeaveCommit(focused))
+            {
+                focused.HandleKey(key);
+                DispatchConfirmed(focused);
+                CommitEdit(focused);
+                Current.EditMode = Current.Options.KeepEditModeAfterConfirm && IsEditableElement(focused);
+                if (Current.EditMode)
+                {
+                    Current.EditSnapshot = CaptureSnapshot(focused);
+                    BeginElementEdit(focused);
+                    Current.Options.OnEditStarted?.Invoke(focused.Name);
+                }
+                else
+                {
+                    Current.EditSnapshot = null;
+                }
+            }
+            else
+            {
+                int previousSelectionIndex = SelectedIndexOf(focused);
+                focused.HandleKey(key);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+            }
+            CloseCurrentWindowIfRequested();
+            return FocusedElement() is Element edited ? Snapshot(edited) : new JsonObject { ["ok"] = true };
+        }
+
         if (Current.Options.OnKey?.Invoke(key) == true)
         {
             CloseCurrentWindowIfRequested();
             return focused is null ? new JsonObject { ["ok"] = true } : Snapshot(focused);
         }
-        if (focused is not null && Current.Options.OnKeyBeforeFocusedElement?.Invoke(key, focused.Name, Current.EditMode) == true)
+
+        if (key == "Tab" && focusable.Count > 0)
         {
-            DispatchChanged(focused);
-            CloseCurrentWindowIfRequested();
-            return Snapshot(focused);
+            MoveFocusLinear(focusable, 1);
+            return FocusedElement() is Element next ? Snapshot(next) : new JsonObject { ["ok"] = true };
         }
-        if (!Current.EditMode && IsDirectionalKey(key))
+        if (key == "Shift+Tab" && focusable.Count > 0)
+        {
+            MoveFocusLinear(focusable, -1);
+            return FocusedElement() is Element previous ? Snapshot(previous) : new JsonObject { ["ok"] = true };
+        }
+        if (IsDirectionalKey(key))
         {
             MoveFocusDirection(key);
             focused = FocusedElement();
             return focused is null ? new JsonObject { ["ok"] = true } : Snapshot(focused);
         }
-        if (key == "Escape")
+        if (focused is null)
         {
-            if (Current.EditScopeOwner is not null)
-            {
-                List<Element> scopedFocusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
-                int ownerIndex = scopedFocusable.IndexOf(Current.EditScopeOwner);
-                if (ownerIndex >= 0)
-                {
-                    Current.FocusedIndex = ownerIndex;
-                    Current.FocusedElementRef = scopedFocusable[ownerIndex];
-                }
-                focused = Current.EditScopeOwner;
-                Current.EditScopeOwner = null;
-            }
-            Current.EditMode = false;
-            Current.ActiveScrollView = null;
-            Current.ActiveScrollViewProxy = null;
-            Current.ActiveScrollViewFresh = false;
-            return focused is null ? new JsonObject { ["ok"] = true } : Snapshot(focused);
+            return new JsonObject { ["ok"] = true };
         }
-        if (key == "Tab" && focusable.Count > 0)
+        if (key is "Enter" or " ")
         {
-            if (focused is not null)
+            if (IsButton(focused) || IsClickableImage(focused))
             {
-                Current.Options.OnFocusChanged?.Invoke(focused.Name, false);
-            }
-            int currentIndex = focused is null ? Current.FocusedIndex : focusable.IndexOf(focused);
-            Current.FocusedIndex = (currentIndex + 1 + focusable.Count) % focusable.Count;
-            Current.FocusedElementRef = focusable[Current.FocusedIndex];
-            Current.EditMode = false;
-            Current.EditScopeOwner = null;
-            Current.ActiveScrollView = null;
-            Current.ActiveScrollViewProxy = null;
-            Current.ActiveScrollViewFresh = false;
-            Current.Options.OnFocusChanged?.Invoke(focusable[Current.FocusedIndex].Name, true);
-            return Snapshot(focusable[Current.FocusedIndex]);
-        }
-        if (key == "Shift+Tab" && focusable.Count > 0)
-        {
-            if (focused is not null)
-            {
-                Current.Options.OnFocusChanged?.Invoke(focused.Name, false);
-            }
-            int currentIndex = focused is null ? Current.FocusedIndex : focusable.IndexOf(focused);
-            Current.FocusedIndex = (currentIndex - 1 + focusable.Count) % focusable.Count;
-            Current.FocusedElementRef = focusable[Current.FocusedIndex];
-            Current.EditMode = false;
-            Current.EditScopeOwner = null;
-            Current.ActiveScrollView = null;
-            Current.ActiveScrollViewProxy = null;
-            Current.ActiveScrollViewFresh = false;
-            Current.Options.OnFocusChanged?.Invoke(focusable[Current.FocusedIndex].Name, true);
-            return Snapshot(focusable[Current.FocusedIndex]);
-        }
-        if (focused is not null)
-        {
-            bool dispatchChanged = false;
-            if (key == "Enter" && focused is Button or Image)
-            {
-                OptionsFor(focused).OnButton?.Invoke(focused.Name);
-            }
-            else if (key == "Enter" && focused is ReusableElement reusable && reusable.Child is not null)
-            {
-                if (EnterScrollViewScope(reusable))
+                string activatedName = focused.Name;
+                GeneratedWindowBase activatedWindow = Current.Window;
+                bool hadActiveStackFrame = IsButton(focused) && HasActiveStackFrame();
+                BackgroundFocusCleanupContext cleanupContext = CaptureBackgroundFocusCleanupContext();
+                if (IsButton(focused) && HasActiveStackFrame())
                 {
-                    DispatchChanged(focused);
-                    CloseCurrentWindowIfRequested();
-                    return Snapshot(focused);
+                    DelayModalButtonActionForVisibleFocus();
                 }
-                List<Element> descendants = DescendantFocusableElements(focused);
-                if (descendants.Count > 0)
+                Current.EditMode = false;
+                OptionsFor(focused).OnButton?.Invoke(activatedName);
+                if (hadActiveStackFrame && ActiveWindowIsRoot())
                 {
-                    Current.EditMode = true;
-                    Current.EditScopeOwner = focused;
-                    int descendantIndex = focusable.IndexOf(descendants[0]);
-                    if (descendantIndex >= 0)
-                    {
-                        Current.FocusedIndex = descendantIndex;
-                        focused = descendants[0];
-                        Current.FocusedElementRef = focused;
-                    }
+                    CleanupBackgroundFocusAfterModalClose(cleanupContext);
+                }
+                if (!ActiveWindowIs(activatedWindow))
+                {
+                    return ActivatedElementResult(activatedName);
                 }
             }
-            else if (Current.EditScopeOwner is not null && (key == "Down" || key == "Up"))
+            else if (ActivateReusableControl(focused))
             {
-                bool movedScopedFocus = false;
-                List<Element> descendants = ScrollViewScopeFocusableElements();
-                int scopedIndex = descendants.IndexOf(focused);
-                if (scopedIndex >= 0 && descendants.Count > 0)
-                {
-                    Element? target = DirectionalScrollViewScopeTarget(focused, descendants, key);
-                    if (target is not null)
-                    {
-                        int nextFocusIndex = focusable.IndexOf(target);
-                        if (nextFocusIndex >= 0)
-                        {
-                            Current.FocusedIndex = nextFocusIndex;
-                            focused = target;
-                            Current.FocusedElementRef = focused;
-                            GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, target);
-                            Current.ActiveScrollViewFresh = false;
-                            movedScopedFocus = true;
-                        }
-                    }
-                }
-                if (!movedScopedFocus)
-                {
-                    if (Current.ActiveScrollView is not null)
-                    {
-                        Current.ActiveScrollView.HandleKey(key);
-                    }
-                    else
-                    {
-                        focused.HandleKey(key);
-                    }
-                    Current.ActiveScrollViewFresh = false;
-                }
+                Current.EditMode = false;
             }
-            else if (key == "Enter")
+            else if (focused is ReusableElement && EnterScrollViewScope(focused))
             {
-                if (!Current.EditMode)
+                Current.ActiveScrollViewEditElement = null;
+                Current.EditSnapshot = null;
+            }
+            else if (IsImmediateInput(focused))
+            {
+                int previousSelectionIndex = SelectedIndexOf(focused);
+                focused.HandleKey(key);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+            }
+            else if (IsEditableElement(focused))
+            {
+                if (!EnterScrollViewScope(focused))
                 {
+                    Current.EditSnapshot = CaptureSnapshot(focused);
+                    BeginElementEdit(focused);
                     Current.EditMode = true;
                     Current.Options.OnEditStarted?.Invoke(focused.Name);
                 }
-                focused.HandleKey(key);
-                dispatchChanged = true;
-                if (focused is ComboBox comboBox && !comboBox.MenuOpen && Current.ActiveScrollView is null)
+                else
                 {
-                    Current.EditMode = false;
+                    Current.ActiveScrollViewEditElement = null;
+                    Current.EditSnapshot = null;
                 }
-            }
-            else
-            {
-                focused.HandleKey(key);
-                dispatchChanged = true;
-            }
-            if (dispatchChanged)
-            {
-                DispatchChanged(focused);
             }
             CloseCurrentWindowIfRequested();
             return Snapshot(focused);
         }
+        if (IsImmediateInput(focused))
+        {
+            int previousSelectionIndex = SelectedIndexOf(focused);
+            focused.HandleKey(key);
+            DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+        }
+        CloseCurrentWindowIfRequested();
         return new JsonObject { ["ok"] = true };
+    }
+
+    private void MoveFocusLinear(List<Element> focusable, int delta)
+    {
+        Element? focused = FocusedElement();
+        if (focused is not null)
+        {
+            Current.Options.OnFocusChanged?.Invoke(focused.Name, false);
+        }
+        int currentIndex = focused is null ? Current.FocusedIndex : focusable.IndexOf(focused);
+        Current.FocusedIndex = (currentIndex + delta + focusable.Count) % focusable.Count;
+        Current.FocusedElementRef = focusable[Current.FocusedIndex];
+        Current.EditMode = false;
+        Current.EditScopeOwner = null;
+        Current.ActiveScrollView = null;
+        Current.ActiveScrollViewProxy = null;
+        Current.ActiveScrollViewEditElement = null;
+        Current.ActiveScrollViewFresh = false;
+        Current.EditSnapshot = null;
+        Current.Options.OnFocusChanged?.Invoke(focusable[Current.FocusedIndex].Name, true);
+        GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, focusable[Current.FocusedIndex]);
+    }
+
+    private static void ExitScrollViewScope(RuntimeFrame frame)
+    {
+        if (frame.ActiveScrollView is null)
+        {
+            frame.EditMode = false;
+            return;
+        }
+
+        ScrollView scrollView = frame.ActiveScrollView;
+        List<Element> activeFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window, scrollView);
+        List<Element> scoped = ScrollViewScopeFocusableElements(frame, scrollView);
+        if (frame.FocusedIndex >= 0 && frame.FocusedIndex < activeFocusable.Count)
+        {
+            Element focused = activeFocusable[frame.FocusedIndex];
+            if (!ReferenceEquals(focused, scrollView) && scoped.Contains(focused))
+            {
+                frame.ScrollViewLastDescendant[scrollView] = focused;
+            }
+        }
+
+        Element scopeRoot = frame.ActiveScrollViewProxy is not null ? frame.ActiveScrollViewProxy : scrollView;
+        frame.ActiveScrollView = null;
+        frame.ActiveScrollViewProxy = null;
+        frame.ActiveScrollViewEditElement = null;
+        frame.ActiveScrollViewFresh = false;
+        frame.EditSnapshot = null;
+        frame.EditMode = false;
+        frame.EditScopeOwner = null;
+        List<Element> navigationFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window);
+        frame.FocusedIndex = navigationFocusable.IndexOf(scopeRoot);
+        frame.FocusedElementRef = frame.FocusedIndex >= 0 ? navigationFocusable[frame.FocusedIndex] : null;
+    }
+
+    private bool MoveScrollViewScopeFocus(string key)
+    {
+        if (Current.ActiveScrollView is null)
+        {
+            return false;
+        }
+
+        ScrollView scrollView = Current.ActiveScrollView;
+        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, scrollView);
+        Element? current = FocusedElement() ?? scrollView;
+        List<Element> scoped = ScrollViewScopeFocusableElements();
+        scoped.RemoveAll(element => ReferenceEquals(element, scrollView) || ReferenceEquals(element, Current.ActiveScrollViewProxy));
+        if (scoped.Count == 0)
+        {
+            return key is "Up" or "Down" && scrollView.HandleKey(key);
+        }
+
+        int scopedIndex = scoped.IndexOf(current);
+        int before = scopedIndex;
+        MoveFocusSpatialIndex(ref scopedIndex, scoped, key);
+        if (scopedIndex != before && scopedIndex >= 0 && scopedIndex < scoped.Count)
+        {
+            Element target = scoped[scopedIndex];
+            int nextFocusIndex = focusable.IndexOf(target);
+            if (nextFocusIndex >= 0)
+            {
+                Current.FocusedIndex = nextFocusIndex;
+                Current.FocusedElementRef = target;
+                Current.ScrollViewLastDescendant[scrollView] = target;
+                GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, target);
+                Current.ActiveScrollViewFresh = false;
+                return true;
+            }
+        }
+
+        if (key is not "Up" and not "Down" || !scrollView.HandleKey(key))
+        {
+            return false;
+        }
+
+        focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, scrollView);
+        scoped = ScrollViewScopeFocusableElements();
+        scoped.RemoveAll(element => ReferenceEquals(element, scrollView) || ReferenceEquals(element, Current.ActiveScrollViewProxy));
+        if (scoped.Count == 0)
+        {
+            return true;
+        }
+
+        int nextIndex = scoped.IndexOf(current);
+        if (nextIndex >= 0)
+        {
+            int beforeScrollMove = nextIndex;
+            MoveFocusSpatialIndex(ref nextIndex, scoped, key);
+            if (nextIndex == beforeScrollMove)
+            {
+                return true;
+            }
+        }
+        else
+        {
+            nextIndex = key == "Down" ? 0 : scoped.Count - 1;
+        }
+        int index = nextIndex >= 0 && nextIndex < scoped.Count ? focusable.IndexOf(scoped[nextIndex]) : -1;
+        if (index >= 0)
+        {
+            Element target = scoped[nextIndex];
+            Current.FocusedIndex = index;
+            Current.FocusedElementRef = target;
+            Current.ScrollViewLastDescendant[scrollView] = target;
+            GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, target);
+        }
+        Current.ActiveScrollViewFresh = false;
+        return true;
+    }
+
+    private static void MoveFocusSpatialIndex(ref int focusedIndex, List<Element> focusable, string direction)
+    {
+        if (focusable.Count == 0)
+        {
+            focusedIndex = -1;
+            return;
+        }
+        if (focusedIndex < 0 || focusedIndex >= focusable.Count)
+        {
+            focusedIndex = 0;
+            return;
+        }
+        Element? target = DirectionalScrollViewScopeTarget(focusable[focusedIndex], focusable, direction);
+        if (target is not null)
+        {
+            int nextIndex = focusable.IndexOf(target);
+            if (nextIndex >= 0)
+            {
+                focusedIndex = nextIndex;
+            }
+        }
     }
 
     private List<Element> ScrollViewScopeFocusableElements()
     {
-        if (Current.EditScopeOwner is null || Current.ActiveScrollView is null)
+        if (Current.ActiveScrollView is null)
         {
             return new List<Element>();
         }
-        return GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView)
-            .Where(element =>
-            {
-                if (ReferenceEquals(element, Current.EditScopeOwner))
-                {
-                    return false;
-                }
-                (ReusableElement Proxy, ScrollView ScrollView)? context =
-                    ScrollViewFocusContextContainingElement(Current.Window, element);
-                return context.HasValue &&
-                    ReferenceEquals(context.Value.Proxy, Current.EditScopeOwner) &&
-                    ReferenceEquals(context.Value.ScrollView, Current.ActiveScrollView);
-            })
-            .ToList();
+        return ScrollViewScopeFocusableElements(Current, Current.ActiveScrollView);
     }
 
     private static Element? DirectionalScrollViewScopeTarget(
@@ -4087,67 +8137,78 @@ public sealed class McpController
         List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
         if (focusable.Count == 0)
         {
+            Current.FocusedIndex = -1;
+            Current.FocusedElementRef = null;
             return;
         }
-        Element? currentFocused = FocusedElement();
-        int currentIndex = currentFocused is null ? Current.FocusedIndex : focusable.IndexOf(currentFocused);
-        if (currentIndex < 0 || currentIndex >= focusable.Count)
+        if (Current.FocusedElementRef is not null)
         {
-            Element? previous = FocusedElement();
+            int refIndex = focusable.IndexOf(Current.FocusedElementRef);
+            if (refIndex >= 0)
+            {
+                Current.FocusedIndex = refIndex;
+            }
+            else
+            {
+                Current.FocusedElementRef = null;
+            }
+        }
+        if (Current.FocusedIndex < 0 || Current.FocusedIndex >= focusable.Count)
+        {
             Current.FocusedIndex = 0;
             Current.FocusedElementRef = focusable[0];
-            Current.EditMode = false;
-            Current.EditScopeOwner = null;
-            Current.ActiveScrollView = null;
-            Current.ActiveScrollViewProxy = null;
-            Current.ActiveScrollViewFresh = false;
-            if (previous is not null)
-            {
-                Current.Options.OnFocusChanged?.Invoke(previous.Name, false);
-            }
-            Current.Options.OnFocusChanged?.Invoke(focusable[0].Name, true);
             return;
         }
-        Element current = focusable[currentIndex];
-        Rect currentRect = current.Frame;
-        List<(int BandRank, int PrimaryGap, int PerpendicularGap, int EdgeDelta, int Order, Element Element)> candidates = new();
-        for (int order = 0; order < focusable.Count; ++order)
+
+        Rect current = focusable[Current.FocusedIndex].Frame;
+        int bestIndex = -1;
+        int bestBand = 0;
+        int bestPrimary = 0;
+        int bestGap = 0;
+        int bestCenter = 0;
+        for (int index = 0; index < focusable.Count; ++index)
         {
-            Element candidate = focusable[order];
-            if (ReferenceEquals(candidate, current))
+            if (index == Current.FocusedIndex)
             {
                 continue;
             }
+            Element candidate = focusable[index];
             (int BandRank, int PrimaryGap, int PerpendicularGap, int EdgeDelta)? score =
-                DirectionalFocusScore(currentRect, candidate.Frame, direction);
-            if (score.HasValue)
+                DirectionalFocusScore(current, candidate.Frame, direction);
+            if (!score.HasValue)
             {
-                candidates.Add((
-                    score.Value.BandRank,
-                    score.Value.PrimaryGap,
-                    score.Value.PerpendicularGap,
-                    score.Value.EdgeDelta,
-                    order,
-                    candidate));
+                continue;
+            }
+
+            int compare = score.Value.BandRank.CompareTo(bestBand);
+            if (compare == 0)
+            {
+                compare = score.Value.PrimaryGap.CompareTo(bestPrimary);
+            }
+            if (compare == 0)
+            {
+                compare = score.Value.PerpendicularGap.CompareTo(bestGap);
+            }
+            if (compare == 0)
+            {
+                compare = score.Value.EdgeDelta.CompareTo(bestCenter);
+            }
+            if (bestIndex < 0 || compare < 0)
+            {
+                bestIndex = index;
+                bestBand = score.Value.BandRank;
+                bestPrimary = score.Value.PrimaryGap;
+                bestGap = score.Value.PerpendicularGap;
+                bestCenter = score.Value.EdgeDelta;
             }
         }
-        if (candidates.Count == 0)
+
+        if (bestIndex >= 0)
         {
-            return;
+            Current.FocusedIndex = bestIndex;
+            Current.FocusedElementRef = focusable[bestIndex];
+            GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, focusable[bestIndex]);
         }
-        candidates.Sort((left, right) =>
-        {
-            int compare = left.BandRank.CompareTo(right.BandRank);
-            if (compare != 0) return compare;
-            compare = left.PrimaryGap.CompareTo(right.PrimaryGap);
-            if (compare != 0) return compare;
-            compare = left.PerpendicularGap.CompareTo(right.PerpendicularGap);
-            if (compare != 0) return compare;
-            compare = left.EdgeDelta.CompareTo(right.EdgeDelta);
-            if (compare != 0) return compare;
-            return left.Order.CompareTo(right.Order);
-        });
-        FocusElement(candidates[0].Element);
     }
 
     private static bool IsDirectionalKey(string key)
@@ -4168,10 +8229,10 @@ public sealed class McpController
         int candidateLeft = candidate.Col;
         int candidateBottom = candidate.Row + candidate.Height;
         int candidateRight = candidate.Col + candidate.Width;
-        int currentCenterRow = current.Row * 2 + current.Height;
-        int currentCenterCol = current.Col * 2 + current.Width;
-        int candidateCenterRow = candidate.Row * 2 + candidate.Height;
-        int candidateCenterCol = candidate.Col * 2 + candidate.Width;
+        int currentCenterRow = CenterRow(current);
+        int currentCenterCol = CenterCol(current);
+        int candidateCenterRow = CenterRow(candidate);
+        int candidateCenterCol = CenterCol(candidate);
         int primaryGap;
         int? bandRank;
         int perpendicularGap;
@@ -4179,10 +8240,6 @@ public sealed class McpController
         if (direction == "Right")
         {
             if (candidateCenterCol <= currentCenterCol || candidateLeft < currentRight)
-            {
-                return null;
-            }
-            if (!AxisOverlaps(currentTop, currentBottom, candidateTop, candidateBottom))
             {
                 return null;
             }
@@ -4194,10 +8251,6 @@ public sealed class McpController
         else if (direction == "Left")
         {
             if (candidateCenterCol >= currentCenterCol || candidateRight > currentLeft)
-            {
-                return null;
-            }
-            if (!AxisOverlaps(currentTop, currentBottom, candidateTop, candidateBottom))
             {
                 return null;
             }
@@ -4252,6 +8305,16 @@ public sealed class McpController
         return 0;
     }
 
+    private static int CenterRow(Rect rect)
+    {
+        return rect.Row + rect.Height / 2;
+    }
+
+    private static int CenterCol(Rect rect)
+    {
+        return rect.Col + rect.Width / 2;
+    }
+
     private static bool AxisOverlaps(int startA, int endA, int startB, int endB)
     {
         return Math.Max(startA, startB) < Math.Min(endA, endB);
@@ -4296,68 +8359,361 @@ public sealed class McpController
 
     private JsonNode ToolMouseClickAt(Point position)
     {
+        return ToolMousePressAt(position);
+    }
+
+    private JsonNode ToolMousePressAt(Point position)
+    {
+        RefreshCurrentWindowLayoutForMouse();
         Element? focused = FocusedElement();
         if (focused is ComboBox comboBox && Current.EditMode && ComboBoxDropDownFrame(comboBox).Contains(position))
         {
             int localRow = position.Row - comboBox.Frame.Row;
+            int previousSelectionIndex = SelectedIndexOf(comboBox);
             if (localRow > 0)
             {
                 int index = Math.Clamp(localRow - 1, 0, Math.Max(0, comboBox.Options.Count - 1));
                 comboBox.SetSelectedIndex(index);
-                OptionsFor(comboBox).OnSelectionChanged?.Invoke(comboBox.Name, new List<string> { comboBox.SelectedText });
+                DispatchChangedAfterHandledKey(comboBox, previousSelectionIndex);
             }
-            comboBox.CloseMenu();
-            Current.EditMode = false;
+            CommitEdit(comboBox);
+            DispatchConfirmed(comboBox);
+            Current.EditSnapshot = null;
+            if (Current.ActiveScrollView is not null)
+            {
+                Current.ActiveScrollViewEditElement = null;
+            }
+            else
+            {
+                Current.EditMode = false;
+            }
             return Snapshot(comboBox);
         }
-        if (focused is ListBox listBox && Current.EditMode && listBox.Frame.Contains(position))
+        ScrollView? mouseScrollView = Current.ActiveScrollView ?? ScrollViewAtPosition(Current.Window, position);
+        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, mouseScrollView);
+        Element? target = MouseTargetElement(position, mouseScrollView);
+        if (mouseScrollView is not null && target is not null && !ReferenceEquals(target, mouseScrollView))
         {
-            int index = Math.Clamp(position.Row - listBox.Frame.Row, 0, Math.Max(0, listBox.Options.Count - 1));
-            listBox.SetSelectedIndex(index);
-            Current.EditMode = false;
-            OptionsFor(listBox).OnSelectionChanged?.Invoke(listBox.Name, listBox.SelectedValues.ToList());
-            return Snapshot(listBox);
+            Current.ActiveScrollView = mouseScrollView;
+            (ReusableElement Proxy, ScrollView ScrollView)? context =
+                ScrollViewFocusContextForElement(Current.Window, target);
+            Current.ActiveScrollViewProxy = context?.Proxy;
+            Current.EditMode = true;
+            Current.FocusedIndex = focusable.IndexOf(target);
+            Current.FocusedElementRef = Current.FocusedIndex >= 0 ? focusable[Current.FocusedIndex] : null;
         }
-        Element? target = MouseTargetElement(position);
+        ClearLabelSelectionsInWindow(Current.Window);
+        if (target is null && HandleLabelMousePress(Current.Window, position))
+        {
+            return ToolGetAccessibilitySnapshot();
+        }
         if (target is null || !target.Enabled)
         {
             ClearFocusForEmptyMouseTarget();
             return ToolGetAccessibilitySnapshot();
+        }
+        bool scrollViewScopeActive = Current.EditMode && Current.ActiveScrollView is not null;
+        if (scrollViewScopeActive &&
+            Current.ActiveScrollViewEditElement is not null &&
+            !ReferenceEquals(Current.ActiveScrollViewEditElement, target))
+        {
+            CommitEdit(Current.ActiveScrollViewEditElement);
+            Current.ActiveScrollViewEditElement = null;
+        }
+        if (Current.EditMode &&
+            !scrollViewScopeActive &&
+            focused is not null &&
+            !ReferenceEquals(focused, target))
+        {
+            CommitEdit(focused);
+            Current.EditSnapshot = null;
+            Current.EditMode = false;
         }
         if (target != focused)
         {
             FocusElement(target);
             focused = target;
         }
-        if (target is Button or CheckBox)
+        scrollViewScopeActive = Current.EditMode && Current.ActiveScrollView is not null;
+        if (IsButton(target))
+        {
+            return ActivateResolvedElement(target);
+        }
+        if (IsClickableImage(target))
+        {
+            return ActivateResolvedElement(target);
+        }
+        if (ActivateReusableControl(target))
+        {
+            return Snapshot(target);
+        }
+        if (target is CheckBox)
         {
             return ActivateResolvedElement(target);
         }
         if (target is TextInput textInput)
         {
+            Current.EditSnapshot = CaptureSnapshot(textInput);
             Current.EditMode = true;
-            textInput.SetCursor(Math.Max(0, Math.Min(textInput.Value.Length, position.Col - textInput.Frame.Col)));
+            if (scrollViewScopeActive || mouseScrollView is not null)
+            {
+                Current.ActiveScrollViewEditElement = textInput;
+            }
+            int cursor = textInput.CursorForPoint(
+                position.Row - textInput.Frame.Row,
+                position.Col - textInput.Frame.Col,
+                new Size(textInput.Frame.Width, textInput.Frame.Height));
+            textInput.SelectRange(cursor, cursor);
+            mouseSelectionElement = textInput;
+            mouseSelectionAnchor = cursor;
             Current.Options.OnEditStarted?.Invoke(textInput.Name);
         }
         else if (target is NumberInput numberInput)
         {
+            Current.EditSnapshot = CaptureSnapshot(numberInput);
             Current.EditMode = true;
+            if (scrollViewScopeActive || mouseScrollView is not null)
+            {
+                Current.ActiveScrollViewEditElement = numberInput;
+            }
+            numberInput.SetEditCursor(position.Col - numberInput.Frame.Col);
             Current.Options.OnEditStarted?.Invoke(numberInput.Name);
         }
         else if (target is ComboBox targetComboBox)
         {
+            Current.EditSnapshot = CaptureSnapshot(targetComboBox);
             Current.EditMode = true;
-            if (!targetComboBox.MenuOpen)
+            if (scrollViewScopeActive || mouseScrollView is not null)
             {
-                targetComboBox.HandleKey("Enter");
+                Current.ActiveScrollViewEditElement = targetComboBox;
             }
             Current.Options.OnEditStarted?.Invoke(targetComboBox.Name);
+        }
+        else if (target is ListBox targetListBox)
+        {
+            int optionIndex = targetListBox.ScrollOffset + position.Row - targetListBox.Frame.Row;
+            if (optionIndex >= 0 && optionIndex < targetListBox.Options.Count)
+            {
+                List<string> previousValues = targetListBox.SelectedValues.ToList();
+                if (targetListBox.Multiple)
+                {
+                    targetListBox.ToggleSelectedIndex(optionIndex);
+                }
+                else
+                {
+                    targetListBox.SetSelectedIndex(optionIndex);
+                }
+                DispatchSelectionChangedIfDifferent(targetListBox, previousValues);
+            }
+            Current.EditSnapshot = CaptureSnapshot(targetListBox);
+            Current.EditMode = true;
+            if (scrollViewScopeActive || mouseScrollView is not null)
+            {
+                Current.ActiveScrollViewEditElement = targetListBox;
+            }
+            Current.Options.OnEditStarted?.Invoke(targetListBox.Name);
         }
         else
         {
             Current.EditMode = false;
         }
         return Snapshot(target);
+    }
+
+    private JsonNode ToolMouseDragAt(Point position)
+    {
+        if (mouseSelectionElement is TextInput textInput)
+        {
+            int localRow = position.Row - textInput.Frame.Row;
+            int localCol = position.Col - textInput.Frame.Col;
+            if (textInput is TextArea && textInput.Frame.Height > 1)
+            {
+                if (localRow < 0)
+                {
+                    _ = textInput.ScrollByRows(-1, textInput.Frame.Height, manual: false);
+                    localRow = 0;
+                }
+                else if (localRow >= textInput.Frame.Height)
+                {
+                    _ = textInput.ScrollByRows(1, textInput.Frame.Height, manual: false);
+                    localRow = textInput.Frame.Height - 1;
+                }
+            }
+            int cursor = textInput.CursorForPoint(
+                localRow,
+                localCol,
+                new Size(textInput.Frame.Width, textInput.Frame.Height));
+            textInput.SelectRange(mouseSelectionAnchor, cursor);
+            return Snapshot(textInput);
+        }
+        if (mouseSelectionElement is Label label)
+        {
+            int cursor = label.TextPositionFromPoint(
+                position.Row - label.Frame.Row,
+                position.Col - label.Frame.Col,
+                new Size(label.Frame.Width, label.Frame.Height));
+            label.SelectRange(mouseSelectionAnchor, cursor);
+            return Snapshot(label);
+        }
+        return ToolGetAccessibilitySnapshot();
+    }
+
+    private JsonNode ToolMouseReleaseAt(Point position)
+    {
+        _ = position;
+        Element? released = mouseSelectionElement;
+        if (released is TextInput textInput)
+        {
+            string selectedText = textInput.SelectionText();
+            if (!string.IsNullOrEmpty(selectedText))
+            {
+                _ = CopyTextToClipboard(selectedText);
+                copyNotificationRequested = true;
+            }
+        }
+        else if (released is Label label)
+        {
+            string selectedText = label.SelectedText();
+            if (!string.IsNullOrEmpty(selectedText))
+            {
+                _ = CopyTextToClipboard(selectedText);
+                copyNotificationRequested = true;
+            }
+        }
+        mouseSelectionElement = null;
+        mouseSelectionAnchor = 0;
+        return released is not null ? Snapshot(released) : ToolGetAccessibilitySnapshot();
+    }
+
+    private bool HandleLabelMousePress(GeneratedWindowBase window, Point position)
+    {
+        foreach (Element element in window.Elements)
+        {
+            if (element is Label label)
+            {
+                if (!LabelAllowsTextSelection(label) || !label.Frame.Contains(position))
+                {
+                    continue;
+                }
+                int cursor = label.TextPositionFromPoint(
+                    position.Row - label.Frame.Row,
+                    position.Col - label.Frame.Col,
+                    new Size(label.Frame.Width, label.Frame.Height));
+                label.SelectRange(cursor, cursor);
+                mouseSelectionElement = label;
+                mouseSelectionAnchor = cursor;
+                return true;
+            }
+            if (element is ReusableElement reusable && reusable.Child is not null &&
+                HandleLabelMousePress(reusable.Child, position))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool LabelAllowsTextSelection(Label label)
+    {
+        return label.EffectiveStyle().UserSelect == "text";
+    }
+
+    private static void ClearLabelSelectionsInWindow(GeneratedWindowBase window)
+    {
+        foreach (Element element in window.Elements)
+        {
+            if (element is Label label)
+            {
+                label.ClearSelection();
+                continue;
+            }
+            if (element is ReusableElement reusable && reusable.Child is not null)
+            {
+                ClearLabelSelectionsInWindow(reusable.Child);
+            }
+        }
+    }
+
+    private JsonNode ToolMouseWheelAt(Point position, int wheelDelta)
+    {
+        RefreshCurrentWindowLayoutForMouse();
+        Element? target = MouseTargetElement(position, Current.ActiveScrollView);
+        if (target is ScrollView targetScrollView)
+        {
+            targetScrollView.HandleWheel(wheelDelta, new Size(targetScrollView.Frame.Width, targetScrollView.Frame.Height));
+            QueueScrollRegionHint(targetScrollView);
+            return Snapshot(targetScrollView);
+        }
+        if (target is not null)
+        {
+            ScrollView? parentScrollView = ScrollViewContainingElement(Current.Window, target);
+            if (parentScrollView is not null)
+            {
+                parentScrollView.HandleWheel(
+                    wheelDelta,
+                    new Size(parentScrollView.Frame.Width, parentScrollView.Frame.Height));
+                QueueScrollRegionHint(parentScrollView);
+                return Snapshot(parentScrollView);
+            }
+        }
+        if (target is ListBox listBox)
+        {
+            listBox.ScrollLines(wheelDelta);
+            return Snapshot(listBox);
+        }
+        if (target is TextInput textInput)
+        {
+            int delta = (wheelDelta > 0 ? -Math.Abs(wheelDelta) : Math.Abs(wheelDelta)) *
+                GeneratedWindowRuntime.TextInputWheelScrollRows;
+            textInput.ScrollByRows(delta, textInput.Frame.Height);
+            return Snapshot(textInput);
+        }
+
+        ScrollView? scrollView = ScrollViewAtPosition(Current.Window, position);
+        if (scrollView is not null)
+        {
+            scrollView.HandleWheel(wheelDelta, new Size(scrollView.Frame.Width, scrollView.Frame.Height));
+            QueueScrollRegionHint(scrollView);
+            return Snapshot(scrollView);
+        }
+        return ToolGetAccessibilitySnapshot();
+    }
+
+    private static ScrollView? ScrollViewAtPosition(GeneratedWindowBase window, Point position)
+    {
+        for (int index = window.Elements.Count - 1; index >= 0; --index)
+        {
+            ScrollView? found = ScrollViewAtPosition(window.Elements[index], position);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static ScrollView? ScrollViewAtPosition(Element element, Point position)
+    {
+        if (element is ReusableElement reusable && reusable.Child is not null)
+        {
+            ScrollView? child = reusable.Child is GeneratedScrollViewBase generatedScrollView &&
+                reusable.Frame.Contains(position)
+                    ? generatedScrollView.ScrollView()
+                    : ScrollViewAtPosition(reusable.Child, position);
+            if (child is not null)
+            {
+                return child;
+            }
+        }
+        for (int index = element.Children.Count - 1; index >= 0; --index)
+        {
+            ScrollView? child = ScrollViewAtPosition(element.Children[index], position);
+            if (child is not null)
+            {
+                return child;
+            }
+        }
+        return element is ScrollView scrollView && scrollView.Frame.Contains(position) ? scrollView : null;
     }
 
     private static Rect ComboBoxDropDownFrame(ComboBox comboBox)
@@ -4371,12 +8727,13 @@ public sealed class McpController
 
     private Point WindowPointFromTerminalPoint(Point point)
     {
-        return new Point(point.Row - config.ViewportRow, point.Col - config.ViewportCol);
+        Point viewportPoint = new(point.Row - config.ViewportRow, point.Col - config.ViewportCol);
+        return GeneratedWindowRuntime.WindowStackContentPoint(Current.Window, ViewportSize(), viewportPoint);
     }
 
-    private Element? MouseTargetElement(Point position)
+    private Element? MouseTargetElement(Point position, ScrollView? mouseScrollView)
     {
-        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
+        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, mouseScrollView);
         for (int index = focusable.Count - 1; index >= 0; --index)
         {
             Element element = focusable[index];
@@ -4394,15 +8751,18 @@ public sealed class McpController
     private void ClearFocusForEmptyMouseTarget()
     {
         Element? previous = FocusedElement();
-        if (previous is ComboBox comboBox)
+        if (Current.EditMode)
         {
-            comboBox.CloseMenu();
+            Element? editElement = Current.ActiveScrollViewEditElement ?? previous;
+            CommitEdit(editElement);
         }
         Current.EditMode = false;
         Current.EditScopeOwner = null;
         Current.ActiveScrollView = null;
         Current.ActiveScrollViewProxy = null;
+        Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
+        Current.EditSnapshot = null;
         List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window);
         if (focusable.Count <= 1)
         {
@@ -4435,7 +8795,7 @@ public sealed class McpController
         }
         if (scrollView is not null)
         {
-            scrollView.ScrollBy(-delta, new Size(scrollView.Frame.Width, scrollView.Frame.Height));
+            scrollView.ScrollLines(delta, new Size(scrollView.Frame.Width, scrollView.Frame.Height));
         }
         else if (target is ListBox listBox)
         {
@@ -4471,6 +8831,7 @@ public sealed class McpController
         if (target is TextInput input)
         {
             input.SetValue(text);
+            input.SetCursor(text.Length);
             OptionsFor(input).OnTextChanged?.Invoke(input.Name, input.Value);
         }
         else if (target is NumberInput number)
@@ -4630,6 +8991,16 @@ public sealed class McpController
                 ["text"] = input.SelectionText(),
             };
         }
+        if (target is Label label)
+        {
+            label.SelectRange(start, end);
+            return new JsonObject
+            {
+                ["start"] = start,
+                ["end"] = end,
+                ["text"] = label.SelectedText(),
+            };
+        }
         return Snapshot(target);
     }
 
@@ -4637,7 +9008,15 @@ public sealed class McpController
     {
         string elementId = arguments["element_id"]?.GetValue<string>() ?? "";
         Element target = RequireElement(elementId);
-        return new JsonObject { ["text"] = target is TextInput input ? input.SelectionText() : "" };
+        return new JsonObject
+        {
+            ["text"] = target switch
+            {
+                TextInput input => input.SelectionText(),
+                Label label => label.SelectedText(),
+                _ => "",
+            },
+        };
     }
 
     private JsonNode ToolReplaceSelection(JsonObject arguments)
@@ -4701,6 +9080,49 @@ public sealed class McpController
         }
     }
 
+    private void DispatchChangedAfterHandledKey(Element element, int previousSelectionIndex)
+    {
+        if (element is ComboBox or ListBox)
+        {
+            if (SelectedIndexOf(element) != previousSelectionIndex)
+            {
+                DispatchChanged(element);
+            }
+            return;
+        }
+        DispatchChanged(element);
+    }
+
+    private void DispatchSelectionChangedIfDifferent(ListBox listBox, List<string> previousValues)
+    {
+        if (!previousValues.SequenceEqual(listBox.SelectedValues))
+        {
+            DispatchChanged(listBox);
+        }
+    }
+
+    private void DispatchConfirmed(Element element)
+    {
+        if (element is not TextInput and not NumberInput and not ComboBox and not ListBox)
+        {
+            return;
+        }
+        OptionsFor(element).OnTextConfirmed?.Invoke(element.Name, TextValueOf(element));
+    }
+
+    private static string TextValueOf(Element element)
+    {
+        return element switch
+        {
+            TextInput input => input.Value,
+            NumberInput number => number.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ComboBox comboBox => comboBox.SelectedText,
+            ListBox listBox => listBox.SelectedValues.FirstOrDefault() ?? "",
+            CheckBox checkBox => checkBox.Checked ? "true" : "false",
+            _ => "",
+        };
+    }
+
     private GeneratedWindowRuntimeOptions OptionsFor(Element element)
     {
         GeneratedWindowBase owner = OwnerWindowFor(Current.Window, element) ?? Current.Window;
@@ -4726,6 +9148,20 @@ public sealed class McpController
                 if (nested is not null)
                 {
                     return nested;
+                }
+            }
+            if (element is ScrollView scrollView)
+            {
+                foreach (Element child in scrollView.Children)
+                {
+                    if (child is ReusableElement childReusable && childReusable.Child is not null)
+                    {
+                        GeneratedWindowBase? nested = OwnerWindowFor(childReusable.Child, target);
+                        if (nested is not null)
+                        {
+                            return nested;
+                        }
+                    }
                 }
             }
             foreach (Element child in element.Children)
@@ -4797,16 +9233,127 @@ public sealed class McpController
 
     private List<List<TerminalCell>> RenderContent()
     {
-        Element? focused = FocusedElement();
+        return RenderContent(Current, new Size(config.ViewportWidth, config.ViewportHeight));
+    }
+
+    private List<List<TerminalCell>> RenderContent(RuntimeFrame frame, Size viewportSize)
+    {
+        return RenderContent(frame, viewportSize, false);
+    }
+
+    private List<List<TerminalCell>> RenderContent(RuntimeFrame frame, Size viewportSize, bool backgroundFrame)
+    {
+        ScrollView? renderActiveScrollView = frame.ActiveScrollView;
+        ReusableElement? renderActiveScrollViewProxy = frame.ActiveScrollViewProxy;
+        bool renderActiveScrollViewFresh = frame.ActiveScrollViewFresh;
+        bool renderEditMode = frame.EditMode;
+        if (backgroundFrame)
+        {
+            renderActiveScrollView ??= frame.PendingModalScrollView;
+            renderActiveScrollViewProxy ??= frame.PendingModalScrollViewProxy;
+            renderActiveScrollViewFresh = false;
+            renderEditMode = renderActiveScrollView is not null && frame.EditMode;
+        }
+
+        (int focusedIndex, Element? focused) = FocusedElementForRender(
+            frame,
+            renderActiveScrollView,
+            !backgroundFrame);
         return GeneratedWindowRuntime.RenderViewportContent(
-            Current.Window,
-            new Size(config.ViewportWidth, config.ViewportHeight),
-            focused is null ? -1 : Current.FocusedIndex,
+            frame.Window,
+            viewportSize,
+            focusedIndex,
             focused,
-            Current.EditMode,
-            Current.ActiveScrollView,
-            Current.ActiveScrollViewProxy,
-            Current.ActiveScrollViewFresh);
+            renderEditMode,
+            renderActiveScrollView,
+            renderActiveScrollViewProxy,
+            !backgroundFrame ? frame.ActiveScrollViewEditElement : null,
+            renderActiveScrollViewFresh,
+            !backgroundFrame,
+            backgroundFrame);
+    }
+
+    private List<List<TerminalCell>> RenderFrameContent(
+        Size viewportSize,
+        bool forceStackCellBackgroundRendering)
+    {
+        viewportSize = new Size(
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, viewportSize.Width),
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, viewportSize.Height));
+        if (frames.Count == 0)
+        {
+            return new List<List<TerminalCell>>();
+        }
+
+        if (frames.Count > 1 && forceStackCellBackgroundRendering)
+        {
+            using IDisposable imageCellBackgroundRendering = Image.ForceCellBackgroundRendering();
+            return RenderFrameContentCore(viewportSize);
+        }
+
+        return RenderFrameContentCore(viewportSize);
+    }
+
+    private List<List<TerminalCell>> RenderFrameContentCore(Size viewportSize)
+    {
+        List<List<TerminalCell>> content;
+        if (frames.Count > 1)
+        {
+            using IDisposable imageCellBackgroundRendering = Image.ForceCellBackgroundRendering();
+            content = RenderContent(frames[0], viewportSize, true);
+        }
+        else
+        {
+            content = RenderContent(frames[0], viewportSize, false);
+        }
+        if (frames.Count == 1)
+        {
+            return content;
+        }
+
+        TerminalBuffer buffer = new(viewportSize.Width, viewportSize.Height);
+        for (int row = 0; row < content.Count && row < buffer.Height; ++row)
+        {
+            for (int col = 0; col < content[row].Count && col < buffer.Width; ++col)
+            {
+                buffer.SetCell(row, col, content[row][col].Clone());
+            }
+        }
+
+        if (frames.Any(frame => frame.Options.DimBackground))
+        {
+            GeneratedWindowRuntime.DimBufferForModalOverlay(buffer);
+        }
+        for (int index = 1; index < frames.Count; ++index)
+        {
+            RuntimeFrame frame = frames[index];
+            bool topFrame = index == frames.Count - 1;
+            bool dimFrame = !topFrame && frames
+                .Skip(index + 1)
+                .Any(laterFrame => laterFrame.Options.DimBackground);
+            ScrollView? renderActiveScrollView = topFrame ? frame.ActiveScrollView : null;
+            ReusableElement? renderActiveScrollViewProxy = topFrame ? frame.ActiveScrollViewProxy : null;
+            bool renderActiveScrollViewFresh = topFrame && frame.ActiveScrollViewFresh;
+            (int focusedIndex, Element? focused) = FocusedElementForRender(
+                frame,
+                renderActiveScrollView,
+                topFrame);
+            GeneratedWindowRuntime.RenderWindowStackOverlay(
+                buffer,
+                frame.Window,
+                frame.Options,
+                focusedIndex,
+                focused,
+                frame.EditMode,
+                renderActiveScrollView,
+                renderActiveScrollViewProxy,
+                topFrame ? frame.ActiveScrollViewEditElement : null,
+                renderActiveScrollViewFresh,
+                topFrame,
+                dimFrame);
+        }
+
+        return GeneratedWindowRuntime.ContentFromBuffer(buffer);
     }
 
     private Element? FocusedElement()
@@ -4816,26 +9363,47 @@ public sealed class McpController
 
     private static Element? FocusedElement(RuntimeFrame frame)
     {
-        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(frame.Window, frame.ActiveScrollView);
+        return FocusedElementForRender(frame, frame.ActiveScrollView, true).FocusedElement;
+    }
+
+    private static (int FocusedIndex, Element? FocusedElement) FocusedElementForRender(
+        RuntimeFrame frame,
+        ScrollView? activeScrollView,
+        bool updateFrame)
+    {
+        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(frame.Window, activeScrollView);
         if (frame.FocusedElementRef is not null)
         {
             int refIndex = focusable.IndexOf(frame.FocusedElementRef);
             if (refIndex >= 0)
             {
-                frame.FocusedIndex = refIndex;
-                return frame.FocusedElementRef;
+                if (updateFrame)
+                {
+                    frame.FocusedIndex = refIndex;
+                }
+                return (refIndex, frame.FocusedElementRef);
             }
-            frame.FocusedElementRef = null;
-            frame.FocusedIndex = -1;
-            return null;
+            if (updateFrame)
+            {
+                frame.FocusedElementRef = null;
+                frame.FocusedIndex = -1;
+            }
+            return (-1, null);
         }
         if (frame.FocusedIndex >= 0 && frame.FocusedIndex < focusable.Count)
         {
-            frame.FocusedElementRef = focusable[frame.FocusedIndex];
-            return frame.FocusedElementRef;
+            Element focused = focusable[frame.FocusedIndex];
+            if (updateFrame)
+            {
+                frame.FocusedElementRef = focused;
+            }
+            return (frame.FocusedIndex, focused);
         }
-        frame.FocusedElementRef = null;
-        return null;
+        if (updateFrame)
+        {
+            frame.FocusedElementRef = null;
+        }
+        return (-1, null);
     }
 
     private Element RequireElement(string elementId)
@@ -4900,56 +9468,72 @@ public sealed class McpController
             {
                 return element.Name;
             }
-            string? nested = ElementPathInElement(element, target);
-            if (nested is not null)
+
+            if (element is ReusableElement reusable && reusable.Child is not null)
             {
-                if (nested.Contains('[', StringComparison.Ordinal))
+                if (reusable.Child is GeneratedScrollViewBase generatedScrollView)
                 {
-                    return nested;
+                    ScrollView scrollView = generatedScrollView.ScrollView();
+                    if (ReferenceEquals(scrollView, target))
+                    {
+                        return reusable.Name;
+                    }
+
+                    string? generatedScrollViewPath = ScrollViewChildElementPath(
+                        scrollView,
+                        target,
+                        reusable.Name);
+                    if (generatedScrollViewPath is not null)
+                    {
+                        return generatedScrollViewPath;
+                    }
                 }
-                return element is ReusableElement
-                    ? element.Name + "." + nested
-                    : nested;
+
+                string? nested = ElementPath(reusable.Child, target);
+                if (nested is not null)
+                {
+                    return reusable.Name + "." + nested;
+                }
+            }
+
+            if (element is ScrollView scrollViewElement)
+            {
+                string? scrollViewPath = ScrollViewChildElementPath(
+                    scrollViewElement,
+                    target,
+                    scrollViewElement.Name);
+                if (scrollViewPath is not null)
+                {
+                    return scrollViewPath;
+                }
             }
         }
         return null;
     }
 
-    private static string? ElementPathInElement(Element element, Element target)
+    private static string? ScrollViewChildElementPath(
+        ScrollView scrollView,
+        Element target,
+        string prefix)
     {
-        if (element is ReusableElement reusable && reusable.Child is not null)
+        for (int index = 0; index < scrollView.Children.Count; ++index)
         {
-            string? nested = ElementPath(reusable.Child, target);
-            if (nested is not null)
+            Element child = scrollView.Children[index];
+            if (ReferenceEquals(child, target))
             {
-                return nested.Contains('[', StringComparison.Ordinal)
-                    ? nested
-                    : reusable.Name + "." + nested;
+                return prefix + "[" + index.ToString(CultureInfo.InvariantCulture) + "]." + child.Name;
             }
-        }
-        if (element is ScrollView scrollView)
-        {
-            foreach (Element child in scrollView.Children)
+
+            if (child is ReusableElement reusable && reusable.Child is not null)
             {
-                string? nested = ElementPathInElement(child, target);
+                string? nested = ElementPath(reusable.Child, target);
                 if (nested is not null)
                 {
-                    return nested;
+                    return prefix + "[" + index.ToString(CultureInfo.InvariantCulture) + "]." + nested;
                 }
             }
         }
-        foreach (Element child in element.Children)
-        {
-            if (ReferenceEquals(child, target))
-            {
-                return child.Name;
-            }
-            string? nested = ElementPathInElement(child, target);
-            if (nested is not null)
-            {
-                return child.Name + "." + nested;
-            }
-        }
+
         return null;
     }
 
@@ -4964,6 +9548,7 @@ public sealed class McpController
             NumberInput number => number.Value,
             ComboBox comboBox => comboBox.SelectedText,
             ListBox listBox => new JsonArray(listBox.SelectedValues.Select(value => JsonValue.Create(value)).ToArray<JsonNode?>()),
+            Image image => image.Source,
             _ => null,
         };
     }
@@ -5022,6 +9607,23 @@ public sealed class McpController
         {
             string text = node.GetValue<string>();
             return long.TryParse(text, out long value) ? value : null;
+        }
+    }
+
+    private static string JsonString(JsonObject arguments, string name, string fallback = "")
+    {
+        JsonNode? node = arguments[name];
+        if (node is null)
+        {
+            return fallback;
+        }
+        try
+        {
+            return node.GetValue<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            return node.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
         }
     }
 

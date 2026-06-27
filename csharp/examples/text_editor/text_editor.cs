@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Uimd;
 
 public sealed class TextEditor : TextEditorUI
@@ -346,9 +347,14 @@ public sealed class TextEditor : TextEditorUI
         return string.IsNullOrEmpty(value) ? null : value;
     }
 
+    private static string SourceDirectory([CallerFilePath] string sourceFile = "")
+    {
+        return Path.GetDirectoryName(sourceFile) ?? Directory.GetCurrentDirectory();
+    }
+
     private static string NotesDir()
     {
-        return EnvString(NotesDirEnv) ?? Path.Combine(AppContext.BaseDirectory, "notes");
+        return EnvString(NotesDirEnv) ?? Path.Combine(SourceDirectory(), "notes");
     }
 
     private static string DefaultNoteName()

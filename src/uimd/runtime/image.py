@@ -405,15 +405,7 @@ class Image(UIElement):
         src_w, src_h = source.size
         cols, rows, col_off, row_off = self._image_cell_region(width, height, src_w, src_h)
         region_fit = "cover" if self.fit == "contain" else self.fit
-        image = _fit_image(
-            source,
-            cols,
-            rows,
-            region_fit,
-            background=self._letterbox_rgb(style),
-            align=self.align,
-            valign=self.valign,
-        )
+        background = self._letterbox_rgb(style)
         for y in range(rows):
             target_row = row_off + y
             if target_row < 0 or target_row >= height:
@@ -422,7 +414,9 @@ class Image(UIElement):
                 target_col = col_off + x
                 if target_col < 0 or target_col >= width:
                     continue
-                color = _rgb_hex(image.getpixel((x, y))[:3])
+                color = _image_background_sample_color(
+                    source, x, y, cols, rows, region_fit, self.align, self.valign, background,
+                )
                 cells[target_row][target_col] = TerminalCell(FALLBACK_FULL_BLOCK, color, color)
         return cells
 
@@ -810,6 +804,37 @@ def _test_fallback_checker_tint(color, x, y):
         else TEST_FALLBACK_CHECKER_DARK_ALPHA
     )
     return _blend_rgb(TEST_FALLBACK_CHECKER_RGB, color, alpha)
+
+
+def _image_background_sample_color(image, x, y, target_width, target_height, fit, align, valign, background_rgb):
+    src = image if image.mode == "RGBA" else image.convert("RGBA")
+    target_width = max(1, int(target_width))
+    target_height = max(1, int(target_height))
+    x = max(0, min(target_width - 1, int(x)))
+    y = max(0, min(target_height - 1, int(y)))
+    base = tuple(int(channel) for channel in (background_rgb or (0, 0, 0)))
+
+    fit = str(fit or DEFAULT_IMAGE_FIT).strip().lower()
+    if fit == "stretch":
+        source_x = int(x * src.width / target_width)
+        source_y = int(y * src.height / target_height)
+    else:
+        scale = max(target_width / src.width, target_height / src.height) if fit == "cover" else min(target_width / src.width, target_height / src.height)
+        drawn_width = max(1.0, src.width * scale)
+        drawn_height = max(1.0, src.height * scale)
+        x_offset = _alignment_offset_float(target_width, drawn_width, align, "left", "right")
+        y_offset = _alignment_offset_float(target_height, drawn_height, valign, "top", "bottom")
+        source_x_float = (x - x_offset) / scale
+        source_y_float = (y - y_offset) / scale
+        if source_x_float < 0 or source_y_float < 0 or source_x_float >= src.width or source_y_float >= src.height:
+            return _rgb_hex(base)
+        source_x = int(source_x_float)
+        source_y = int(source_y_float)
+
+    source_x = max(0, min(src.width - 1, source_x))
+    source_y = max(0, min(src.height - 1, source_y))
+    red, green, blue, alpha = src.getpixel((source_x, source_y))
+    return _rgb_hex(_blend_rgb((red, green, blue), base, alpha))
 
 
 def _test_fallback_sample_color(image, x, y, target_width, target_height, fit, align, valign, background_rgb, checker=False):

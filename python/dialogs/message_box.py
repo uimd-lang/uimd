@@ -39,7 +39,7 @@ class MessageBoxBehavior:
                 return False
             self.set_focus(button)
             app = getattr(self, "_app", None)
-            if app is not None:
+            if app is not None and not getattr(app, "_mcp_headless", False):
                 app.mark_dirty()
                 app._render_to_terminal()
             time.sleep(MESSAGE_BOX_ESCAPE_FLASH_SECONDS)

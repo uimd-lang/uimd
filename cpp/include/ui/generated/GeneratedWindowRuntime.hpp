@@ -106,7 +106,8 @@ struct GeneratedWindowRuntimeOptions {
 
 void renderGeneratedWindow(GeneratedWindowBase& window, TerminalBuffer& buffer, int focusedIndex = -1, bool editMode = false,
                            std::string_view footer = {}, Element* activeScrollView = nullptr,
-                           Element* activeScrollViewEditElement = nullptr);
+                           Element* activeScrollViewEditElement = nullptr,
+                           bool suppressActiveScrollViewScopeVisuals = false);
 [[nodiscard]] Size generatedWindowContentSize(const GeneratedWindowBase& window);
 [[nodiscard]] Size generatedWindowContentSizeForWidth(const GeneratedWindowBase& window, int width);
 [[nodiscard]] Size generatedWindowResolvedContentSize(const GeneratedWindowBase& window, Size size);

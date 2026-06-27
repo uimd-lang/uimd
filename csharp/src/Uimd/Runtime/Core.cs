@@ -23,7 +23,7 @@ public sealed class Color : IEquatable<Color>
         return new Color($"#{red:x2}{green:x2}{blue:x2}{alpha:x2}");
     }
 
-    public bool IsTransparent => Rgba.HasValue && Rgba.Value.Alpha == 0 || Text == "transparent";
+    public bool IsTransparent => Text == "transparent";
 
     public Color BlendOver(Color background)
     {
@@ -54,12 +54,14 @@ public sealed class Color : IEquatable<Color>
 
     public override string ToString()
     {
+        if (Text == "transparent")
+        {
+            return Text;
+        }
         if (Rgba.HasValue)
         {
             Rgba rgba = Rgba.Value;
-            return rgba.Alpha == 255
-                ? $"#{rgba.Red:x2}{rgba.Green:x2}{rgba.Blue:x2}"
-                : $"#{rgba.Red:x2}{rgba.Green:x2}{rgba.Blue:x2}{rgba.Alpha:x2}";
+            return $"#{rgba.Red:x2}{rgba.Green:x2}{rgba.Blue:x2}";
         }
         return Text;
     }
@@ -166,8 +168,8 @@ public sealed class Style
     public int? Gap { get; set; }
     public string TextAlign { get; set; } = "";
     public string UserSelect { get; set; } = "";
-    public bool ScrollX { get; set; }
-    public bool ScrollY { get; set; }
+    public bool? ScrollX { get; set; }
+    public bool? ScrollY { get; set; }
     public TextGradient? TextColorGradient { get; set; }
     public TextGradient? TextBackgroundGradient { get; set; }
 
@@ -226,8 +228,8 @@ public sealed class Style
         Gap = other.Gap ?? Gap;
         TextAlign = string.IsNullOrEmpty(other.TextAlign) ? TextAlign : other.TextAlign;
         UserSelect = string.IsNullOrEmpty(other.UserSelect) ? UserSelect : other.UserSelect;
-        ScrollX = other.ScrollX || ScrollX;
-        ScrollY = other.ScrollY || ScrollY;
+        ScrollX = other.ScrollX ?? ScrollX;
+        ScrollY = other.ScrollY ?? ScrollY;
         TextColorGradient = other.TextColorGradient ?? TextColorGradient;
         TextBackgroundGradient = other.TextBackgroundGradient ?? TextBackgroundGradient;
     }
@@ -306,7 +308,15 @@ public sealed class TerminalCell
 
 public sealed class TerminalBuffer
 {
+    private const int AnsiBaseRow = 1;
+    private const int AnsiBaseCol = 1;
+    private const string AnsiReset = "\x1b[0m";
+    private const string AnsiSyncUpdateBegin = "\x1b[?2026h";
+    private const string AnsiSyncUpdateEnd = "\x1b[?2026l";
+
     private readonly TerminalCell[,] cells;
+    private readonly TerminalCell[,] previous;
+    private bool forceFullRedraw = true;
 
     public int Width { get; }
     public int Height { get; }
@@ -316,7 +326,9 @@ public sealed class TerminalBuffer
         Width = Math.Max(1, width);
         Height = Math.Max(1, height);
         cells = new TerminalCell[Height, Width];
+        previous = new TerminalCell[Height, Width];
         Clear();
+        FillPrevious();
     }
 
     public void Clear(TerminalCell? cell = null)
@@ -348,6 +360,264 @@ public sealed class TerminalBuffer
         }
         cells[row, col] = cell;
     }
+
+    public void RequestFullRedraw()
+    {
+        forceFullRedraw = true;
+    }
+
+    public string RenderDiff(int rowOffset = 0, int colOffset = 0)
+    {
+        return RenderDiffRegion(rowOffset, colOffset, 0, 0, Height, Width);
+    }
+
+    public string RenderDiffRegion(int rowOffset, int colOffset, int startRow, int startCol, int height, int width)
+    {
+        StringBuilder output = new();
+        bool fullRedraw = forceFullRedraw;
+        bool synchronizeUpdate = false;
+        bool rawEmitted = false;
+        int firstRow = Math.Max(0, startRow);
+        int firstCol = Math.Max(0, startCol);
+        int lastRow = Math.Min(Height, startRow + Math.Max(0, height));
+        int lastCol = Math.Min(Width, startCol + Math.Max(0, width));
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            int col = firstCol;
+            while (col < lastCol)
+            {
+                TerminalCell start = cells[row, col];
+                if (start.RawSkip)
+                {
+                    previous[row, col] = start.Clone();
+                    ++col;
+                    continue;
+                }
+                if (!fullRedraw && CellsEqual(start, previous[row, col]))
+                {
+                    ++col;
+                    continue;
+                }
+
+                TerminalCell styleCell = start;
+                if (!string.IsNullOrEmpty(styleCell.Raw))
+                {
+                    synchronizeUpdate = true;
+                    int rawWidth = Math.Max(1, styleCell.RawWidth);
+                    int rawHeight = Math.Max(1, styleCell.RawHeight);
+                    int clearWidth = Math.Min(rawWidth, Width - col);
+                    int clearHeight = Math.Min(rawHeight, Height - row);
+                    for (int clearRow = row; clearRow < row + clearHeight; ++clearRow)
+                    {
+                        output.Append(CursorPosition(clearRow + rowOffset, col + colOffset));
+                        output.Append(SgrForCell(styleCell));
+                        output.Append(' ', clearWidth);
+                    }
+                    if (clearHeight >= rawHeight)
+                    {
+                        output.Append(CursorPosition(row + rowOffset, col + colOffset));
+                        output.Append(styleCell.Raw);
+                        rawEmitted = true;
+                    }
+                    for (int coveredRow = row; coveredRow < row + clearHeight; ++coveredRow)
+                    {
+                        for (int coveredCol = col; coveredCol < col + clearWidth; ++coveredCol)
+                        {
+                            previous[coveredRow, coveredCol] = cells[coveredRow, coveredCol].Clone();
+                        }
+                    }
+                    col += clearWidth;
+                    continue;
+                }
+
+                StringBuilder run = new();
+                int runCol = col;
+                while (col < lastCol)
+                {
+                    TerminalCell current = cells[row, col];
+                    if (!fullRedraw && CellsEqual(current, previous[row, col]))
+                    {
+                        break;
+                    }
+                    if (current.RawSkip || !string.IsNullOrEmpty(current.Raw))
+                    {
+                        break;
+                    }
+                    if (!RenderHelpers.SameColor(current.Foreground, styleCell.Foreground) ||
+                        !RenderHelpers.SameColor(current.Background, styleCell.Background))
+                    {
+                        break;
+                    }
+                    run.Append(RenderHelpers.SafeTerminalCellText(current.Text));
+                    previous[row, col] = current.Clone();
+                    ++col;
+                }
+
+                output.Append(CursorPosition(row + rowOffset, runCol + colOffset));
+                output.Append(SgrForCell(styleCell));
+                output.Append(run);
+            }
+        }
+
+        if (output.Length > 0)
+        {
+            if (rawEmitted)
+            {
+                RepaintTextOverRaw(output, rowOffset, colOffset, firstRow, firstCol, lastRow, lastCol);
+            }
+            output.Append(AnsiReset);
+        }
+        forceFullRedraw = false;
+        if (output.Length > 0 && synchronizeUpdate)
+        {
+            return AnsiSyncUpdateBegin + output + AnsiSyncUpdateEnd;
+        }
+        return output.ToString();
+    }
+
+    public string RenderScrollRegion(int rowOffset, int startRow, int height, int delta)
+    {
+        int firstRow = Math.Max(0, startRow);
+        int lastRow = Math.Min(Height, startRow + Math.Max(0, height));
+        int regionHeight = lastRow - firstRow;
+        int distance = Math.Min(Math.Abs(delta), regionHeight);
+        if (forceFullRedraw || regionHeight <= 1 || distance <= 0 || distance >= regionHeight)
+        {
+            return "";
+        }
+
+        TerminalCell[,] before = (TerminalCell[,])previous.Clone();
+        if (delta > 0)
+        {
+            for (int row = lastRow - 1; row >= firstRow + distance; --row)
+            {
+                for (int col = 0; col < Width; ++col)
+                {
+                    previous[row, col] = before[row - distance, col];
+                }
+            }
+            for (int row = firstRow; row < firstRow + distance; ++row)
+            {
+                for (int col = 0; col < Width; ++col)
+                {
+                    previous[row, col] = new TerminalCell();
+                }
+            }
+        }
+        else
+        {
+            for (int row = firstRow; row < lastRow - distance; ++row)
+            {
+                for (int col = 0; col < Width; ++col)
+                {
+                    previous[row, col] = before[row + distance, col];
+                }
+            }
+            for (int row = lastRow - distance; row < lastRow; ++row)
+            {
+                for (int col = 0; col < Width; ++col)
+                {
+                    previous[row, col] = new TerminalCell();
+                }
+            }
+        }
+
+        char command = delta > 0 ? 'T' : 'S';
+        return $"\x1b[{firstRow + rowOffset + AnsiBaseRow};{lastRow + rowOffset}r" +
+            $"\x1b[{firstRow + rowOffset + AnsiBaseRow};1H" +
+            $"\x1b[{distance}{command}" +
+            "\x1b[r";
+    }
+
+    private void RepaintTextOverRaw(
+        StringBuilder output,
+        int rowOffset,
+        int colOffset,
+        int firstRow,
+        int firstCol,
+        int lastRow,
+        int lastCol)
+    {
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            int col = firstCol;
+            while (col < lastCol)
+            {
+                TerminalCell cell = cells[row, col];
+                if (cell.RawSkip || !string.IsNullOrEmpty(cell.Raw))
+                {
+                    ++col;
+                    continue;
+                }
+                TerminalCell styleCell = cell;
+                int runCol = col;
+                StringBuilder run = new();
+                while (col < lastCol)
+                {
+                    TerminalCell current = cells[row, col];
+                    if (current.RawSkip || !string.IsNullOrEmpty(current.Raw))
+                    {
+                        break;
+                    }
+                    if (!RenderHelpers.SameColor(current.Foreground, styleCell.Foreground) ||
+                        !RenderHelpers.SameColor(current.Background, styleCell.Background))
+                    {
+                        break;
+                    }
+                    run.Append(RenderHelpers.SafeTerminalCellText(current.Text));
+                    ++col;
+                }
+                output.Append(CursorPosition(row + rowOffset, runCol + colOffset));
+                output.Append(SgrForCell(styleCell));
+                output.Append(run);
+            }
+        }
+    }
+
+    private void FillPrevious()
+    {
+        for (int row = 0; row < Height; ++row)
+        {
+            for (int col = 0; col < Width; ++col)
+            {
+                previous[row, col] = new TerminalCell();
+            }
+        }
+    }
+
+    private static string CursorPosition(int row, int col)
+    {
+        return $"\x1b[{row + AnsiBaseRow};{col + AnsiBaseCol}H";
+    }
+
+    private static string SgrForCell(TerminalCell cell)
+    {
+        return "\x1b[" + SgrForColor(cell.Foreground, foreground: true) + ";" +
+            SgrForColor(cell.Background, foreground: false) + "m";
+    }
+
+    private static string SgrForColor(Color? color, bool foreground)
+    {
+        Color? visible = RenderHelpers.VisibleColor(color);
+        if (visible is null || !visible.Rgba.HasValue)
+        {
+            return foreground ? "39" : "49";
+        }
+        Rgba rgba = visible.Rgba.Value;
+        return (foreground ? "38" : "48") + $";2;{rgba.Red};{rgba.Green};{rgba.Blue}";
+    }
+
+    private static bool CellsEqual(TerminalCell lhs, TerminalCell rhs)
+    {
+        return lhs.Text == rhs.Text &&
+            lhs.Raw == rhs.Raw &&
+            lhs.RawWidth == rhs.RawWidth &&
+            lhs.RawHeight == rhs.RawHeight &&
+            lhs.RawSkip == rhs.RawSkip &&
+            lhs.BackgroundFromImageSample == rhs.BackgroundFromImageSample &&
+            RenderHelpers.SameColor(lhs.Foreground, rhs.Foreground) &&
+            RenderHelpers.SameColor(lhs.Background, rhs.Background);
+    }
 }
 
 public sealed class ElementRenderState
@@ -356,6 +626,7 @@ public sealed class ElementRenderState
     public bool EditMode { get; init; }
     public bool PassiveFocus { get; init; }
     public Element? FocusedElement { get; init; }
+    public bool SuppressActiveScrollViewScopeVisuals { get; init; }
     public int? ClipTop { get; init; }
     public int? ClipBottom { get; init; }
 }
@@ -373,7 +644,21 @@ public static class RenderHelpers
         set => renderTimeOverrideMs = value;
     }
 
-    private readonly record struct VisualGlyph(string Text, int SourceStart, int SourceEnd);
+    internal readonly record struct VisualGlyph(string Text, int SourceStart, int SourceEnd);
+
+    internal sealed class LabelVisualRow
+    {
+        public int Start { get; }
+        public int End { get; }
+        public List<VisualGlyph> Cells { get; }
+
+        public LabelVisualRow(int start, int end, List<VisualGlyph> cells)
+        {
+            Start = start;
+            End = end;
+            Cells = cells;
+        }
+    }
 
     public static List<List<TerminalCell>> RenderPlainText(string text, int width, int height, Style style)
     {
@@ -383,14 +668,14 @@ public static class RenderHelpers
         List<List<TerminalCell>> result = new();
         if (height > 1)
         {
-            List<List<VisualGlyph>> rows = BuildVisualGlyphRows(text, width);
-            foreach (List<VisualGlyph> row in rows)
+            List<LabelVisualRow> rows = BuildLabelVisualRows(text, width);
+            foreach (LabelVisualRow row in rows)
             {
                 if (result.Count >= height)
                 {
                     break;
                 }
-                result.Add(RenderGlyphRow(row, width, style));
+                result.Add(RenderGlyphRow(row.Cells, width, style));
             }
             while (result.Count < height)
             {
@@ -407,6 +692,52 @@ public static class RenderHelpers
     public static List<string> RenderedText(List<List<TerminalCell>> rendered)
     {
         return rendered.Select(row => string.Concat(row.Select(cell => cell.Text))).ToList();
+    }
+
+    public static List<string> RenderedAnsiText(List<List<TerminalCell>> rendered)
+    {
+        List<string> lines = new();
+        foreach (List<TerminalCell> row in rendered)
+        {
+            StringBuilder builder = new();
+            Color? currentForeground = null;
+            Color? currentBackground = null;
+            foreach (TerminalCell cell in row)
+            {
+                if (cell.RawSkip)
+                {
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(cell.Raw))
+                {
+                    builder.Append("\x1b[0m");
+                    builder.Append(cell.Raw);
+                    currentForeground = null;
+                    currentBackground = null;
+                    continue;
+                }
+                Color? foreground = VisibleColor(cell.Foreground);
+                Color? background = VisibleColor(cell.Background);
+                if (!SameColor(foreground, currentForeground) || !SameColor(background, currentBackground))
+                {
+                    builder.Append("\x1b[0m");
+                    if (foreground is not null)
+                    {
+                        builder.Append(AnsiForeground(foreground));
+                    }
+                    if (background is not null)
+                    {
+                        builder.Append(AnsiBackground(background));
+                    }
+                    currentForeground = foreground;
+                    currentBackground = background;
+                }
+                builder.Append(cell.Text.Length == 0 ? " " : cell.Text);
+            }
+            builder.Append("\x1b[0m");
+            lines.Add(builder.ToString());
+        }
+        return lines;
     }
 
     public static string JsonColor(Color? color)
@@ -560,10 +891,19 @@ public static class RenderHelpers
         };
     }
 
-    private static List<List<VisualGlyph>> BuildVisualGlyphRows(string text, int width)
+    private static LabelVisualRow MakeLabelVisualRow(int fallbackStart, List<VisualGlyph> cells)
+    {
+        if (cells.Count == 0)
+        {
+            return new LabelVisualRow(fallbackStart, fallbackStart, cells);
+        }
+        return new LabelVisualRow(cells[0].SourceStart, cells[^1].SourceEnd, cells);
+    }
+
+    internal static List<LabelVisualRow> BuildLabelVisualRows(string text, int width)
     {
         width = Math.Max(1, width);
-        List<List<VisualGlyph>> rows = new();
+        List<LabelVisualRow> rows = new();
         int segmentStart = 0;
         while (segmentStart <= text.Length)
         {
@@ -572,7 +912,7 @@ public static class RenderHelpers
             string segment = text.Substring(segmentStart, segmentEnd - segmentStart);
             if (segment.Length == 0)
             {
-                rows.Add(new List<VisualGlyph>());
+                rows.Add(new LabelVisualRow(segmentStart, segmentStart, new List<VisualGlyph>()));
             }
             else
             {
@@ -601,12 +941,12 @@ public static class RenderHelpers
                         if (lastSpace > 0)
                         {
                             chunk.RemoveRange(lastSpace, chunk.Count - lastSpace);
-                            rows.Add(chunk);
+                            rows.Add(MakeLabelVisualRow(segmentStart, chunk));
                             offset += lastSpace + 1;
                             continue;
                         }
                     }
-                    rows.Add(chunk);
+                    rows.Add(MakeLabelVisualRow(segmentStart, chunk));
                     offset += chunkSize;
                 }
             }
@@ -618,12 +958,47 @@ public static class RenderHelpers
         }
         if (rows.Count == 0)
         {
-            rows.Add(new List<VisualGlyph>());
+            rows.Add(new LabelVisualRow(0, 0, new List<VisualGlyph>()));
         }
         return rows;
     }
 
-    private static List<VisualGlyph> VisualGlyphs(string text, int startColumn, int sourceStart)
+    internal static int VisualWidthForLabelRow(LabelVisualRow row)
+    {
+        return row.Cells.Count;
+    }
+
+    internal static int RawIndexForLabelVisualColumn(LabelVisualRow row, int col)
+    {
+        if (row.Cells.Count == 0)
+        {
+            return row.Start;
+        }
+        if (col >= row.Cells.Count)
+        {
+            return row.End;
+        }
+        col = Math.Clamp(col, 0, row.Cells.Count - 1);
+        VisualGlyph glyph = row.Cells[col];
+        int runStart = col;
+        int runEnd = col + 1;
+        while (runStart > 0 &&
+            row.Cells[runStart - 1].SourceStart == glyph.SourceStart &&
+            row.Cells[runStart - 1].SourceEnd == glyph.SourceEnd)
+        {
+            --runStart;
+        }
+        while (runEnd < row.Cells.Count &&
+            row.Cells[runEnd].SourceStart == glyph.SourceStart &&
+            row.Cells[runEnd].SourceEnd == glyph.SourceEnd)
+        {
+            ++runEnd;
+        }
+        double midpoint = runStart + (runEnd - runStart) / 2.0;
+        return col >= midpoint ? glyph.SourceEnd : glyph.SourceStart;
+    }
+
+    internal static List<VisualGlyph> VisualGlyphs(string text, int startColumn, int sourceStart)
     {
         List<VisualGlyph> glyphs = new();
         int column = Math.Max(0, startColumn);
@@ -735,7 +1110,7 @@ public static class RenderHelpers
         return false;
     }
 
-    private static string SafeTerminalCellText(string text)
+    internal static string SafeTerminalCellText(string text)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -796,5 +1171,29 @@ public static class RenderHelpers
             return overlay.BlendOver(baseColor);
         }
         return overlay;
+    }
+
+    internal static Color? VisibleColor(Color? color)
+    {
+        return color is null || color.IsTransparent ? null : color;
+    }
+
+    internal static bool SameColor(Color? lhs, Color? rhs)
+    {
+        if (lhs is null || rhs is null)
+        {
+            return lhs is null && rhs is null;
+        }
+        return lhs.Equals(rhs);
+    }
+
+    internal static string AnsiForeground(Color color)
+    {
+        return color.Rgba is Rgba rgba ? $"\x1b[38;2;{rgba.Red};{rgba.Green};{rgba.Blue}m" : "";
+    }
+
+    internal static string AnsiBackground(Color color)
+    {
+        return color.Rgba is Rgba rgba ? $"\x1b[48;2;{rgba.Red};{rgba.Green};{rgba.Blue}m" : "";
     }
 }

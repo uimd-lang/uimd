@@ -501,6 +501,7 @@ public sealed class FileBrowser : GeneratedWindowBase
     public void RefreshEntries()
     {
         List<string> rows = new() { ParentEntry };
+        List<string> disabledRows = new();
         IEnumerable<string> dirs = Enumerable.Empty<string>();
         IEnumerable<string> files = Enumerable.Empty<string>();
         if (Directory.Exists(currentDir))
@@ -517,9 +518,17 @@ public sealed class FileBrowser : GeneratedWindowBase
                 .OrderBy(name => name, StringComparer.Ordinal);
         }
         rows.AddRange(dirs);
-        rows.AddRange(files);
+        foreach (string file in files)
+        {
+            rows.Add(file);
+            if (!PathMatchesFilter(Path.Combine(currentDir, file)))
+            {
+                disabledRows.Add(file);
+            }
+        }
         path_label.SetText(currentDir);
         entries.SetOptions(rows);
+        entries.SetDisabledValues(disabledRows);
         int selectedIndex = rows.IndexOf(initialFilename);
         entries.SetSelectedIndex(selectedIndex >= 0 ? selectedIndex : 0);
         PreviewSelected();

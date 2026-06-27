@@ -106,7 +106,7 @@ public sealed class DocumentView : DocumentViewUI
         blocks.AddRange(nextBlocks);
         InvalidateDynamicChildren();
         SetAutoScroll(false);
-        ScrollView().ScrollBy(-ScrollView().ContentHeight(), new Size(Math.Max(1, ScrollView().Frame.Width), Math.Max(1, ScrollView().Frame.Height)));
+        ScrollToTop();
     }
 
     private static List<List<TerminalCell>> RenderBlock(GeneratedWindowBase block, int width)

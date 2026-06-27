@@ -2,6 +2,7 @@
 
 import json
 import http.server
+from contextlib import nullcontext
 from http import HTTPStatus
 import re
 import socketserver
@@ -11,6 +12,7 @@ import time
 
 from .elements import GradientRenderTime
 from .rendering import cells_to_ansi_lines, cells_to_snapshot_rows
+from .UIBase import suppress_active_scrollview_scope_visuals
 
 
 DEFAULT_GUI_ACTION_DELAY_MS = 500
@@ -310,8 +312,10 @@ class MCPController:
             pass
         elif name == "get_render_snapshot":
             properties["snapshot_time_ms"] = {"type": "integer"}
+            properties["render_scope"] = {"type": "string", "enum": ["full_surface", "active_window"]}
         elif name == "get_render_snapshot_compact":
             properties["snapshot_time_ms"] = {"type": "integer"}
+            properties["render_scope"] = {"type": "string", "enum": ["full_surface", "active_window"]}
         elif name == "repaint":
             properties["full"] = {"type": "boolean"}
         elif name == "mouse_click":
@@ -396,6 +400,8 @@ class MCPController:
         """Render the full scene (all windows in stack) into a viewport-sized cell grid.
         Same as _render_to_terminal but returns cells instead of writing to stdout."""
         viewport = self.app.get_viewport()
+        vp_col = int(viewport.get("col", 0) or 0)
+        vp_row = int(viewport.get("row", 0) or 0)
         vp_w = max(1, int(viewport["width"]))
         vp_h = max(1, int(viewport["height"]))
         blank = {"char": " ", "foreground": None, "background": None, "attributes": []}
@@ -420,52 +426,65 @@ class MCPController:
                         cells[tr][tc] = cell
 
         last = len(self.app._window_stack) - 1
-        for index, window in enumerate(self.app._window_stack):
-            mode = self.app._resolved_window_mode(window)
-            saved_mode = window.mode
-            window.mode = mode
-            self.app._resize_window(window)
-            cell_rows = self.app._render_window_cells(window)
-            window.mode = saved_mode
+        render_context = nullcontext()
+        if len(self.app._window_stack) > 1:
+            from uimd.runtime.image import force_image_cell_background_rendering
+            render_context = force_image_cell_background_rendering()
 
-            if index < last:
-                cell_rows = self.app._dim_cell_rows(cell_rows)
+        with render_context:
+            for index, window in enumerate(self.app._window_stack):
+                mode = self.app._resolved_window_mode(window)
+                saved_mode = window.mode
+                window.mode = mode
+                self.app._resize_window(window)
+                window_render_context = (
+                    suppress_active_scrollview_scope_visuals(window)
+                    if index < last
+                    else nullcontext()
+                )
+                with window_render_context:
+                    cell_rows = self.app._render_window_cells(window)
+                window.mode = saved_mode
 
-            if mode in ("fullscreen", "expand_width", "expand_height"):
-                col_off, row_off = 0, 0
-            else:
-                win_w = getattr(window, "_window_width", vp_w)
-                win_h = len(cell_rows)
-                col_off = max(0, (vp_w - win_w) // 2)
-                row_off = max(0, (vp_h - win_h) // 2)
+                if index < last:
+                    cell_rows = self.app._dim_cell_rows(cell_rows)
 
-            blit_rows(cell_rows, window, col_off, row_off)
+                col_off, row_off = self.app._window_offsets(window, mode)
+                col_off -= vp_col
+                row_off -= vp_row
 
-            if index == last:
-                self._overlay_open_combobox_cells(cells, col_off, row_off)
+                blit_rows(cell_rows, window, col_off, row_off)
+
+                if index == last:
+                    self._overlay_open_combobox_cells(cells, col_off, row_off)
 
         return cells
 
-    def tool_get_render_snapshot(self, snapshot_time_ms=None):
+    def tool_get_render_snapshot(self, snapshot_time_ms=None, render_scope="full_surface"):
         """Return ANSI and plain-text render snapshots."""
         with GradientRenderTime(snapshot_time_ms):
-            cell_rows = self._render_cell_rows()
-        cells = self._viewport_cells_from_rows(cell_rows)
+            cells = self._render_snapshot_cells(render_scope)
         return {
             "ansi_lines": self._cells_to_ansi_lines(cells),
             "text_lines": ["".join(cell["char"] for cell in row) for row in cells],
             "cells": cells,
         }
 
-    def tool_get_render_snapshot_compact(self, snapshot_time_ms=None):
+    def tool_get_render_snapshot_compact(self, snapshot_time_ms=None, render_scope="full_surface"):
         """Return compact render cells for backend comparison."""
         with GradientRenderTime(snapshot_time_ms):
-            cell_rows = self._render_cell_rows()
-        cells = self._viewport_cells_from_rows(cell_rows)
+            cells = self._render_snapshot_cells(render_scope)
         return {
             "format": "render-cells-v1",
             "cells": self._compact_cells(cells),
         }
+
+    def _render_snapshot_cells(self, render_scope):
+        if render_scope in (None, "", "full_surface"):
+            return self._render_full_viewport_cells()
+        if render_scope == "active_window":
+            return self._viewport_cells_from_rows(self._render_cell_rows())
+        raise ValueError(f"unknown render_scope: {render_scope}")
 
     def tool_get_text_snapshot(self):
         """Return a plain-text render snapshot."""
@@ -583,17 +602,33 @@ class MCPController:
         elem = self._require_element(element_id)
         if not getattr(elem, "enabled", True):
             return self._element_snapshot(elem, element_id=element_id)
-        background_window = self._background_window_before_modal_action()
-        background_scopes = self._active_scrollview_scopes(background_window)
+        action_window = window
+        action_previous_focus = getattr(action_window, "_focused_element", None)
+        parent_window = self._background_window_before_modal_action()
+        parent_window_scopes = self._active_scrollview_scopes(parent_window)
         self._focus_element_for_activation(window, elem)
+        action_window_scopes = self._active_scrollview_scopes(action_window)
         if self._should_show_button_focus_before_activate(elem):
             self._after_action()
             _sleep_ms(DIALOG_BUTTON_CLOSE_DELAY_MS)
         if getattr(elem, "ELEMENT_TYPE", None) == "uielement" and window._activate_element(elem):
+            self._cleanup_modal_transition_focus(
+                action_window,
+                action_window_scopes,
+                action_previous_focus,
+                parent_window,
+                parent_window_scopes,
+            )
             self._after_action()
             return {"ok": True, "element_id": element_id}
         self.app.handle_key("Enter")
-        self._cleanup_background_modal_scrollview_focus(background_window, background_scopes)
+        self._cleanup_modal_transition_focus(
+            action_window,
+            action_window_scopes,
+            action_previous_focus,
+            parent_window,
+            parent_window_scopes,
+        )
         self._after_action()
         return self._element_snapshot(elem)
 
@@ -1032,6 +1067,72 @@ class MCPController:
             return None
         return stack[-2]
 
+    def _cleanup_modal_transition_focus(
+        self,
+        action_window,
+        action_scopes,
+        action_previous_focus,
+        parent_window,
+        parent_scopes,
+    ):
+        stack = getattr(self.app, "_window_stack", [])
+        active_window = self.app.active_window
+        if action_window is not None and action_window in stack and active_window is not action_window:
+            self._cleanup_background_after_modal_open(action_window, action_scopes, action_previous_focus)
+        if (
+            parent_window is not None
+            and parent_window in stack
+            and active_window is parent_window
+            and parent_window is not action_window
+        ):
+            restore_scopes = getattr(parent_window, "_mcp_modal_background_scopes", None)
+            if restore_scopes is not None:
+                try:
+                    delattr(parent_window, "_mcp_modal_background_scopes")
+                except AttributeError:
+                    pass
+            self._cleanup_background_modal_scrollview_focus(parent_window, restore_scopes or parent_scopes)
+
+    def _cleanup_background_after_modal_open(self, background_window, scopes, previous_focus):
+        if background_window is None:
+            return
+        background_window._mcp_modal_background_scopes = list(scopes)
+        pending_scopes = []
+        seen = set()
+        for scope in list(scopes) + self._active_scrollview_scopes(background_window):
+            key = (id(scope.get("owner")), id(scope.get("scrollview")))
+            if key in seen:
+                continue
+            seen.add(key)
+            pending_scopes.append(scope)
+        if pending_scopes:
+            return
+
+        focused = getattr(background_window, "_focused_element", None)
+        if focused is not None and hasattr(background_window, "_set_element_focus_state"):
+            background_window._set_element_focus_state(focused, False)
+        background_window._active_scrollview_scope = None
+        background_window._edit_mode = False
+        background_window._edit_snapshot = None
+        target_focus = None
+        if self._window_contains_element(background_window, focused):
+            target_focus = focused
+            background_window.set_focus(target_focus)
+        elif self._window_contains_element(background_window, previous_focus):
+            target_focus = previous_focus
+            background_window.set_focus(target_focus)
+        else:
+            background_window.set_focus(None)
+
+    @staticmethod
+    def _window_contains_element(window, element):
+        if window is None or element is None:
+            return False
+        if element in getattr(window, "_elements", {}).values():
+            return True
+        contains = getattr(window, "_contains_descendant_element", None)
+        return bool(callable(contains) and contains(window, element))
+
     def _active_scrollview_scopes(self, window):
         if window is None:
             return []
@@ -1059,12 +1160,25 @@ class MCPController:
                 ):
                     focused = None
                     proxy = None
+                focused_index = -1
+                if focused is not None and proxy is not None and scrollview is not None:
+                    contexts = self._scrollview_scope_contexts_for(
+                        view,
+                        proxy,
+                        scrollview,
+                        {"scrollview_rect": scope.get("scrollview_rect")},
+                    )
+                    for index, context in enumerate(contexts):
+                        if context.get("element") is focused:
+                            focused_index = index
+                            break
                 scopes.append({
                     "owner": view,
                     "proxy": proxy,
                     "scrollview": scrollview,
                     "scrollview_rect": scope.get("scrollview_rect"),
                     "focused": focused,
+                    "focused_index": focused_index,
                 })
             for element in getattr(view, "_elements", {}).values():
                 current_view = element.current_view() if hasattr(element, "current_view") else None
@@ -1075,7 +1189,10 @@ class MCPController:
         return scopes
 
     def _cleanup_background_modal_scrollview_focus(self, background_window, scopes):
-        if background_window is None or self.app.active_window is not background_window:
+        if background_window is None:
+            return
+        stack = getattr(self.app, "_window_stack", [])
+        if self.app.active_window is not background_window and background_window not in stack:
             return
         pending_scopes = []
         seen = set()
@@ -1115,7 +1232,38 @@ class MCPController:
                     if callable(clear_pending):
                         clear_pending()
                     continue
+                if self._repair_removed_scrollview_scope(owner, proxy, scrollview, scope):
+                    continue
                 self._clear_removed_scrollview_scope(owner, proxy, scrollview)
+                continue
+            previous = scope.get("focused")
+            if previous is not None and previous is not proxy:
+                if hasattr(owner, "_clear_descendant_focus_state"):
+                    owner._clear_descendant_focus_state(scrollview)
+                origin_rect = scope.get("scrollview_rect")
+                if origin_rect is None and hasattr(owner, "_scrollview_proxy_rect"):
+                    origin_rect = owner._scrollview_proxy_rect(proxy)
+                owner._active_scrollview_scope = {
+                    "proxy": proxy,
+                    "scrollview": scrollview,
+                    "scrollview_rect": origin_rect,
+                }
+                owner._edit_mode = True
+                owner._edit_snapshot = None
+                owner._focused_element = previous
+                if hasattr(previous, "focused"):
+                    previous.focused = True
+                if hasattr(scrollview, "_focused"):
+                    scrollview._focused = True
+                parent_owner = getattr(proxy, "parent", None)
+                while parent_owner is not None:
+                    if hasattr(parent_owner, "_focused_element"):
+                        parent_owner._focused_element = previous
+                    parent_owner = getattr(parent_owner, "parent", None)
+                ensure_visible = getattr(scrollview, "ensure_element_visible", None)
+                if callable(ensure_visible):
+                    ensure_visible(previous)
+                owner._scrollview_last_descendant[id(scrollview)] = previous
                 continue
             focused = getattr(owner, "_focused_element", None)
             if focused is not None and focused is not proxy and hasattr(focused, "focused"):
@@ -1131,7 +1279,6 @@ class MCPController:
             if hasattr(scrollview, "_focused"):
                 scrollview._focused = True
             key = id(scrollview)
-            previous = scope.get("focused")
             if previous is not None and previous is not proxy:
                 owner._scrollview_last_descendant[key] = previous
 
@@ -1160,6 +1307,100 @@ class MCPController:
             visible_only=False,
         )
         return any(context.get("element") is focused for context in contexts)
+
+    def _scrollview_scope_contexts_for(self, owner, proxy, scrollview, scope):
+        if owner is None or proxy is None or scrollview is None:
+            return []
+        if not hasattr(owner, "_scrollview_child_focus_contexts"):
+            return []
+        origin_rect = scope.get("scrollview_rect")
+        if origin_rect is None:
+            if hasattr(owner, "_scrollview_proxy_rect"):
+                origin_rect = owner._scrollview_proxy_rect(proxy)
+            else:
+                return []
+        return owner._scrollview_child_focus_contexts(
+            proxy,
+            scrollview,
+            origin_rect,
+            visible_only=False,
+        )
+
+    def _repair_removed_scrollview_scope(self, owner, proxy, scrollview, scope):
+        contexts = self._scrollview_scope_contexts_for(owner, proxy, scrollview, scope)
+        if not contexts:
+            return self._restore_empty_scrollview_scope(owner, proxy, scrollview, scope)
+        focused_index = scope.get("focused_index", -1)
+        if not isinstance(focused_index, int):
+            focused_index = -1
+        if focused_index < 0:
+            focused_index = 0
+        index = min(focused_index, len(contexts) - 1)
+        context = contexts[index]
+        target = context.get("element")
+        if target is None:
+            return False
+        if hasattr(owner, "_clear_descendant_focus_state"):
+            owner._clear_descendant_focus_state(scrollview)
+        origin_rect = scope.get("scrollview_rect")
+        if origin_rect is None and hasattr(owner, "_scrollview_proxy_rect"):
+            origin_rect = owner._scrollview_proxy_rect(proxy)
+        owner._active_scrollview_scope = {
+            "proxy": proxy,
+            "scrollview": scrollview,
+            "scrollview_rect": origin_rect,
+        }
+        owner._edit_mode = True
+        owner._edit_snapshot = None
+        owner._focused_element = target
+        if hasattr(target, "focused"):
+            target.focused = True
+        if hasattr(scrollview, "_focused"):
+            scrollview._focused = True
+        mark_selected = getattr(scrollview, "_mark_selected_focus_child", None)
+        if callable(mark_selected):
+            mark_selected(context.get("child") or context.get("owner"))
+        parent_owner = getattr(proxy, "parent", None)
+        while parent_owner is not None:
+            if hasattr(parent_owner, "_focused_element"):
+                parent_owner._focused_element = target
+            parent_owner = getattr(parent_owner, "parent", None)
+        ensure_visible = getattr(scrollview, "ensure_element_visible", None)
+        if callable(ensure_visible):
+            ensure_visible(target)
+        owner._scrollview_last_descendant[id(scrollview)] = target
+        return True
+
+    def _restore_empty_scrollview_scope(self, owner, proxy, scrollview, scope):
+        if owner is None or proxy is None or scrollview is None:
+            return False
+        if not self._window_contains_element(owner, proxy):
+            return False
+        if getattr(proxy, "_child_instance", None) is not scrollview:
+            return False
+        if hasattr(owner, "_clear_descendant_focus_state"):
+            owner._clear_descendant_focus_state(scrollview)
+        origin_rect = scope.get("scrollview_rect")
+        if origin_rect is None and hasattr(owner, "_scrollview_proxy_rect"):
+            origin_rect = owner._scrollview_proxy_rect(proxy)
+        owner._active_scrollview_scope = {
+            "proxy": proxy,
+            "scrollview": scrollview,
+            "scrollview_rect": origin_rect,
+        }
+        owner._edit_mode = True
+        owner._edit_snapshot = None
+        owner._focused_element = proxy
+        if hasattr(owner, "_set_element_focus_state"):
+            owner._set_element_focus_state(proxy, True)
+        if hasattr(scrollview, "_focused"):
+            scrollview._focused = True
+        clear_selected = getattr(scrollview, "_clear_selected_focus_child", None)
+        if callable(clear_selected):
+            clear_selected()
+        if hasattr(owner, "_scrollview_last_descendant"):
+            owner._scrollview_last_descendant.pop(id(scrollview), None)
+        return True
 
     def _clear_removed_scrollview_scope(self, owner, proxy, scrollview):
         focused = getattr(owner, "_focused_element", None)

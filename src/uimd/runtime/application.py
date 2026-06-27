@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import struct
+from contextlib import nullcontext
 try:
     import ctypes
     from ctypes import wintypes
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     termios = None
     tty = None
 from uimd.runtime.mcp import MCPServer, parse_mcp_runtime_args
+from uimd.runtime.UIBase import suppress_active_scrollview_scope_visuals
 from uimd.runtime.rendering import (
     ANSI_CLEAR_SCREEN,
     TerminalBuffer,
@@ -102,6 +104,7 @@ TERMINAL_CELL_PIXEL_QUERY_TIMEOUT = 0.05
 TERMINAL_CELL_PIXEL_QUERY_MAX_BYTES = 64
 TERMINAL_WINSIZE_STRUCT = "HHHH"
 TERMINAL_WINSIZE_STRUCT_BYTES = 8
+TERMINAL_TITLE_SUFFIX = " [python]"
 
 
 class _TerminalFrameDiff:
@@ -225,6 +228,7 @@ class UIApplication:
         self._terminal_frame_diff = _TerminalFrameDiff(lambda: self._get_terminal_size())
         self._render_lock = threading.RLock()
         self._input_buffer = bytearray()
+        self._mcp_headless = False
 
     @property
     def active_window(self):
@@ -1010,6 +1014,10 @@ class UIApplication:
             b"[B": "Down",
             b"[C": "Right",
             b"[D": "Left",
+            b"OA": "Up",
+            b"OB": "Down",
+            b"OC": "Right",
+            b"OD": "Left",
             b"[H": "Home",
             b"[F": "End",
             b"[Z": "Shift+Tab",
@@ -1208,9 +1216,18 @@ class UIApplication:
         sys.stdout.write(text)
         sys.stdout.flush()
 
+    @staticmethod
+    def _sanitize_terminal_title(value):
+        return "".join(ch for ch in str(value) if ch >= " " and ch != "\x7f")
+
+    def _terminal_title_sequence(self):
+        title = getattr(self.active_window, "title", "")
+        return f"\x1b]0;{self._sanitize_terminal_title(title + TERMINAL_TITLE_SUFFIX)}\x07"
+
     def _enter_terminal_ui(self):
         """Switch the terminal into fullscreen UI mode."""
         self._terminal_frame_diff.reset()
+        self._write_terminal(self._terminal_title_sequence())
         self._write_terminal("\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?7l\x1b[?25l\x1b[>4;2m\x1b[H\x1b[2J")
 
     def _leave_terminal_ui(self):
@@ -1777,27 +1794,34 @@ class UIApplication:
         frame = ""
         layers = []
         last_index = len(self._window_stack) - 1
-        for index, window in enumerate(self._window_stack):
-            mode = self._resolved_window_mode(window)
-            saved_mode = window.mode
-            window.mode = mode
-            self._resize_window(window)
-            if index == last_index:
-                cell_rows = self._render_window_cells(window)
-            else:
-                from uimd.runtime.image import force_image_cell_background_rendering
-                with force_image_cell_background_rendering():
+        render_context = nullcontext()
+        if len(self._window_stack) > 1:
+            from uimd.runtime.image import force_image_cell_background_rendering
+            render_context = force_image_cell_background_rendering()
+
+        with render_context:
+            for index, window in enumerate(self._window_stack):
+                mode = self._resolved_window_mode(window)
+                saved_mode = window.mode
+                window.mode = mode
+                self._resize_window(window)
+                window_render_context = (
+                    suppress_active_scrollview_scope_visuals(window)
+                    if index < last_index
+                    else nullcontext()
+                )
+                with window_render_context:
                     cell_rows = self._render_window_cells(window)
-            window.mode = saved_mode
+                window.mode = saved_mode
 
-            if index == last_index:
-                cell_rows = self._render_notifications_cells(cell_rows)
-            else:
-                cell_rows = self._dim_cell_rows(cell_rows)
+                if index == last_index:
+                    cell_rows = self._render_notifications_cells(cell_rows)
+                else:
+                    cell_rows = self._dim_cell_rows(cell_rows)
 
-            col_offset, row_offset = self._window_offsets(window, mode)
+                col_offset, row_offset = self._window_offsets(window, mode)
 
-            layers.append((cell_rows, col_offset, row_offset))
+                layers.append((cell_rows, col_offset, row_offset))
 
         popup_layer = self._popup_overlay_layer()
         if popup_layer is not None:
@@ -1933,7 +1957,9 @@ class UIApplication:
     def _run_mcp_headless(self, mcp_config):
         """Run without terminal drawing, driven only through MCP."""
         self._running = True
+        self._mcp_headless = True
         if not self._window_stack:
+            self._mcp_headless = False
             return 0
         server = MCPServer(self, mcp_config)
         try:
@@ -1944,6 +1970,7 @@ class UIApplication:
             server.shutdown()
             for window in self._window_stack:
                 window.close()
+            self._mcp_headless = False
         return 0
 
     def _run_gui_loop(self, close_mcp_server=None, embedded_viewport=False, controlled_render=False):

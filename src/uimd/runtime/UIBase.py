@@ -1,6 +1,7 @@
 import re
 import sys
 import time
+from contextlib import contextmanager
 
 from .uiinstance import UIInstance
 from .uielement import UIElement
@@ -27,6 +28,67 @@ COMBOBOX_ARROW_WIDTH = 1
 LISTBOX_ITEM_PREFIX_WIDTH = 0
 LISTBOX_DOUBLE_CLICK_SECONDS = 0.35
 DIALOG_BUTTON_CLOSE_DELAY_SECONDS = 0.18
+
+
+@contextmanager
+def suppress_active_scrollview_scope_visuals(window):
+    sentinel = object()
+    saved = []
+    seen = set()
+
+    def save_attr(obj, name, value):
+        previous = getattr(obj, name, sentinel)
+        saved.append((obj, name, previous))
+        setattr(obj, name, value)
+
+    def visit(obj):
+        if obj is None:
+            return
+        identity = id(obj)
+        if identity in seen:
+            return
+        seen.add(identity)
+        save_attr(obj, "_suppress_active_scrollview_scope_visuals", True)
+        if hasattr(obj, "_active_scrollview_scope"):
+            save_attr(obj, "_active_scrollview_scope", None)
+        if hasattr(obj, "_edit_mode"):
+            save_attr(obj, "_edit_mode", False)
+        element_type = getattr(obj, "ELEMENT_TYPE", None)
+        if (
+            hasattr(obj, "_focused")
+            and (
+                element_type in ("uielement", "uiscrollview", "viewhost")
+                or (
+                    hasattr(obj, "child_view_entries")
+                    and hasattr(obj, "_clamped_viewport_rect")
+                )
+            )
+        ):
+            save_attr(obj, "_focused", False)
+
+        get_children = getattr(obj, "_get_children", None)
+        if callable(get_children):
+            for child in get_children():
+                visit(child)
+
+        for element in getattr(obj, "_elements", {}).values():
+            visit(element)
+            visit(getattr(element, "_child_instance", None))
+            current_view = element.current_view() if hasattr(element, "current_view") else None
+            visit(current_view)
+
+    visit(window)
+    try:
+        yield
+    finally:
+        for obj, name, previous in reversed(saved):
+            if previous is sentinel:
+                try:
+                    delattr(obj, name)
+                except AttributeError:
+                    pass
+            else:
+                setattr(obj, name, previous)
 
 
 class LayoutCell:
@@ -1596,6 +1658,8 @@ class UIBase(UIInstance):
         return scope.get("scrollview_rect") or self._element_focus_rect(scope["proxy"])
 
     def _active_scrollview_scope_dim_background(self):
+        if getattr(self, "_suppress_active_scrollview_scope_visuals", False):
+            return None
         scope = self._active_scrollview_scope
         if scope is None or not self._edit_mode:
             return None
@@ -1607,6 +1671,8 @@ class UIBase(UIInstance):
         return getattr(scrollview_style, "scope_dim_background", None) if scrollview_style is not None else None
 
     def _active_scrollview_scope_focus_background(self):
+        if getattr(self, "_suppress_active_scrollview_scope_visuals", False):
+            return None
         scope = self._active_scrollview_scope
         if scope is None:
             return None
@@ -1625,6 +1691,8 @@ class UIBase(UIInstance):
     def _ancestor_active_scrollview_scope_proxy(self):
         owner = getattr(self, "parent", None)
         while owner is not None:
+            if getattr(owner, "_suppress_active_scrollview_scope_visuals", False):
+                return None
             scope = getattr(owner, "_active_scrollview_scope", None)
             if scope is not None and scope.get("scrollview") is self:
                 return scope.get("proxy")
@@ -1921,8 +1989,6 @@ class UIBase(UIInstance):
             # Candidate's left edge must not be before source's right edge.
             if candidate["left"] < current["right"]:
                 return None
-            if not cls._axis_overlaps(current["top"], current["bottom"], candidate["top"], candidate["bottom"]):
-                return None
             primary_gap = max(0, candidate["left"] - current["right"])
             band_rank = cls._band_scan_rank(
                 current["top"], current["bottom"], candidate["top"], candidate["bottom"])
@@ -1936,8 +2002,6 @@ class UIBase(UIInstance):
                 return None
             # Candidate's right edge must not extend past source's left edge.
             if candidate["right"] > current["left"]:
-                return None
-            if not cls._axis_overlaps(current["top"], current["bottom"], candidate["top"], candidate["bottom"]):
                 return None
             primary_gap = max(0, current["left"] - candidate["right"])
             band_rank = cls._band_scan_rank(

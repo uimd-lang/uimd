@@ -1188,6 +1188,13 @@ int main() {
     assert(events[3].key == "Left");
     assert(events[4].key == "Shift+Tab");
 
+    events = parser.feed("\x1bOA\x1bOB\x1bOC\x1bOD");
+    assert(events.size() == 4);
+    assert(events[0].key == "Up");
+    assert(events[1].key == "Down");
+    assert(events[2].key == "Right");
+    assert(events[3].key == "Left");
+
     events = parser.feed("\x1b[1;2D\x1b[1;2C\x1b[1;2A\x1b[1;2B");
     assert(events.size() == 4);
     assert(events[0].key == "Shift+Left");
