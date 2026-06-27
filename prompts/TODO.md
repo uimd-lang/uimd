@@ -4,6 +4,75 @@
 
 Date: 2026-06-21
 
+- [x] **C# direct input/listbox/scroll restoration regressions after latest
+  runtime parity fixes**. User reported on 2026-06-27 while manually testing C#
+  examples that several direct-runtime behaviors regressed: clicking into a
+  spinbox/NumberInput whose value is `0` and typing should replace the `0` with
+  the first typed digit just like keyboard Enter edit does, but mouse-started
+  editing keeps the `0`; `expense_tracker` does not scroll to the newly added
+  expense location after adding an expense and must be checked against C++
+  parity; the multi-select ListBox in `formular` cannot toggle items with
+  arrow keys plus Enter, only mouse; FileBrowser/ListBox selection in long lists
+  should automatically keep the selected file visible by native ListBox
+  scrolling, not by example-specific code; and `task_board` should not scroll a
+  ScrollView just because a dialog was opened and closed. Treat this as shared
+  C# runtime parity, not as example workarounds. Parity paths to audit: C#
+  `csharp/src/Uimd/Runtime/Elements.cs` NumberInput/ListBox/ScrollView state,
+  C# `csharp/src/Uimd/Runtime/GeneratedWindow.cs` direct mouse/edit/key and
+  modal focus/scroll restoration, C# `csharp/src/Uimd/Runtime/Dialogs.cs`
+  FileBrowser only where it mirrors generated dialog behavior, C++
+  `cpp/src/elements/BasicElements.cpp`,
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`, and Python reference paths in
+  `src/uimd/runtime`. Required validation: reproduce or encode focused C#
+  direct/MCP checks for the five user-visible paths, keep changes surgical and
+  structurally aligned with C++/Python, rebuild affected C# examples, run
+  focused C++/C# compares with `--compare-app-size 90x35`, and run the broader
+  rebuild/parity gate appropriate for touched shared runtime code.
+  Fixed on 2026-06-27 by preserving C# and C++ NumberInput first-replace state
+  for mouse-started edits on zero-valued inputs, aligning ListBox active-row
+  navigation and multi-select Enter toggling across Python/C++/C#, making
+  ListBox rendering keep the active/selected item visible in long lists, and
+  comparing ListBox selected values rather than only selected index for
+  generated change dispatch/MCP tools. Python fallback active-scroll dimming was
+  also aligned with C++/C# by blending both foreground and background colors for
+  half-block image cells instead of leaving black bands. The work stayed in
+  shared runtime/generated-window code plus focused `formular` parity coverage,
+  with no example-specific workaround. Validation passed: focused C# smoke
+  scripts for NumberInput mouse zero replacement, `formular` multi-select
+  keyboard toggling, FileBrowser long-list visibility, `expense_tracker` add
+  scroll visibility, and `task_board` dialog scroll preservation; focused
+  C++/C# compares for `formular`, `expense_tracker`, `task_board`, and
+  `text_editor`; full `./uimd mcp-test --headless --all --compare
+  cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35` with
+  626 asserts; `PATH=/Users/marekdubovsky/.dotnet:$PATH
+  ./tools/rebuild_all.sh`; focused Python/C++ `image_browser` compare; and full
+  `./uimd mcp-test --headless --all --compare python/examples
+  cpp/build/examples --mcp-fast --compare-app-size 90x35` with 626 asserts.
+- [x] **formular MCP compare reports one step failure after C# runtime parity
+  commit**. User reported on 2026-06-27:
+  `03:55:19 SUMMARY tests/mcp/formular.yaml [formular]: FAIL 8 asserts passed,
+  0 failed, 1 step failures`. Treat this as a parity-sensitive MCP/runtime or
+  generated C# regression, not as a test workaround. Affected paths to audit:
+  `tests/mcp/formular.yaml`, Python reference runtime under `src/uimd/runtime`,
+  C++ runtime/generated-window dispatch under `cpp/src/generated`, and C#
+  runtime/generated-window dispatch under `csharp/src/Uimd/Runtime`. Required
+  validation: reproduce the exact failing step with `--compare-app-size 90x35`,
+  fix the shared runtime/generator behavior while preserving Python/C++/C#
+  parity, rebuild/regenerate affected outputs, rerun focused `formular` compare,
+  and run the necessary broader parity gate for the touched shared behavior.
+  Fixed on 2026-06-27 in C# MCP coordinate dispatch: root-window MCP
+  `mouse_click` now subtracts only the compare viewport origin before hit
+  testing because C# root rendering stores element frames in viewport-relative
+  coordinates, while modal/window-stack clicks still use `WindowStackContentPoint`
+  so dialog hit testing remains content-relative. Validation passed:
+  `/Users/marekdubovsky/.dotnet/dotnet build csharp/src/Uimd/Uimd.csproj
+  --configuration Debug`, `/Users/marekdubovsky/.dotnet/dotnet build
+  csharp/examples/formular/formular.csproj --configuration Debug`,
+  `./uimd mcp-test --headless --compare cpp/build/examples csharp/examples
+  tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35` with 76 asserts,
+  `PATH=/Users/marekdubovsky/.dotnet:$PATH ./tools/rebuild_all.sh`, and
+  `./uimd mcp-test --headless --all --compare cpp/build/examples csharp/examples
+  --mcp-fast --compare-app-size 90x35` with 626 asserts.
 - [x] **C# direct modal/dialog mouse clicks miss after recent image preview
   fixes**. User reported on 2026-06-27 that direct C# mouse clicks no longer
   work on controls inside dialog windows, message boxes, and browse dialogs;

@@ -2155,6 +2155,12 @@ class ListBox(UIElement):
         self.multiple = multiple
         self._scroll_offset = 0
         self._disabled_items = set()
+        self._active_index = 0
+        if self._selected_items:
+            try:
+                self._active_index = self._options.index(self._selected_items[-1])
+            except ValueError:
+                self._active_index = 0
 
     @property
     def selected_item(self):
@@ -2163,6 +2169,8 @@ class ListBox(UIElement):
     @selected_item.setter
     def selected_item(self, value):
         self._selected_items = [value] if value else []
+        if value in self._options:
+            self._active_index = self._options.index(value)
         self._mark_dirty()
 
     @property
@@ -2172,6 +2180,8 @@ class ListBox(UIElement):
     @selected_items.setter
     def selected_items(self, items):
         self._selected_items = list(items) if items else []
+        if self._selected_items and self._selected_items[-1] in self._options:
+            self._active_index = self._options.index(self._selected_items[-1])
         self._mark_dirty()
 
     @property
@@ -2218,33 +2228,34 @@ class ListBox(UIElement):
         if not self._options:
             return False
 
-        if not self._selected_items:
-            if key in ("Up", "Down"):
-                self._selected_items = [self._options[0]]
-                self._scroll_offset = 0
-                return True
-            return False
-
-        current = self._selected_items[-1]
-        idx = self._options.index(current) if current in self._options else 0
+        idx = max(0, min(getattr(self, "_active_index", 0), len(self._options) - 1))
+        if not self.multiple and self._selected_items:
+            current = self._selected_items[-1]
+            idx = self._options.index(current) if current in self._options else idx
 
         if key == "Up":
             idx = max(0, idx - 1)
-            self._selected_items[-1] = self._options[idx]
+            self._active_index = idx
+            if not self.multiple:
+                self._selected_items = [self._options[idx]]
             self._ensure_selection_visible(idx)
             return True
         if key == "Down":
             idx = min(len(self._options) - 1, idx + 1)
-            self._selected_items[-1] = self._options[idx]
+            self._active_index = idx
+            if not self.multiple:
+                self._selected_items = [self._options[idx]]
             self._ensure_selection_visible(idx)
             return True
         if key == "Enter":
             if not self.multiple:
-                pass  # window will exit edit mode
-            elif current in self._selected_items:
-                self._selected_items.remove(current)
+                self._selected_items = [self._options[idx]]
             else:
-                self._selected_items.append(current)
+                current = self._options[idx]
+                if current in self._selected_items:
+                    self._selected_items.remove(current)
+                else:
+                    self._selected_items.append(current)
             return True
         if key == "Escape":
             return True
@@ -2271,6 +2282,9 @@ class ListBox(UIElement):
         disabled_bg = disabled.background if disabled and disabled.background is not None else bg
 
         h = self.height or LISTBOX_DEFAULT_HEIGHT
+        if self._options:
+            self._active_index = max(0, min(getattr(self, "_active_index", 0), len(self._options) - 1))
+            self._ensure_selection_visible(self._active_index)
         has_above = self._scroll_offset > 0
         has_below = (self._scroll_offset + h) < len(self._options)
 
@@ -2281,9 +2295,10 @@ class ListBox(UIElement):
                 break
             opt = self._options[opt_idx]
             is_sel = opt in self._selected_items
+            is_active = self.multiple and self._edit_mode and opt_idx == self._active_index
             is_disabled = opt in self._disabled_items
-            item_fg = disabled_fg if is_disabled else (sel_fg if is_sel and sel_fg is not None else fg)
-            item_bg = disabled_bg if is_disabled else (_overlay_background(sel_bg, bg, parent_bg) if is_sel and sel_bg is not None else bg)
+            item_fg = disabled_fg if is_disabled else (sel_fg if (is_sel or is_active) and sel_fg is not None else fg)
+            item_bg = disabled_bg if is_disabled else (_overlay_background(sel_bg, bg, parent_bg) if (is_sel or is_active) and sel_bg is not None else bg)
             item_text = self._format_item_text(opt, w, pad_left, pad_right)
             if i == 0 and has_above and w > 0:
                 item_text = item_text[:w - 1] + "^"

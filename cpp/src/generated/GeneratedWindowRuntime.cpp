@@ -4422,6 +4422,11 @@ void renderNotification(TerminalBuffer& buffer, std::string_view message) {
     return -1;
 }
 
+struct SelectionChangeSnapshot {
+    int index = -1;
+    std::optional<std::vector<std::string>> values;
+};
+
 [[nodiscard]] std::vector<std::string> selectedValuesOf(const Element* element) {
     if (const auto* comboBox = dynamic_cast<const ComboBox*>(element)) {
         const auto& choices = comboBox->options();
@@ -4433,6 +4438,17 @@ void renderNotification(TerminalBuffer& buffer, std::string_view message) {
         return listBox->selectedValues();
     }
     return {};
+}
+
+[[nodiscard]] SelectionChangeSnapshot selectionChangeSnapshot(const Element* element) {
+    SelectionChangeSnapshot snapshot{
+        .index = selectedIndexOf(element),
+        .values = std::nullopt,
+    };
+    if (dynamic_cast<const ListBox*>(element) != nullptr) {
+        snapshot.values = selectedValuesOf(element);
+    }
+    return snapshot;
 }
 
 [[nodiscard]] std::string textValueOf(const Element* element) {
@@ -4600,9 +4616,13 @@ void notifyOwnerAwareSelectionChanged(GeneratedWindowBase& window,
 void notifyOwnerAwareValueChangedAfterHandledKey(GeneratedWindowBase& window,
                                                  const GeneratedWindowRuntimeOptions& options,
                                                  Element* element,
-                                                 int previousSelectionIndex) {
+                                                 const SelectionChangeSnapshot& previousSelection) {
     if (isSelectionElement(element)) {
-        notifyOwnerAwareSelectionChanged(window, options, element, previousSelectionIndex);
+        if (previousSelection.values.has_value()) {
+            notifyOwnerAwareSelectionChanged(window, options, element, *previousSelection.values);
+        } else {
+            notifyOwnerAwareSelectionChanged(window, options, element, previousSelection.index);
+        }
         return;
     }
     notifyOwnerAwareTextChanged(window, options, element);
@@ -4773,18 +4793,18 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
                     return true;
                 }
                 if (isArrowKey(key)) {
-                    const int previousSelectionIndex = selectedIndexOf(frame.activeScrollViewEditElement);
+                    const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(frame.activeScrollViewEditElement);
                     (void)handleElementKey(*frame.activeScrollViewEditElement, key);
                     notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions,
                                                                 frame.activeScrollViewEditElement,
-                                                                previousSelectionIndex);
+                                                                previousSelection);
                     return true;
                 }
-                const int previousSelectionIndex = selectedIndexOf(frame.activeScrollViewEditElement);
+                const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(frame.activeScrollViewEditElement);
                 (void)handleElementKey(*frame.activeScrollViewEditElement, key);
                 notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions,
                                                             frame.activeScrollViewEditElement,
-                                                            previousSelectionIndex);
+                                                            previousSelection);
                 return true;
             }
             if (isArrowKey(key)) {
@@ -4815,9 +4835,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
                     return true;
                 }
                 if (isImmediateInput(*focused)) {
-                    const int previousSelectionIndex = selectedIndexOf(focused);
+                    const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                     (void)handleElementKey(*focused, key);
-                    notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelectionIndex);
+                    notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
                     return true;
                 }
                 if (isEditableElement(*focused)) {
@@ -4831,9 +4851,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             return true;
         }
         if (key == "Enter" && usesLeaveCommit(focused)) {
-            const int previousSelectionIndex = selectedIndexOf(focused);
+            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
             (void)handleElementKey(*focused, key);
-            notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelectionIndex);
+            notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
             frame.editSnapshot.reset();
         } else if (key == "Enter" && !usesLeaveCommit(focused)) {
             (void)handleElementKey(*focused, key);
@@ -4842,9 +4862,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             frame.editMode = false;
             frame.editSnapshot.reset();
         } else {
-            const int previousSelectionIndex = selectedIndexOf(focused);
+            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
             (void)handleElementKey(*focused, key);
-            notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelectionIndex);
+            notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
         }
         return true;
     }
@@ -4876,9 +4896,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             notifyOwnerAwareButton(*frame.window, notifyOptions, focused);
         } else if (activateReusableControl(focused)) {
         } else if (isImmediateInput(*focused)) {
-            const int previousSelectionIndex = selectedIndexOf(focused);
+            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
             (void)handleElementKey(*focused, key);
-            notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelectionIndex);
+            notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
         } else if (isEditableElement(*focused)) {
             if (!enterScrollViewScope(*frame.window, frame.focusedIndex, frame.editMode,
                                       frame.activeScrollView, frame.scrollViewLastDescendant)) {
@@ -4894,9 +4914,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
         return true;
     }
     if (isImmediateInput(*focused)) {
-        const int previousSelectionIndex = selectedIndexOf(focused);
+        const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
         (void)handleElementKey(*focused, key);
-        notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelectionIndex);
+        notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
         return true;
     }
     return true;
@@ -4990,7 +5010,7 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             activeScrollViewEditElement = element;
         }
         notifyEditStarted(options, element);
-        numberInput->setEditCursor(localCol);
+        numberInput->setEditCursor(localCol, numberInput->value() == 0.0);
         return true;
     }
     if (auto* comboBox = dynamic_cast<ComboBox*>(element)) {
@@ -7161,12 +7181,21 @@ private:
             throw std::runtime_error("Unknown option for " + element->name() + ": " + value);
         }
         const int previousIndex = selectedIndexOf(element);
+        const std::vector<std::string> previousValues = selectedValuesOf(element);
         if (auto* mutableComboBox = dynamic_cast<ComboBox*>(element)) {
             mutableComboBox->setSelectedIndex(nextIndex);
         } else if (auto* mutableListBox = dynamic_cast<ListBox*>(element)) {
-            mutableListBox->setSelectedIndex(nextIndex);
+            if (mutableListBox->multiple()) {
+                mutableListBox->setSelectedValues({value});
+            } else {
+                mutableListBox->setSelectedIndex(nextIndex);
+            }
         }
-        notifyActiveFrameSelectionChanged(element, previousIndex);
+        if (auto* mutableListBox = dynamic_cast<ListBox*>(element); mutableListBox != nullptr && mutableListBox->multiple()) {
+            notifyActiveFrameSelectionChanged(element, previousValues);
+        } else {
+            notifyActiveFrameSelectionChanged(element, previousIndex);
+        }
     }
 
     [[nodiscard]] JsonValue toolSetValue(const JsonValue::Object& arguments) {
@@ -7231,7 +7260,7 @@ private:
         if (!listBox->multiple() && values->array().size() > 1) {
             throw std::runtime_error("ListBox is not multi-select: " + element->name());
         }
-        const int previousSelectionIndex = selectedIndexOf(element);
+        const std::vector<std::string> previousValues = selectedValuesOf(element);
         std::vector<std::string> requestedValues;
         const auto& options = listBox->options();
         for (const JsonValue& value : values->array()) {
@@ -7248,7 +7277,7 @@ private:
             }
         }
         listBox->setSelectedValues(nextValues);
-        notifyActiveFrameSelectionChanged(element, previousSelectionIndex);
+        notifyActiveFrameSelectionChanged(element, previousValues);
         state_.fullRedrawRequested = true;
         return snapshot(*element);
     }
@@ -7335,13 +7364,13 @@ private:
                         editSnapshot_.reset();
                         activeScrollViewEditElement_ = nullptr;
                     } else if (isArrowKey(key)) {
-                        const int previousSelectionIndex = selectedIndexOf(activeScrollViewEditElement_);
+                        const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement_);
                         (void)handleElementKey(*activeScrollViewEditElement_, key);
-                        notifyActiveFrameValueChangedAfterHandledKey(activeScrollViewEditElement_, previousSelectionIndex);
+                        notifyActiveFrameValueChangedAfterHandledKey(activeScrollViewEditElement_, previousSelection);
                     } else {
-                        const int previousSelectionIndex = selectedIndexOf(activeScrollViewEditElement_);
+                        const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement_);
                         (void)handleElementKey(*activeScrollViewEditElement_, key);
-                        notifyActiveFrameValueChangedAfterHandledKey(activeScrollViewEditElement_, previousSelectionIndex);
+                        notifyActiveFrameValueChangedAfterHandledKey(activeScrollViewEditElement_, previousSelection);
                     }
                 } else if (isArrowKey(key)) {
                     (void)moveScrollViewScopeFocus(window, focusedIndex, activeScrollView_, scrollViewLastDescendant_, key);
@@ -7353,9 +7382,9 @@ private:
                     if (focused != nullptr && (isButton(*focused) || isClickableImage(*focused))) {
                         (void)handleActiveFrameButton(focused->name());
                     } else if (focused != nullptr && isImmediateInput(*focused)) {
-                        const int previousSelectionIndex = selectedIndexOf(focused);
+                        const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                         (void)handleElementKey(*focused, key);
-                        notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelectionIndex);
+                        notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelection);
                     } else if (focused != nullptr && isEditableElement(*focused)) {
                         editSnapshot_ = captureSnapshot(focused);
                         beginElementEdit(focused);
@@ -7364,9 +7393,9 @@ private:
                     }
                 }
             } else if (key == "Enter" && usesLeaveCommit(focused)) {
-                const int previousSelectionIndex = selectedIndexOf(focused);
+                const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                 (void)handleElementKey(*focused, key);
-                notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelectionIndex);
+                notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelection);
                 editSnapshot_.reset();
             } else if (key == "Enter" && !usesLeaveCommit(focused)) {
                 (void)handleElementKey(*focused, key);
@@ -7377,9 +7406,9 @@ private:
                     editSnapshot_.reset();
                 }
             } else {
-                const int previousSelectionIndex = selectedIndexOf(focused);
+                const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                 (void)handleElementKey(*focused, key);
-                notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelectionIndex);
+                notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelection);
             }
         } else if (handleActiveFrameKey(key)) {
         } else if (key == "Tab") {
@@ -7418,9 +7447,9 @@ private:
                 }
             }
         } else if (focused != nullptr && isImmediateInput(*focused)) {
-            const int previousSelectionIndex = selectedIndexOf(focused);
+            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
             (void)handleElementKey(*focused, key);
-            notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelectionIndex);
+            notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelection);
         }
         clearInvalidActiveScrollViewScopeForWindow(activeWindow());
         state_.fullRedrawRequested = true;
@@ -8081,9 +8110,53 @@ private:
         notifySelectionChanged(options_, element, previousSelectionIndex);
     }
 
+    void notifyActiveFrameSelectionChanged(Element* element, const std::vector<std::string>& previousValues) {
+        if (element == nullptr || !isSelectionElement(element)) {
+            return;
+        }
+        const std::vector<std::string> currentValues = selectedValuesOf(element);
+        if (currentValues == previousValues) {
+            return;
+        }
+        GeneratedWindowBase& window = activeWindow();
+        if (GeneratedWindowBase* owner = ownerWindowForElement(window, element);
+            owner != nullptr && owner != &window) {
+            (void)owner->handleGeneratedSelectionChanged(element->name(), currentValues);
+            return;
+        }
+        if (GeneratedWindowStackFrame* frame = activeStackFrame();
+            frame != nullptr && frame->options.onSelectionChanged) {
+            frame->options.onSelectionChanged(element->name(), currentValues);
+            return;
+        }
+        if (options_.onSelectionChanged) {
+            options_.onSelectionChanged(element->name(), currentValues);
+        }
+    }
+
     void notifyActiveFrameValueChangedAfterHandledKey(Element* element, int previousSelectionIndex) {
         if (isSelectionElement(element)) {
             notifyActiveFrameSelectionChanged(element, previousSelectionIndex);
+        } else {
+            notifyActiveFrameTextChanged(element);
+        }
+    }
+
+    void notifyActiveFrameValueChangedAfterHandledKey(Element* element, const std::vector<std::string>& previousValues) {
+        if (isSelectionElement(element)) {
+            notifyActiveFrameSelectionChanged(element, previousValues);
+        } else {
+            notifyActiveFrameTextChanged(element);
+        }
+    }
+
+    void notifyActiveFrameValueChangedAfterHandledKey(Element* element, const SelectionChangeSnapshot& previousSelection) {
+        if (isSelectionElement(element)) {
+            if (previousSelection.values.has_value()) {
+                notifyActiveFrameSelectionChanged(element, *previousSelection.values);
+            } else {
+                notifyActiveFrameSelectionChanged(element, previousSelection.index);
+            }
         } else {
             notifyActiveFrameTextChanged(element);
         }
@@ -9852,15 +9925,15 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                             editSnapshot.reset();
                             activeScrollViewEditElement = nullptr;
                         } else if (isArrowKey(key)) {
-                            const int previousSelectionIndex = selectedIndexOf(activeScrollViewEditElement);
+                            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement);
                             (void)handleElementKey(*activeScrollViewEditElement, key);
                             notifyOwnerAwareValueChangedAfterHandledKey(window, options, activeScrollViewEditElement,
-                                                                        previousSelectionIndex);
+                                                                        previousSelection);
                         } else {
-                            const int previousSelectionIndex = selectedIndexOf(activeScrollViewEditElement);
+                            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement);
                             (void)handleElementKey(*activeScrollViewEditElement, key);
                             notifyOwnerAwareValueChangedAfterHandledKey(window, options, activeScrollViewEditElement,
-                                                                        previousSelectionIndex);
+                                                                        previousSelection);
                         }
                     } else if (isArrowKey(key)) {
                         (void)moveScrollViewScopeFocus(window, focusedIndex, activeScrollView, scrollViewLastDescendant, key);
@@ -9872,9 +9945,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                         if (focused != nullptr && (isButton(*focused) || isClickableImage(*focused))) {
                             notifyOwnerAwareButton(window, options, focused);
                         } else if (focused != nullptr && isImmediateInput(*focused)) {
-                            const int previousSelectionIndex = selectedIndexOf(focused);
+                            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                             (void)handleElementKey(*focused, key);
-                            notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelectionIndex);
+                            notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
                         } else if (focused != nullptr && isEditableElement(*focused)) {
                             editSnapshot = captureSnapshot(focused);
                             beginElementEdit(focused);
@@ -9886,9 +9959,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                     editSnapshot = captureSnapshot(focused);
                 } else if (key == "Enter") {
                     if (usesLeaveCommit(focused)) {
-                        const int previousSelectionIndex = selectedIndexOf(focused);
+                        const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                         (void)handleElementKey(*focused, key);
-                        notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelectionIndex);
+                        notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
                         continue;
                     }
                     (void)handleElementKey(*focused, key);
@@ -9903,9 +9976,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                         editMode = false;
                     }
                 } else {
-                    const int previousSelectionIndex = selectedIndexOf(focused);
+                    const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                     (void)handleElementKey(*focused, key);
-                    notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelectionIndex);
+                    notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
                 }
                 continue;
             }
@@ -9933,9 +10006,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                     notifyOwnerAwareButton(window, options, focused);
                 } else if (activateReusableControl(focused)) {
                 } else if (isImmediateInput(*focused)) {
-                    const int previousSelectionIndex = selectedIndexOf(focused);
+                    const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                     (void)handleElementKey(*focused, key);
-                    notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelectionIndex);
+                    notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
                 } else if (isEditableElement(*focused)) {
                     if (!enterScrollViewScope(window, focusedIndex, editMode, activeScrollView, scrollViewLastDescendant)) {
                         editSnapshot = captureSnapshot(focused);
@@ -9950,9 +10023,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                 continue;
             }
             if (isImmediateInput(*focused)) {
-                const int previousSelectionIndex = selectedIndexOf(focused);
+                const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                 (void)handleElementKey(*focused, key);
-                notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelectionIndex);
+                notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
             }
         }
 

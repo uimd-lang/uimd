@@ -7,6 +7,7 @@ from .uiinstance import UIInstance
 from .uielement import UIElement
 from .style import Style, Color, DEFAULT_TEXT_COLOR, DEFAULT_BG_COLOR
 from .elements import _build_visual_rows, _copy_text_to_clipboard, _notify_copied
+from .image import FALLBACK_UPPER_HALF_BLOCK
 from .rendering import TerminalCell, cells_to_ansi_lines, coerce_cell, parse_ansi_cells
 
 
@@ -2323,6 +2324,8 @@ class UIBase(UIInstance):
                 elem.selected_items = elem.selected_items + [item]
         else:
             elem.selected_items = [elem._options[option_idx]]
+        if hasattr(elem, "_active_index"):
+            elem._active_index = option_idx
         elem._ensure_selection_visible(option_idx)
         after = list(elem.selected_items or [])
         if after != before:
@@ -2597,6 +2600,12 @@ class UIBase(UIInstance):
                     if handled and self._focused_element.ELEMENT_TYPE == "listbox":
                         self._dispatch_confirmed_for(self._focused_element, getattr(self._focused_element, "value", None))
                     return handled
+                if (
+                    self._focused_element
+                    and self._focused_element.ELEMENT_TYPE == "listbox"
+                    and getattr(self._focused_element, "multiple", False)
+                ):
+                    self._handle_focused_element_key(key)
                 self._exit_edit_mode(commit=True)
                 return True
             if self._focused_element:
@@ -3738,6 +3747,8 @@ class UIBase(UIInstance):
                 for col in range(self._window_width):
                     inside = inside_rows and col >= dim_rect["left"] and col < dim_rect["right"]
                     if not inside:
+                        if plain_chars[col] == FALLBACK_UPPER_HALF_BLOCK:
+                            fg_map[col] = self._blend_color_over(dim_background, fg_map[col])
                         bg_map[col] = self._blend_color_over(dim_background, bg_map[col])
 
             row_styles = []
@@ -3828,10 +3839,13 @@ class UIBase(UIInstance):
         if alpha <= 0.0:
             return background
 
-        if isinstance(background, str) and len(background) == 9 and background.isdigit():
-            background = Color(
-                f"#{int(background[0:3]):02x}{int(background[3:6]):02x}{int(background[6:9]):02x}"
-            )
+        if isinstance(background, str):
+            if len(background) >= 7 and background.startswith("#"):
+                background = Color(background[:7])
+            elif len(background) == 9 and background.isdigit():
+                background = Color(
+                    f"#{int(background[0:3]):02x}{int(background[3:6]):02x}{int(background[6:9]):02x}"
+                )
         if background is None or getattr(background, "r", -1) < 0:
             background = Color("#000000")
 

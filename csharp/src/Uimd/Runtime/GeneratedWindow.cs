@@ -7764,8 +7764,12 @@ public sealed class McpController
                     if (key == "Enter")
                     {
                         int previousSelectionIndex = SelectedIndexOf(Current.ActiveScrollViewEditElement);
+                        List<string>? previousSelectionValues = SelectionValuesForChange(Current.ActiveScrollViewEditElement);
                         Current.ActiveScrollViewEditElement.HandleKey(key);
-                        DispatchChangedAfterHandledKey(Current.ActiveScrollViewEditElement, previousSelectionIndex);
+                        DispatchChangedAfterHandledKey(
+                            Current.ActiveScrollViewEditElement,
+                            previousSelectionIndex,
+                            previousSelectionValues);
                         DispatchConfirmed(Current.ActiveScrollViewEditElement);
                         CommitEdit(Current.ActiveScrollViewEditElement);
                         Current.EditSnapshot = null;
@@ -7774,8 +7778,12 @@ public sealed class McpController
                     else
                     {
                         int previousSelectionIndex = SelectedIndexOf(Current.ActiveScrollViewEditElement);
+                        List<string>? previousSelectionValues = SelectionValuesForChange(Current.ActiveScrollViewEditElement);
                         Current.ActiveScrollViewEditElement.HandleKey(key);
-                        DispatchChangedAfterHandledKey(Current.ActiveScrollViewEditElement, previousSelectionIndex);
+                        DispatchChangedAfterHandledKey(
+                            Current.ActiveScrollViewEditElement,
+                            previousSelectionIndex,
+                            previousSelectionValues);
                     }
                 }
                 else if (IsDirectionalKey(key))
@@ -7796,8 +7804,9 @@ public sealed class McpController
                     else if (focused is not null && IsImmediateInput(focused))
                     {
                         int previousSelectionIndex = SelectedIndexOf(focused);
+                        List<string>? previousSelectionValues = SelectionValuesForChange(focused);
                         focused.HandleKey(key);
-                        DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+                        DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
                     }
                     else if (focused is not null && IsEditableElement(focused))
                     {
@@ -7811,13 +7820,17 @@ public sealed class McpController
             else if (key == "Enter" && UsesLeaveCommit(focused))
             {
                 int previousSelectionIndex = SelectedIndexOf(focused);
+                List<string>? previousSelectionValues = SelectionValuesForChange(focused);
                 focused.HandleKey(key);
-                DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
                 Current.EditSnapshot = null;
             }
             else if (key == "Enter" && !UsesLeaveCommit(focused))
             {
+                int previousSelectionIndex = SelectedIndexOf(focused);
+                List<string>? previousSelectionValues = SelectionValuesForChange(focused);
                 focused.HandleKey(key);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
                 DispatchConfirmed(focused);
                 CommitEdit(focused);
                 Current.EditMode = Current.Options.KeepEditModeAfterConfirm && IsEditableElement(focused);
@@ -7835,8 +7848,9 @@ public sealed class McpController
             else
             {
                 int previousSelectionIndex = SelectedIndexOf(focused);
+                List<string>? previousSelectionValues = SelectionValuesForChange(focused);
                 focused.HandleKey(key);
-                DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
             }
             CloseCurrentWindowIfRequested();
             return FocusedElement() is Element edited ? Snapshot(edited) : new JsonObject { ["ok"] = true };
@@ -7903,8 +7917,9 @@ public sealed class McpController
             else if (IsImmediateInput(focused))
             {
                 int previousSelectionIndex = SelectedIndexOf(focused);
+                List<string>? previousSelectionValues = SelectionValuesForChange(focused);
                 focused.HandleKey(key);
-                DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
             }
             else if (IsEditableElement(focused))
             {
@@ -7927,8 +7942,9 @@ public sealed class McpController
         if (IsImmediateInput(focused))
         {
             int previousSelectionIndex = SelectedIndexOf(focused);
+            List<string>? previousSelectionValues = SelectionValuesForChange(focused);
             focused.HandleKey(key);
-            DispatchChangedAfterHandledKey(focused, previousSelectionIndex);
+            DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
         }
         CloseCurrentWindowIfRequested();
         return new JsonObject { ["ok"] = true };
@@ -8476,7 +8492,9 @@ public sealed class McpController
             {
                 Current.ActiveScrollViewEditElement = numberInput;
             }
-            numberInput.SetEditCursor(position.Col - numberInput.Frame.Col);
+            numberInput.SetEditCursor(
+                position.Col - numberInput.Frame.Col,
+                preserveReplaceOnFirstTextInput: numberInput.Value == 0.0);
             Current.Options.OnEditStarted?.Invoke(numberInput.Name);
         }
         else if (target is ComboBox targetComboBox)
@@ -8728,6 +8746,10 @@ public sealed class McpController
     private Point WindowPointFromTerminalPoint(Point point)
     {
         Point viewportPoint = new(point.Row - config.ViewportRow, point.Col - config.ViewportCol);
+        if (frames.Count <= 1)
+        {
+            return viewportPoint;
+        }
         return GeneratedWindowRuntime.WindowStackContentPoint(Current.Window, ViewportSize(), viewportPoint);
     }
 
@@ -8902,7 +8924,14 @@ public sealed class McpController
                 int index = listBox.Options.IndexOf(text);
                 if (index >= 0)
                 {
-                    listBox.SetSelectedIndex(index);
+                    if (listBox.Multiple)
+                    {
+                        listBox.SetSelectedValues(new[] { text });
+                    }
+                    else
+                    {
+                        listBox.SetSelectedIndex(index);
+                    }
                 }
             }
             OptionsFor(listBox).OnSelectionChanged?.Invoke(listBox.Name, listBox.SelectedValues.ToList());
@@ -9051,7 +9080,14 @@ public sealed class McpController
             int index = listBox.Options.IndexOf(value);
             if (index >= 0)
             {
-                listBox.SetSelectedIndex(index);
+                if (listBox.Multiple)
+                {
+                    listBox.SetSelectedValues(new[] { value });
+                }
+                else
+                {
+                    listBox.SetSelectedIndex(index);
+                }
                 OptionsFor(listBox).OnSelectionChanged?.Invoke(listBox.Name, listBox.SelectedValues.ToList());
             }
         }
@@ -9080,8 +9116,24 @@ public sealed class McpController
         }
     }
 
-    private void DispatchChangedAfterHandledKey(Element element, int previousSelectionIndex)
+    private static List<string>? SelectionValuesForChange(Element element)
     {
+        return element is ListBox listBox ? listBox.SelectedValues.ToList() : null;
+    }
+
+    private void DispatchChangedAfterHandledKey(
+        Element element,
+        int previousSelectionIndex,
+        List<string>? previousSelectionValues = null)
+    {
+        if (element is ListBox listBox && previousSelectionValues is not null)
+        {
+            if (!previousSelectionValues.SequenceEqual(listBox.SelectedValues))
+            {
+                DispatchChanged(element);
+            }
+            return;
+        }
         if (element is ComboBox or ListBox)
         {
             if (SelectedIndexOf(element) != previousSelectionIndex)

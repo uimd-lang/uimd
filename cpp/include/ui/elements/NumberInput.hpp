@@ -17,7 +17,7 @@ public:
     }
 
     void setValue(double value);
-    void setEditCursor(int cursor);
+    void setEditCursor(int cursor, bool preserveReplaceOnFirstTextInput = false);
     void setEditText(std::string text);
     void beginEdit();
     void cancelEdit();

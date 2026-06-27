@@ -1136,10 +1136,12 @@ void NumberInput::setValue(double value) {
     replaceOnFirstTextInput_ = false;
 }
 
-void NumberInput::setEditCursor(int cursor) {
+void NumberInput::setEditCursor(int cursor, bool preserveReplaceOnFirstTextInput) {
     ensureEditText();
     editCursor_ = clampIndex(cursor, 0, static_cast<int>(editText_.size()));
-    replaceOnFirstTextInput_ = false;
+    if (!preserveReplaceOnFirstTextInput) {
+        replaceOnFirstTextInput_ = false;
+    }
 }
 
 void NumberInput::setEditText(std::string text) {
@@ -1380,8 +1382,6 @@ void ListBox::setSelectedIndex(int selectedIndex) {
         selectedIndices_ = {selectedIndex_};
     } else if (selectedIndices_.empty()) {
         selectedIndices_.push_back(selectedIndex_);
-    } else {
-        selectedIndices_.back() = selectedIndex_;
     }
     if (lastViewportHeight_ > 0) {
         ensureSelectedVisible(lastViewportHeight_);
@@ -1474,6 +1474,7 @@ RenderedContent ListBox::render(Size size, ElementRenderState state) const {
     lastViewportHeight_ = height;
     const int maxOffset = std::max(0, static_cast<int>(options_.size()) - height);
     const_cast<ListBox*>(this)->scrollOffset_ = clampIndex(scrollOffset_, 0, maxOffset);
+    const_cast<ListBox*>(this)->ensureSelectedVisible(height);
 
     const Style base = effectiveStyle(state.focused, state.editMode);
     RenderedContent rendered;
@@ -1482,7 +1483,8 @@ RenderedContent ListBox::render(Size size, ElementRenderState state) const {
     for (int row = 0; row < height; ++row) {
         const int optionIndex = scrollOffset_ + row;
         const bool selected = optionIndex < static_cast<int>(options_.size()) &&
-            std::find(selectedIndices_.begin(), selectedIndices_.end(), optionIndex) != selectedIndices_.end();
+            (std::find(selectedIndices_.begin(), selectedIndices_.end(), optionIndex) != selectedIndices_.end() ||
+             (multiple_ && state.editMode && optionIndex == selectedIndex_));
         const bool disabled = optionIndex < static_cast<int>(options_.size()) &&
             std::find(disabledValues_.begin(), disabledValues_.end(), options_[static_cast<std::size_t>(optionIndex)]) != disabledValues_.end();
         std::string text = optionIndex < static_cast<int>(options_.size())

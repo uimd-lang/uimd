@@ -3023,11 +3023,14 @@ public sealed class NumberInput : Element
         replaceOnFirstTextInput = false;
     }
 
-    public void SetEditCursor(int cursor)
+    public void SetEditCursor(int cursor, bool preserveReplaceOnFirstTextInput = false)
     {
         EnsureEditText();
         editCursor = Math.Clamp(cursor, 0, editText.Length);
-        replaceOnFirstTextInput = false;
+        if (!preserveReplaceOnFirstTextInput)
+        {
+            replaceOnFirstTextInput = false;
+        }
     }
 
     public override bool HandleKey(string key)
@@ -3315,10 +3318,6 @@ public sealed class ListBox : Element
         {
             selectedIndices.Add(SelectedIndex);
         }
-        else
-        {
-            selectedIndices[^1] = SelectedIndex;
-        }
         if (lastViewportHeight > 0)
         {
             EnsureSelectedVisible(lastViewportHeight);
@@ -3448,13 +3447,15 @@ public sealed class ListBox : Element
         lastViewportHeight = height;
         int maxOffset = Math.Max(0, Options.Count - height);
         scrollOffset = Math.Clamp(scrollOffset, 0, maxOffset);
+        EnsureSelectedVisible(height);
         bool hasAbove = scrollOffset > 0;
         bool hasBelow = scrollOffset + height < Options.Count;
         for (int row = 0; row < height; ++row)
         {
             int optionIndex = scrollOffset + row;
             string text = optionIndex < Options.Count ? Options[optionIndex] : "";
-            bool selected = optionIndex < Options.Count && selectedIndices.Contains(optionIndex);
+            bool selected = optionIndex < Options.Count &&
+                (selectedIndices.Contains(optionIndex) || (Multiple && state.EditMode && optionIndex == SelectedIndex));
             bool disabled = optionIndex < Options.Count && disabledValues.Contains(Options[optionIndex]);
             Style rowStyle = style.Clone();
             if (selected && SelectedStyle is not null)
