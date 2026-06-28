@@ -725,6 +725,32 @@ public sealed class MessageTable : Label
     }
 }
 
+public sealed class ImageRenderInfo
+{
+    public string Source { get; set; } = "";
+    public string Fit { get; set; } = "";
+    public string ConfiguredRenderMode { get; set; } = "";
+    public string ResolvedRenderMode { get; set; } = "";
+    public bool SourceLoaded { get; set; }
+    public int SourceWidth { get; set; }
+    public int SourceHeight { get; set; }
+    public int ElementWidth { get; set; }
+    public int ElementHeight { get; set; }
+    public int CellPixelWidth { get; set; }
+    public int CellPixelHeight { get; set; }
+    public int ImageLeft { get; set; }
+    public int ImageTop { get; set; }
+    public int ImageWidth { get; set; }
+    public int ImageHeight { get; set; }
+    public int VisibleLeft { get; set; }
+    public int VisibleTop { get; set; }
+    public int VisibleWidth { get; set; }
+    public int VisibleHeight { get; set; }
+    public bool RawExpected { get; set; }
+    public bool RawPresent { get; set; }
+    public List<string> SampleSignature { get; } = new();
+}
+
 public sealed class Image : Element
 {
     private const int DefaultImageCellPixelWidth = 8;
@@ -744,6 +770,8 @@ public sealed class Image : Element
     private const int TestFallbackCheckerLightAlpha = 160;
     private const int TestFallbackCheckerDarkAlpha = 0;
     private const int TestFallbackColorQuantum = 32;
+    private const int ImageInfoSampleGridSize = 3;
+    private const int ImageInfoColorQuantum = 64;
     private const string FallbackUpperHalfBlock = "▀";
     private const string FallbackFullBlock = "█";
     private const string DeterministicImageFallbackEnv = "UIMD_DETERMINISTIC_IMAGE_FALLBACK";
@@ -865,6 +893,82 @@ public sealed class Image : Element
         {
             terminalCellPixelOverride = size;
         }
+    }
+
+    public ImageRenderInfo RenderInfo(Size size, ElementRenderState? state = null)
+    {
+        state ??= new ElementRenderState();
+        int width = Math.Max(1, size.Width);
+        int height = Math.Max(1, size.Height);
+        Style style = EffectiveStyle(state.Focused, state.EditMode);
+        Size cellPixels = TerminalCellPixels();
+        ImageRenderInfo info = new()
+        {
+            Source = Source,
+            Fit = Fit,
+            ConfiguredRenderMode = RenderMode,
+            ResolvedRenderMode = ResolvedRenderMode(),
+            ElementWidth = width,
+            ElementHeight = height,
+            CellPixelWidth = cellPixels.Width,
+            CellPixelHeight = cellPixels.Height,
+        };
+
+        Raster raster = LoadRaster(ImagePath());
+        if (raster.Width <= 0 || raster.Height <= 0)
+        {
+            info.ResolvedRenderMode = "placeholder";
+            return info;
+        }
+
+        (int cols, int rows, int colOffset, int rowOffset) =
+            ImageCellRegion(width, height, raster.Width, raster.Height);
+        int visibleTop = rowOffset;
+        int visibleBottom = rowOffset + rows;
+        if (state.ClipTop.HasValue || state.ClipBottom.HasValue)
+        {
+            visibleTop = Math.Max(visibleTop, state.ClipTop ?? 0);
+            visibleBottom = Math.Min(visibleBottom, state.ClipBottom ?? height);
+        }
+        int visibleRows = Math.Max(0, visibleBottom - visibleTop);
+        string regionFit = Fit == "contain" ? "cover" : Fit;
+        int signatureRows = info.ResolvedRenderMode == "sixel" ? Math.Max(1, visibleRows) : rows;
+
+        info.SourceLoaded = true;
+        info.SourceWidth = raster.Width;
+        info.SourceHeight = raster.Height;
+        info.ImageLeft = colOffset;
+        info.ImageTop = rowOffset;
+        info.ImageWidth = cols;
+        info.ImageHeight = rows;
+        info.VisibleLeft = colOffset;
+        info.VisibleTop = visibleTop;
+        info.VisibleWidth = visibleRows > 0 ? cols : 0;
+        info.VisibleHeight = visibleRows;
+        info.RawExpected = info.ResolvedRenderMode == "sixel" && visibleRows > 0;
+        info.RawPresent = info.RawExpected;
+        info.SampleSignature.AddRange(ImageInfoSampleSignature(
+            raster,
+            cols,
+            Math.Max(1, signatureRows),
+            regionFit,
+            Align,
+            VerticalAlign,
+            LetterboxRgb(style)));
+        return info;
+    }
+
+    private string ResolvedRenderMode()
+    {
+        if (forceCellBackgroundRenderingDepth > 0)
+        {
+            return "cell_background";
+        }
+        if (DeterministicImageFallbackEnabled())
+        {
+            return "deterministic";
+        }
+        return ShouldRenderSixel() ? "sixel" : "fallback";
     }
 
     private static Size TerminalCellPixels()
@@ -1592,6 +1696,51 @@ public sealed class Image : Element
             }
         }
         return new Raster(targetWidth, targetHeight, data);
+    }
+
+    private static IEnumerable<string> ImageInfoSampleSignature(
+        Raster raster,
+        int targetWidth,
+        int targetHeight,
+        string fit,
+        string align,
+        string verticalAlign,
+        RgbSample background)
+    {
+        targetWidth = Math.Max(1, targetWidth);
+        targetHeight = Math.Max(1, targetHeight);
+        Raster fitted = ResizeRaster(raster, targetWidth, targetHeight, fit, align, verticalAlign, background);
+        foreach (int row in ImageInfoSamplePositions(targetHeight))
+        {
+            foreach (int col in ImageInfoSamplePositions(targetWidth))
+            {
+                RgbaSample pixel = fitted.PixelAt(col, row);
+                yield return RgbHex(new RgbSample(
+                    QuantizeImageInfoChannel(pixel.Red),
+                    QuantizeImageInfoChannel(pixel.Green),
+                    QuantizeImageInfoChannel(pixel.Blue)));
+            }
+        }
+    }
+
+    private static IEnumerable<int> ImageInfoSamplePositions(int extent)
+    {
+        extent = Math.Max(1, extent);
+        for (int index = 0; index < ImageInfoSampleGridSize; ++index)
+        {
+            int position = RoundLikePython(index * (extent - 1) / (double)(ImageInfoSampleGridSize - 1));
+            yield return Math.Clamp(position, 0, extent - 1);
+        }
+    }
+
+    private static int QuantizeImageInfoChannel(int value)
+    {
+        return Math.Clamp((value / ImageInfoColorQuantum) * ImageInfoColorQuantum, 0, 255);
+    }
+
+    private static string RgbHex(RgbSample color)
+    {
+        return $"#{color.Red:x2}{color.Green:x2}{color.Blue:x2}";
     }
 
     private static Raster CropRasterRows(Raster raster, int top, int height)

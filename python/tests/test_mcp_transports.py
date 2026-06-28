@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import unittest
+import urllib.error
 import urllib.request
 
 
@@ -173,17 +174,26 @@ def _http_call(base_command, port, request=None):
         text=True,
     )
     try:
-        time.sleep(0.5)
-        http_request = urllib.request.Request(
-            f"http://127.0.0.1:{port}/mcp",
-            data=json.dumps(request).encode("utf-8"),
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-            },
-        )
-        with urllib.request.urlopen(http_request, timeout=5) as response:
-            return json.loads(response.read().decode("utf-8"))
+        deadline = time.monotonic() + 5
+        last_error = None
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise AssertionError(process.stderr.read())
+            http_request = urllib.request.Request(
+                f"http://127.0.0.1:{port}/mcp",
+                data=json.dumps(request).encode("utf-8"),
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                },
+            )
+            try:
+                with urllib.request.urlopen(http_request, timeout=1) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.URLError as exc:
+                last_error = exc
+                time.sleep(0.05)
+        raise AssertionError(f"HTTP MCP server did not start: {last_error}")
     finally:
         process.terminate()
         try:

@@ -42,7 +42,7 @@ from uimd.testing.log_panel import LogPanel
 import uimd.runtime.elements as elements_module
 
 
-ALL_EXAMPLE_SCRIPT_COUNT = 13
+ALL_EXAMPLE_SCRIPT_COUNT = 14
 PARITY_COMPARE_APP_SIZE = "40x12"
 PARITY_TIMEOUT_SECONDS = 60
 

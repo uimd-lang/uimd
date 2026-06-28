@@ -1206,6 +1206,59 @@ void syncReusableChildFrames(ReusableElement& reusable, Rect frame);
 
 void syncReusableChildFrames(ReusableElement& reusable, Rect frame);
 
+struct ElementFrameSnapshot {
+    Element* element = nullptr;
+    Rect frame;
+};
+
+void captureElementFrame(Element& element, std::vector<ElementFrameSnapshot>& frames) {
+    const auto existing = std::find_if(frames.begin(), frames.end(), [&element](const ElementFrameSnapshot& snapshot) {
+        return snapshot.element == &element;
+    });
+    if (existing != frames.end()) {
+        return;
+    }
+    frames.push_back(ElementFrameSnapshot{&element, element.frame()});
+    for (const auto& child : element.children()) {
+        if (child != nullptr) {
+            captureElementFrame(*child, frames);
+        }
+    }
+    if (auto* reusable = dynamic_cast<ReusableElement*>(&element);
+        reusable != nullptr && reusable->child() != nullptr) {
+        for (const auto& child : reusable->child()->elements()) {
+            if (child != nullptr) {
+                captureElementFrame(*child, frames);
+            }
+        }
+    }
+    if (auto* scrollView = dynamic_cast<ScrollView*>(&element); scrollView != nullptr) {
+        for (const auto& child : scrollView->children()) {
+            if (child != nullptr) {
+                captureElementFrame(*child, frames);
+            }
+        }
+    }
+}
+
+[[nodiscard]] std::vector<ElementFrameSnapshot> captureWindowElementFrames(GeneratedWindowBase& window) {
+    std::vector<ElementFrameSnapshot> frames;
+    for (const auto& element : window.elements()) {
+        if (element != nullptr) {
+            captureElementFrame(*element, frames);
+        }
+    }
+    return frames;
+}
+
+void restoreElementFrames(const std::vector<ElementFrameSnapshot>& frames) {
+    for (const ElementFrameSnapshot& snapshot : frames) {
+        if (snapshot.element != nullptr) {
+            snapshot.element->setFrame(snapshot.frame);
+        }
+    }
+}
+
 void offsetWindowElementFrames(GeneratedWindowBase& window, Rect origin) {
     for (const auto& element : window.elements()) {
         if (element == nullptr) {
@@ -5867,18 +5920,22 @@ void renderWindowStackOverlay(TerminalBuffer& buffer, GeneratedWindowStack& stac
     return cell;
 }
 
+[[nodiscard]] JsonValue renderCellFromTerminalCell(const TerminalCell& cell) {
+    const TerminalCell visual = snapshotVisualCell(cell);
+    return JsonValue::Object{
+        {"char", visual.text.empty() ? std::string(" ") : visual.text},
+        {"foreground", snapshotColor(visual.foreground)},
+        {"background", snapshotColor(visual.background)},
+        {"attributes", JsonValue::Array{}},
+    };
+}
+
 [[nodiscard]] JsonValue renderCellsFromContent(const RenderedContent& content) {
     JsonValue::Array rows;
     for (const RenderedRow& row : content) {
         JsonValue::Array cells;
         for (const TerminalCell& cell : row) {
-            const TerminalCell visual = snapshotVisualCell(cell);
-            cells.emplace_back(JsonValue::Object{
-                {"char", visual.text.empty() ? std::string(" ") : visual.text},
-                {"foreground", snapshotColor(visual.foreground)},
-                {"background", snapshotColor(visual.background)},
-                {"attributes", JsonValue::Array{}},
-            });
+            cells.emplace_back(renderCellFromTerminalCell(cell));
         }
         rows.emplace_back(std::move(cells));
     }
@@ -5931,6 +5988,8 @@ public:
         if (toolName == "get_render_frame") return toolGetRenderFrame();
         if (toolName == "get_render_snapshot") return toolGetRenderSnapshot(arguments);
         if (toolName == "get_render_snapshot_compact") return toolGetRenderSnapshotCompact(arguments);
+        if (toolName == "get_render_cell") return toolGetRenderCell(arguments);
+        if (toolName == "get_image_render_info") return toolGetImageRenderInfo(arguments);
         if (toolName == "get_text_snapshot") return toolGetTextSnapshot();
         if (toolName == "get_viewport") return toolGetViewport();
         if (toolName == "get_render_rect") return toolGetRenderRect();
@@ -5964,6 +6023,9 @@ public:
         if (toolName == "get_cursor") return toolGetCursor(arguments);
         if (toolName == "mouse_click") return toolMouseClick(arguments);
         if (toolName == "mouse_drag") return toolMouseDrag(arguments);
+        if (toolName == "mouse_press") return toolMousePress(arguments);
+        if (toolName == "mouse_move") return toolMouseMove(arguments);
+        if (toolName == "mouse_release") return toolMouseRelease(arguments);
         if (toolName == "scroll") return toolScroll(arguments);
         if (appToolMetadata(toolName) != nullptr) return toolCallAppTool(toolName, arguments);
         throw std::runtime_error("Unknown MCP UI tool: " + name);
@@ -6040,6 +6102,8 @@ private:
             "get_render_frame",
             "get_render_snapshot",
             "get_render_snapshot_compact",
+            "get_render_cell",
+            "get_image_render_info",
             "get_schema",
             "get_selection",
             "get_source",
@@ -6051,6 +6115,9 @@ private:
             "get_window",
             "mouse_click",
             "mouse_drag",
+            "mouse_move",
+            "mouse_press",
+            "mouse_release",
             "move_cursor",
             "paste_text",
             "press_key",
@@ -6169,7 +6236,7 @@ private:
         const auto elementOnly = std::vector<std::string>{
             "get_element", "get_value", "get_options", "focus_element", "activate_element",
             "click_element", "clear_text", "select_all", "copy_selection", "cut_selection",
-            "get_text", "get_selection", "get_cursor", "check", "uncheck",
+            "get_text", "get_selection", "get_cursor", "get_image_render_info", "check", "uncheck",
         };
         if (std::find(elementOnly.begin(), elementOnly.end(), name) != elementOnly.end()) {
             addElementId();
@@ -6227,9 +6294,19 @@ private:
                 {"type", "string"},
                 {"enum", JsonValue::Array{"full_surface", "active_window"}},
             };
+        } else if (name == "get_render_cell") {
+            properties["x"] = integerType();
+            properties["y"] = integerType();
+            properties["snapshot_time_ms"] = integerType();
+            properties["render_scope"] = JsonValue::Object{
+                {"type", "string"},
+                {"enum", JsonValue::Array{"full_surface", "active_window"}},
+            };
+            required.emplace_back("x");
+            required.emplace_back("y");
         } else if (name == "repaint") {
             properties["full"] = booleanType();
-        } else if (name == "mouse_click") {
+        } else if (name == "mouse_click" || name == "mouse_press" || name == "mouse_move" || name == "mouse_release") {
             properties["x"] = integerType();
             properties["y"] = integerType();
             required.emplace_back("x");
@@ -6905,6 +6982,107 @@ private:
         return JsonValue::Object{
             {"format", "render-cells-v1"},
             {"cells", renderCompactCellsFromContent(toolRenderSnapshotContent(arguments))},
+        };
+    }
+
+    [[nodiscard]] JsonValue toolGetRenderCell(const JsonValue::Object& arguments) const {
+        ScopedRenderTimeOverride renderTime(jsonInt64Field(arguments, "snapshot_time_ms"));
+        RenderedContent content = toolRenderSnapshotContent(arguments);
+        const int row = jsonIntField(arguments, "y");
+        const int col = jsonIntField(arguments, "x");
+        if (row < 0 || row >= static_cast<int>(content.size())) {
+            throw std::runtime_error("render cell y out of range: " + std::to_string(row));
+        }
+        const RenderedRow& renderedRow = content[static_cast<std::size_t>(row)];
+        if (col < 0 || col >= static_cast<int>(renderedRow.size())) {
+            throw std::runtime_error("render cell x out of range: " + std::to_string(col));
+        }
+        JsonValue cell = renderCellFromTerminalCell(renderedRow[static_cast<std::size_t>(col)]);
+        JsonValue::Object result = cell.object();
+        result["x"] = col;
+        result["y"] = row;
+        return result;
+    }
+
+    [[nodiscard]] JsonValue toolGetImageRenderInfo(const JsonValue::Object& arguments) const {
+        const std::string elementId = jsonStringField(arguments, "element_id");
+        Element* element = requireElement(elementId);
+        auto* image = dynamic_cast<Image*>(element);
+        if (image == nullptr) {
+            throw std::runtime_error("Element is not an image: " + elementId);
+        }
+        GeneratedWindowBase& window = activeWindow();
+        const int focusedIndex = focusedIndexValue(window);
+        const bool editMode = activeEditModeValue(window);
+        Rect bounds;
+        {
+            const std::vector<ElementFrameSnapshot> savedFrames = captureWindowElementFrames(window);
+            try {
+                const Size viewportSize = viewportSizeForStackBounds();
+                TerminalBuffer buffer(viewportSize.width, viewportSize.height);
+                renderGeneratedWindow(window, buffer, focusedIndex, editMode, std::string_view{},
+                                      state_.activeScrollView, state_.activeScrollViewEditElement);
+                bounds = element->frame();
+            } catch (...) {
+                restoreElementFrames(savedFrames);
+                throw;
+            }
+            restoreElementFrames(savedFrames);
+        }
+        const Size size{std::max(kMinimumRenderableSize, bounds.width), std::max(kMinimumRenderableSize, bounds.height)};
+        const std::vector<Element*> focusable = focusableElements(window, state_.activeScrollView);
+        const Element* focused = (focusedIndex >= 0 && focusedIndex < static_cast<int>(focusable.size()))
+            ? focusable[static_cast<std::size_t>(focusedIndex)]
+            : nullptr;
+        ImageRenderInfo info = image->renderInfo(size, ElementRenderState{
+            .focused = focused == element,
+            .editMode = focused == element && editMode,
+        });
+        JsonValue::Array signature;
+        for (const std::string& item : info.sampleSignature) {
+            signature.emplace_back(item);
+        }
+        const int imageRight = info.imageLeft + info.imageWidth;
+        const int imageBottom = info.imageTop + info.imageHeight;
+        const int visibleRight = info.visibleLeft + info.visibleWidth;
+        const int visibleBottom = info.visibleTop + info.visibleHeight;
+        return JsonValue::Object{
+            {"id", elementId},
+            {"source", info.source},
+            {"fit", info.fit},
+            {"configured_render_mode", info.configuredRenderMode},
+            {"resolved_render_mode", info.resolvedRenderMode},
+            {"source_loaded", info.sourceLoaded},
+            {"source_width", info.sourceWidth},
+            {"source_height", info.sourceHeight},
+            {"element_width", info.elementWidth},
+            {"element_height", info.elementHeight},
+            {"cell_pixel_width", info.cellPixelWidth},
+            {"cell_pixel_height", info.cellPixelHeight},
+            {"image_left", info.imageLeft},
+            {"image_top", info.imageTop},
+            {"image_width", info.imageWidth},
+            {"image_height", info.imageHeight},
+            {"image_right", imageRight},
+            {"image_bottom", imageBottom},
+            {"visible_left", info.visibleLeft},
+            {"visible_top", info.visibleTop},
+            {"visible_width", info.visibleWidth},
+            {"visible_height", info.visibleHeight},
+            {"visible_right", visibleRight},
+            {"visible_bottom", visibleBottom},
+            {"raw_expected", info.rawExpected},
+            {"raw_present", info.rawPresent},
+            {"sample_signature", std::move(signature)},
+            {"bounds", rectJson(bounds)},
+            {"absolute_image_left", bounds.col + info.imageLeft},
+            {"absolute_image_top", bounds.row + info.imageTop},
+            {"absolute_image_right", bounds.col + imageRight},
+            {"absolute_image_bottom", bounds.row + imageBottom},
+            {"absolute_visible_left", bounds.col + info.visibleLeft},
+            {"absolute_visible_top", bounds.row + info.visibleTop},
+            {"absolute_visible_right", bounds.col + visibleRight},
+            {"absolute_visible_bottom", bounds.row + visibleBottom},
         };
     }
 
@@ -7711,11 +7889,10 @@ private:
         sleepMs(config_.actionDelayMs);
         refreshActiveWindowLayoutForMouse();
         const BackgroundFocusCleanupContext cleanupContext = captureBackgroundFocusCleanupContext();
-        performMousePress(windowPointFromTerminalPoint(Point{
-            jsonIntField(arguments, "y"),
-            jsonIntField(arguments, "x"),
-        }));
+        const Point position = mousePointFromArguments(arguments);
+        performToolMousePress(position);
         cleanupBackgroundFocusAfterModalClose(cleanupContext);
+        performToolMouseRelease(position);
         state_.fullRedrawRequested = true;
         return toolGetState();
     }
@@ -7723,9 +7900,6 @@ private:
     [[nodiscard]] JsonValue toolMouseDrag(const JsonValue::Object& arguments) {
         sleepMs(config_.actionDelayMs);
         refreshActiveWindowLayoutForMouse();
-        Element* mouseSelectionElement = nullptr;
-        int mouseSelectionAnchor = 0;
-        std::optional<EditSnapshot> editSnapshot;
         Point from = windowPointFromTerminalPoint(Point{
             jsonIntField(arguments, "from_y"),
             jsonIntField(arguments, "from_x"),
@@ -7735,13 +7909,34 @@ private:
             jsonIntField(arguments, "to_x"),
         });
         const BackgroundFocusCleanupContext cleanupContext = captureBackgroundFocusCleanupContext();
-        MouseClickCandidate mouseClickCandidate;
-        performMousePress(from, &editSnapshot, &mouseSelectionElement, &mouseSelectionAnchor, &mouseClickCandidate);
+        performToolMousePress(from);
         cleanupBackgroundFocusAfterModalClose(cleanupContext);
-        if (mouseClickCandidate.element != nullptr) {
-            mouseClickCandidate.moved = true;
-        }
-        (void)handleMouseDrag(mouseSelectionElement, mouseSelectionAnchor, to);
+        performToolMouseMove(to);
+        performToolMouseRelease(to);
+        state_.fullRedrawRequested = true;
+        return toolGetState();
+    }
+
+    [[nodiscard]] JsonValue toolMousePress(const JsonValue::Object& arguments) {
+        sleepMs(config_.actionDelayMs);
+        refreshActiveWindowLayoutForMouse();
+        const BackgroundFocusCleanupContext cleanupContext = captureBackgroundFocusCleanupContext();
+        performToolMousePress(mousePointFromArguments(arguments));
+        cleanupBackgroundFocusAfterModalClose(cleanupContext);
+        state_.fullRedrawRequested = true;
+        return toolGetState();
+    }
+
+    [[nodiscard]] JsonValue toolMouseMove(const JsonValue::Object& arguments) {
+        sleepMs(config_.actionDelayMs);
+        performToolMouseMove(mousePointFromArguments(arguments));
+        state_.fullRedrawRequested = true;
+        return toolGetState();
+    }
+
+    [[nodiscard]] JsonValue toolMouseRelease(const JsonValue::Object& arguments) {
+        sleepMs(config_.actionDelayMs);
+        performToolMouseRelease(mousePointFromArguments(arguments));
         state_.fullRedrawRequested = true;
         return toolGetState();
     }
@@ -7798,6 +7993,57 @@ private:
             point = windowContentPoint(activeWindow(), buffer, point);
         }
         return point;
+    }
+
+    [[nodiscard]] Point mousePointFromArguments(const JsonValue::Object& arguments) const {
+        return windowPointFromTerminalPoint(Point{
+            jsonIntField(arguments, "y"),
+            jsonIntField(arguments, "x"),
+        });
+    }
+
+    void performToolMousePress(Point position) {
+        mouseSelectionElement_ = nullptr;
+        mouseSelectionAnchor_ = 0;
+        mouseClickCandidate_ = MouseClickCandidate{};
+        performMousePress(position, nullptr, &mouseSelectionElement_, &mouseSelectionAnchor_, &mouseClickCandidate_);
+    }
+
+    void performToolMouseMove(Point position) {
+        if (mouseClickCandidate_.element != nullptr) {
+            mouseClickCandidate_.moved = true;
+            return;
+        }
+        (void)handleMouseDrag(mouseSelectionElement_, mouseSelectionAnchor_, position);
+    }
+
+    void performToolMouseRelease(Point position) {
+        if (mouseClickCandidate_.element != nullptr) {
+            if (!mouseClickCandidate_.moved && mouseClickCandidate_.element->frame().contains(position)) {
+                if (GeneratedWindowStackFrame* frame = activeStackFrame();
+                    frame != nullptr && frame->window != nullptr) {
+                    GeneratedWindowRuntimeOptions frameOptions = runtimeOptionsForFrame(frame->options);
+                    notifyOwnerAwareButton(*frame->window, frameOptions, mouseClickCandidate_.element);
+                } else {
+                    notifyOwnerAwareButton(window_, options_, mouseClickCandidate_.element);
+                }
+            }
+            mouseClickCandidate_ = MouseClickCandidate{};
+            return;
+        }
+        if (auto* textInput = dynamic_cast<TextInput*>(mouseSelectionElement_)) {
+            const std::string selectedText = textInput->selectedText();
+            if (!selectedText.empty()) {
+                (void)copyTextToClipboard(selectedText);
+            }
+        } else if (auto* label = dynamic_cast<Label*>(mouseSelectionElement_)) {
+            const std::string selectedText = label->selectedText();
+            if (!selectedText.empty()) {
+                (void)copyTextToClipboard(selectedText);
+            }
+        }
+        mouseSelectionElement_ = nullptr;
+        mouseSelectionAnchor_ = 0;
     }
 
     bool performMousePress(Point position, std::optional<EditSnapshot>* editSnapshotArg = nullptr,
@@ -8211,6 +8457,9 @@ private:
     Element* activeScrollViewEditElement_ = nullptr;
     std::optional<EditSnapshot> editSnapshot_;
     std::unordered_map<Element*, Element*> scrollViewLastDescendant_;
+    Element* mouseSelectionElement_ = nullptr;
+    int mouseSelectionAnchor_ = 0;
+    MouseClickCandidate mouseClickCandidate_;
 };
 
 thread_local McpController::ScopedUiMutationLock* McpController::currentUiLock = nullptr;

@@ -316,9 +316,17 @@ class MCPController:
         elif name == "get_render_snapshot_compact":
             properties["snapshot_time_ms"] = {"type": "integer"}
             properties["render_scope"] = {"type": "string", "enum": ["full_surface", "active_window"]}
+        elif name == "get_render_cell":
+            properties["x"] = {"type": "integer"}
+            properties["y"] = {"type": "integer"}
+            properties["snapshot_time_ms"] = {"type": "integer"}
+            properties["render_scope"] = {"type": "string", "enum": ["full_surface", "active_window"]}
+            required.extend(["x", "y"])
+        elif name == "get_image_render_info":
+            add_element_id()
         elif name == "repaint":
             properties["full"] = {"type": "boolean"}
-        elif name == "mouse_click":
+        elif name in {"mouse_click", "mouse_press", "mouse_move", "mouse_release"}:
             properties["x"] = {"type": "integer"}
             properties["y"] = {"type": "integer"}
             required.extend(["x", "y"])
@@ -478,6 +486,41 @@ class MCPController:
             "format": "render-cells-v1",
             "cells": self._compact_cells(cells),
         }
+
+    def tool_get_render_cell(self, x, y, snapshot_time_ms=None, render_scope="full_surface"):
+        """Return one rendered terminal cell."""
+        with GradientRenderTime(snapshot_time_ms):
+            cells = self._render_snapshot_cells(render_scope)
+        row = int(y)
+        col = int(x)
+        if row < 0 or row >= len(cells):
+            raise ValueError(f"render cell y out of range: {row}")
+        if col < 0 or col >= len(cells[row]):
+            raise ValueError(f"render cell x out of range: {col}")
+        cell = dict(cells[row][col])
+        cell["x"] = col
+        cell["y"] = row
+        return cell
+
+    def tool_get_image_render_info(self, element_id):
+        """Return normalized Image rendering mode, geometry, and coarse sample signature."""
+        elem = self._require_element(element_id)
+        if getattr(elem, "ELEMENT_TYPE", None) != "image" or not hasattr(elem, "render_info"):
+            raise ValueError(f"Element is not an image: {element_id}")
+        rect = self._element_rect(elem)
+        surface_rect = self._viewport_surface_rect(rect)
+        info = dict(elem.render_info(rect["width"], rect["height"]))
+        info["id"] = element_id
+        info["bounds"] = surface_rect
+        info["absolute_image_left"] = surface_rect["left"] + int(info.get("image_left", 0) or 0)
+        info["absolute_image_top"] = surface_rect["top"] + int(info.get("image_top", 0) or 0)
+        info["absolute_image_right"] = surface_rect["left"] + int(info.get("image_right", 0) or 0)
+        info["absolute_image_bottom"] = surface_rect["top"] + int(info.get("image_bottom", 0) or 0)
+        info["absolute_visible_left"] = surface_rect["left"] + int(info.get("visible_left", 0) or 0)
+        info["absolute_visible_top"] = surface_rect["top"] + int(info.get("visible_top", 0) or 0)
+        info["absolute_visible_right"] = surface_rect["left"] + int(info.get("visible_right", 0) or 0)
+        info["absolute_visible_bottom"] = surface_rect["top"] + int(info.get("visible_bottom", 0) or 0)
+        return info
 
     def _render_snapshot_cells(self, render_scope):
         if render_scope in (None, "", "full_surface"):
@@ -783,49 +826,49 @@ class MCPController:
     def tool_mouse_click(self, x, y):
         """Send a mouse click at terminal/window coordinates."""
         self._action_delay()
+        self._send_mouse_event("press", x, y)
+        self._send_mouse_event("release", x, y)
+        self._after_action()
+        return self.tool_get_state()
+
+    def tool_mouse_press(self, x, y):
+        """Send a mouse press at terminal/window coordinates."""
+        self._action_delay()
+        self._send_mouse_event("press", x, y)
+        self._after_action()
+        return self.tool_get_state()
+
+    def tool_mouse_move(self, x, y):
+        """Send a mouse drag/move at terminal/window coordinates."""
+        self._action_delay()
+        self._send_mouse_event("drag", x, y)
+        self._after_action()
+        return self.tool_get_state()
+
+    def tool_mouse_release(self, x, y):
+        """Send a mouse release at terminal/window coordinates."""
+        self._action_delay()
+        self._send_mouse_event("release", x, y)
+        self._after_action()
+        return self.tool_get_state()
+
+    def _send_mouse_event(self, event, x, y):
         row = int(y)
         col = int(x)
         self.app.handle_key({
             "type": "mouse",
-            "event": "press",
+            "event": event,
             "button": 0,
             "row": row,
             "col": col,
         })
-        self.app.handle_key({
-            "type": "mouse",
-            "event": "release",
-            "button": 0,
-            "row": row,
-            "col": col,
-        })
-        self._after_action()
-        return self.tool_get_state()
 
     def tool_mouse_drag(self, from_x, from_y, to_x, to_y):
         """Send a mouse drag."""
         self._action_delay()
-        self.app.handle_key({
-            "type": "mouse",
-            "event": "press",
-            "button": 0,
-            "row": int(from_y),
-            "col": int(from_x),
-        })
-        self.app.handle_key({
-            "type": "mouse",
-            "event": "drag",
-            "button": 0,
-            "row": int(to_y),
-            "col": int(to_x),
-        })
-        self.app.handle_key({
-            "type": "mouse",
-            "event": "release",
-            "button": 0,
-            "row": int(to_y),
-            "col": int(to_x),
-        })
+        self._send_mouse_event("press", from_x, from_y)
+        self._send_mouse_event("drag", to_x, to_y)
+        self._send_mouse_event("release", to_x, to_y)
         self._after_action()
         return self.tool_get_state()
 
@@ -1620,6 +1663,22 @@ class MCPController:
             "height": height,
         }
 
+    def _viewport_surface_rect(self, rect):
+        if len(getattr(self.app, "_window_stack", []) or []) > 1:
+            return dict(rect)
+        col_offset, row_offset = self.app._active_window_offsets()
+        viewport = self.app.get_viewport()
+        col_offset -= int(viewport.get("col", 0) or 0)
+        row_offset -= int(viewport.get("row", 0) or 0)
+        return {
+            "top": int(rect["top"]) + row_offset,
+            "left": int(rect["left"]) + col_offset,
+            "bottom": int(rect["bottom"]) + row_offset,
+            "right": int(rect["right"]) + col_offset,
+            "width": int(rect["width"]),
+            "height": int(rect["height"]),
+        }
+
     def _default_role(self, elem):
         elem_type = getattr(elem, "ELEMENT_TYPE", "")
         if elem_type in ("textinput", "textarea", "numberinput"):
@@ -2079,7 +2138,7 @@ class MCPServer:
             (self.config.host, self.config.port),
             handler,
         )
-        self._tcp_server.daemon_threads = True
+        self._tcp_server.daemon_threads = False
         self._tcp_server.serve_forever()
 
     def serve_http(self):
@@ -2088,7 +2147,7 @@ class MCPServer:
             (self.config.host, self.config.port),
             handler,
         )
-        self._http_server.daemon_threads = True
+        self._http_server.daemon_threads = False
         self._http_server.serve_forever()
 
     def shutdown(self):

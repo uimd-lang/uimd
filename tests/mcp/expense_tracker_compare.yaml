@@ -15,6 +15,34 @@
         text: Coffee
       assert:
         value: Coffee
+    - tool: mouse_click
+      compare_snapshot: false
+      arguments:
+        x: 41
+        y: 6
+    - tool: get_edit_mode
+      compare_snapshot: false
+      assert:
+        edit_mode: true
+    - tool: get_focused_element
+      compare_snapshot: false
+      assert:
+        id: main.amount_input
+    - tool: press_key
+      compare_snapshot: false
+      arguments:
+        key: "7"
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: main.amount_input
+      assert:
+        value: 7.0
     - tool: set_text
       arguments:
         element_id: main.amount_input
@@ -35,11 +63,35 @@
         element_id: main.expenses[0].item
       assert:
         value: Coffee
-    - tool: click_element
+    - tool: mouse_click
+      arguments:
+        x: 35
+        y: 14
+    - tool: get_element
       arguments:
         element_id: main.expenses[0].paid
       assert:
         value: true
+    - tool: focus_element
+      arguments:
+        element_id: main.expenses
+      assert:
+        id: main.expenses
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[0].paid
+    - tool: press_key
+      arguments:
+        key: Right
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[0].delete_btn
+    - tool: press_key
+      arguments:
+        key: Escape
     - tool: click_element
       arguments:
         element_id: main.expenses[0].category
@@ -67,9 +119,10 @@
         value: Home
       assert:
         value: Home
-    - tool: click_element
+    - tool: mouse_click
       arguments:
-        element_id: main.expenses[0].delete_btn
+        x: 80
+        y: 15
     - tool: get_window
       assert:
         class: MessageBoxYesNo
@@ -123,6 +176,94 @@
     - tool: get_window
       assert:
         title: Expense Tracker
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[6].delete_btn
+    - tool: focus_element
+      arguments:
+        element_id: main.expenses
+      assert:
+        id: main.expenses
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[6].delete_btn
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[11].delete_btn
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[11].delete_btn
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_focused_element
+      assert:
+        id: main.expenses
+    - tool: set_text
+      arguments:
+        element_id: main.item_input
+        text: Parking
+      assert:
+        value: Parking
+    - tool: set_text
+      arguments:
+        element_id: main.amount_input
+        text: 12
+      assert:
+        value: 12.0
+    - tool: ui.select_option
+      arguments:
+        element_id: main.category_input
+        value: Transport
+      assert:
+        value: Transport
+    - tool: activate_element
+      arguments:
+        element_id: main.add_expense_btn
+    - tool: get_element
+      arguments:
+        element_id: main.expenses[0].item
+      assert:
+        value: Parking
+        visible: true
+    - tool: get_render_snapshot
     - tool: activate_element
       arguments:
         element_id: categories_btn
@@ -150,6 +291,23 @@
         element_id: main.categories
       assert:
         value: ["Pets"]
+    - tool: activate_element
+      arguments:
+        element_id: expenses_btn
+    - tool: ui.get_options
+      arguments:
+        element_id: main.category_input
+      assert:
+        options: ["Food", "Transport", "Home", "Health", "Other", "Pets"]
+    - tool: ui.select_option
+      arguments:
+        element_id: main.category_input
+        value: Pets
+      assert:
+        value: Pets
+    - tool: activate_element
+      arguments:
+        element_id: categories_btn
     - tool: ui.select_option
       arguments:
         element_id: main.categories

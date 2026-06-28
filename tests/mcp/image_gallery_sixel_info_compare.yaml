@@ -1,0 +1,116 @@
+- name: image_gallery
+  app: python/examples/image_gallery/image_gallery.py
+  tests:
+    - tool: get_window
+      compare_snapshot: false
+      assert:
+        title: Image Gallery
+    - tool: get_image_render_info
+      compare_snapshot: false
+      arguments:
+        element_id: camera_fb
+      compare_fields:
+        - source
+        - fit
+        - configured_render_mode
+        - resolved_render_mode
+        - source_width
+        - source_height
+        - bounds
+        - image_left
+        - image_top
+        - image_width
+        - image_height
+        - visible_left
+        - visible_top
+        - visible_width
+        - visible_height
+        - absolute_visible_left
+        - absolute_visible_top
+        - absolute_visible_right
+        - absolute_visible_bottom
+        - raw_expected
+        - raw_present
+      assert:
+        source_loaded: true
+        fit: cover
+        configured_render_mode: fallback
+        resolved_render_mode: fallback
+        raw_expected: false
+        raw_present: false
+        sample_signature:
+          contains: "#c0c0c0"
+    - tool: get_image_render_info
+      compare_snapshot: false
+      arguments:
+        element_id: coins_ctn
+      compare_fields:
+        - source
+        - fit
+        - configured_render_mode
+        - resolved_render_mode
+        - source_width
+        - source_height
+        - bounds
+        - image_left
+        - image_top
+        - image_width
+        - image_height
+        - visible_left
+        - visible_top
+        - visible_width
+        - visible_height
+        - absolute_visible_left
+        - absolute_visible_top
+        - absolute_visible_right
+        - absolute_visible_bottom
+        - raw_expected
+        - raw_present
+      assert:
+        source_loaded: true
+        fit: contain
+        configured_render_mode: sixel
+        resolved_render_mode: sixel
+        image_top: 1
+        image_height: 8
+        raw_expected: true
+        raw_present: true
+        sample_signature:
+          contains: "#404040"
+    - tool: get_image_render_info
+      compare_snapshot: false
+      arguments:
+        element_id: astro_str
+      compare_fields:
+        - source
+        - fit
+        - configured_render_mode
+        - resolved_render_mode
+        - source_width
+        - source_height
+        - bounds
+        - image_left
+        - image_top
+        - image_width
+        - image_height
+        - visible_left
+        - visible_top
+        - visible_width
+        - visible_height
+        - absolute_visible_left
+        - absolute_visible_top
+        - absolute_visible_right
+        - absolute_visible_bottom
+        - raw_expected
+        - raw_present
+      assert:
+        source_loaded: true
+        fit: stretch
+        configured_render_mode: sixel
+        resolved_render_mode: sixel
+        image_top: 0
+        image_height: 10
+        raw_expected: true
+        raw_present: true
+        sample_signature:
+          contains: "#804040"

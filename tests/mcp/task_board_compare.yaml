@@ -93,6 +93,97 @@
       assert:
         id: board
 
+    - tool: activate_element
+      arguments:
+        element_id: board[2].open_btn
+    - tool: get_element
+      arguments:
+        element_id: cancel_btn
+      assert:
+        visible: true
+    - tool: activate_element
+      arguments:
+        element_id: cancel_btn
+    - tool: get_window
+      assert:
+        title: Task Board
+    - tool: get_focused_element
+      assert:
+        id: board[2].open_btn
+
+    - tool: focus_element
+      arguments:
+        element_id: board
+      assert:
+        id: board
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: get_focused_element
+      assert:
+        id: board[2].open_btn
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: board[13].open_btn
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: board[13].open_btn
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_focused_element
+      assert:
+        id: board
+
     - tool: query_tasks
       arguments:
         title: Retry failed imports
@@ -437,6 +528,21 @@
         element_id: message
       assert:
         value: Mark every task as done?
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Action canceled.
+    - tool: activate_element
+      arguments:
+        element_id: mark_all_done_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
     - tool: activate_element
       arguments:
         element_id: no_btn
@@ -483,6 +589,21 @@
         element_id: message
       assert:
         value: Delete every task from the board?
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: Action canceled.
+    - tool: activate_element
+      arguments:
+        element_id: clear_board_btn
+    - tool: get_window
+      assert:
+        class: MessageBoxYesNo
+        title: Message Box
     - tool: activate_element
       arguments:
         element_id: no_btn

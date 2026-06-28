@@ -34,6 +34,36 @@
         element_id: main.caption
       assert:
         value: Coffee
+    - tool: get_image_render_info
+      arguments:
+        element_id: main.photo
+      compare_fields:
+        - source
+        - fit
+        - configured_render_mode
+        - resolved_render_mode
+        - source_loaded
+        - source_width
+        - source_height
+        - element_width
+        - element_height
+        - image_left
+        - image_top
+        - image_width
+        - image_height
+        - visible_left
+        - visible_top
+        - visible_width
+        - visible_height
+        - raw_expected
+        - raw_present
+      assert:
+        source_loaded: true
+        fit: contain
+        configured_render_mode: sixel
+        resolved_render_mode: deterministic
+        raw_expected: false
+        raw_present: false
     - tool: get_render_snapshot
     - tool: activate_element
       arguments:
@@ -43,9 +73,129 @@
         element_id: main.items
       assert:
         visible: true
-    - tool: activate_element
+    - tool: focus_element
       arguments:
-        element_id: main.items[0].show_btn
+        element_id: main.items
+      assert:
+        id: main.items
+    - tool: get_focused_element
+      assert:
+        id: main.items
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: get_focused_element
+      assert:
+        id: main.items[0].sel
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: main.items[19].sel
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: main.items[19].sel
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_focused_element
+      assert:
+        id: main.items
+    - tool: scroll
+      arguments:
+        element_id: main.items
+        delta: 200
+    - tool: mouse_press
+      arguments:
+        x: 70
+        y: 7
+    - tool: mouse_release
+      arguments:
+        x: 70
+        y: 7
     - tool: get_window
       assert:
         title: Image Show Dialog
@@ -59,13 +209,108 @@
         element_id: close_btn
       assert:
         visible: true
+    - tool: get_image_render_info
+      arguments:
+        element_id: photo
+      compare_fields:
+        - source
+        - fit
+        - configured_render_mode
+        - resolved_render_mode
+        - source_loaded
+        - source_width
+        - source_height
+        - element_width
+        - element_height
+        - image_left
+        - image_top
+        - image_width
+        - image_height
+        - visible_left
+        - visible_top
+        - visible_width
+        - visible_height
+        - raw_expected
+        - raw_present
+      assert:
+        source_loaded: true
+        fit: contain
+        configured_render_mode: sixel
+        resolved_render_mode: deterministic
+        raw_expected: false
+        raw_present: false
     - tool: get_render_snapshot
+    - tool: mouse_press
+      arguments:
+        x: 46
+        y: 28
+    - tool: mouse_release
+      arguments:
+        x: 46
+        y: 28
+    - tool: get_window
+      assert:
+        title: Image Browser
+    - tool: mouse_press
+      arguments:
+        x: 82
+        y: 15
+    - tool: mouse_release
+      arguments:
+        x: 82
+        y: 15
+    - tool: get_window
+      assert:
+        title: File Browser
+    - tool: get_element
+      arguments:
+        element_id: entries
+      assert:
+        visible: true
     - tool: activate_element
       arguments:
         element_id: close_btn
     - tool: get_window
       assert:
         title: Image Browser
+    - tool: get_focused_element
+      assert:
+        id: main.items[1].browse_btn
+    - tool: activate_element
+      arguments:
+        element_id: main.items[2].delete_btn
+    - tool: get_window
+      assert:
+        title: Message Box
+    - tool: get_element
+      arguments:
+        element_id: dialog_header
+      assert:
+        value: Delete Image
+    - tool: activate_element
+      arguments:
+        element_id: no_btn
+    - tool: get_window
+      assert:
+        title: Image Browser
+    - tool: get_focused_element
+      assert:
+        id: main.items[2].delete_btn
+    - tool: activate_element
+      arguments:
+        element_id: main.items[2].delete_btn
+    - tool: get_window
+      assert:
+        title: Message Box
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_window
+      assert:
+        title: Image Browser
+    - tool: get_focused_element
+      assert:
+        id: main.items[2].delete_btn
     - tool: scroll
       arguments:
         element_id: main.items
@@ -166,6 +411,32 @@
         element_id: main.items
       assert:
         visible: true
+    - tool: focus_element
+      arguments:
+        element_id: main.items
+      assert:
+        id: main.items
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_focused_element
+      assert:
+        id: main.items[0].sel
+    - tool: get_render_cell
+      arguments:
+        x: 37
+        y: 5
+    - tool: get_render_cell
+      arguments:
+        x: 44
+        y: 5
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
     - tool: activate_element
       arguments:
         element_id: main.items[5].show_btn
@@ -177,6 +448,36 @@
         element_id: photo
       assert:
         visible: true
+    - tool: get_image_render_info
+      arguments:
+        element_id: photo
+      compare_fields:
+        - source
+        - fit
+        - configured_render_mode
+        - resolved_render_mode
+        - source_loaded
+        - source_width
+        - source_height
+        - element_width
+        - element_height
+        - image_left
+        - image_top
+        - image_width
+        - image_height
+        - visible_left
+        - visible_top
+        - visible_width
+        - visible_height
+        - raw_expected
+        - raw_present
+      assert:
+        source_loaded: true
+        fit: contain
+        configured_render_mode: fallback
+        resolved_render_mode: deterministic
+        raw_expected: false
+        raw_present: false
     - tool: get_render_snapshot
     - tool: activate_element
       arguments:

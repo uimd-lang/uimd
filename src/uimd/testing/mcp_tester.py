@@ -90,6 +90,8 @@ COMPARE_OBSERVATION_TOOLS = (
     "get_window",
     "get_render_snapshot",
     "get_render_snapshot_compact",
+    "get_render_cell",
+    "get_image_render_info",
     "get_render_rect",
 )
 TARGET_PLACEHOLDERS = ("{platform}", "{target}")
@@ -1286,7 +1288,7 @@ class McpTester(McpTesterUI):
             if assertion is not None:
                 self._assert_result(target_name, result, assertion)
         if self.config.compare_mode:
-            self._compare_tool_results(tool, results, step.get("assert"))
+            self._compare_tool_results(tool, results, step.get("assert"), step.get("compare_fields"))
 
         exited_targets = self._exited_target_names(target_names)
         if exited_targets:
@@ -1302,7 +1304,7 @@ class McpTester(McpTesterUI):
         self._sync_protected_rects()
         if self._tool_needs_repaint(tool):
             self._repaint_targets()
-        if self.config.compare_mode:
+        if self.config.compare_mode and step.get("compare_snapshot", True):
             self._compare_render_snapshots(list(results))
 
     def _exited_target_names(self, target_names):
@@ -1316,13 +1318,15 @@ class McpTester(McpTesterUI):
 
     def _target_tool_arguments(self, tool, arguments, target_name):
         arguments = _format_target_value(arguments, target_name)
-        if not self.config.compare_mode or tool not in {"mouse_click", "mouse_drag"}:
+        offset_xy_tools = {"mouse_click", "mouse_press", "mouse_move", "mouse_release"}
+        offset_drag_tools = {"mouse_drag"}
+        if not self.config.compare_mode or tool not in offset_xy_tools | offset_drag_tools:
             return arguments
         viewport = getattr(self.targets.get(target_name), "viewport", None) or {}
         row_offset = int(viewport.get("row", 0) or 0)
         col_offset = int(viewport.get("col", 0) or 0)
         adjusted = dict(arguments or {})
-        if tool == "mouse_click":
+        if tool in offset_xy_tools:
             if "x" in adjusted:
                 adjusted["x"] = int(adjusted["x"]) + col_offset
             if "y" in adjusted:
@@ -1563,10 +1567,12 @@ class McpTester(McpTesterUI):
             self.script_assertions_passed += 1
             self._append_log(f"ASSERT {target_name}.{key} {label}")
 
-    def _compare_tool_results(self, tool, results, assertion):
+    def _compare_tool_results(self, tool, results, assertion, compare_fields=None):
         if len(results) < 2:
             return
-        fields = _comparison_assertion_fields(assertion) if assertion is not None else None
+        fields = list(compare_fields) if compare_fields is not None else (
+            _comparison_assertion_fields(assertion) if assertion is not None else None
+        )
         if assertion is not None and not fields:
             return
         if fields is None and tool not in COMPARE_OBSERVATION_TOOLS:

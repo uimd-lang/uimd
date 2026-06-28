@@ -33,6 +33,17 @@
     - tool: set_text
       arguments:
         element_id: editor
+        text: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10"
+      assert:
+        value: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10"
+    - tool: scroll
+      arguments:
+        element_id: editor
+        delta: -3
+    - tool: get_render_snapshot
+    - tool: set_text
+      arguments:
+        element_id: editor
         text: Draft before cancel.
       assert:
         value: Draft before cancel.

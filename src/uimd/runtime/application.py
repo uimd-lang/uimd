@@ -621,6 +621,22 @@ class UIApplication:
 
         self._dirty = True
 
+    @staticmethod
+    def _cleanup_background_after_standard_escape(window):
+        """Leave modal Escape with focus restored but without background edit dimming."""
+        if window is None:
+            return
+        scope = getattr(window, "_active_scrollview_scope", None)
+        scrollview = scope.get("scrollview") if isinstance(scope, dict) else None
+        if hasattr(window, "_edit_mode"):
+            window._edit_mode = False
+        if hasattr(window, "_edit_snapshot"):
+            window._edit_snapshot = None
+        if hasattr(window, "_active_scrollview_scope"):
+            window._active_scrollview_scope = None
+        if scrollview is not None and hasattr(scrollview, "_focused"):
+            scrollview._focused = False
+
     @classmethod
     def _window_has_active_scrollview_scope(cls, view):
         if getattr(view, "_active_scrollview_scope", None) is not None:
@@ -652,7 +668,15 @@ class UIApplication:
 
         if key == "Escape":
             if self._is_dialog_window(self.active_window):
+                parent_window = self._window_stack[-2] if len(self._window_stack) > 1 else None
+                stack_size_before = len(self._window_stack)
                 if self.active_window.handle_key(key):
+                    if (
+                        parent_window is not None
+                        and self.active_window is parent_window
+                        and len(self._window_stack) < stack_size_before
+                    ):
+                        self._cleanup_background_after_standard_escape(parent_window)
                     self._dirty = True
                     return
                 if getattr(self.active_window, "_handles_escape", False):

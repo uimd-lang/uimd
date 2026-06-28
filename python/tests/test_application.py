@@ -719,8 +719,9 @@ class TestUIApplication(unittest.TestCase):
         app._enter_terminal_ui()
         app._leave_terminal_ui()
 
-        self.assertEqual(writes[0], "\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?7l\x1b[?25l\x1b[>4;2m\x1b[H\x1b[2J")
-        self.assertEqual(writes[1], "\x1b[0m\x1b[>4;0m\x1b[?25h\x1b[?7h\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l")
+        self.assertEqual(writes[0], "\x1b]0; [python]\x07")
+        self.assertEqual(writes[1], "\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?7l\x1b[?25l\x1b[>4;2m\x1b[H\x1b[2J")
+        self.assertEqual(writes[2], "\x1b[0m\x1b[>4;0m\x1b[?25h\x1b[?7h\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l")
 
     def test_decode_escape_sequence_decodes_sgr_mouse_clicks(self):
         """SGR mouse press sequences should become mouse events."""

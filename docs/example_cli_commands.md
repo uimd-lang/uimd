@@ -515,6 +515,7 @@ UIMD_HOME=/tmp/uimd-home-from-script /tmp/uimd-home-from-script/bin/uimd doctor 
 ./uimd mcp-test python/examples/formular/formular.py tests/mcp/formular.yaml
 ./uimd mcp-test python/examples/image_browser/image_browser.py tests/mcp/image_browser_compare.yaml
 ./uimd mcp-test python/examples/image_gallery/image_gallery.py tests/mcp/image_gallery_compare.yaml
+./uimd mcp-test python/examples/image_gallery/image_gallery.py tests/mcp/image_gallery_sixel_info_compare.yaml
 ./uimd mcp-test python/examples/markdown_viewer/markdown_viewer.py tests/mcp/markdown_viewer.yaml
 ./uimd mcp-test python/examples/special_elements/special_elements.py tests/mcp/special_elements.yaml
 ./uimd mcp-test python/examples/task_board/task_board.py tests/mcp/task_board_compare.yaml
@@ -537,6 +538,7 @@ POSIX:
 ./tools/mcp_cpp_example.sh formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./tools/mcp_cpp_example.sh image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
@@ -555,6 +557,7 @@ Windows over SSH / cmd.exe:
 .\tools\mcp_cpp_example.cmd formular tests\mcp\formular.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd image_browser tests\mcp\image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd image_gallery tests\mcp\image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+.\tools\mcp_cpp_example.cmd image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd markdown_viewer tests\mcp\markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd special_elements tests\mcp\special_elements.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd task_board tests\mcp\task_board_compare.yaml --mcp-fast --compare-app-size 90x35
@@ -573,6 +576,7 @@ Windows PowerShell:
 .\tools\mcp_cpp_example.ps1 formular tests\mcp\formular.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 image_browser tests\mcp\image_browser_compare.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 image_gallery tests\mcp\image_gallery_compare.yaml -McpFast -CompareAppSize 90x35
+.\tools\mcp_cpp_example.ps1 image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 markdown_viewer tests\mcp\markdown_viewer.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 special_elements tests\mcp\special_elements.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 task_board tests\mcp\task_board_compare.yaml -McpFast -CompareAppSize 90x35
@@ -592,6 +596,7 @@ Raw POSIX form:
 ./uimd mcp-test cpp/build/examples/formular/formular tests/mcp/formular.yaml
 ./uimd mcp-test cpp/build/examples/image_browser/image_browser tests/mcp/image_browser_compare.yaml
 ./uimd mcp-test cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_compare.yaml
+./uimd mcp-test cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml
 ./uimd mcp-test cpp/build/examples/markdown_viewer/markdown_viewer tests/mcp/markdown_viewer.yaml
 ./uimd mcp-test cpp/build/examples/special_elements/special_elements tests/mcp/special_elements.yaml
 ./uimd mcp-test cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml
@@ -620,6 +625,7 @@ python3 tools/uimd_dev.py mcp-csharp-example expense_tracker tests/mcp/expense_t
 python3 tools/uimd_dev.py mcp-csharp-example formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
@@ -639,6 +645,7 @@ Raw POSIX form:
 ./uimd mcp-test --backend python --headless csharp/examples/formular/bin/Debug/net10.0/formular.dll tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/image_browser/bin/Debug/net10.0/image_browser.dll tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/image_gallery/bin/Debug/net10.0/image_gallery.dll tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/image_gallery/bin/Debug/net10.0/image_gallery.dll tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/markdown_viewer/bin/Debug/net10.0/markdown_viewer.dll tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/special_elements/bin/Debug/net10.0/special_elements.dll tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/task_board/bin/Debug/net10.0/task_board.dll tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
@@ -661,6 +668,7 @@ POSIX:
 ./tools/mcp_compare_example.sh formular tests/mcp/formular.yaml --mcp-fast
 ./tools/mcp_compare_example.sh image_browser tests/mcp/image_browser_compare.yaml --mcp-fast
 ./tools/mcp_compare_example.sh image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast
+./tools/mcp_compare_example.sh image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast
 ./tools/mcp_compare_example.sh markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast
 ./tools/mcp_compare_example.sh special_elements tests/mcp/special_elements.yaml --mcp-fast
 ./tools/mcp_compare_example.sh task_board tests/mcp/task_board_compare.yaml --mcp-fast
@@ -679,6 +687,7 @@ Windows over SSH / cmd.exe:
 .\tools\mcp_compare_example.cmd formular tests\mcp\formular.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd image_browser tests\mcp\image_browser_compare.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd image_gallery tests\mcp\image_gallery_compare.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd markdown_viewer tests\mcp\markdown_viewer.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd special_elements tests\mcp\special_elements.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd task_board tests\mcp\task_board_compare.yaml --mcp-fast
@@ -697,6 +706,7 @@ Windows PowerShell:
 .\tools\mcp_compare_example.ps1 formular tests\mcp\formular.yaml -McpFast
 .\tools\mcp_compare_example.ps1 image_browser tests\mcp\image_browser_compare.yaml -McpFast
 .\tools\mcp_compare_example.ps1 image_gallery tests\mcp\image_gallery_compare.yaml -McpFast
+.\tools\mcp_compare_example.ps1 image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml -McpFast
 .\tools\mcp_compare_example.ps1 markdown_viewer tests\mcp\markdown_viewer.yaml -McpFast
 .\tools\mcp_compare_example.ps1 special_elements tests\mcp\special_elements.yaml -McpFast
 .\tools\mcp_compare_example.ps1 task_board tests\mcp\task_board_compare.yaml -McpFast
@@ -722,6 +732,7 @@ Raw POSIX form:
 ./uimd mcp-test --compare python/examples/formular/formular.py cpp/build/examples/formular/formular tests/mcp/formular.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/image_browser/image_browser.py cpp/build/examples/image_browser/image_browser tests/mcp/image_browser_compare.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/image_gallery/image_gallery.py cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_compare.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/image_gallery/image_gallery.py cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/markdown_viewer/markdown_viewer.py cpp/build/examples/markdown_viewer/markdown_viewer tests/mcp/markdown_viewer.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/special_elements/special_elements.py cpp/build/examples/special_elements/special_elements tests/mcp/special_elements.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/task_board/task_board.py cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml --compare-app-size 90x35 --mcp-fast

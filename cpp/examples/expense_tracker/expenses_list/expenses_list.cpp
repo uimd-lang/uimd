@@ -135,6 +135,7 @@ void ExpensesList::refreshRows()
         reusable->setFrame(ui::Rect{0, 0, 0, std::max(kMinimumRenderHeight, measuredSize.height)});
         addChild(std::move(reusable));
     }
+    (void)scrollToTop();
 }
 
 }  // namespace expense_tracker_example

@@ -7,6 +7,10 @@
         text: Test User
       assert:
         value: Test User
+    - tool: get_render_cell
+      arguments:
+        x: 0
+        y: 0
     - tool: set_text
       arguments:
         element_id: email_input
@@ -74,13 +78,25 @@
     - tool: enter_edit_mode
       arguments:
         element_id: role_listbox
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: get_focused_element
+      assert:
+        id: role_listbox
     - tool: press_key
       arguments:
         key: Down
     - tool: press_key
       arguments:
         key: Enter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
     - tool: exit_edit_mode
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
     - tool: get_element
       arguments:
         element_id: role_listbox
@@ -95,7 +111,15 @@
     - tool: enter_edit_mode
       arguments:
         element_id: name_input
-    - tool: mouse_click
+    - tool: mouse_press
+      arguments:
+        x: 45
+        y: 6
+    - tool: mouse_move
+      arguments:
+        x: 45
+        y: 6
+    - tool: mouse_release
       arguments:
         x: 45
         y: 6

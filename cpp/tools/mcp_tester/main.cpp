@@ -2693,6 +2693,8 @@ private:
         std::string tool = toolIt->second.stringValue();
         Json arguments = node.count("arguments") ? node.at("arguments") : Json::Object{};
         Json assertion = node.count("assert") ? node.at("assert") : Json(nullptr);
+        Json compareFields = node.count("compare_fields") ? node.at("compare_fields") : Json(nullptr);
+        const bool compareSnapshot = !node.count("compare_snapshot") || node.at("compare_snapshot").boolValue(true);
         std::optional<int> timeoutMs;
         if (node.count("timeout_ms"))
         {
@@ -2743,7 +2745,7 @@ private:
         }
         if (config_.compare)
         {
-            compareToolResults(tool, results, assertion);
+            compareToolResults(tool, results, assertion, compareFields);
         }
         if (handleExitedTargetsAfterStep(names, stepIndex))
         {
@@ -2757,7 +2759,7 @@ private:
         {
             return;
         }
-        if (config_.compare)
+        if (config_.compare && compareSnapshot)
         {
             try
             {
@@ -2797,7 +2799,12 @@ private:
     Json targetToolArguments(const std::string& tool, const Json& arguments, const std::string& targetName) const
     {
         Json targetArguments = formatTargetValue(arguments, targetName);
-        if (!config_.compare || (tool != "mouse_click" && tool != "mouse_drag"))
+        const bool offsetXyTool = tool == "mouse_click" ||
+            tool == "mouse_press" ||
+            tool == "mouse_move" ||
+            tool == "mouse_release";
+        const bool offsetDragTool = tool == "mouse_drag";
+        if (!config_.compare || (!offsetXyTool && !offsetDragTool))
         {
             return targetArguments;
         }
@@ -2808,7 +2815,7 @@ private:
         }
         const Viewport& viewport = targetIt->second->viewport();
         Json::Object adjusted = targetArguments.object();
-        if (tool == "mouse_click")
+        if (offsetXyTool)
         {
             if (auto it = adjusted.find("x"); it != adjusted.end())
             {
@@ -3032,14 +3039,25 @@ private:
         log("COMPARE " + snapshotTool + ": " + joinNames(names));
     }
 
-    void compareToolResults(const std::string& tool, const std::map<std::string, Json>& results, const Json& assertion)
+    void compareToolResults(
+        const std::string& tool,
+        const std::map<std::string, Json>& results,
+        const Json& assertion,
+        const Json& compareFields)
     {
         if (results.size() < 2)
         {
             return;
         }
         std::vector<std::string> fields;
-        if (!assertion.isNull())
+        if (!compareFields.isNull())
+        {
+            for (const Json& field : compareFields.array())
+            {
+                fields.push_back(field.stringValue());
+            }
+        }
+        else if (!assertion.isNull())
         {
             for (const auto& [field, expected] : assertion.object())
             {
@@ -3156,7 +3174,7 @@ private:
     {
         return tool == "get_element" || tool == "get_state" || tool == "get_window" ||
                tool == "get_render_snapshot" || tool == "get_render_snapshot_compact" ||
-               tool == "get_render_rect";
+               tool == "get_render_cell" || tool == "get_image_render_info" || tool == "get_render_rect";
     }
 
     std::string writeSnapshotBundle(

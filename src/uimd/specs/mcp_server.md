@@ -151,9 +151,9 @@ The controller:
 - resizes the app viewport
 - waits or repaints after actions when configured
 
-Tool names are backend contract names. Python and C++ must expose the same
+Tool names are backend contract names. Python, C++, and C# must expose the same
 public tools for shared MCP scripts and backend comparison.
-There are currently no documented Python-only or C++-only MCP tools.
+There are currently no documented backend-only MCP tools.
 
 Legacy core tools:
 
@@ -170,6 +170,8 @@ Legacy core tools:
 - `get_accessibility_snapshot`
 - `get_render_snapshot`
 - `get_render_snapshot_compact`
+- `get_render_cell`
+- `get_image_render_info`
 - `get_text_snapshot`
 - `get_viewport`
 - `get_render_rect`
@@ -184,6 +186,9 @@ Legacy core tools:
 - `uncheck`
 - `press_key`
 - `mouse_click`
+- `mouse_press`
+- `mouse_move`
+- `mouse_release`
 - `mouse_drag`
 - `scroll`
 - `set_text`
@@ -249,9 +254,13 @@ accept booleans, and selection controls accept exact option values.
 option values. Multi-value selection is accepted only for listboxes declared
 with `multiple: true`; single-select listboxes accept one value.
 
-The legacy pointer/scroll tools remain part of the shared Python/C++ contract:
-`mouse_click(x, y)`, `mouse_drag(from_x, from_y, to_x, to_y)`, and
-`scroll(element_id, delta)`. They are intentionally not mirrored as canonical
+The legacy pointer/scroll tools remain part of the shared Python/C++/C# contract:
+`mouse_click(x, y)`, `mouse_press(x, y)`, `mouse_move(x, y)`,
+`mouse_release(x, y)`, `mouse_drag(from_x, from_y, to_x, to_y)`, and
+`scroll(element_id, delta)`. `mouse_click` is a press/release sequence, and
+`mouse_drag` is a press/move/release sequence. The individual pointer-event
+tools exist for deterministic tests of press, drag, release, selection, and
+click-candidate cleanup state. They are intentionally not mirrored as canonical
 `ui.*` names yet. New agent-facing flows should prefer element-id tools such as
 `ui.click`, `ui.select_option`, `ui.set_checked`, and `ui.set_value` whenever
 those tools express the intended action.
@@ -339,6 +348,18 @@ Each cell is represented as:
 [character, foreground, background, attributes]
 ```
 
+`get_render_cell(x, y)` returns one expanded cell from the same render snapshot
+source, including `x`, `y`, `char`, `foreground`, `background`, and
+`attributes`. It is intended for focused assertions on exact foreground and
+background blending without transferring or comparing the full surface.
+
+`get_image_render_info(element_id)` returns normalized diagnostics for an Image
+element. The result includes the configured and resolved render mode, source
+image dimensions, element bounds, local and absolute image/visible rectangles,
+whether raw Sixel output is expected/present, and a small quantized
+`sample_signature`. The sample signature is a coarse render-content signal for
+parity tests; it is not a pixel-perfect image dump.
+
 Backend parity compares the full assigned viewport, not only the natural window
 content. Empty surrounding panel cells are part of the comparison.
 
@@ -354,12 +375,26 @@ as a launcher that defaults to C++ and accepts `--backend python`.
 In compare mode, the tester drives multiple backends with the same YAML script
 and compares snapshots from the same logical step.
 
+For observation tools, a step may provide `compare_fields` to compare only a
+stable subset of result fields while still running per-target `assert` checks on
+other fields. This is useful for coarse image diagnostics where geometry and
+mode should match exactly, while decoded color samples may be checked with
+looser per-target assertions.
+
+In compare mode, each normal tool step also performs a compact full-surface
+render comparison after the tool returns. A step may set `compare_snapshot:
+false` to skip only that automatic post-step render comparison while keeping the
+tool result comparison and assertions active. Use this for transitional input
+steps or image metadata tests where the following structured assertions provide
+the stable signal and a pixel-exact intermediate frame would be intentionally
+too strict.
+
 ## Architecture Rules
 
 - Do not add app-specific MCP bridge callbacks.
 - Do not special-case examples in the MCP server.
 - Do not bypass the active window/modal stack.
 - Do not let MCP metadata affect visual design.
-- Keep Python and C++ tool names and result shapes compatible.
+- Keep Python, C++, and C# tool names and result shapes compatible.
 - Shared behavior belongs in runtime, generator, shared specs, or tester
   infrastructure, not in individual examples.

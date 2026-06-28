@@ -5808,6 +5808,7 @@ public sealed class McpController
         public ReusableElement? ActiveScrollViewProxy { get; set; }
         public Element? ActiveScrollViewEditElement { get; set; }
         public bool ActiveScrollViewFresh { get; set; }
+        public bool SuppressActiveScrollViewScopeVisuals { get; set; }
         public ScrollView? PendingModalScrollView { get; set; }
         public ReusableElement? PendingModalScrollViewProxy { get; set; }
         public EditSnapshot? EditSnapshot { get; set; }
@@ -5849,6 +5850,7 @@ public sealed class McpController
     private int mouseSelectionAnchor;
     private bool copyNotificationRequested;
     private ScrollRegionHint? pendingScrollRegion;
+    private bool suppressBackgroundEditModeRestoreAfterModalClose;
     private static string runtimeClipboardText = "";
 
     public McpController(GeneratedWindowBase window, GeneratedWindowRuntimeOptions options, McpRuntimeConfig config)
@@ -6040,6 +6042,7 @@ public sealed class McpController
         frame.ActiveScrollViewProxy = null;
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.EditSnapshot = null;
     }
 
@@ -6078,6 +6081,15 @@ public sealed class McpController
 
     private void CleanupBackgroundFocusAfterModalClose(BackgroundFocusCleanupContext context)
     {
+        CleanupBackgroundFocusAfterModalClose(
+            context,
+            restoreEditModeAfterModalClose: !suppressBackgroundEditModeRestoreAfterModalClose);
+    }
+
+    private void CleanupBackgroundFocusAfterModalClose(
+        BackgroundFocusCleanupContext context,
+        bool restoreEditModeAfterModalClose)
+    {
         if (!context.HadActiveStackFrame || frames.Count != 1)
         {
             return;
@@ -6095,7 +6107,7 @@ public sealed class McpController
             ClearRemovedBackgroundScrollViewScope(frame);
             return;
         }
-        if (ExitBackgroundEditModeAfterModalClose(frame))
+        if (ExitBackgroundEditModeAfterModalClose(frame, restoreEditModeAfterModalClose))
         {
             return;
         }
@@ -6128,6 +6140,7 @@ public sealed class McpController
         frame.ActiveScrollViewProxy = context.ActiveScrollViewProxy ?? ActiveScrollViewProxyForFrame(frame);
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.PendingModalScrollView = null;
         frame.PendingModalScrollViewProxy = null;
         frame.EditSnapshot = null;
@@ -6159,6 +6172,7 @@ public sealed class McpController
         frame.ActiveScrollViewProxy = null;
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.PendingModalScrollView = null;
         frame.PendingModalScrollViewProxy = null;
         frame.EditSnapshot = null;
@@ -6166,7 +6180,9 @@ public sealed class McpController
         frame.FocusedElementRef = null;
     }
 
-    private static bool ExitBackgroundEditModeAfterModalClose(RuntimeFrame frame)
+    private static bool ExitBackgroundEditModeAfterModalClose(
+        RuntimeFrame frame,
+        bool restoreEditModeAfterModalClose)
     {
         ScrollView? activeScrollView = ActiveScrollViewForFrame(frame);
         ReusableElement? activeScrollViewProxy = ActiveScrollViewProxyForFrame(frame);
@@ -6178,12 +6194,13 @@ public sealed class McpController
 
         List<Element> scopeFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window, activeScrollView);
         int focusedIndex = focused is not null ? scopeFocusable.IndexOf(focused) : -1;
-        frame.EditMode = true;
+        frame.EditMode = restoreEditModeAfterModalClose;
         frame.EditScopeOwner = activeScrollViewProxy;
         frame.ActiveScrollView = activeScrollView;
         frame.ActiveScrollViewProxy = activeScrollViewProxy;
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.SuppressActiveScrollViewScopeVisuals = !restoreEditModeAfterModalClose;
         if (focusedIndex >= 0)
         {
             frame.FocusedIndex = focusedIndex;
@@ -6299,6 +6316,7 @@ public sealed class McpController
         frame.ActiveScrollViewProxy = scrollContext?.Proxy;
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.EditSnapshot = null;
         if (index >= 0)
         {
@@ -6393,9 +6411,18 @@ public sealed class McpController
         frame.ActiveScrollViewFresh = false;
         frame.EditSnapshot = null;
         SetFocusInFrame(frame, button);
-        BeforeStandardEscapeButtonAction?.Invoke();
-        OptionsFor(button).OnButton?.Invoke(button.Name);
-        CloseCurrentWindowIfRequested();
+        bool previousSuppress = suppressBackgroundEditModeRestoreAfterModalClose;
+        suppressBackgroundEditModeRestoreAfterModalClose = true;
+        try
+        {
+            BeforeStandardEscapeButtonAction?.Invoke();
+            OptionsFor(button).OnButton?.Invoke(button.Name);
+            CloseCurrentWindowIfRequested();
+        }
+        finally
+        {
+            suppressBackgroundEditModeRestoreAfterModalClose = previousSuppress;
+        }
         return true;
     }
 
@@ -6740,6 +6767,8 @@ public sealed class McpController
             "get_render_rect" => ToolGetViewport(),
             "get_render_snapshot" => ToolGetRenderSnapshot(arguments),
             "get_render_snapshot_compact" => ToolGetRenderSnapshotCompact(arguments),
+            "get_render_cell" => ToolGetRenderCell(arguments),
+            "get_image_render_info" => ToolGetImageRenderInfo(arguments),
             "get_text_snapshot" => ToolGetTextSnapshot(),
             "get_accessibility_snapshot" or "get_state" => ToolGetAccessibilitySnapshot(),
             "get_schema" => ToolGetAccessibilitySnapshot(),
@@ -6753,6 +6782,10 @@ public sealed class McpController
             "activate_element" => ToolActivateElement(arguments["element_id"]?.GetValue<string>() ?? ""),
             "click_element" => ToolClickElement(arguments["element_id"]?.GetValue<string>() ?? ""),
             "mouse_click" => ToolMouseClick(arguments),
+            "mouse_drag" => ToolMouseDrag(arguments),
+            "mouse_press" => ToolMousePress(arguments),
+            "mouse_move" => ToolMouseMove(arguments),
+            "mouse_release" => ToolMouseRelease(arguments),
             "scroll" => ToolScroll(arguments),
             "press_key" => ToolPressKey(arguments["key"]?.GetValue<string>() ?? ""),
             "type_text" or "paste_text" => ToolTypeText(arguments),
@@ -6801,9 +6834,10 @@ public sealed class McpController
             "get_window", "get_elements", "get_element", "get_value", "get_options",
             "get_focused_element", "get_edit_mode", "get_accessibility_snapshot",
             "get_render_frame", "get_render_snapshot", "get_render_snapshot_compact",
-            "get_render_rect", "get_text_snapshot", "get_state", "get_schema", "get_source", "get_viewport",
+            "get_render_cell", "get_image_render_info", "get_render_rect", "get_text_snapshot", "get_state", "get_schema", "get_source", "get_viewport",
             "set_viewport", "repaint", "focus_element", "enter_edit_mode", "exit_edit_mode",
-            "activate_element", "click_element", "mouse_click", "scroll",
+            "activate_element", "click_element", "mouse_click", "mouse_drag",
+            "mouse_move", "mouse_press", "mouse_release", "scroll",
             "press_key", "type_text", "set_text", "paste_text", "clear_text",
             "set_value", "set_checked", "check", "uncheck", "set_cursor", "select_text",
             "copy_selection", "replace_selection", "select_option", "set_selection",
@@ -6948,6 +6982,176 @@ public sealed class McpController
         };
     }
 
+    private JsonObject ToolGetRenderCell(JsonObject arguments)
+    {
+        List<List<TerminalCell>> content;
+        using (new GradientRenderTime(JsonInt64(arguments, "snapshot_time_ms")))
+        {
+            content = RenderSnapshotContent(arguments);
+        }
+        int row = JsonInt(arguments, "y");
+        int col = JsonInt(arguments, "x");
+        if (row < 0 || row >= content.Count)
+        {
+            throw new InvalidOperationException("render cell y out of range: " + row);
+        }
+        if (col < 0 || col >= content[row].Count)
+        {
+            throw new InvalidOperationException("render cell x out of range: " + col);
+        }
+        JsonObject cell = RenderCellJson(content[row][col]);
+        cell["x"] = col;
+        cell["y"] = row;
+        return cell;
+    }
+
+    private JsonObject ToolGetImageRenderInfo(JsonObject arguments)
+    {
+        string elementId = arguments["element_id"]?.GetValue<string>() ?? "";
+        Element element = RequireElement(elementId);
+        if (element is not Image image)
+        {
+            throw new InvalidOperationException("Element is not an image: " + elementId);
+        }
+
+        List<(Element Element, Rect Frame)> savedFrames = CaptureWindowElementFrames(Current.Window);
+        Rect bounds;
+        try
+        {
+            _ = RenderFrameContentCore(ViewportSize());
+            bounds = element.Frame;
+        }
+        finally
+        {
+            RestoreElementFrames(savedFrames);
+        }
+
+        Size size = new(
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, bounds.Width),
+            Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, bounds.Height));
+        Element? focused = FocusedElement();
+        ImageRenderInfo info = image.RenderInfo(size, new ElementRenderState
+        {
+            Focused = ReferenceEquals(focused, element),
+            EditMode = ReferenceEquals(focused, element) && Current.EditMode,
+        });
+
+        JsonArray signature = new();
+        foreach (string item in info.SampleSignature)
+        {
+            signature.Add(item);
+        }
+        int imageRight = info.ImageLeft + info.ImageWidth;
+        int imageBottom = info.ImageTop + info.ImageHeight;
+        int visibleRight = info.VisibleLeft + info.VisibleWidth;
+        int visibleBottom = info.VisibleTop + info.VisibleHeight;
+        return new JsonObject
+        {
+            ["id"] = elementId,
+            ["source"] = info.Source,
+            ["fit"] = info.Fit,
+            ["configured_render_mode"] = info.ConfiguredRenderMode,
+            ["resolved_render_mode"] = info.ResolvedRenderMode,
+            ["source_loaded"] = info.SourceLoaded,
+            ["source_width"] = info.SourceWidth,
+            ["source_height"] = info.SourceHeight,
+            ["element_width"] = info.ElementWidth,
+            ["element_height"] = info.ElementHeight,
+            ["cell_pixel_width"] = info.CellPixelWidth,
+            ["cell_pixel_height"] = info.CellPixelHeight,
+            ["image_left"] = info.ImageLeft,
+            ["image_top"] = info.ImageTop,
+            ["image_width"] = info.ImageWidth,
+            ["image_height"] = info.ImageHeight,
+            ["image_right"] = imageRight,
+            ["image_bottom"] = imageBottom,
+            ["visible_left"] = info.VisibleLeft,
+            ["visible_top"] = info.VisibleTop,
+            ["visible_width"] = info.VisibleWidth,
+            ["visible_height"] = info.VisibleHeight,
+            ["visible_right"] = visibleRight,
+            ["visible_bottom"] = visibleBottom,
+            ["raw_expected"] = info.RawExpected,
+            ["raw_present"] = info.RawPresent,
+            ["sample_signature"] = signature,
+            ["bounds"] = new JsonObject
+            {
+                ["top"] = bounds.Row,
+                ["left"] = bounds.Col,
+                ["bottom"] = bounds.Row + bounds.Height,
+                ["right"] = bounds.Col + bounds.Width,
+                ["width"] = bounds.Width,
+                ["height"] = bounds.Height,
+            },
+            ["absolute_image_left"] = bounds.Col + info.ImageLeft,
+            ["absolute_image_top"] = bounds.Row + info.ImageTop,
+            ["absolute_image_right"] = bounds.Col + imageRight,
+            ["absolute_image_bottom"] = bounds.Row + imageBottom,
+            ["absolute_visible_left"] = bounds.Col + info.VisibleLeft,
+            ["absolute_visible_top"] = bounds.Row + info.VisibleTop,
+            ["absolute_visible_right"] = bounds.Col + visibleRight,
+            ["absolute_visible_bottom"] = bounds.Row + visibleBottom,
+        };
+    }
+
+    private static List<(Element Element, Rect Frame)> CaptureWindowElementFrames(GeneratedWindowBase window)
+    {
+        List<(Element Element, Rect Frame)> frames = new();
+        foreach (Element element in window.Elements)
+        {
+            CaptureElementFrame(element, frames);
+        }
+        return frames;
+    }
+
+    private static void CaptureElementFrame(
+        Element element,
+        List<(Element Element, Rect Frame)> frames)
+    {
+        if (frames.Any(item => ReferenceEquals(item.Element, element)))
+        {
+            return;
+        }
+        frames.Add((element, element.Frame));
+        foreach (Element child in element.Children)
+        {
+            CaptureElementFrame(child, frames);
+        }
+        if (element is ReusableElement reusable && reusable.Child is not null)
+        {
+            foreach (Element child in reusable.Child.Elements)
+            {
+                CaptureElementFrame(child, frames);
+            }
+        }
+        if (element is ScrollView scrollView)
+        {
+            foreach (Element child in scrollView.Children)
+            {
+                CaptureElementFrame(child, frames);
+            }
+        }
+    }
+
+    private static void RestoreElementFrames(List<(Element Element, Rect Frame)> frames)
+    {
+        foreach ((Element element, Rect frame) in frames)
+        {
+            element.Frame = frame;
+        }
+    }
+
+    private static JsonObject RenderCellJson(TerminalCell cell)
+    {
+        return new JsonObject
+        {
+            ["char"] = cell.Text.Length == 0 ? " " : cell.Text,
+            ["foreground"] = cell.Foreground is null || cell.Foreground.IsTransparent ? null : cell.Foreground.ToString(),
+            ["background"] = cell.Background is null || cell.Background.IsTransparent ? null : cell.Background.ToString(),
+            ["attributes"] = new JsonArray(),
+        };
+    }
+
     private List<List<TerminalCell>> RenderSnapshotContent(JsonObject arguments)
     {
         string renderScope = JsonString(arguments, "render_scope", "full_surface");
@@ -7054,6 +7258,7 @@ public sealed class McpController
             Current.ActiveScrollViewProxy = reusable;
             Current.ActiveScrollViewEditElement = null;
             Current.ActiveScrollViewFresh = true;
+            Current.SuppressActiveScrollViewScopeVisuals = false;
             Current.EditSnapshot = null;
             FocusFirstScrollViewScopeElement(Current, reusable, generatedScrollView.ScrollView());
             return true;
@@ -7066,6 +7271,7 @@ public sealed class McpController
             Current.ActiveScrollViewProxy = null;
             Current.ActiveScrollViewEditElement = null;
             Current.ActiveScrollViewFresh = true;
+            Current.SuppressActiveScrollViewScopeVisuals = false;
             Current.EditSnapshot = null;
             FocusFirstScrollViewScopeElement(Current, null, scrollView);
             return true;
@@ -7074,6 +7280,7 @@ public sealed class McpController
         Current.ActiveScrollViewProxy = null;
         Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
+        Current.SuppressActiveScrollViewScopeVisuals = false;
         return false;
     }
 
@@ -7095,6 +7302,7 @@ public sealed class McpController
         Current.ActiveScrollViewProxy = null;
         Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
+        Current.SuppressActiveScrollViewScopeVisuals = false;
         Current.EditSnapshot = null;
         return FocusedElement() is Element focused ? Snapshot(focused) : new JsonObject { ["ok"] = true };
     }
@@ -7208,6 +7416,7 @@ public sealed class McpController
         Current.ActiveScrollViewProxy = scrollContext.Value.Proxy;
         Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
+        Current.SuppressActiveScrollViewScopeVisuals = false;
         Current.EditSnapshot = null;
         if (index >= 0)
         {
@@ -7296,6 +7505,7 @@ public sealed class McpController
         frame.ActiveScrollViewProxy = proxy;
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = true;
+        frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.EditSnapshot = null;
     }
 
@@ -7307,6 +7517,7 @@ public sealed class McpController
         frame.ActiveScrollViewProxy = proxy;
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = true;
+        frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.EditSnapshot = null;
         FocusFirstScrollViewScopeElement(frame, proxy, scrollView);
     }
@@ -7966,6 +8177,7 @@ public sealed class McpController
         Current.ActiveScrollViewProxy = null;
         Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
+        Current.SuppressActiveScrollViewScopeVisuals = false;
         Current.EditSnapshot = null;
         Current.Options.OnFocusChanged?.Invoke(focusable[Current.FocusedIndex].Name, true);
         GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, focusable[Current.FocusedIndex]);
@@ -7976,6 +8188,7 @@ public sealed class McpController
         if (frame.ActiveScrollView is null)
         {
             frame.EditMode = false;
+            frame.SuppressActiveScrollViewScopeVisuals = false;
             return;
         }
 
@@ -7996,6 +8209,7 @@ public sealed class McpController
         frame.ActiveScrollViewProxy = null;
         frame.ActiveScrollViewEditElement = null;
         frame.ActiveScrollViewFresh = false;
+        frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.EditSnapshot = null;
         frame.EditMode = false;
         frame.EditScopeOwner = null;
@@ -8373,9 +8587,47 @@ public sealed class McpController
         return ToolMouseClickAt(WindowPointFromTerminalPoint(new Point(y, x)));
     }
 
+    private JsonNode ToolMouseDrag(JsonObject arguments)
+    {
+        RenderContent();
+        Point from = WindowPointFromTerminalPoint(new Point(
+            JsonInt(arguments, "from_y"),
+            JsonInt(arguments, "from_x")));
+        Point to = WindowPointFromTerminalPoint(new Point(
+            JsonInt(arguments, "to_y"),
+            JsonInt(arguments, "to_x")));
+        _ = ToolMousePressAt(from);
+        _ = ToolMouseDragAt(to);
+        return ToolMouseReleaseAt(to);
+    }
+
+    private JsonNode ToolMousePress(JsonObject arguments)
+    {
+        RenderContent();
+        return ToolMousePressAt(MousePointFromArguments(arguments));
+    }
+
+    private JsonNode ToolMouseMove(JsonObject arguments)
+    {
+        RenderContent();
+        return ToolMouseDragAt(MousePointFromArguments(arguments));
+    }
+
+    private JsonNode ToolMouseRelease(JsonObject arguments)
+    {
+        RenderContent();
+        return ToolMouseReleaseAt(MousePointFromArguments(arguments));
+    }
+
+    private Point MousePointFromArguments(JsonObject arguments)
+    {
+        return WindowPointFromTerminalPoint(new Point(JsonInt(arguments, "y"), JsonInt(arguments, "x")));
+    }
+
     private JsonNode ToolMouseClickAt(Point position)
     {
-        return ToolMousePressAt(position);
+        _ = ToolMousePressAt(position);
+        return ToolMouseReleaseAt(position);
     }
 
     private JsonNode ToolMousePressAt(Point position)
@@ -8415,6 +8667,7 @@ public sealed class McpController
                 ScrollViewFocusContextForElement(Current.Window, target);
             Current.ActiveScrollViewProxy = context?.Proxy;
             Current.EditMode = true;
+            Current.SuppressActiveScrollViewScopeVisuals = false;
             Current.FocusedIndex = focusable.IndexOf(target);
             Current.FocusedElementRef = Current.FocusedIndex >= 0 ? focusable[Current.FocusedIndex] : null;
         }
@@ -8784,6 +9037,7 @@ public sealed class McpController
         Current.ActiveScrollViewProxy = null;
         Current.ActiveScrollViewEditElement = null;
         Current.ActiveScrollViewFresh = false;
+        Current.SuppressActiveScrollViewScopeVisuals = false;
         Current.EditSnapshot = null;
         List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window);
         if (focusable.Count <= 1)
@@ -8822,6 +9076,17 @@ public sealed class McpController
         else if (target is ListBox listBox)
         {
             listBox.ScrollLines(delta);
+        }
+        else if (target is TextInput textInput)
+        {
+            int steps = Math.Max(1, Math.Abs(delta));
+            int scrollDelta = delta < 0 ? 1 : -1;
+            for (int index = 0; index < steps; ++index)
+            {
+                _ = textInput.ScrollByRows(
+                    scrollDelta * GeneratedWindowRuntime.TextInputWheelScrollRows,
+                    textInput.Frame.Height);
+            }
         }
         return Snapshot(target);
     }
@@ -9322,7 +9587,7 @@ public sealed class McpController
             !backgroundFrame ? frame.ActiveScrollViewEditElement : null,
             renderActiveScrollViewFresh,
             !backgroundFrame,
-            backgroundFrame);
+            backgroundFrame || frame.SuppressActiveScrollViewScopeVisuals);
     }
 
     private List<List<TerminalCell>> RenderFrameContent(
@@ -9659,6 +9924,29 @@ public sealed class McpController
         {
             string text = node.GetValue<string>();
             return long.TryParse(text, out long value) ? value : null;
+        }
+    }
+
+    private static int JsonInt(JsonObject arguments, string name)
+    {
+        JsonNode? node = arguments[name];
+        if (node is null)
+        {
+            return 0;
+        }
+        try
+        {
+            return node.GetValue<int>();
+        }
+        catch (InvalidOperationException)
+        {
+            string text = node.GetValue<string>();
+            return int.TryParse(text, out int value) ? value : 0;
+        }
+        catch (FormatException)
+        {
+            string text = node.GetValue<string>();
+            return int.TryParse(text, out int value) ? value : 0;
         }
     }
 

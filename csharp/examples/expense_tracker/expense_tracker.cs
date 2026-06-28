@@ -24,6 +24,7 @@ public sealed class ExpensesList : ExpensesListUI
             reusable.Frame = new Rect(0, 0, 0, GeneratedWindowRuntime.GeneratedWindowContentSize(row).Height);
             AddChild(reusable);
         }
+        ScrollToTop();
     }
 }
 

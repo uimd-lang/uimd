@@ -6,6 +6,7 @@
 - include: activity_feed.yaml
 - include: image_browser_compare.yaml
 - include: image_gallery_compare.yaml
+- include: image_gallery_sixel_info_compare.yaml
 - include: markdown_viewer.yaml
 - include: text_editor.yaml
 - include: contacts_manager.yaml

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
+#include <iomanip>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -60,6 +61,8 @@ constexpr int kTestFallbackCheckerTilePixels = 4;
 constexpr int kTestFallbackCheckerLightAlpha = 160;
 constexpr int kTestFallbackCheckerDarkAlpha = 0;
 constexpr int kTestFallbackColorQuantum = 32;
+constexpr int kImageInfoSampleGridSize = 3;
+constexpr int kImageInfoColorQuantum = 64;
 constexpr char kFallbackUpperHalfBlock[] = "\xE2\x96\x80";
 constexpr char kFallbackFullBlock[] = "\xE2\x96\x88";
 constexpr char kMissingImagePlaceholder[] = "image";
@@ -599,6 +602,69 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
 [[nodiscard]] Color colorFromRgb(Rgb color)
 {
     return Color::rgb(color.red, color.green, color.blue);
+}
+
+[[nodiscard]] unsigned char quantizeImageInfoChannel(unsigned char value)
+{
+    return static_cast<unsigned char>(
+        std::max(0, std::min(255, (static_cast<int>(value) / kImageInfoColorQuantum) * kImageInfoColorQuantum)));
+}
+
+[[nodiscard]] std::string rgbHex(Rgb color)
+{
+    std::ostringstream stream;
+    stream << '#'
+           << std::hex << std::setfill('0') << std::nouppercase
+           << std::setw(2) << static_cast<int>(color.red)
+           << std::setw(2) << static_cast<int>(color.green)
+           << std::setw(2) << static_cast<int>(color.blue);
+    return stream.str();
+}
+
+[[nodiscard]] std::vector<int> imageInfoSamplePositions(int extent)
+{
+    extent = std::max(1, extent);
+    std::vector<int> positions;
+    positions.reserve(kImageInfoSampleGridSize);
+    if (kImageInfoSampleGridSize == 1)
+    {
+        positions.push_back(extent / 2);
+        return positions;
+    }
+    for (int index = 0; index < kImageInfoSampleGridSize; ++index)
+    {
+        const int position = static_cast<int>(std::lround(
+            static_cast<double>(index) * (extent - 1) / (kImageInfoSampleGridSize - 1)));
+        positions.push_back(std::max(0, std::min(extent - 1, position)));
+    }
+    return positions;
+}
+
+[[nodiscard]] std::vector<std::string> imageInfoSampleSignature(const Raster& raster,
+                                                               int targetWidth,
+                                                               int targetHeight,
+                                                               const std::string& fit,
+                                                               const std::string& align,
+                                                               const std::string& verticalAlign,
+                                                               Rgb background)
+{
+    targetWidth = std::max(1, targetWidth);
+    targetHeight = std::max(1, targetHeight);
+    Raster fitted = resizeRaster(raster, targetWidth, targetHeight, fit, align, verticalAlign, background);
+    std::vector<std::string> signature;
+    signature.reserve(kImageInfoSampleGridSize * kImageInfoSampleGridSize);
+    for (int row : imageInfoSamplePositions(targetHeight))
+    {
+        for (int col : imageInfoSamplePositions(targetWidth))
+        {
+            Rgb color = pixelAt(fitted, col, row);
+            color.red = quantizeImageInfoChannel(color.red);
+            color.green = quantizeImageInfoChannel(color.green);
+            color.blue = quantizeImageInfoChannel(color.blue);
+            signature.push_back(rgbHex(color));
+        }
+    }
+    return signature;
 }
 
 [[nodiscard]] Raster cropRasterRows(const Raster& source, int top, int height)
@@ -1217,6 +1283,106 @@ void Image::setAlign(std::string align)
 void Image::setVerticalAlign(std::string verticalAlign)
 {
     verticalAlign_ = normalizedMode(std::move(verticalAlign), kDefaultImageVerticalAlign);
+}
+
+ImageRenderInfo Image::renderInfo(Size size, ElementRenderState state) const
+{
+    const int width = std::max(1, size.width);
+    const int height = std::max(1, size.height);
+    const Style style = effectiveStyle(state.focused, state.editMode);
+    ImageRenderInfo info;
+    info.source = source_;
+    info.fit = fit_;
+    info.configuredRenderMode = renderMode_;
+    info.elementWidth = width;
+    info.elementHeight = height;
+    const auto [cellW, cellH] = terminalCellPx();
+    info.cellPixelWidth = cellW > 0 ? cellW : kImageCellPixelWidth;
+    info.cellPixelHeight = cellH > 0 ? cellH : kImageCellPixelHeight;
+
+    const bool forceFallback = gForceFallbackRenderingDepth > 0;
+    const bool forceCellBackground = gForceCellBackgroundRenderingDepth > 0;
+    const bool sixel = !forceFallback && !forceCellBackground && (
+        (renderMode_ == "sixel" && !sixelDisabled()) ||
+        (renderMode_ == "auto" && terminalSupportsSixel()));
+    if (forceCellBackground)
+    {
+        info.resolvedRenderMode = "cell_background";
+    }
+    else if (deterministicImageFallbackEnabled())
+    {
+        info.resolvedRenderMode = "deterministic";
+    }
+    else if (sixel)
+    {
+        info.resolvedRenderMode = "sixel";
+    }
+    else
+    {
+        info.resolvedRenderMode = "fallback";
+    }
+
+    const Raster& sourceRaster = loadRaster(source_);
+    if (sourceRaster.width == 0 || sourceRaster.height == 0)
+    {
+        info.resolvedRenderMode = "placeholder";
+        return info;
+    }
+
+    Rgb background;
+    bool backgroundOpaque = false;
+    if (style.background.has_value() && style.background->rgba().has_value())
+    {
+        const auto& rgba = *style.background->rgba();
+        background = {rgba.red, rgba.green, rgba.blue};
+        backgroundOpaque = rgba.alpha == 255;
+    }
+    Rgb fallbackBackground = background;
+    if (!backgroundOpaque)
+    {
+        const std::optional<Color> parentBackground = Element::renderingParentBackground();
+        if (parentBackground.has_value() && parentBackground->rgba().has_value())
+        {
+            const auto& rgba = *parentBackground->rgba();
+            fallbackBackground = {rgba.red, rgba.green, rgba.blue};
+        }
+    }
+
+    const CellRegion region = imageCellRegion(width, height, sourceRaster.width, sourceRaster.height,
+                                              fit_, align_, verticalAlign_);
+    int visibleTop = region.rowOffset;
+    int visibleBottom = region.rowOffset + region.rows;
+    if (state.clipTop.has_value() || state.clipBottom.has_value())
+    {
+        visibleTop = std::max(visibleTop, state.clipTop.value_or(0));
+        visibleBottom = std::min(visibleBottom, state.clipBottom.value_or(height));
+    }
+    const int visibleRows = std::max(0, visibleBottom - visibleTop);
+    const std::string regionFit = (fit_ == "contain") ? std::string("cover") : fit_;
+    const int signatureRows = info.resolvedRenderMode == "sixel" ? std::max(1, visibleRows) : region.rows;
+
+    info.sourceLoaded = true;
+    info.sourceWidth = static_cast<int>(sourceRaster.width);
+    info.sourceHeight = static_cast<int>(sourceRaster.height);
+    info.imageLeft = region.colOffset;
+    info.imageTop = region.rowOffset;
+    info.imageWidth = region.cols;
+    info.imageHeight = region.rows;
+    info.visibleLeft = region.colOffset;
+    info.visibleTop = visibleTop;
+    info.visibleWidth = visibleRows > 0 ? region.cols : 0;
+    info.visibleHeight = visibleRows;
+    info.rawExpected = info.resolvedRenderMode == "sixel" && visibleRows > 0;
+    info.rawPresent = info.rawExpected;
+    info.sampleSignature = imageInfoSampleSignature(
+        sourceRaster,
+        region.cols,
+        std::max(1, signatureRows),
+        regionFit,
+        align_,
+        verticalAlign_,
+        fallbackBackground);
+    return info;
 }
 
 RenderedContent Image::render(Size size, ElementRenderState state) const

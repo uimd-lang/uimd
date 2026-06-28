@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "ui/core/Element.hpp"
 #include "ui/elements/Render.hpp"
@@ -12,6 +13,32 @@ inline constexpr const char* kDefaultImageFit = "contain";
 inline constexpr const char* kDefaultImageRenderMode = "auto";
 inline constexpr const char* kDefaultImageAlign = "center";
 inline constexpr const char* kDefaultImageVerticalAlign = "middle";
+
+struct ImageRenderInfo
+{
+    std::string source;
+    std::string fit;
+    std::string configuredRenderMode;
+    std::string resolvedRenderMode;
+    bool sourceLoaded = false;
+    int sourceWidth = 0;
+    int sourceHeight = 0;
+    int elementWidth = 0;
+    int elementHeight = 0;
+    int cellPixelWidth = 0;
+    int cellPixelHeight = 0;
+    int imageLeft = 0;
+    int imageTop = 0;
+    int imageWidth = 0;
+    int imageHeight = 0;
+    int visibleLeft = 0;
+    int visibleTop = 0;
+    int visibleWidth = 0;
+    int visibleHeight = 0;
+    bool rawExpected = false;
+    bool rawPresent = false;
+    std::vector<std::string> sampleSignature;
+};
 
 class Image : public Element
 {
@@ -58,6 +85,7 @@ public:
     void setVerticalAlign(std::string verticalAlign);
 
     [[nodiscard]] RenderedContent render(Size size, ElementRenderState state = {}) const;
+    [[nodiscard]] ImageRenderInfo renderInfo(Size size, ElementRenderState state = {}) const;
 
 private:
     std::string source_;

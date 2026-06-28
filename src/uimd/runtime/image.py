@@ -44,6 +44,8 @@ TEST_FALLBACK_CHECKER_LIGHT_ALPHA = 160
 TEST_FALLBACK_CHECKER_DARK_ALPHA = 0
 TEST_FALLBACK_CHECKER_RGB = (255, 255, 255)
 TEST_FALLBACK_COLOR_QUANTUM = 32
+IMAGE_INFO_SAMPLE_GRID_SIZE = 3
+IMAGE_INFO_COLOR_QUANTUM = 64
 SIXEL_COLOR_COMPONENT_SCALE = 100
 SIXEL_BITS_PER_GLYPH = 6
 SIXEL_ESC = "\x1b"
@@ -251,6 +253,94 @@ class Image(UIElement):
 
     def render(self):
         return _cells_to_strings(self.render_cells())
+
+    def render_info(self, width=None, height=None):
+        width = max(1, int(width if width is not None else getattr(self, "width", 0) or 0))
+        height = max(1, int(height if height is not None else getattr(self, "height", 0) or 0))
+        style = self._effective_style()
+        mode = self._resolved_render_mode()
+        path = self._image_path()
+        info = {
+            "source": self.source,
+            "path": path,
+            "fit": self.fit,
+            "configured_render_mode": self.render_mode,
+            "resolved_render_mode": mode,
+            "source_loaded": False,
+            "source_width": 0,
+            "source_height": 0,
+            "element_width": width,
+            "element_height": height,
+            "cell_pixel_width": IMAGE_CELL_PIXEL_WIDTH,
+            "cell_pixel_height": IMAGE_CELL_PIXEL_HEIGHT,
+            "image_left": 0,
+            "image_top": 0,
+            "image_width": 0,
+            "image_height": 0,
+            "image_right": 0,
+            "image_bottom": 0,
+            "visible_left": 0,
+            "visible_top": 0,
+            "visible_width": 0,
+            "visible_height": 0,
+            "visible_right": 0,
+            "visible_bottom": 0,
+            "raw_expected": False,
+            "raw_present": False,
+            "sample_signature": [],
+        }
+        try:
+            source = _load_image(path)
+        except Exception:
+            info["resolved_render_mode"] = "placeholder"
+            return info
+
+        src_w, src_h = source.size
+        cell_px = _terminal_cell_px()
+        px_w = cell_px[0] if cell_px else IMAGE_CELL_PIXEL_WIDTH
+        px_h = cell_px[1] if cell_px else IMAGE_CELL_PIXEL_HEIGHT
+        cols, rows, col_off, row_off = self._image_cell_region(width, height, src_w, src_h)
+        visible_top = row_off
+        visible_bottom = row_off + rows
+        clip = getattr(self, "_render_cell_clip", None)
+        if clip is not None:
+            visible_top = max(visible_top, max(0, int(clip.get("top", 0) or 0)))
+            visible_bottom = min(visible_bottom, min(height, int(clip.get("bottom", height) or height)))
+        visible_rows = max(0, visible_bottom - visible_top)
+        region_fit = "cover" if self.fit == "contain" else self.fit
+        signature_rows = visible_rows if mode == "sixel" else rows
+        signature = _image_info_sample_signature(
+            source,
+            cols,
+            max(1, signature_rows),
+            region_fit,
+            self.align,
+            self.valign,
+            self._letterbox_rgb(style),
+        )
+        info.update({
+            "source_loaded": True,
+            "source_width": src_w,
+            "source_height": src_h,
+            "cell_pixel_width": px_w,
+            "cell_pixel_height": px_h,
+            "image_left": col_off,
+            "image_top": row_off,
+            "image_width": cols,
+            "image_height": rows,
+            "image_right": col_off + cols,
+            "image_bottom": row_off + rows,
+            "visible_left": col_off,
+            "visible_top": visible_top,
+            "visible_width": cols if visible_rows > 0 else 0,
+            "visible_height": visible_rows,
+            "visible_right": col_off + (cols if visible_rows > 0 else 0),
+            "visible_bottom": visible_bottom,
+            "raw_expected": mode == "sixel" and visible_rows > 0,
+            "raw_present": mode == "sixel" and visible_rows > 0,
+            "sample_signature": signature,
+        })
+        return info
 
     def render_cells(self):
         width = max(1, int(getattr(self, "width", 0) or 0))
@@ -889,6 +979,46 @@ def _test_fallback_quantize_color(color):
         max(0, min(255, (int(channel) // TEST_FALLBACK_COLOR_QUANTUM) * TEST_FALLBACK_COLOR_QUANTUM))
         for channel in color
     )
+
+
+def _image_info_sample_signature(image, target_width, target_height, fit, align, valign, background_rgb):
+    target_width = max(1, int(target_width))
+    target_height = max(1, int(target_height))
+    sample_cols = _image_info_sample_positions(target_width, IMAGE_INFO_SAMPLE_GRID_SIZE)
+    sample_rows = _image_info_sample_positions(target_height, IMAGE_INFO_SAMPLE_GRID_SIZE)
+    signature = []
+    for row in sample_rows:
+        for col in sample_cols:
+            color = _image_background_sample_color(
+                image, col, row, target_width, target_height, fit, align, valign, background_rgb,
+            )
+            signature.append(_image_info_quantized_hex(color))
+    return signature
+
+
+def _image_info_sample_positions(extent, count):
+    extent = max(1, int(extent))
+    count = max(1, int(count))
+    if count == 1:
+        return [extent // 2]
+    return [
+        max(0, min(extent - 1, round(index * (extent - 1) / (count - 1))))
+        for index in range(count)
+    ]
+
+
+def _image_info_quantized_hex(color):
+    text = str(color or "").lstrip("#")
+    if len(text) != 6:
+        return "#000000"
+    channels = []
+    for start in range(0, 6, 2):
+        try:
+            value = int(text[start:start + 2], 16)
+        except ValueError:
+            value = 0
+        channels.append(max(0, min(255, (value // IMAGE_INFO_COLOR_QUANTUM) * IMAGE_INFO_COLOR_QUANTUM)))
+    return _rgb_hex(tuple(channels))
 
 
 def _alignment_offset_float(outer, inner, value, start_value, end_value):
