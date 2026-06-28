@@ -3,11 +3,12 @@
 ## Last Update
 
 - Updated by: Codex (GPT-5)
-- Date: 2026-06-20
+- Date: 2026-06-28
 
 ## Strict Rules
 
 - **LOG SUBSTANTIVE TASKS AND BUGS TO TODO.md**: Before starting work on a substantive bug, feature, refactor, cross-platform/parity-sensitive change, architecture cleanup, analysis that may affect implementation, or multi-step validation task, check whether it is already recorded in `prompts/TODO.md`. If it is not, add it under the appropriate section before starting work and mark it as `[x]` when done. Do not add TODO entries for trivial one-off housekeeping such as checking a file, removing obvious conflict markers, fixing a typo, or other small documentation cleanup unless it exposes a real bug, design decision, parity issue, or follow-up task that should remain visible across sessions.
+- **AFTER CONTEXT AUTO-COMPACT, REREAD PROJECT STATE**: If the conversation context is auto-compacted, resumed from a summary, or otherwise loses earlier details, reread `AGENTS.md` and `prompts/TODO.md` from disk before doing more project work or reporting final status. Do not rely only on the compacted summary for current rules, open tasks, parity notes, or repository workflow state.
 - **GITHUB ISSUE TRIAGE FLOW**: When the user asks to look at GitHub bugs, issues, regressions, or open errors, fetch and display the relevant GitHub issues first, including issue numbers, titles, links, and concise summaries. Then stop and ask which issue number or numbers to start working on. Do not begin implementation from the issue list until the user selects issue numbers. When the user replies with numbers, add those selected issues to `prompts/TODO.md` as open tasks if they are not already recorded, preserving the GitHub issue number, link, title, affected area, and key reproduction details, then start solving them in the selected order.
 - **GITHUB ISSUE UPDATE AFTER COMMIT**: When the user explicitly requests a commit and that commit resolves one or more GitHub issues tracked in `prompts/TODO.md`, update each resolved GitHub issue after the commit succeeds. Add a concise issue comment with the commit SHA or summary, the validation that passed, and any relevant remaining caveats. Close only issues that are genuinely fixed by the committed change. If an issue was investigated but determined to be external, app-specific, duplicate, or not fixed by this commit, leave it open unless the user explicitly asks to close it, and add a comment explaining the finding instead.
 - **NO UNREQUESTED COMMITS**: Committing any changes without an explicit user request is strictly forbidden. Never commit on your own. Always ask first. Commit only when the user gives an explicit command such as "commit", "make a commit", or "commit please".
