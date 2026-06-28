@@ -70,8 +70,9 @@ command:
 uimd self update
 ```
 
-When an installed project command needs a missing target such as `cpp`, the
-launcher auto-installs it from release assets unless offline mode is enabled.
+When an installed project command needs a missing target such as `cpp` or
+`csharp`, the launcher auto-installs it from release assets unless offline mode
+is enabled.
 `UIMD_RELEASE_ROOT` and `UIMD_RELEASE_BASE_URL` are development/CI overrides,
 not the normal user path.
 
@@ -188,6 +189,7 @@ Store:
 ~/.uimd/sdk/0.4.0/bin/uimd
 ~/.uimd/sdk/0.4.0/targets/python/
 ~/.uimd/sdk/0.4.0/targets/cpp/
+~/.uimd/sdk/0.4.0/targets/csharp/
 ```
 
 On Windows the SDK Store lives under:

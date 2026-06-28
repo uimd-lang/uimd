@@ -7,7 +7,4 @@
     <LangVersion>preview</LangVersion>
     <AssemblyName>image_browser</AssemblyName>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../../src/Uimd/Uimd.csproj" />
-  </ItemGroup>
 </Project>

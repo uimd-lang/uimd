@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <UimdLocalCSharpProject Condition="'$(UimdLocalCSharpProject)' == ''">$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', 'src', 'Uimd', 'Uimd.csproj'))</UimdLocalCSharpProject>
+    <UimdSdkHome Condition="'$(UimdSdkHome)' == '' and '$(UIMD_HOME)' != ''">$(UIMD_HOME)</UimdSdkHome>
+    <UimdSdkHome Condition="'$(UimdSdkHome)' == '' and '$(LOCALAPPDATA)' != ''">$([System.IO.Path]::Combine('$(LOCALAPPDATA)', 'uimd'))</UimdSdkHome>
+    <UimdSdkHome Condition="'$(UimdSdkHome)' == '' and '$(HOME)' != ''">$([System.IO.Path]::Combine('$(HOME)', '.uimd'))</UimdSdkHome>
+    <UimdCurrentFile Condition="'$(UimdSdkHome)' != ''">$([System.IO.Path]::Combine('$(UimdSdkHome)', 'current'))</UimdCurrentFile>
+    <UimdCurrentVersion Condition="'$(UimdCurrentVersion)' == '' and Exists('$(UimdCurrentFile)')">$([System.IO.File]::ReadAllText('$(UimdCurrentFile)').Trim())</UimdCurrentVersion>
+    <UimdInstalledCSharpProject Condition="'$(UimdCurrentVersion)' != ''">$([System.IO.Path]::Combine('$(UimdSdkHome)', 'sdk', '$(UimdCurrentVersion)', 'targets', 'csharp', 'Uimd.csproj'))</UimdInstalledCSharpProject>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(UimdLocalCSharpProject)')">
+    <ProjectReference Include="$(UimdLocalCSharpProject)" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('$(UimdLocalCSharpProject)') and Exists('$(UimdInstalledCSharpProject)')">
+    <ProjectReference Include="$(UimdInstalledCSharpProject)" />
+  </ItemGroup>
+  <Target Name="EnsureUimdCSharpRuntime" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(UimdLocalCSharpProject)') and !Exists('$(UimdInstalledCSharpProject)')" Text="UIMD C# runtime was not found. Install UIMD, set UIMD_HOME, keep the source checkout layout, or set UimdLocalCSharpProject." />
+  </Target>
+</Project>

@@ -36,8 +36,10 @@ IGNORED_DIR_NAMES = {
     ".pytest_cache",
     ".svn",
     "__pycache__",
+    "bin",
     "build",
     "build-release",
+    "obj",
 }
 IGNORED_FILE_NAMES = {".DS_Store"}
 IGNORED_SUFFIXES = {".pyc", ".pyo"}
@@ -706,9 +708,14 @@ def package_release(
     copy_tree(stage_dir / "lib", cpp_target / "lib")
     copy_file(root / "LICENSE", cpp_target / "LICENSE")
 
+    csharp_target = payload_dir / "targets" / "csharp"
+    copy_tree(root / "csharp" / "src" / "Uimd", csharp_target)
+    copy_file(root / "LICENSE", csharp_target / "LICENSE")
+
     examples_target = payload_dir / "examples"
     copy_tree(root / "python" / "examples", examples_target / "python")
     copy_tree(root / "cpp" / "examples", examples_target / "cpp")
+    copy_tree(root / "csharp" / "examples", examples_target / "csharp")
     copy_tree(root / "shared", examples_target / "shared")
 
     manifest_path = write_manifest(release_dir, version, payload_dir)

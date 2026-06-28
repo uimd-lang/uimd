@@ -8,7 +8,6 @@
     <AssemblyName>markdown_viewer</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Uimd/Uimd.csproj" />
     <Content Include="docs/**/*.markdown" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

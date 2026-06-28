@@ -2705,6 +2705,21 @@ target_link_libraries(@PROJECT@ PRIVATE uimd::runtime)
 )UIMD";
 }
 
+std::string csharpProjectTemplate(const std::string& project, const std::string& localRuntimeReference)
+{
+    return "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        "  <PropertyGroup>\n"
+        "    <OutputType>Exe</OutputType>\n"
+        "    <TargetFramework>net10.0</TargetFramework>\n"
+        "    <ImplicitUsings>enable</ImplicitUsings>\n"
+        "    <Nullable>enable</Nullable>\n"
+        "    <LangVersion>preview</LangVersion>\n"
+        "    <AssemblyName>" + project + "</AssemblyName>\n"
+        "  </PropertyGroup>\n"
+        + uimd::tool::csharpRuntimeReferenceProperties(localRuntimeReference) +
+        "</Project>\n";
+}
+
 std::string pythonExecutable()
 {
     const std::string pythonOverride = envValue("UIMD_PYTHON");
@@ -4344,19 +4359,7 @@ int runNew(const std::vector<std::string>& args)
             "        });\n"
             "    }\n"
             "}\n", values));
-        files.emplace_back(project + ".csproj", applyTemplate(
-            "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
-            "  <PropertyGroup>\n"
-            "    <OutputType>Exe</OutputType>\n"
-            "    <TargetFramework>net10.0</TargetFramework>\n"
-            "    <ImplicitUsings>enable</ImplicitUsings>\n"
-            "    <Nullable>enable</Nullable>\n"
-            "    <LangVersion>preview</LangVersion>\n"
-            "  </PropertyGroup>\n"
-            "  <ItemGroup>\n"
-            "    <ProjectReference Include=\"../uimd/csharp/src/Uimd/Uimd.csproj\" />\n"
-            "  </ItemGroup>\n"
-            "</Project>\n", values));
+        files.emplace_back(project + ".csproj", csharpProjectTemplate(project, "../uimd/csharp/src/Uimd/Uimd.csproj"));
     }
     else
     {

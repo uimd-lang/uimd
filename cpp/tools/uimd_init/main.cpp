@@ -29,6 +29,8 @@ const std::filesystem::path SDK_ROOT_DIR{"sdk"};
 const std::filesystem::path SDK_BIN_DIR{"bin"};
 const std::filesystem::path SDK_TARGETS_DIR{"targets"};
 const std::filesystem::path SDK_PYTHON_TARGET_DIR{"python"};
+const std::filesystem::path SDK_CPP_TARGET_DIR{"cpp"};
+const std::filesystem::path SDK_CSHARP_TARGET_DIR{"csharp"};
 const std::filesystem::path SDK_EXAMPLES_DIR{"examples"};
 const std::string SHELL_CONFIG_MARKER{"# UIMD SDK"};
 const std::string RELEASE_BASE_URL_ENV{"UIMD_RELEASE_BASE_URL"};
@@ -109,6 +111,15 @@ std::filesystem::path sdkVersionRoot(const std::filesystem::path& home)
 std::filesystem::path sdkVersionBinary(const std::filesystem::path& home)
 {
     return sdkVersionRoot(home) / SDK_BIN_DIR / uimdExecutableName();
+}
+
+std::vector<std::filesystem::path> sdkTargetDirs()
+{
+    return {
+        SDK_PYTHON_TARGET_DIR,
+        SDK_CPP_TARGET_DIR,
+        SDK_CSHARP_TARGET_DIR,
+    };
 }
 
 std::string pathString(const std::filesystem::path& path)
@@ -1031,11 +1042,14 @@ bool ensureStore(const std::filesystem::path& home)
         std::cerr << "error: cannot create " << pathString(sdkVersionRoot(home) / SDK_BIN_DIR) << ": " << error.message() << "\n";
         return false;
     }
-    std::filesystem::create_directories(sdkVersionRoot(home) / SDK_TARGETS_DIR / SDK_PYTHON_TARGET_DIR, error);
-    if (error)
+    for (const std::filesystem::path& targetDir : sdkTargetDirs())
     {
-        std::cerr << "error: cannot create " << pathString(sdkVersionRoot(home) / SDK_TARGETS_DIR / SDK_PYTHON_TARGET_DIR) << ": " << error.message() << "\n";
-        return false;
+        std::filesystem::create_directories(sdkVersionRoot(home) / SDK_TARGETS_DIR / targetDir, error);
+        if (error)
+        {
+            std::cerr << "error: cannot create " << pathString(sdkVersionRoot(home) / SDK_TARGETS_DIR / targetDir) << ": " << error.message() << "\n";
+            return false;
+        }
     }
     std::filesystem::create_directories(sdkVersionRoot(home) / SDK_EXAMPLES_DIR, error);
     if (error)
@@ -1056,12 +1070,22 @@ bool storeValid(const std::filesystem::path& home)
     {
         std::getline(current, currentVersion);
     }
-    return std::filesystem::is_directory(home / SDK_BIN_DIR) &&
-           std::filesystem::is_directory(home / SDK_ROOT_DIR) &&
-           std::filesystem::is_regular_file(launcherPath(home)) &&
-           std::filesystem::is_regular_file(sdkVersionBinary(home)) &&
-           std::filesystem::is_directory(sdkVersionRoot(home) / SDK_TARGETS_DIR / SDK_PYTHON_TARGET_DIR) &&
-           currentVersion == UIMD_VERSION;
+    if (!std::filesystem::is_directory(home / SDK_BIN_DIR) ||
+        !std::filesystem::is_directory(home / SDK_ROOT_DIR) ||
+        !std::filesystem::is_regular_file(launcherPath(home)) ||
+        !std::filesystem::is_regular_file(sdkVersionBinary(home)) ||
+        currentVersion != UIMD_VERSION)
+    {
+        return false;
+    }
+    for (const std::filesystem::path& targetDir : sdkTargetDirs())
+    {
+        if (!std::filesystem::is_directory(sdkVersionRoot(home) / SDK_TARGETS_DIR / targetDir))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 int printHelp(const char* program)

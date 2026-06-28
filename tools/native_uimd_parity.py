@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_BINARY = ROOT / "cpp" / "build" / "tools" / "uimd" / "uimd"
 NATIVE_INIT_BINARY = ROOT / "cpp" / "build" / "tools" / "uimd_init" / "uimd-init"
-GENERATED_PATTERNS = ("*_ui.py", "*_ui.hpp", "*_ui.cpp")
+GENERATED_PATTERNS = ("*_ui.py", "*_ui.hpp", "*_ui.cpp", "*_ui.cs")
 GENERATED_ROOTS = (
     ROOT / "python" / "examples",
     ROOT / "python" / "dialogs",
@@ -28,6 +28,7 @@ GENERATED_ROOTS = (
     ROOT / "cpp" / "dialogs",
     ROOT / "cpp" / "examples",
     ROOT / "cpp" / "tools" / "mcp_tester",
+    ROOT / "csharp" / "examples",
 )
 EXECUTABLE_FILE_MODE = 0o755
 
@@ -112,6 +113,7 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
     release_dir = root / version
     (release_dir / "payload" / "targets" / "python").mkdir(parents=True)
     (release_dir / "payload" / "targets" / "cpp").mkdir(parents=True)
+    (release_dir / "payload" / "targets" / "csharp").mkdir(parents=True)
 
     binary_name = "uimd.exe" if os.name == "nt" else "uimd"
     binary = release_dir / "payload" / binary_name
@@ -119,8 +121,10 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
     binary.chmod(EXECUTABLE_FILE_MODE)
     python_marker = release_dir / "payload" / "targets" / "python" / "runtime.txt"
     cpp_marker = release_dir / "payload" / "targets" / "cpp" / "runtime.txt"
+    csharp_marker = release_dir / "payload" / "targets" / "csharp" / "runtime.txt"
     python_marker.write_text("python target\n", encoding="utf-8")
     cpp_marker.write_text("cpp target\n", encoding="utf-8")
+    csharp_marker.write_text("csharp target\n", encoding="utf-8")
 
     binary_checksum = file_sha256(binary)
     if corrupt_checksum:
@@ -134,6 +138,7 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
                 f"file bin/{binary_name} {binary_checksum} payload/{binary_name}",
                 f"file targets/python/runtime.txt {file_sha256(python_marker)} payload/targets/python/runtime.txt",
                 f"file targets/cpp/runtime.txt {file_sha256(cpp_marker)} payload/targets/cpp/runtime.txt",
+                f"file targets/csharp/runtime.txt {file_sha256(csharp_marker)} payload/targets/csharp/runtime.txt",
                 "",
             ]
         ),
@@ -293,6 +298,7 @@ def check_new(native_binary: Path, workspace: Path) -> list[str]:
     cases = (
         ("python", ("hello.uimd", "hello.py"), ("hello_ui.py",)),
         ("cpp", ("hello.uimd", "hello.cpp", "CMakeLists.txt"), ("hello_ui.hpp", "hello_ui.cpp")),
+        ("csharp", ("hello.uimd", "hello.cs", "hello.csproj"), ("hello_ui.cs",)),
     )
     for target, expected_files, absent_files in cases:
         target_dir = workspace / f"new_{target}"
@@ -313,6 +319,7 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
     cases = (
         ("python", (), ("hello_ui.py",)),
         ("cpp", ("--app-stub",), ("hello_ui.hpp", "hello_ui.cpp", "hello.cpp", "CMakeLists.txt")),
+        ("csharp", ("--app-stub",), ("hello_ui.cs", "hello.cs", "hello.csproj")),
     )
     for target, extra_args, expected_files in cases:
         target_dir = workspace / f"generate_{target}"
@@ -327,7 +334,7 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
             content = (target_dir / "hello_ui.py").read_text(encoding="utf-8")
             if "class HelloUI" not in content or "_mcp_enabled = True" not in content:
                 failures.append("generate --target python: hello_ui.py does not contain the expected UI class")
-        else:
+        elif target == "cpp":
             header = (target_dir / "hello_ui.hpp").read_text(encoding="utf-8")
             source = (target_dir / "hello_ui.cpp").read_text(encoding="utf-8")
             app = (target_dir / "hello.cpp").read_text(encoding="utf-8")
@@ -340,6 +347,16 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
                 failures.append("generate --target cpp: hello.cpp does not contain the runtime launcher")
             if "GIT_TAG v" not in cmake:
                 failures.append("generate --target cpp: CMakeLists.txt does not contain a runtime tag fallback")
+        else:
+            source = (target_dir / "hello_ui.cs").read_text(encoding="utf-8")
+            app = (target_dir / "hello.cs").read_text(encoding="utf-8")
+            project = (target_dir / "hello.csproj").read_text(encoding="utf-8")
+            if "class HelloUI" not in source:
+                failures.append("generate --target csharp: hello_ui.cs does not contain the expected UI class")
+            if "RunGeneratedWindow" not in app:
+                failures.append("generate --target csharp: hello.cs does not contain the runtime launcher")
+            if "targets', 'csharp', 'Uimd.csproj'" not in project:
+                failures.append("generate --target csharp: hello.csproj does not contain installed SDK runtime fallback")
 
     return failures
 
@@ -365,6 +382,7 @@ def check_installed_sdk_theme_lookup(native_binary: Path, workspace: Path) -> li
     cases = (
         ("python", "hello_ui.py"),
         ("cpp", "hello_ui.cpp"),
+        ("csharp", "hello_ui.cs"),
     )
     for target, generated_file in cases:
         target_dir = workspace / f"installed_theme_{target}"
@@ -597,6 +615,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "bin" / binary_name))
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "python" / "runtime.txt"))
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "cpp" / "runtime.txt"))
+    failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "csharp" / "runtime.txt"))
 
     bad_release_root = workspace / "bad_release_root"
     write_release_fixture(bad_release_root, "0.8.0", corrupt_checksum=True)
@@ -632,6 +651,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
             failures.append("sdk update --release-root --json: expected updated and installed true")
     failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "bin" / binary_name))
     failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "targets" / "cpp" / "runtime.txt"))
+    failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "targets" / "csharp" / "runtime.txt"))
 
     network_update_home = workspace / "network_update_home"
     network_update_env = runtime_env()
@@ -659,6 +679,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
             failures.append("sdk update network --json: expected updated and installed true")
     failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "bin" / binary_name))
     failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "targets" / "cpp" / "runtime.txt"))
+    failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "targets" / "csharp" / "runtime.txt"))
 
     update_install_newer = run_command(native_cli(native_binary, "sdk", "install", "3.4.3"), workspace, env=update_env)
     failures.extend(expect_success("sdk update installed-newer fixture", update_install_newer))
@@ -728,6 +749,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     if "Installing UIMD SDK target cpp" not in auto_target_result.stderr:
         failures.append("target auto-install generate cpp: expected auto-install diagnostic")
     failures.extend(expect_file("target auto-install generate cpp", auto_target_home / "sdk" / "6.1.0" / "targets" / "cpp" / "runtime.txt"))
+    failures.extend(expect_file("target auto-install generate cpp", auto_target_home / "sdk" / "6.1.0" / "targets" / "csharp" / "runtime.txt"))
 
     auto_sdk_home = workspace / "auto_sdk_home"
     auto_sdk_env = runtime_env()
@@ -752,6 +774,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
         failures.append("SDK auto-install generate cpp: expected SDK auto-install diagnostic")
     failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "bin" / binary_name))
     failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "targets" / "cpp" / "runtime.txt"))
+    failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "targets" / "csharp" / "runtime.txt"))
 
     offline_target_home = workspace / "offline_target_home"
     offline_target_env = runtime_env()
@@ -1066,6 +1089,7 @@ def compile_examples(native_binary: Path) -> list[str]:
         native_cli(native_binary, "generate", "src/uimd/testing", "--target", "python"),
         native_cli(native_binary, "generate", "cpp/dialogs", "--target", "cpp"),
         native_cli(native_binary, "generate", "cpp/examples", "--target", "cpp"),
+        native_cli(native_binary, "generate", "csharp/examples", "--target", "csharp"),
     ]
     failures: list[str] = []
     for command in commands:

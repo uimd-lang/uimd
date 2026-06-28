@@ -647,7 +647,13 @@ YamlMap loadIncludedStyle(const std::string& name, const std::filesystem::path& 
     if (!root.empty())
     {
         searchDirs.push_back(root / "shared" / "themes");
+        searchDirs.push_back(root / "src" / "shared" / "themes");
         searchDirs.push_back(root / "src" / "uimd" / "themes");
+    }
+    const char* sdkPythonTarget = std::getenv("UIMD_SDK_PYTHON_TARGET");
+    if (sdkPythonTarget != nullptr && *sdkPythonTarget != '\0')
+    {
+        searchDirs.push_back(std::filesystem::path{sdkPythonTarget} / "uimd" / "themes");
     }
 
     for (const std::filesystem::path& directory : searchDirs)
@@ -2509,9 +2515,7 @@ std::string csproj(const std::string& project, const std::filesystem::path& proj
         "    <LangVersion>preview</LangVersion>\n"
         "    <AssemblyName>" + project + "</AssemblyName>\n"
         "  </PropertyGroup>\n"
-        "  <ItemGroup>\n"
-        "    <ProjectReference Include=\"" + runtimeReference + "\" />\n"
-        "  </ItemGroup>\n"
+        + csharpRuntimeReferenceProperties(runtimeReference) +
         "</Project>\n";
 }
 
@@ -2580,6 +2584,63 @@ std::vector<std::filesystem::path> compileCSharpFile(
 }
 
 }  // namespace
+
+namespace
+{
+
+std::string csharpXmlEscape(const std::string& text)
+{
+    std::string escaped;
+    for (char ch : text)
+    {
+        if (ch == '&')
+        {
+            escaped += "&amp;";
+        }
+        else if (ch == '"')
+        {
+            escaped += "&quot;";
+        }
+        else if (ch == '<')
+        {
+            escaped += "&lt;";
+        }
+        else if (ch == '>')
+        {
+            escaped += "&gt;";
+        }
+        else
+        {
+            escaped += ch;
+        }
+    }
+    return escaped;
+}
+
+}  // namespace
+
+std::string csharpRuntimeReferenceProperties(const std::string& localRuntimeReference)
+{
+    return
+        "  <PropertyGroup>\n"
+        "    <UimdLocalCSharpProject>" + csharpXmlEscape(localRuntimeReference) + "</UimdLocalCSharpProject>\n"
+        "    <UimdSdkHome Condition=\"'$(UimdSdkHome)' == '' and '$(UIMD_HOME)' != ''\">$(UIMD_HOME)</UimdSdkHome>\n"
+        "    <UimdSdkHome Condition=\"'$(UimdSdkHome)' == '' and '$(LOCALAPPDATA)' != ''\">$([System.IO.Path]::Combine('$(LOCALAPPDATA)', 'uimd'))</UimdSdkHome>\n"
+        "    <UimdSdkHome Condition=\"'$(UimdSdkHome)' == '' and '$(HOME)' != ''\">$([System.IO.Path]::Combine('$(HOME)', '.uimd'))</UimdSdkHome>\n"
+        "    <UimdCurrentFile Condition=\"'$(UimdSdkHome)' != ''\">$([System.IO.Path]::Combine('$(UimdSdkHome)', 'current'))</UimdCurrentFile>\n"
+        "    <UimdCurrentVersion Condition=\"'$(UimdCurrentVersion)' == '' and Exists('$(UimdCurrentFile)')\">$([System.IO.File]::ReadAllText('$(UimdCurrentFile)').Trim())</UimdCurrentVersion>\n"
+        "    <UimdInstalledCSharpProject Condition=\"'$(UimdCurrentVersion)' != ''\">$([System.IO.Path]::Combine('$(UimdSdkHome)', 'sdk', '$(UimdCurrentVersion)', 'targets', 'csharp', 'Uimd.csproj'))</UimdInstalledCSharpProject>\n"
+        "  </PropertyGroup>\n"
+        "  <ItemGroup Condition=\"Exists('$(UimdLocalCSharpProject)')\">\n"
+        "    <ProjectReference Include=\"$(UimdLocalCSharpProject)\" />\n"
+        "  </ItemGroup>\n"
+        "  <ItemGroup Condition=\"!Exists('$(UimdLocalCSharpProject)') and Exists('$(UimdInstalledCSharpProject)')\">\n"
+        "    <ProjectReference Include=\"$(UimdInstalledCSharpProject)\" />\n"
+        "  </ItemGroup>\n"
+        "  <Target Name=\"EnsureUimdCSharpRuntime\" BeforeTargets=\"ResolveReferences\">\n"
+        "    <Error Condition=\"!Exists('$(UimdLocalCSharpProject)') and !Exists('$(UimdInstalledCSharpProject)')\" Text=\"UIMD C# runtime was not found. Install UIMD, set UIMD_HOME, keep a sibling ../uimd checkout, or set UimdLocalCSharpProject.\" />\n"
+        "  </Target>\n";
+}
 
 std::vector<std::filesystem::path> generateCSharpSources(
     const std::filesystem::path& sourcePath,
