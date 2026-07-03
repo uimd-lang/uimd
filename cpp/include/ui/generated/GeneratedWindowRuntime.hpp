@@ -4,6 +4,7 @@
 #include "ui/elements/Render.hpp"
 #include "ui/terminal/TerminalBuffer.hpp"
 
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <optional>
@@ -42,6 +43,14 @@ struct EditSnapshot {
     int selectedIndex = 0;
 };
 
+struct RememberedScrollViewDescendant {
+    Element* element = nullptr;
+    std::uint64_t scrollViewIdentity = 0;
+    std::uint64_t elementIdentity = 0;
+};
+
+using ScrollViewLastDescendantMap = std::unordered_map<Element*, RememberedScrollViewDescendant>;
+
 struct GeneratedWindowStackFrame {
     GeneratedWindowBase* window = nullptr;
     GeneratedWindowFrameOptions options;
@@ -51,7 +60,7 @@ struct GeneratedWindowStackFrame {
     Element* activeScrollView = nullptr;
     Element* activeScrollViewEditElement = nullptr;
     std::optional<EditSnapshot> editSnapshot;
-    std::unordered_map<Element*, Element*> scrollViewLastDescendant;
+    ScrollViewLastDescendantMap scrollViewLastDescendant;
 };
 
 class GeneratedWindowStack {

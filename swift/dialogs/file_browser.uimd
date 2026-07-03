@@ -1,0 +1,80 @@
+# File Browser
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: dialog
+status: stable
+description: "File Browser UI source."
+tags: [dialog]
+```
+
+## Members
+
+```yaml
+dialog_header:
+  type: label
+  text: "Open File"
+
+path_label:
+  type: label
+  text: .
+
+entries:
+  type: listbox
+  options: []
+  selected_items: []
+  multiple: "false"
+  commit-mode: leave
+
+filename:
+  type: textinput
+  value: ""
+  maxlength: 120
+
+open_btn:
+  type: button
+  title: Open
+
+close_btn:
+  type: button
+  title: Close
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@entries:
+  background: "#0d1524"
+  color: "#cbd5e1"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+```
+
+## User Interface
+
+```ui
++------------------------------------------------+
+|dialog_header...................................|
++------------------------------------------------+
+|                                                |
+|   path_label................................   |
+|                                                |
+|   entries...................................   |
+|   ..........................................   |
+|   ..........................................   |
+|   ..........................................   |
+|   ..........................................   |
+|   ..........................................   |
+|                                                |
+|   "File:"..  filename.......................   |
+|                                                |
+|   open_btn............  close_btn...........   |
+|                                                |
++------------------------------------------------+
+```

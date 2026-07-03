@@ -1619,7 +1619,7 @@ void clearInvalidActiveScrollViewScope(GeneratedWindowBase& window,
                                        bool& editMode,
                                        Element*& activeScrollView,
                                        Element*& activeScrollViewEditElement,
-                                       std::unordered_map<Element*, Element*>& remembered,
+                                       ScrollViewLastDescendantMap& remembered,
                                        std::optional<EditSnapshot>& editSnapshot) {
     if (activeScrollView == nullptr || activeScrollViewRepresentedInCurrentLayout(window, activeScrollView)) {
         if (activeScrollViewEditElement != nullptr &&
@@ -1636,6 +1636,19 @@ void clearInvalidActiveScrollViewScope(GeneratedWindowBase& window,
     focusedIndex = -1;
     editMode = false;
     editSnapshot.reset();
+}
+
+void rememberScrollViewDescendant(ScrollViewLastDescendantMap& remembered,
+                                  Element* scrollView,
+                                  Element* descendant) {
+    if (scrollView == nullptr || descendant == nullptr) {
+        return;
+    }
+    remembered[scrollView] = RememberedScrollViewDescendant{
+        .element = descendant,
+        .scrollViewIdentity = scrollView->identity(),
+        .elementIdentity = descendant->identity(),
+    };
 }
 
 [[nodiscard]] std::optional<int> logicalCellSize(const AxisDimension& dimension, int sourceSize) {
@@ -4129,12 +4142,20 @@ void moveFocusSpatial(int& focusedIndex, const std::vector<Element*>& focusable,
 
 [[nodiscard]] Element* firstFocusableDescendantInScrollView(GeneratedWindowBase& window,
                                                             ScrollView& scrollView,
-                                                            const std::unordered_map<Element*, Element*>& remembered) {
+                                                            ScrollViewLastDescendantMap& remembered) {
     std::vector<Element*> scoped = scrollViewScopeElements(window, scrollView);
     Element* scopeRoot = generatedScrollViewProxyFor(window, &scrollView);
     const auto rememberedIt = remembered.find(&scrollView);
-    if (rememberedIt != remembered.end() && indexOfElement(scoped, rememberedIt->second) >= 0) {
-        return rememberedIt->second;
+    if (rememberedIt != remembered.end()) {
+        Element* rememberedElement = rememberedIt->second.element;
+        if (rememberedIt->second.scrollViewIdentity == scrollView.identity() &&
+            rememberedElement != nullptr &&
+            isLiveElementPointer(rememberedElement) &&
+            rememberedIt->second.elementIdentity == rememberedElement->identity() &&
+            indexOfElement(scoped, rememberedElement) >= 0) {
+            return rememberedElement;
+        }
+        remembered.erase(rememberedIt);
     }
     for (Element* element : scoped) {
         if (element != &scrollView && element != scopeRoot) {
@@ -4148,7 +4169,7 @@ void moveFocusSpatial(int& focusedIndex, const std::vector<Element*>& focusable,
                                         int& focusedIndex,
                                         bool& editMode,
                                         Element*& activeScrollView,
-                                        std::unordered_map<Element*, Element*>& remembered) {
+                                        ScrollViewLastDescendantMap& remembered) {
     std::vector<Element*> navigationFocusable = focusableElements(window, nullptr);
     Element* focused = (focusedIndex >= 0 && focusedIndex < static_cast<int>(navigationFocusable.size()))
         ? navigationFocusable[static_cast<std::size_t>(focusedIndex)]
@@ -4169,7 +4190,7 @@ void moveFocusSpatial(int& focusedIndex, const std::vector<Element*>& focusable,
     std::vector<Element*> scoped = focusableElements(window, activeScrollView);
     if (target != nullptr) {
         focusedIndex = indexOfElement(scoped, target);
-        remembered[scrollView] = target;
+        rememberScrollViewDescendant(remembered, scrollView, target);
         (void)ensureElementFrameVisibleInScrollView(*scrollView, target);
     } else {
         Element* scopeRoot = generatedScrollViewProxyFor(window, scrollView);
@@ -4182,7 +4203,7 @@ void exitScrollViewScope(GeneratedWindowBase& window,
                          int& focusedIndex,
                          bool& editMode,
                          Element*& activeScrollView,
-                         std::unordered_map<Element*, Element*>& remembered) {
+                         ScrollViewLastDescendantMap& remembered) {
     if (activeScrollView == nullptr) {
         editMode = false;
         return;
@@ -4199,7 +4220,7 @@ void exitScrollViewScope(GeneratedWindowBase& window,
     if (focusedIndex >= 0 && focusedIndex < static_cast<int>(activeFocusable.size())) {
         Element* focused = activeFocusable[static_cast<std::size_t>(focusedIndex)];
         if (focused != activeScrollView && indexOfElement(scoped, focused) >= 0) {
-            remembered[activeScrollView] = focused;
+            rememberScrollViewDescendant(remembered, activeScrollView, focused);
         }
     }
     Element* scrollView = activeScrollView;
@@ -4212,7 +4233,7 @@ void exitScrollViewScope(GeneratedWindowBase& window,
 [[nodiscard]] bool moveScrollViewScopeFocus(GeneratedWindowBase& window,
                                             int& focusedIndex,
                                             Element* activeScrollView,
-                                            std::unordered_map<Element*, Element*>& remembered,
+                                            ScrollViewLastDescendantMap& remembered,
                                             std::string_view key) {
     if (!isLiveElementPointer(activeScrollView)) {
         return false;
@@ -4249,7 +4270,7 @@ void exitScrollViewScope(GeneratedWindowBase& window,
         Element* focused = scoped[static_cast<std::size_t>(scopedIndex)];
         focusedIndex = indexOfElement(activeFocusable, focused);
         if (focused != activeScrollView) {
-            remembered[activeScrollView] = focused;
+            rememberScrollViewDescendant(remembered, activeScrollView, focused);
         }
         (void)ensureElementFrameVisibleInScrollView(*scrollView, focused);
         return true;
@@ -4294,7 +4315,7 @@ void exitScrollViewScope(GeneratedWindowBase& window,
         Element* focused = scoped[static_cast<std::size_t>(nextIndex)];
         focusedIndex = indexOfElement(activeFocusable, focused);
         if (focused != activeScrollView) {
-            remembered[activeScrollView] = focused;
+            rememberScrollViewDescendant(remembered, activeScrollView, focused);
         }
         (void)ensureElementFrameVisibleInScrollView(*scrollView, focused);
     }
@@ -6659,7 +6680,7 @@ private:
         state_.activeScrollViewEditElement = nullptr;
         focusedIndexRef(window) = index;
         if (nextFocus != activeScrollView) {
-            scrollViewLastDescendant_[activeScrollView] = nextFocus;
+            rememberScrollViewDescendant(scrollViewLastDescendant_, activeScrollView, nextFocus);
         }
         ensureElementVisibleInContainingScrollView(window, nextFocus);
         return true;
@@ -6687,7 +6708,7 @@ private:
             activeScrollView_ = activeScrollView;
             state_.activeScrollView = activeScrollView_;
             if (focused != nullptr) {
-                scrollViewLastDescendant_[activeScrollView] = focused;
+                rememberScrollViewDescendant(scrollViewLastDescendant_, activeScrollView, focused);
                 const int focusedIndex = indexOfElement(focusable, focused);
                 if (focusedIndex >= 0) {
                     focusedIndexRef(window) = focusedIndex;
@@ -6751,7 +6772,7 @@ private:
             state_.activeScrollViewEditElement = activeScrollViewEditElement_;
             std::vector<Element*> focusable = focusableElements(window, activeScrollView_);
             focusedIndexRef(window) = indexOfElement(focusable, element);
-            scrollViewLastDescendant_[scrollView] = element;
+            rememberScrollViewDescendant(scrollViewLastDescendant_, scrollView, element);
             (void)ensureElementFrameVisibleInScrollView(*scrollView, element);
             return;
         }
@@ -8456,7 +8477,7 @@ private:
     Element* activeScrollView_ = nullptr;
     Element* activeScrollViewEditElement_ = nullptr;
     std::optional<EditSnapshot> editSnapshot_;
-    std::unordered_map<Element*, Element*> scrollViewLastDescendant_;
+    ScrollViewLastDescendantMap scrollViewLastDescendant_;
     Element* mouseSelectionElement_ = nullptr;
     int mouseSelectionAnchor_ = 0;
     MouseClickCandidate mouseClickCandidate_;
@@ -9583,7 +9604,7 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
     bool editMode = false;
     Element* activeScrollView = nullptr;
     Element* activeScrollViewEditElement = nullptr;
-    std::unordered_map<Element*, Element*> scrollViewLastDescendant;
+    ScrollViewLastDescendantMap scrollViewLastDescendant;
     std::optional<EditSnapshot> editSnapshot;
     if (options.startInEditMode && focusedIndex >= 0 && focusedIndex < static_cast<int>(initialFocusable.size()) &&
         isEditableElement(*initialFocusable[static_cast<std::size_t>(focusedIndex)])) {

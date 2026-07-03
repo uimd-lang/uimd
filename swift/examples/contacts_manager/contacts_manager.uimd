@@ -1,0 +1,147 @@
+# Contacts Manager
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "Contacts management application for browsing contacts, viewing details, adding, editing, deleting, saving CSV data, and reloading from storage."
+tags: [example]
+```
+
+## Definition
+
+```yaml
+uses:
+  - contact_form
+```
+
+## Members
+
+```yaml
+header:
+  type: label
+  text: "Contacts Manager"
+  description: "Application title."
+  expose: false
+
+contacts_label:
+  type: label
+  text: Contacts
+  description: "Label for the contacts list."
+
+contacts:
+  type: listbox
+  options: []
+  selected_items: []
+  multiple: "false"
+  description: "List of contact records; selecting a row updates the detail panel."
+
+detail:
+  type: label
+  text: "Select a contact."
+  description: "Read-only details for the selected contact."
+
+add_btn:
+  type: button
+  title: Add
+  description: "Open the contact form to create a new contact."
+
+edit_btn:
+  type: button
+  title: Edit
+  description: "Open the selected contact for editing."
+
+delete_btn:
+  type: button
+  title: Delete
+  description: "Delete the selected contact."
+
+save_btn:
+  type: button
+  title: "Save CSV"
+  description: "Save contacts to the configured CSV file."
+
+reload_btn:
+  type: button
+  title: Reload
+  description: "Reload contacts from the configured CSV file."
+
+close_btn:
+  type: button
+  title: Quit
+  width: 9
+  description: "Close the contacts manager."
+
+status:
+  type: label
+  text: Ready
+  description: "Shows save, load, and validation status messages."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@header:
+  text-align: center
+  background: "#1f2937"
+  color: "#ffffff"
+@list:
+  background: "#101a2b"
+@contacts:
+  background: "#ffffff11"
+  color: "#cbd5e1"
+  focus-background: "#ffffff22"
+  edit-background: "#00000000"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+@detail_cell:
+  background: "#0b1120"
+  padding: 1, 1, 1, 1
+@detail:
+  color: "#d1d5db"
+  user-select: text
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@delete_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+@close_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+@status:
+  background: "#111827"
+  color: "#93c5fd"
+```
+
+## User Interface
+
+```ui
++-title-**-------------------------------------------------------------------------------+
+|header..**...................................................................close_btn..|
++-actions-**-----------------------------------------------------------------------------+
+|                                                                                        |
+| add_btn....... edit_btn....... delete_btn....... save_btn....... reload_btn.......     |
+|                                                                                        |
++-list-32---------------------------+-detail_cell-**-------------------------------------+
+| contacts_label.**................ | detail..**........................................ |
+| contacts.......**................ | .................................................. |
+| #................................ | #................................................. |
+| #................................ | #................................................. |
+| ................................. | .................................................. |
+* ................................. | .................................................. |
+* ................................. * .................................................. |
+| ................................. * .................................................. |
+| ................................. | .................................................. |
+|                                   | .................................................. |
++-----------------------------------+----------------------------------------------------+
+| status..**............................................................................ |
++----------------------------------------------------------------------------------------+
+```

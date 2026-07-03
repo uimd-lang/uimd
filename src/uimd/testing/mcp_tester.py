@@ -2660,6 +2660,8 @@ def _compare_target_name(path, index):
         return "cpp"
     if "csharp" in parts or str(path).endswith(".dll"):
         return "csharp"
+    if "swift" in parts:
+        return "swift"
     base = _target_name_from_path(str(path))
     return base or f"app_{index + 1}"
 
@@ -2686,6 +2688,8 @@ def _app_path_from_examples_root(examples_root, name):
         os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.dll"),
         os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.exe"),
         os.path.join(examples_root, name, "bin", "Release", "net*", name),
+        os.path.join(examples_root, name, ".build", "debug", name),
+        os.path.join(examples_root, name, ".build", "release", name),
         os.path.join(examples_root, f"{name}.py"),
         os.path.join(examples_root, f"{name}.exe"),
     ]

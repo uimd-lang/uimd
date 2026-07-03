@@ -4,6 +4,45 @@
 
 Date: 2026-06-21
 
+- [x] **Swift local validation gate missing from dev helper and command docs**.
+  Swift examples, runtime tests, and C++/Swift MCP compare commands exist, but
+  the central POSIX `tools/uimd_dev.py` `rebuild-all`/`test-all` flow and the
+  top `docs/example_cli_commands.md` full-gate block still describe only
+  Python, C++, and C#. Parity decision: this is developer validation tooling and
+  documentation for the Swift target; generated Swift runtime behavior and
+  example logic must not be changed. Required validation: compile the updated
+  helper, confirm Swift generation/build/test commands are represented in the
+  documented full gate, and keep Windows commands unchanged unless Swift Windows
+  support is explicitly validated. Done: POSIX `rebuild-all`/`test-all` now
+  generate Swift examples, build all SwiftPM example packages, run
+  `swift test --package-path swift/src/Uimd`, and run C++/Swift all-example MCP
+  compare through the Python tester backend; `--no-swift` is available for
+  intentionally unavailable Swift toolchains, and Windows validation remains
+  skipped. Validated with `python3 -m py_compile tools/uimd_dev.py` and helper
+  `--help` output for both commands; full Swift build/compare gate was not run
+  in this documentation/helper update.
+
+- [x] **C++/Swift all-example MCP compare had a non-reproduced step failure**. The command
+  `./uimd mcp-test --backend python --all --compare cpp/build/examples
+  swift/examples --mcp-fast --compare-app-size 90x35` reports `216 asserts
+  passed, 0 failed, 1 step failures`. Parity decision: this is Swift target
+  validation against the C++ parity baseline; investigate the reported script
+  and step before changing examples or test expectations. Affected paths are
+  expected to be under Swift runtime/generator/example code
+  (`swift/src/Uimd`, `cpp/tools/uimd/NativeSwiftGenerator.*`,
+  `swift/examples`) unless the reproduced failure points to tester plumbing.
+  Required validation: reproduce the failing script/step, inspect the snapshot
+  or error output, fix the shared Swift behavior without app-specific
+  workarounds, and rerun the focused C++/Swift compare plus the all-example
+  compare with `--compare-app-size 90x35`. Investigation result: the same
+  all-example command was rerun and passed with `1599 asserts passed, 0 failed,
+  0 step failures`; based on the original `216` passed count, the likely failing
+  point was the next script after `formular`, `tests/mcp/widget_gallery.yaml`.
+  A focused C++/Swift `widget_gallery.yaml` compare also passed with
+  `102 asserts passed, 0 failed, 0 step failures`. No runtime or generator code
+  change was made because the failure was not reproducible and no new failure
+  snapshot was created.
+
 - [ ] **C# FileBrowser long-list keyboard movement exposes modal background
   rendering parity mismatch**. While extending `image_browser_compare` coverage
   on 2026-06-27, opening the `Browse` FileBrowser via `mouse_press`/

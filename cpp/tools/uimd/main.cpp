@@ -2,6 +2,7 @@
 #include "NativeCSharpGenerator.hpp"
 #include "NativeCppGenerator.hpp"
 #include "NativePythonGenerator.hpp"
+#include "NativeSwiftGenerator.hpp"
 #include "IssueReport.hpp"
 
 // Native UIMD command entry point.
@@ -69,7 +70,7 @@ const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
 const std::string RELEASE_PUBLIC_KEY{"RWR71aDOUx1vHQeAYhBjmL71qWnPzCp3kXGe2HLHPORARHbM2Al77AsD"};
 const std::string RELEASE_MANIFEST_PREFIX = "uimd-sdk-";
 const std::string RELEASE_MANIFEST_SUFFIX = ".manifest";
-const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp"};
+const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp", "swift"};
 
 struct GlobalOptions
 {
@@ -2720,6 +2721,42 @@ std::string csharpProjectTemplate(const std::string& project, const std::string&
         "</Project>\n";
 }
 
+std::string swiftAppTemplate()
+{
+    return R"UIMD(import Foundation
+import Uimd
+
+public final class @CLASS@App: @CLASS@UI
+{
+    public override func onHelloButtonClick()
+    {
+        let trimmed = name.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = trimmed.isEmpty ? "world" : trimmed
+        headline.setText("Hello, \(value)!")
+    }
+
+    public override func onQuitButtonClick()
+    {
+        requestClose()
+    }
+}
+
+@main
+enum Program
+{
+    static func main()
+    {
+        let code = GeneratedWindowRuntime.runGeneratedAppMain
+        {
+            let app = @CLASS@App()
+            return GeneratedWindowRuntime.runGeneratedWindow(app, app.runtimeOptions(), CommandLine.arguments)
+        }
+        Foundation.exit(Int32(code))
+    }
+}
+)UIMD";
+}
+
 std::string pythonExecutable()
 {
     const std::string pythonOverride = envValue("UIMD_PYTHON");
@@ -3430,7 +3467,7 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         }
         if (!isSdkTargetNameSafe(target) || !isSupportedSdkTarget(target))
         {
-            std::cerr << "error: supported SDK targets are: python, cpp, csharp\n";
+            std::cerr << "error: supported SDK targets are: python, cpp, csharp, swift\n";
             return EXIT_USAGE;
         }
         if (version.empty())
@@ -4310,9 +4347,9 @@ int runNew(const std::vector<std::string>& args)
         std::cerr << "error: application name cannot be empty\n";
         return EXIT_ERROR;
     }
-    if (target != "python" && target != "cpp" && target != "csharp")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift")
     {
-        std::cerr << "error: --target must be python, cpp, or csharp\n";
+        std::cerr << "error: --target must be python, cpp, csharp, or swift\n";
         return EXIT_USAGE;
     }
 
@@ -4360,6 +4397,11 @@ int runNew(const std::vector<std::string>& args)
             "    }\n"
             "}\n", values));
         files.emplace_back(project + ".csproj", csharpProjectTemplate(project, "../uimd/csharp/src/Uimd/Uimd.csproj"));
+    }
+    else if (target == "swift")
+    {
+        files.emplace_back(project + ".swift", applyTemplate(swiftAppTemplate(), values));
+        files.emplace_back("Package.swift", uimd::tool::swiftPackageManifest(project, "../uimd/swift/src/Uimd"));
     }
     else
     {
@@ -4465,9 +4507,9 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
         std::cerr << "error: generate path is required\n";
         return EXIT_USAGE;
     }
-    if (target != "python" && target != "cpp" && target != "csharp")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift")
     {
-        std::cerr << "error: --target must be python, cpp, or csharp\n";
+        std::cerr << "error: --target must be python, cpp, csharp, or swift\n";
         return EXIT_USAGE;
     }
 
@@ -4499,6 +4541,15 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
             csharpOptions.generateAppStub = generateAppStub;
             csharpOptions.mcpEnabled = options.mcpEnabled;
             generated = uimd::tool::generateCSharpSources(sourcePath, csharpOptions);
+        }
+        else if (target == "swift")
+        {
+            uimd::tool::NativeSwiftGenerateOptions swiftOptions;
+            swiftOptions.outputDir = options.outputDir;
+            swiftOptions.hasOutputDir = options.hasOutputDir;
+            swiftOptions.generateAppStub = generateAppStub;
+            swiftOptions.mcpEnabled = options.mcpEnabled;
+            generated = uimd::tool::generateSwiftSources(sourcePath, swiftOptions);
         }
         else
         {

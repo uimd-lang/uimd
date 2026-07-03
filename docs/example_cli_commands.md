@@ -66,10 +66,13 @@ Windows PowerShell only:
 ## Full Rebuild and Test
 
 This runs the full local gate: regenerate/build all supported sources including
-reported-bug regression corpora, build C# examples, compile Python sources, run
-Python unit tests, run C++ `ctest`, run Python/C++ and C++/C# MCP example
-compare tests with `--compare-app-size 90x35`, and run the UIMD regression
-parity compare corpus when `tests/regressions/uimd/parity` exists.
+reported-bug regression corpora, build C# examples, build Swift examples on
+POSIX when SwiftPM is available, compile Python sources, run Python unit tests,
+run C++ `ctest`, run Swift runtime tests on POSIX, run Python/C++, C++/C#, and
+C++/Swift MCP example compare tests with `--compare-app-size 90x35`, and run
+the UIMD regression parity compare corpus when `tests/regressions/uimd/parity`
+exists. Pass `--no-swift` to the POSIX helper only when the local Swift
+toolchain is intentionally unavailable.
 
 macOS/Linux (POSIX shell):
 
@@ -83,8 +86,10 @@ Equivalent explicit command sequence:
 ./tools/rebuild_all.sh
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
+swift test --package-path swift/src/Uimd
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ```
 
@@ -374,6 +379,26 @@ dotnet build csharp\examples\activity_feed\activity_feed.csproj --configuration 
 dotnet csharp\examples\activity_feed\bin\Debug\net10.0\activity_feed.dll
 ```
 
+## Swift Examples
+
+macOS SwiftPM:
+
+```bash
+./uimd generate swift/examples/activity_feed --target swift && swift build --package-path swift/examples/activity_feed && swift run --package-path swift/examples/activity_feed activity_feed
+./uimd generate swift/examples/calculator --target swift && swift build --package-path swift/examples/calculator && swift run --package-path swift/examples/calculator calculator
+./uimd generate swift/examples/cells --target swift && swift build --package-path swift/examples/cells && swift run --package-path swift/examples/cells cells
+./uimd generate swift/examples/contacts_manager --target swift && swift build --package-path swift/examples/contacts_manager && swift run --package-path swift/examples/contacts_manager contacts_manager
+./uimd generate swift/examples/expense_tracker --target swift && swift build --package-path swift/examples/expense_tracker && swift run --package-path swift/examples/expense_tracker expense_tracker
+./uimd generate swift/examples/formular --target swift && swift build --package-path swift/examples/formular && swift run --package-path swift/examples/formular formular
+./uimd generate swift/examples/image_browser --target swift && swift build --package-path swift/examples/image_browser && swift run --package-path swift/examples/image_browser image_browser
+./uimd generate swift/examples/image_gallery --target swift && swift build --package-path swift/examples/image_gallery && swift run --package-path swift/examples/image_gallery image_gallery
+./uimd generate swift/examples/markdown_viewer --target swift && swift build --package-path swift/examples/markdown_viewer && swift run --package-path swift/examples/markdown_viewer markdown_viewer
+./uimd generate swift/examples/special_elements --target swift && swift build --package-path swift/examples/special_elements && swift run --package-path swift/examples/special_elements special_elements
+./uimd generate swift/examples/task_board --target swift && swift build --package-path swift/examples/task_board && swift run --package-path swift/examples/task_board task_board
+./uimd generate swift/examples/text_editor --target swift && swift build --package-path swift/examples/text_editor && swift run --package-path swift/examples/text_editor text_editor
+./uimd generate swift/examples/widget_gallery --target swift && swift build --package-path swift/examples/widget_gallery && swift run --package-path swift/examples/widget_gallery widget_gallery
+```
+
 ## Source Regeneration
 
 ```bash
@@ -384,6 +409,7 @@ dotnet csharp\examples\activity_feed\bin\Debug\net10.0\activity_feed.dll
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
 ./uimd generate csharp/examples --target csharp
+./uimd generate swift/examples --target swift
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
 ```
@@ -400,11 +426,13 @@ POSIX raw form:
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
 ./uimd generate csharp/examples --target csharp
+./uimd generate swift/examples --target swift
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
 cmake -S cpp -B cpp/build
 cmake --build cpp/build
 for proj in csharp/examples/*/*.csproj; do dotnet build "$proj" --configuration Debug; done
+for package in swift/examples/*/Package.swift; do swift build --package-path "$(dirname "$package")"; done
 python3 -m compileall python src tests tools
 ```
 
@@ -477,6 +505,12 @@ Windows PowerShell:
 cmake --build cpp\build-windows --target ui_cpp_tests --config Release
 .\cpp\build-windows\Release\ui_cpp_tests.exe
 ctest --test-dir cpp\build-windows -C Release --output-on-failure
+```
+
+## Swift Runtime Tests
+
+```bash
+swift test --package-path swift/src/Uimd
 ```
 
 ## Native CLI Smoke Tests
@@ -653,6 +687,33 @@ Raw POSIX form:
 ./uimd mcp-test --backend python --headless csharp/examples/widget_gallery/bin/Debug/net10.0/widget_gallery.dll tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
 ```
 
+## C++/Swift MCP Compare Tests
+
+Raw macOS POSIX all-example form:
+
+```bash
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
+```
+
+Raw macOS POSIX per-app form:
+
+```bash
+./uimd mcp-test --headless --compare cpp/build/examples/activity_feed/activity_feed swift/examples/activity_feed/.build/debug/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/calculator/calculator swift/examples/calculator/.build/debug/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/cells/cells swift/examples/cells/.build/debug/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/contacts_manager/contacts_manager swift/examples/contacts_manager/.build/debug/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/expense_tracker/expense_tracker swift/examples/expense_tracker/.build/debug/expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/formular/formular swift/examples/formular/.build/debug/formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/image_browser/image_browser swift/examples/image_browser/.build/debug/image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/image_gallery/image_gallery swift/examples/image_gallery/.build/debug/image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/image_gallery/image_gallery swift/examples/image_gallery/.build/debug/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/markdown_viewer/markdown_viewer swift/examples/markdown_viewer/.build/debug/markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/special_elements/special_elements swift/examples/special_elements/.build/debug/special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/task_board/task_board swift/examples/task_board/.build/debug/task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/text_editor/text_editor swift/examples/text_editor/.build/debug/text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/widget_gallery/widget_gallery swift/examples/widget_gallery/.build/debug/widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+```
+
 ## Compare MCP Tests
 
 Recommended cross-platform helper commands:
@@ -722,6 +783,7 @@ Raw POSIX form:
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --compare-app-size 90x35
 ./uimd mcp-test --headless --compare python/examples csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast

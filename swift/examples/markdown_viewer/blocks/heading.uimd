@@ -1,0 +1,48 @@
+# Heading
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: stable
+description: "Reusable markdown heading block."
+tags: [component]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+heading_text:
+  type: spanlabel
+  text: ""
+  description: "Rendered heading text with mouse selection enabled."
+```
+
+## Style
+
+```yaml
+this:
+  background: "#00000000"
+  border-width: 0
+@heading_cell:
+  background: "#00000000"
+@heading_text:
+  color: "#dbeafe"
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-heading_cell-**--------------------------------+
+| heading_text..**.............................. |
++------------------------------------------------+
+```

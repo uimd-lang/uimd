@@ -1,0 +1,138 @@
+# FormApp
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "User profile form for entering contact details, demographic data, role preferences, notification consent, and terms acceptance."
+tags: [example]
+```
+
+## Members
+
+```yaml
+title_label:
+  type: label
+  text: "User profile"
+  description: "Title of the form."
+  expose: false
+
+name_label:
+  type: label
+  text: Name
+  description: "Label for the name field."
+
+name_input:
+  type: textinput
+  value: ""
+  description: "User name text field."
+
+email_label:
+  type: label
+  text: Email
+  description: "Label for the email field."
+
+email_input:
+  type: textinput
+  value: ""
+  description: "Email address text field."
+
+age_label:
+  type: label
+  text: Age
+  description: "Label for the age field."
+
+age_input:
+  type: numberinput
+  description: "Numeric age input."
+
+description_input:
+  type: textarea
+  description: "Multiline profile description field."
+
+country_label:
+  type: label
+  text: Country
+  description: "Label for the country selector."
+
+country_combo:
+  type: combobox
+  options: [Slovakia, "Czech Republic", Poland, Hungary, Austria]
+  selected_item: Slovakia
+  description: "Country combobox with Slovakia, Czech Republic, Poland, Hungary, and Austria options."
+
+role_label:
+  type: label
+  text: Role
+  description: "Label for the role selector."
+
+role_listbox:
+  type: listbox
+  options: [Developer, Designer, Manager, QA, DevOps, Tester, Hacker]
+  selected_items: [Developer]
+  multiple: "true"
+  description: "Multi-select role listbox for choosing one or more user roles."
+
+notify_check:
+  type: checkbox
+  title: "Email notifications"
+  description: "Toggle email notifications."
+
+terms_check:
+  type: checkbox
+  title: "I accept the terms and conditions"
+  description: "Toggle acceptance of terms and conditions."
+
+save_btn:
+  type: button
+  title: Save
+  description: "Submit the form and serialize the entered data."
+
+cancel_btn:
+  type: button
+  title: Cancel
+  description: "Cancel the form action."
+```
+
+## Style
+
+```yaml
+@title_label:
+  text-align: center
+```
+
+## User Interface
+
+```ui
++----------------------------------------------------+
+|                                                    |
+|  title_label.....................................  |
+|                                                    |
+|  name_label       name_input.....................  |
+|                                                    |
+|  email_label      email_input....................  |
+|                                                    |
+|  age_label        age_input......................  |
+|                                                    |
+|  country_label    country_combo..................  |
+|                                                    |
+|  "Description"    description_input..............  |
+|                  ..............................    |
+|                  ..............................    |
+|                  ..............................    |
+|                                                    |
+|  role_label       role_listbox...................  |
+|                  ..............................    |
+|                  ..............................    |
+|                  ..............................    |
+|                                                    |
+|  notify_check....................................  |
+|  terms_check.....................................  |
+|                                                    |
+|       save_btn......      cancel_btn.......        |
+|                                                    |
++----------------------------------------------------+
+```

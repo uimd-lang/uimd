@@ -14,6 +14,7 @@ cpp/build/
 cpp/build-*/
 csharp/**/bin/
 csharp/**/obj/
+swift/**/.build/
 CMakeFiles/
 CMakeCache.txt
 

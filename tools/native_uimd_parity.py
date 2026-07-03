@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_BINARY = ROOT / "cpp" / "build" / "tools" / "uimd" / "uimd"
 NATIVE_INIT_BINARY = ROOT / "cpp" / "build" / "tools" / "uimd_init" / "uimd-init"
-GENERATED_PATTERNS = ("*_ui.py", "*_ui.hpp", "*_ui.cpp", "*_ui.cs")
+GENERATED_PATTERNS = ("*_ui.py", "*_ui.hpp", "*_ui.cpp", "*_ui.cs", "*_ui.swift")
 GENERATED_ROOTS = (
     ROOT / "python" / "examples",
     ROOT / "python" / "dialogs",
@@ -29,6 +29,7 @@ GENERATED_ROOTS = (
     ROOT / "cpp" / "examples",
     ROOT / "cpp" / "tools" / "mcp_tester",
     ROOT / "csharp" / "examples",
+    ROOT / "swift" / "examples",
 )
 EXECUTABLE_FILE_MODE = 0o755
 
@@ -114,6 +115,7 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
     (release_dir / "payload" / "targets" / "python").mkdir(parents=True)
     (release_dir / "payload" / "targets" / "cpp").mkdir(parents=True)
     (release_dir / "payload" / "targets" / "csharp").mkdir(parents=True)
+    (release_dir / "payload" / "targets" / "swift").mkdir(parents=True)
 
     binary_name = "uimd.exe" if os.name == "nt" else "uimd"
     binary = release_dir / "payload" / binary_name
@@ -122,9 +124,11 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
     python_marker = release_dir / "payload" / "targets" / "python" / "runtime.txt"
     cpp_marker = release_dir / "payload" / "targets" / "cpp" / "runtime.txt"
     csharp_marker = release_dir / "payload" / "targets" / "csharp" / "runtime.txt"
+    swift_marker = release_dir / "payload" / "targets" / "swift" / "runtime.txt"
     python_marker.write_text("python target\n", encoding="utf-8")
     cpp_marker.write_text("cpp target\n", encoding="utf-8")
     csharp_marker.write_text("csharp target\n", encoding="utf-8")
+    swift_marker.write_text("swift target\n", encoding="utf-8")
 
     binary_checksum = file_sha256(binary)
     if corrupt_checksum:
@@ -139,6 +143,7 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
                 f"file targets/python/runtime.txt {file_sha256(python_marker)} payload/targets/python/runtime.txt",
                 f"file targets/cpp/runtime.txt {file_sha256(cpp_marker)} payload/targets/cpp/runtime.txt",
                 f"file targets/csharp/runtime.txt {file_sha256(csharp_marker)} payload/targets/csharp/runtime.txt",
+                f"file targets/swift/runtime.txt {file_sha256(swift_marker)} payload/targets/swift/runtime.txt",
                 "",
             ]
         ),
@@ -299,6 +304,7 @@ def check_new(native_binary: Path, workspace: Path) -> list[str]:
         ("python", ("hello.uimd", "hello.py"), ("hello_ui.py",)),
         ("cpp", ("hello.uimd", "hello.cpp", "CMakeLists.txt"), ("hello_ui.hpp", "hello_ui.cpp")),
         ("csharp", ("hello.uimd", "hello.cs", "hello.csproj"), ("hello_ui.cs",)),
+        ("swift", ("hello.uimd", "hello.swift", "Package.swift"), ("hello_ui.swift",)),
     )
     for target, expected_files, absent_files in cases:
         target_dir = workspace / f"new_{target}"
@@ -320,6 +326,7 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
         ("python", (), ("hello_ui.py",)),
         ("cpp", ("--app-stub",), ("hello_ui.hpp", "hello_ui.cpp", "hello.cpp", "CMakeLists.txt")),
         ("csharp", ("--app-stub",), ("hello_ui.cs", "hello.cs", "hello.csproj")),
+        ("swift", ("--app-stub",), ("hello_ui.swift", "hello.swift", "Package.swift")),
     )
     for target, extra_args, expected_files in cases:
         target_dir = workspace / f"generate_{target}"
@@ -347,7 +354,7 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
                 failures.append("generate --target cpp: hello.cpp does not contain the runtime launcher")
             if "GIT_TAG v" not in cmake:
                 failures.append("generate --target cpp: CMakeLists.txt does not contain a runtime tag fallback")
-        else:
+        elif target == "csharp":
             source = (target_dir / "hello_ui.cs").read_text(encoding="utf-8")
             app = (target_dir / "hello.cs").read_text(encoding="utf-8")
             project = (target_dir / "hello.csproj").read_text(encoding="utf-8")
@@ -357,6 +364,16 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
                 failures.append("generate --target csharp: hello.cs does not contain the runtime launcher")
             if "targets', 'csharp', 'Uimd.csproj'" not in project:
                 failures.append("generate --target csharp: hello.csproj does not contain installed SDK runtime fallback")
+        else:
+            source = (target_dir / "hello_ui.swift").read_text(encoding="utf-8")
+            app = (target_dir / "hello.swift").read_text(encoding="utf-8")
+            package = (target_dir / "Package.swift").read_text(encoding="utf-8")
+            if "open class HelloUI" not in source:
+                failures.append("generate --target swift: hello_ui.swift does not contain the expected UI class")
+            if "runGeneratedWindow" not in app:
+                failures.append("generate --target swift: hello.swift does not contain the runtime launcher")
+            if "/targets/swift" not in package:
+                failures.append("generate --target swift: Package.swift does not contain installed SDK runtime fallback")
 
     return failures
 
@@ -383,6 +400,7 @@ def check_installed_sdk_theme_lookup(native_binary: Path, workspace: Path) -> li
         ("python", "hello_ui.py"),
         ("cpp", "hello_ui.cpp"),
         ("csharp", "hello_ui.cs"),
+        ("swift", "hello_ui.swift"),
     )
     for target, generated_file in cases:
         target_dir = workspace / f"installed_theme_{target}"
@@ -499,6 +517,10 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_success("sdk install-target cpp", install_cpp_target))
     failures.extend(expect_file("sdk install-target cpp", sdk_home / "sdk" / "0.3.0" / "targets" / "cpp"))
 
+    install_swift_target = run_command(native_cli(native_binary, "sdk", "install-target", "swift"), workspace, env=env)
+    failures.extend(expect_success("sdk install-target swift", install_swift_target))
+    failures.extend(expect_file("sdk install-target swift", sdk_home / "sdk" / "0.3.0" / "targets" / "swift"))
+
     unsupported_target = run_command(native_cli(native_binary, "sdk", "install-target", "unknown"), workspace, env=env)
     if unsupported_target.returncode == 0:
         failures.append("sdk install-target unknown: expected failure for unsupported target")
@@ -507,7 +529,12 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
 
     list_result = run_command(native_cli(native_binary, "sdk", "list"), workspace, env=env)
     failures.extend(expect_success("sdk list", list_result))
-    if "* 0.3.0" not in list_result.stdout or "0.4.1" not in list_result.stdout or "cpp" not in list_result.stdout:
+    if (
+        "* 0.3.0" not in list_result.stdout
+        or "0.4.1" not in list_result.stdout
+        or "cpp" not in list_result.stdout
+        or "swift" not in list_result.stdout
+    ):
         failures.append("sdk list: output does not include installed SDK versions")
 
     json_result = run_command(native_cli(native_binary, "sdk", "list", "--json"), workspace, env=env)
@@ -524,8 +551,8 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
             failures.append("sdk list --json: current version was not set by sdk use")
         targets = payload.get("targets", {})
         current_targets = set(targets.get("0.3.0", []))
-        if not {"python", "cpp"}.issubset(current_targets):
-            failures.append("sdk list --json: target map does not include python and cpp for current SDK")
+        if not {"python", "cpp", "swift"}.issubset(current_targets):
+            failures.append("sdk list --json: target map does not include python, cpp, and swift for current SDK")
 
     doctor_result = run_command(native_cli(native_binary, "doctor", "--json"), workspace, env=env)
     failures.extend(expect_success("doctor --json after sdk install", doctor_result))
@@ -539,8 +566,8 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
             failures.append("doctor --json after sdk install: expected ok SDK status")
         if sdk_payload.get("current_version") != "0.3.0":
             failures.append("doctor --json after sdk install: expected current_version 0.3.0")
-        if not {"python", "cpp"}.issubset(set(sdk_payload.get("current_targets", []))):
-            failures.append("doctor --json after sdk install: expected current_targets to include python and cpp")
+        if not {"python", "cpp", "swift"}.issubset(set(sdk_payload.get("current_targets", []))):
+            failures.append("doctor --json after sdk install: expected current_targets to include python, cpp, and swift")
 
     if os.name != "nt":
         fake_binary = workspace / "fake-uimd"

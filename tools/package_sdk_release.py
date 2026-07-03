@@ -712,10 +712,15 @@ def package_release(
     copy_tree(root / "csharp" / "src" / "Uimd", csharp_target)
     copy_file(root / "LICENSE", csharp_target / "LICENSE")
 
+    swift_target = payload_dir / "targets" / "swift"
+    copy_tree(root / "swift" / "src" / "Uimd", swift_target)
+    copy_file(root / "LICENSE", swift_target / "LICENSE")
+
     examples_target = payload_dir / "examples"
     copy_tree(root / "python" / "examples", examples_target / "python")
     copy_tree(root / "cpp" / "examples", examples_target / "cpp")
     copy_tree(root / "csharp" / "examples", examples_target / "csharp")
+    copy_tree(root / "swift" / "examples", examples_target / "swift")
     copy_tree(root / "shared", examples_target / "shared")
 
     manifest_path = write_manifest(release_dir, version, payload_dir)

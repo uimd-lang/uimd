@@ -27,6 +27,7 @@ GENERATE_TARGETS = (
     ("cpp/examples", "cpp"),
     ("csharp/examples", "csharp"),
 )
+SWIFT_GENERATE_TARGET = ("swift/examples", "swift")
 DEFAULT_COMPARE_APP_SIZE = "90x35"
 REGRESSION_PARITY_ROOT = Path("tests/regressions/uimd/parity")
 REGRESSION_PARITY_PYTHON_ROOT = REGRESSION_PARITY_ROOT / "python"
@@ -165,6 +166,26 @@ def dotnet_command() -> str:
     return "dotnet"
 
 
+def swift_command() -> str:
+    if os.environ.get("SWIFT"):
+        return os.environ["SWIFT"]
+    found = shutil.which("swift")
+    if found:
+        return found
+    return "swift"
+
+
+def require_swift_command() -> str:
+    command = swift_command()
+    if Path(command).exists() or shutil.which(command) is not None:
+        return command
+    raise FileNotFoundError("swift command not found; install SwiftPM or pass --no-swift")
+
+
+def should_validate_swift(args: argparse.Namespace) -> bool:
+    return not args.no_swift and not is_windows()
+
+
 def ensure_configured(build_dir: Path) -> None:
     if not (ROOT / build_dir / "CMakeCache.txt").exists():
         run(cmake_configure_args(build_dir))
@@ -225,14 +246,21 @@ def csharp_example_projects() -> list[Path]:
     return sorted((ROOT / "csharp/examples").glob("*/*.csproj"))
 
 
+def swift_example_packages() -> list[Path]:
+    return sorted((ROOT / "swift/examples").glob("*/Package.swift"))
+
+
 def ensure_native_uimd(build_dir: Path, *, config: str | None = None) -> Path:
     ensure_configured(build_dir)
     run(cmake_build_args(build_dir, target="uimd", config=config))
     return native_uimd_path(build_dir, config=config)
 
 
-def generate_all(uimd: Path) -> None:
+def generate_all(uimd: Path, *, include_swift: bool) -> None:
     for path, target in GENERATE_TARGETS:
+        run([uimd, "generate", path, "--target", target])
+    if include_swift:
+        path, target = SWIFT_GENERATE_TARGET
         run([uimd, "generate", path, "--target", target])
     generate_regression_parity_if_available(uimd)
 
@@ -257,6 +285,19 @@ def build_all_csharp_examples(configuration: str = "Debug") -> None:
         run(command)
 
 
+def build_all_swift_examples() -> None:
+    packages = swift_example_packages()
+    if not packages:
+        raise FileNotFoundError("no Swift example packages found under swift/examples")
+    command = require_swift_command()
+    for package in packages:
+        run([command, "build", "--package-path", package.parent])
+
+
+def run_swift_tests() -> None:
+    run([require_swift_command(), "test", "--package-path", "swift/src/Uimd"])
+
+
 def generate_regression_parity_if_available(uimd: Path) -> None:
     regression_root = ROOT / REGRESSION_PARITY_ROOT
     if not regression_root.exists():
@@ -271,11 +312,18 @@ def generate_regression_parity_if_available(uimd: Path) -> None:
 
 def rebuild_all(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
+    validate_swift = should_validate_swift(args)
     uimd = ensure_native_uimd(build_dir, config=args.config)
-    generate_all(uimd)
+    generate_all(uimd, include_swift=validate_swift)
     run(cmake_configure_args(build_dir))
     run(cmake_build_args(build_dir, config=args.config))
     build_all_csharp_examples(args.csharp_config)
+    if validate_swift:
+        build_all_swift_examples()
+    elif args.no_swift:
+        print("==> skip Swift examples: --no-swift", flush=True)
+    else:
+        print("==> skip Swift examples: Swift validation is not enabled on Windows", flush=True)
     run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"])
     if args.test:
         run(ctest_args(build_dir, config=args.config))
@@ -346,6 +394,30 @@ def run_csharp_example_compare(
     run(command)
 
 
+def run_swift_example_compare(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+) -> None:
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--backend",
+        "python",
+        "--headless",
+        "--all",
+        "--compare",
+        build_dir / "examples",
+        "swift/examples",
+    ]
+    if mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", compare_app_size])
+    run(command)
+
+
 def run_regression_compare_if_available(
     uimd: Path,
     build_dir: Path,
@@ -390,6 +462,7 @@ def run_regression_compare_if_available(
 def test_all(args: argparse.Namespace) -> None:
     phases: list[FullTestPhase] = []
     build_dir = Path(args.build_dir)
+    validate_swift = should_validate_swift(args)
     try:
         uimd = run_full_test_phase(
             phases,
@@ -397,7 +470,11 @@ def test_all(args: argparse.Namespace) -> None:
             lambda: ensure_native_uimd(build_dir, config=args.config),
         )
         if not args.no_rebuild:
-            run_full_test_phase(phases, "Generate UIMD sources", lambda: generate_all(uimd))
+            run_full_test_phase(
+                phases,
+                "Generate UIMD sources",
+                lambda: generate_all(uimd, include_swift=validate_swift),
+            )
             run_full_test_phase(phases, "Configure CMake", lambda: run(cmake_configure_args(build_dir)))
             run_full_test_phase(
                 phases,
@@ -409,6 +486,16 @@ def test_all(args: argparse.Namespace) -> None:
                 "Build C# runtime and examples",
                 lambda: build_all_csharp_examples(args.csharp_config),
             )
+            if validate_swift:
+                run_full_test_phase(phases, "Build Swift runtime and examples", build_all_swift_examples)
+            elif args.no_swift:
+                record_skipped_phase(phases, "Build Swift runtime and examples", "--no-swift")
+            else:
+                record_skipped_phase(
+                    phases,
+                    "Build Swift runtime and examples",
+                    "Swift validation is not enabled on Windows",
+                )
             run_full_test_phase(
                 phases,
                 "Compile Python sources",
@@ -419,9 +506,16 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Configure CMake", "--no-rebuild")
             record_skipped_phase(phases, "Build C++ runtime, tools, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build C# runtime and examples", "--no-rebuild")
+            record_skipped_phase(phases, "Build Swift runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
         run_full_test_phase(phases, "Python tests", run_python_tests)
         run_full_test_phase(phases, "CTest", lambda: run(ctest_args(build_dir, config=args.config)))
+        if validate_swift:
+            run_full_test_phase(phases, "Swift runtime tests", run_swift_tests)
+        elif args.no_swift:
+            record_skipped_phase(phases, "Swift runtime tests", "--no-swift")
+        else:
+            record_skipped_phase(phases, "Swift runtime tests", "Swift validation is not enabled on Windows")
         run_full_test_phase(
             phases,
             "MCP example compare",
@@ -442,6 +536,21 @@ def test_all(args: argparse.Namespace) -> None:
                 mcp_fast=not args.no_mcp_fast,
             ),
         )
+        if validate_swift:
+            run_full_test_phase(
+                phases,
+                "MCP Swift example compare",
+                lambda: run_swift_example_compare(
+                    uimd,
+                    build_dir,
+                    compare_app_size=args.compare_app_size,
+                    mcp_fast=not args.no_mcp_fast,
+                ),
+            )
+        elif args.no_swift:
+            record_skipped_phase(phases, "MCP Swift example compare", "--no-swift")
+        else:
+            record_skipped_phase(phases, "MCP Swift example compare", "Swift validation is not enabled on Windows")
         run_full_test_phase(
             phases,
             "MCP regression parity compare",
@@ -564,6 +673,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     rebuild = subparsers.add_parser("rebuild-all")
     rebuild.add_argument("--csharp-config", default="Debug")
+    rebuild.add_argument("--no-swift", action="store_true")
     rebuild.add_argument("--test", action="store_true")
     rebuild.set_defaults(func=rebuild_all)
 
@@ -572,6 +682,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     all_tests.add_argument("--no-mcp-fast", action="store_true")
     all_tests.add_argument("--no-rebuild", action="store_true")
     all_tests.add_argument("--csharp-config", default="Debug")
+    all_tests.add_argument("--no-swift", action="store_true")
     all_tests.set_defaults(func=test_all)
 
     run_example = subparsers.add_parser("run-cpp-example")

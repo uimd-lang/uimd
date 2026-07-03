@@ -1,0 +1,208 @@
+# Task Board
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: draft
+description: "ClickUp-style task list example with interactive scroll view rows and app-specific MCP tools."
+tags: [example, mcp]
+```
+
+## Definition
+
+```yaml
+uses:
+  - task_filters/task_filters
+  - task_list/task_list
+  - task_dialog/task_dialog
+```
+
+## Members
+
+```yaml
+title:
+  type: label
+  text: "Task Board"
+  description: "Application title."
+  expose: false
+
+quit_btn:
+  type: button
+  title: Quit
+  description: "Close the task list example."
+
+filters:
+  type: task_filters
+  cpp-class: task_board_example::TaskFilters
+  cpp-header: "task_filters/task_filters.hpp"
+  description: "Reusable task filter panel."
+
+new_task_btn:
+  type: button
+  title: New task
+  description: "Open a dialog for creating a task."
+
+mark_all_done_btn:
+  type: button
+  title: Mark all done
+  description: "Ask before marking every task as done."
+
+clear_board_btn:
+  type: button
+  title: Clear board
+  description: "Ask before deleting every task."
+
+board:
+  type: task_list
+  cpp-class: task_board_example::TaskList
+  cpp-header: "task_list/task_list.hpp"
+  description: "Scrollable list of interactive task rows."
+
+status:
+  type: label
+  text: Ready
+  description: "Current board status."
+```
+
+## Tools
+
+```yaml
+query_tasks:
+  description: "Return tasks matching optional title, status, assignee, priority, and done filters."
+  input:
+    title: string
+    status: string
+    assignee: string
+    priority: string
+    done: bool
+  output:
+    tasks:
+      - id: string
+        title: string
+        status: string
+        assignee: string
+        priority: string
+        description: string
+        done: bool
+
+get_task:
+  description: "Return one task by id."
+  input:
+    id: string
+    required: [id]
+  output:
+    task:
+      id: string
+      title: string
+      status: string
+      assignee: string
+      priority: string
+      description: string
+      done: bool
+
+update_task:
+  description: "Update a task by id and return the updated task."
+  input:
+    id: string
+    title: string
+    status: string
+    assignee: string
+    priority: string
+    description: string
+    done: bool
+    required: [id]
+  output:
+    task:
+      id: string
+      title: string
+      status: string
+      assignee: string
+      priority: string
+      description: string
+      done: bool
+
+delete_task:
+  description: "Delete a task by id and return whether it was removed."
+  input:
+    id: string
+    required: [id]
+  output:
+    deleted: bool
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@header:
+  background: "#1f2937"
+@title:
+  color: "#ffffff"
+  text-align: center
+@filter_cell:
+  background: "#15171c"
+@actions:
+  background: "#172033"
+  padding: 1, 1, 1, 1
+@board_cell:
+  background: "#030712"
+@filters:
+  background: "#15171c"
+@board:
+  background: "#030712"
+  focus-background: "#07111f"
+  edit-background: "#0f172a"
+  scope-dim-background: "#0000004d"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@quit_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+@new_task_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+@mark_all_done_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+@clear_board_btn:
+  background: "#711212"
+  focus-background: "#b91c1c"
+@status:
+  background: "#111827"
+  color: "#93c5fd"
+```
+
+## User Interface
+
+```ui
++-header-**--------------------------------------------------------------------+
+| title..**................ ..................................... quit_btn.... |
++-filter_cell-**---------------------------------------------------------------+
+| filters..**................................................................. |
+| *........................................................................... |
+| *........................................................................... |
+| ............................................................................ |
+| ............................................................................ |
+| ............................................................................ |
++-actions-24----------------+-board_cell-**------------------------------------+
+| new_task_btn..**......... | board..**....................................... |
+|                           | ................................................ |
+* mark_all_done_btn..**.... | ................................................ |
+*                           | ................................................ |
+| clear_board_btn..**...... | ................................................ |
+|                           | *............................................... |
+| status..**............... | *............................................... |
+| ......................... | ................................................ |
+| ......................... | ................................................ |
+|                           | ................................................ |
+|                           | ................................................ |
+|                           | ................................................ |
++---------------------------+--------------------------------------------------+
+```

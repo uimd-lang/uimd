@@ -1,0 +1,68 @@
+# Image View
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+description: "Full-size image display panel hosted inside a ViewHost."
+tags: [example, image, viewhost]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+caption:
+  type: label
+  text: "Select an image"
+  description: "Name of the currently displayed image."
+
+photo:
+  type: image
+  source: ""
+  alt: "photo"
+  fit: contain
+  render_mode: auto
+  description: "Full-size image display."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+@caption:
+  color: "#bfdbfe"
+  text-align: center
+image:
+  background: transparent
+  color: "#d1d5db"
+```
+
+## User Interface
+
+```ui
++-view-**-----------------------+
+| caption..**.................. |
+| photo..**.................... |
+| ............................. |
+| *............................ |
+| *............................ |
+| ............................. |
+| ............................. |
+| ............................. |
+| ............................. |
+| ............................. |
+| ............................. |
+| ............................. |
++-------------------------------+
+```

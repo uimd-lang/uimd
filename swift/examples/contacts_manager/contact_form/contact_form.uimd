@@ -1,0 +1,205 @@
+# Contact Form
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "Dialog form for creating or editing one contact record with personal details, category, active state, notes, and validation feedback."
+tags: [example]
+```
+
+## Members
+
+```yaml
+header:
+  type: label
+  text: Contact
+  description: "Dialog title showing that a contact is being edited."
+  expose: false
+
+first_label:
+  type: label
+  text: "First name"
+  description: "Label for the first name input."
+
+first_name:
+  type: textinput
+  value: ""
+  maxlength: 80
+  description: "Required first name field."
+
+last_label:
+  type: label
+  text: "Last name"
+  description: "Label for the last name input."
+
+last_name:
+  type: textinput
+  value: ""
+  maxlength: 80
+  description: "Required last name field."
+
+email_label:
+  type: label
+  text: Email
+  description: "Label for the email input."
+
+email:
+  type: textinput
+  value: ""
+  maxlength: 120
+  description: "Required email address field."
+
+phone_label:
+  type: label
+  text: Phone
+  description: "Label for the phone input."
+
+phone:
+  type: textinput
+  value: ""
+  maxlength: 80
+  description: "Phone number field."
+
+company_label:
+  type: label
+  text: Company
+  description: "Label for the company input."
+
+company:
+  type: textinput
+  value: ""
+  maxlength: 120
+  description: "Company name field."
+
+city_label:
+  type: label
+  text: City
+  description: "Label for the city input."
+
+city:
+  type: textinput
+  value: ""
+  maxlength: 80
+  description: "City field."
+
+category_label:
+  type: label
+  text: Category
+  description: "Label for the contact category selector."
+
+category:
+  type: combobox
+  options: [Client, Vendor, Partner, Personal]
+  selected_item: Client
+  description: "Contact category combobox with client, vendor, partner, and personal options."
+
+active:
+  type: checkbox
+  title: "Active contact"
+  value: 1
+  description: "Toggle whether the contact is active."
+
+notes_label:
+  type: label
+  text: Notes
+  description: "Label for the notes field."
+
+notes:
+  type: textarea
+  value: ""
+  maxlength: 300
+  description: "Multiline notes field for the contact."
+
+save_btn:
+  type: button
+  title: Save
+  description: "Validate and save the contact form."
+
+cancel_btn:
+  type: button
+  title: Cancel
+  description: "Close the form without saving changes."
+
+message:
+  type: label
+  text: "Required: first name, last name, email."
+  description: "Validation and status message area."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@header:
+  text-align: center
+  background: "#1f2937"
+  color: "#ffffff"
+textinput:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+textarea:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+combobox:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  selected-background: "#2563eb"
+  selected-color: "#ffffff"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@message:
+  color: "#fbbf24"
+```
+
+## User Interface
+
+```ui
++----------------------------------------------------------+
+|header....................................................|
++----------------------------------------------------------+
+|                                                          |
+|  first_label    first_name.............................  |
+|                                                          |
+|  last_label     last_name..............................  |
+|                                                          |
+|  email_label    email..................................  |
+|                                                          |
+|  phone_label    phone..................................  |
+|                                                          |
+|  company_label  company................................  |
+|                                                          |
+|  city_label     city...................................  |
+|                                                          |
+|  category_label  category..............................  |
+|                                                          |
+|  active................................................  |
+|                                                          |
+|  notes_label notes.....................................  |
+|              ..........................................  |
+|              ..........................................  |
+|                                                          |
+|  message...............................................  |
+|                                                          |
++----------------------------------------------------------+
+|  save_btn..................  cancel_btn................  |
+|                                                          |
++----------------------------------------------------------+
+```
