@@ -7,6 +7,45 @@
         text: Test User
       assert:
         value: Test User
+    - tool: select_text
+      arguments:
+        element_id: name_input
+        start: 5
+        end: 9
+      assert:
+        text: User
+    - tool: copy_selection
+      arguments:
+        element_id: name_input
+      assert:
+        text: User
+    - tool: select_text
+      arguments:
+        element_id: name_input
+        start: 0
+        end: 4
+      assert:
+        text: Test
+    - tool: press_key
+      arguments:
+        key: cmd_c
+    - tool: set_text
+      arguments:
+        element_id: email_input
+        text: ""
+      assert:
+        value: ""
+    - tool: enter_edit_mode
+      arguments:
+        element_id: email_input
+    - tool: press_key
+      arguments:
+        key: cmd_v
+    - tool: get_element
+      arguments:
+        element_id: email_input
+      assert:
+        value: Test
     - tool: get_render_cell
       arguments:
         x: 0

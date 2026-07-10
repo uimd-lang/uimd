@@ -16,6 +16,15 @@ CLIPBOARD_COMMANDS = (
     ("xclip", "-selection", "clipboard"),
     ("xsel", "--clipboard", "--input"),
 )
+MACOS_CLIPBOARD_SCRIPT = (
+    "-e",
+    "on run argv",
+    "-e",
+    "set the clipboard to item 1 of argv",
+    "-e",
+    "end run",
+    "--",
+)
 COPY_NOTIFICATION = "Copied to clipboard"
 LISTBOX_DEFAULT_HEIGHT = 5
 LISTBOX_WHEEL_SCROLL_ROWS = 1
@@ -69,7 +78,7 @@ def _copy_text_to_clipboard(text):
         if shutil.which(command[0]) is None:
             continue
         try:
-            subprocess.run(
+            completed = subprocess.run(
                 command,
                 input=_TEXT_CLIPBOARD,
                 text=True,
@@ -78,9 +87,21 @@ def _copy_text_to_clipboard(text):
                 timeout=CLIPBOARD_COPY_TIMEOUT_SECONDS,
                 check=False,
             )
-            return
+            if completed.returncode == 0:
+                return
         except (OSError, subprocess.SubprocessError):
             continue
+    if sys.platform == "darwin" and shutil.which("osascript") is not None:
+        try:
+            subprocess.run(
+                ("osascript", *MACOS_CLIPBOARD_SCRIPT, _TEXT_CLIPBOARD),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=CLIPBOARD_COPY_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return
 
 
 def _mouse_wheel_delta(key):

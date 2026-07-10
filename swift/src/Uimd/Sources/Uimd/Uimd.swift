@@ -11,8 +11,11 @@ private let kModalBackgroundDimFactor = 0.5
 private let kRenderTimeOverrideThreadKey = "uimd.renderTimeOverrideMs"
 private let kImageCellBackgroundRenderingDepthThreadKey = "uimd.imageCellBackgroundRenderingDepth"
 private let kNoActiveDynamicEditName = "__uimd_no_active_dynamic_edit__"
-private let kTerminalEscapeReadDelayMicros: useconds_t = 1_000
+private let kTerminalEscapeReadDelayMicros: useconds_t = 10_000
 private let kTerminalInputIdleSleepMicros: useconds_t = 10_000
+private let kCopyNotificationDurationSeconds = 3.0
+private let kCopyNotificationRow = 0
+private let kCopyNotificationRightMargin = 1
 private let kTerminalRawInputMinBytes: UInt8 = 0
 private let kTerminalRawInputTimeoutDeciseconds: UInt8 = 1
 private let kTerminalAnsiBaseRow = 1
@@ -45,6 +48,9 @@ private let kTextInputOptionHorizontalSteps = 5
 private let kTextInputOptionVerticalSteps = 3
 private let kAnimatedRenderIntervalSeconds = 0.070
 private let kTerminalTitleSuffix = " [swift]"
+private let kCopyNotificationText = "Copied to clipboard"
+private let kCopyNotificationForeground = "#ffffff"
+private let kCopyNotificationBackground = "#2255bb"
 private let kDialogButtonCloseDelayMicros: useconds_t = 180_000
 private let kSixelFallbackWarning = "Sixel is not supported. Continue with fallback image blocks?"
 private let kTerminalCellPixelQuery = "\u{001B}[16t"
@@ -57,6 +63,117 @@ private let kTerminalEnterAlternateScreen = "\u{001B}[?1049h\u{001B}[?1000h\u{00
 private let kTerminalLeaveAlternateScreen = "\u{001B}[0m\u{001B}[2J\u{001B}[H\u{001B}[>4;0m\u{001B}[?25h\u{001B}[?2004l\u{001B}[?1006l\u{001B}[?1002l\u{001B}[?1000l\u{001B}[?1049l\r\n"
 private let kTerminalSyncUpdateBegin = "\u{001B}[?2026h"
 private let kTerminalSyncUpdateEnd = "\u{001B}[?2026l"
+
+private final class RuntimeClipboard: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var text = ""
+
+    func store(_ value: String)
+    {
+        lock.lock()
+        text = value
+        lock.unlock()
+    }
+
+    func load() -> String
+    {
+        lock.lock()
+        let value = text
+        lock.unlock()
+        return value
+    }
+}
+
+private let runtimeClipboardStorage = RuntimeClipboard()
+
+@discardableResult
+private func copyTextToClipboard(_ text: String) -> Bool
+{
+    runtimeClipboardStorage.store(text)
+    guard !text.isEmpty else
+    {
+        return false
+    }
+    for command in clipboardCommands()
+    {
+        if runClipboardCommand(command.fileName, arguments: command.arguments, text: text)
+        {
+            return true
+        }
+    }
+    if runAppleScriptClipboardCommand(text)
+    {
+        return true
+    }
+    return false
+}
+
+private func runtimeClipboardText() -> String
+{
+    runtimeClipboardStorage.load()
+}
+
+private func clipboardCommands() -> [(fileName: String, arguments: [String])]
+{
+    [
+        ("pbcopy", []),
+        ("wl-copy", []),
+        ("xclip", ["-selection", "clipboard"]),
+        ("xsel", ["--clipboard", "--input"]),
+    ]
+}
+
+private func runClipboardCommand(_ fileName: String, arguments: [String], text: String) -> Bool
+{
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = [fileName] + arguments
+    let input = Pipe()
+    process.standardInput = input
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    do
+    {
+        try process.run()
+        input.fileHandleForWriting.write(Data(text.utf8))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+    catch
+    {
+        return false
+    }
+}
+
+private func runAppleScriptClipboardCommand(_ text: String) -> Bool
+{
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.arguments = [
+        "-e",
+        "on run argv",
+        "-e",
+        "set the clipboard to item 1 of argv",
+        "-e",
+        "end run",
+        "--",
+        text,
+    ]
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    do
+    {
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+    catch
+    {
+        return false
+    }
+}
 
 public struct Rect: Equatable
 {
@@ -1555,6 +1672,21 @@ open class TextInput: UIElement
 
     open override func handleKey(_ key: String) -> Bool
     {
+        if key == "cmd_c"
+        {
+            let selected = selectedText()
+            _ = copyTextToClipboard(selected.isEmpty ? value : selected)
+            return true
+        }
+        if key == "cmd_v"
+        {
+            let text = runtimeClipboardText()
+            if !text.isEmpty
+            {
+                insertText(text)
+            }
+            return true
+        }
         if key == "Shift+Left"
         {
             if selectionStart == nil
@@ -2090,6 +2222,20 @@ open class NumberInput: TextInput
 
     open override func handleKey(_ key: String) -> Bool
     {
+        if key == "cmd_c"
+        {
+            _ = copyTextToClipboard(formatNumber(numberValue))
+            return true
+        }
+        if key == "cmd_v"
+        {
+            let text = runtimeClipboardText()
+            if !text.isEmpty
+            {
+                insertText(text)
+            }
+            return true
+        }
         ensureEditText()
         if key == "Up"
         {
@@ -6507,6 +6653,7 @@ private final class GeneratedRuntimeController
     private var terminalMouseSelectionFrame: Rect?
     private var terminalMouseSelectionAnchor = 0
     private var mousePressActivatedClickControl = false
+    private var copyNotificationRequested = false
     private var beforeStandardButtonAction: (() -> Void)?
     private var mcpSnapshotCellBackgroundModalDepth = 0
 
@@ -6549,6 +6696,8 @@ private final class GeneratedRuntimeController
         var pendingMouseDown: Point?
         let hasAnimatedTextGradient = windowHasAnimatedTextGradient(rootWindow)
         var lastAnimatedRenderAt = Date()
+        var copyNotification = ""
+        var copyNotificationExpiresAt: Date?
         var sixelFallbackWarningRejected = false
         if windowNeedsSixelFallbackWarning(rootWindow)
         {
@@ -6571,6 +6720,10 @@ private final class GeneratedRuntimeController
                 return
             }
             terminalFrameBuffer?.setContent(self.renderContent())
+            if !copyNotification.isEmpty
+            {
+                terminalFrameBuffer?.renderNotification(copyNotification)
+            }
             if let output = terminalFrameBuffer?.renderDiff(), !output.isEmpty
             {
                 writeTerminal(output)
@@ -6603,9 +6756,21 @@ private final class GeneratedRuntimeController
                 dirty = true
                 lastAnimatedRenderAt = Date()
             }
+            if !copyNotification.isEmpty,
+               let expiresAt = copyNotificationExpiresAt,
+               Date() >= expiresAt
+            {
+                copyNotification = ""
+                copyNotificationExpiresAt = nil
+                dirty = true
+            }
             if dirty
             {
                 terminalFrameBuffer?.setContent(renderContent())
+                if !copyNotification.isEmpty
+                {
+                    terminalFrameBuffer?.renderNotification(copyNotification)
+                }
                 if let output = terminalFrameBuffer?.renderDiff(), !output.isEmpty
                 {
                     writeTerminal(output)
@@ -6632,6 +6797,11 @@ private final class GeneratedRuntimeController
                     if !keepRunning || options.shouldClose?() == true
                     {
                         return 0
+                    }
+                    if takeCopyNotificationRequested()
+                    {
+                        copyNotification = kCopyNotificationText
+                        copyNotificationExpiresAt = Date().addingTimeInterval(kCopyNotificationDurationSeconds)
                     }
                 }
                 dirty = true
@@ -9389,6 +9559,12 @@ private final class GeneratedRuntimeController
         textInput.selectRange(start: terminalMouseSelectionAnchor, end: cursor)
         if release
         {
+            let selected = textInput.selectedText()
+            if !selected.isEmpty
+            {
+                _ = copyTextToClipboard(selected)
+                requestCopyNotification()
+            }
             terminalMouseSelectionElement = nil
             terminalMouseSelectionFrame = nil
             terminalMouseSelectionAnchor = 0
@@ -9829,6 +10005,83 @@ private final class GeneratedRuntimeController
         return try stateResult()
     }
 
+    private func focusedElementForClipboard() -> UIElement?
+    {
+        if let activeScrollViewEditElement
+        {
+            return activeScrollViewEditElement
+        }
+        guard let currentFocusedName = focusedName else
+        {
+            return nil
+        }
+        return window.element(named: currentFocusedName)
+    }
+
+    private func copyFocusedText(_ element: UIElement?) -> Bool
+    {
+        guard let element else
+        {
+            return false
+        }
+        if let input = element as? TextInput
+        {
+            let selected = input.selectedText()
+            let text = selected.isEmpty ? input.value : selected
+            return !text.isEmpty && copyTextToClipboard(text)
+        }
+        if let numberInput = element as? NumberInput
+        {
+            let text = formatNumber(numberInput.numberValue)
+            return !text.isEmpty && copyTextToClipboard(text)
+        }
+        return false
+    }
+
+    private func requestCopyNotification()
+    {
+        copyNotificationRequested = true
+    }
+
+    private func takeCopyNotificationRequested() -> Bool
+    {
+        let requested = copyNotificationRequested
+        copyNotificationRequested = false
+        return requested
+    }
+
+    private func handleClipboardKey(_ key: String) -> Bool
+    {
+        guard key == "cmd_c" || key == "cmd_v" else
+        {
+            return false
+        }
+        guard let element = focusedElementForClipboard() else
+        {
+            return true
+        }
+        if key == "cmd_c"
+        {
+            if copyFocusedText(element)
+            {
+                requestCopyNotification()
+            }
+            return true
+        }
+        let elementId = runtimeElementId(element)
+        if key == "cmd_v", !editMode, element is TextInput
+        {
+            beginElementEdit(element, elementId: elementId)
+            _ = options.onEditStarted?(elementId)
+        }
+        let before = element.valueForSnapshot
+        if element.handleKey(key)
+        {
+            notifyValueChange(element, before: before)
+        }
+        return true
+    }
+
     private func handleTerminalKeyInput(_ key: String, refreshLayoutForNavigation: Bool = true) throws
     {
         if editMode && key == "Escape"
@@ -9871,6 +10124,10 @@ private final class GeneratedRuntimeController
             return
         }
         if key == "Escape", handleStandardEscapeButton()
+        {
+            return
+        }
+        if handleClipboardKey(key)
         {
             return
         }
@@ -10154,7 +10411,9 @@ private final class GeneratedRuntimeController
     private func copySelection(_ arguments: [String: Any]) throws -> Any
     {
         let input = try requireTextInput(arguments["element_id"] as? String)
-        return ["text": input.selectedText()]
+        let selected = input.selectedText()
+        _ = copyTextToClipboard(selected)
+        return ["text": selected]
     }
 
     private func replaceSelection(_ arguments: [String: Any]) throws -> Any
@@ -11725,6 +11984,32 @@ private final class TerminalFrameBuffer
         forceFullRedraw = true
     }
 
+    func renderNotification(_ message: String)
+    {
+        guard !message.isEmpty, width > 0, height > 0 else
+        {
+            return
+        }
+        let text = " \(message) "
+        let row = max(0, min(kCopyNotificationRow, height - 1))
+        let col = max(0, width - text.count - kCopyNotificationRightMargin)
+        let foreground = Color(kCopyNotificationForeground)
+        let background = Color(kCopyNotificationBackground)
+        for (offset, char) in text.enumerated()
+        {
+            let targetCol = col + offset
+            guard targetCol < width else
+            {
+                break
+            }
+            cells[index(row: row, col: targetCol)] = TerminalCell(
+                String(char),
+                foreground: foreground,
+                background: background
+            )
+        }
+    }
+
     func renderDiff(rowOffset: Int = 0, colOffset: Int = 0) -> String
     {
         var output: [String] = []
@@ -12599,6 +12884,16 @@ private final class TerminalInputParser
                 (modifier == Self.ctrlModifier || modifier == Self.ctrlShiftModifier))
         {
             return "Ctrl+C"
+        }
+        if (codepoint == Self.lowercaseCCodepoint || codepoint == Self.uppercaseCCodepoint) &&
+            (modifier == Self.metaModifier || modifier == Self.metaShiftModifier)
+        {
+            return "cmd_c"
+        }
+        if (codepoint == Self.lowercaseVCodepoint || codepoint == Self.uppercaseVCodepoint) &&
+            (modifier == Self.metaModifier || modifier == Self.metaShiftModifier)
+        {
+            return "cmd_v"
         }
         return nil
     }

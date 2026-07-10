@@ -7922,6 +7922,10 @@ public sealed class McpController
                 return true;
             }
         }
+        if (OperatingSystem.IsMacOS() && RunAppleScriptClipboardCommand(text))
+        {
+            return true;
+        }
         return false;
     }
 
@@ -7956,6 +7960,39 @@ public sealed class McpController
             }
             process.StandardInput.Write(text);
             process.StandardInput.Close();
+            process.WaitForExit();
+            return process.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool RunAppleScriptClipboardCommand(string text)
+    {
+        try
+        {
+            ProcessStartInfo startInfo = new()
+            {
+                FileName = "osascript",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            startInfo.ArgumentList.Add("-e");
+            startInfo.ArgumentList.Add("on run argv");
+            startInfo.ArgumentList.Add("-e");
+            startInfo.ArgumentList.Add("set the clipboard to item 1 of argv");
+            startInfo.ArgumentList.Add("-e");
+            startInfo.ArgumentList.Add("end run");
+            startInfo.ArgumentList.Add("--");
+            startInfo.ArgumentList.Add(text);
+            using Process? process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
             process.WaitForExit();
             return process.ExitCode == 0;
         }

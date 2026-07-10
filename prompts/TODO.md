@@ -4,6 +4,380 @@
 
 Date: 2026-06-21
 
+- [ ] **Distill previously missed user-reported regressions into reproducible tests**.
+  User validation in early July 2026 exposed concrete regressions that existing
+  tests did not catch when they were first reported. This task is not a vague
+  "add more tests" bucket; it must turn the exact situations below into exact
+  repro scripts and then focused regression tests. Initial exact situations:
+  - Run `./uimd generate swift/examples/activity_feed --target swift && swift
+    build --package-path swift/examples/activity_feed && swift run
+    --package-path swift/examples/activity_feed activity_feed`. The app opened
+    but initially could not be controlled with arrows or mouse and was hard to
+    quit from the terminal. Expected: Swift direct terminal input should route
+    arrows, mouse events, and quit/control events like C++.
+  - Run the same Swift `activity_feed` command. After direct interaction started
+    working, every input caused rendering to stutter badly, roughly one visible
+    terminal frame every 2-3 seconds, worse than Python. Expected: Swift should
+    be close to C++ terminal responsiveness and should not redraw with
+    multi-second stalls after ordinary input.
+  - In Swift `activity_feed`, open the `Settings` dialog, navigate with arrows
+    down to the first checkbox, then press arrow keys to continue. Broken
+    behavior: focus became trapped on the checkbox and could not move lower in
+    the dialog. Expected: CheckBox in a dialog should activate/toggle when
+    appropriate but arrows should still move focus to neighboring dialog
+    controls like C++.
+  - In Swift `activity_feed`, add a new activity while the activity ScrollView
+    is not fully scrolled to the bottom. Broken behavior: the ScrollView moved
+    only by about one item and did not reveal the newly added item. In Python
+    `activity_feed`, adding a new activity initially did not scroll at all.
+    Expected: appending a bottom item should scroll to the new bottom on every
+    platform.
+  - In Swift `formular`, enter the TextArea, type multiple lines, press Up/Down
+    and Shift+Up/Shift+Down. Broken behavior: vertical cursor movement and
+    multi-character/multi-line selection did not work. Expected: match C++ text
+    editing, including vertical navigation and selection replacement.
+  - In Swift `formular`, enter a TextInput, type text, use Shift+Left multiple
+    times, and type replacement text. Broken behavior: selecting multiple
+    characters in TextInput did not work like C++/C#. Expected: selected range
+    is highlighted and replacement changes only the selected range.
+  - Open a Yes/No message box in Swift, press Escape. Broken behavior: the box
+    closed/cancelled, but did not briefly show the `No` button as activated, so
+    the user could not see that cancel was chosen. Expected: same short
+    activation flash as C++ for `No`; also check whether FileBrowser/browse
+    dialogs have the same Escape/cancel visual parity.
+  - In Swift `expense_tracker`, enter the title/name TextInput, optionally type
+    text, then press Down while still editing. Broken behavior: focus moved to
+    the next element even though the TextInput was in edit mode. Expected:
+    arrow key handling inside editable TextInput should match `formular`/C++ and
+    not leave edit mode incorrectly.
+  - In Swift examples, run a Swift app after a Python example and inspect the
+    terminal title. Broken behavior: the title showed stale `[python]` instead
+    of `[swift]` in at least `image_browser` screenshot context. Expected:
+    Swift terminal title always ends with `[swift]`.
+  - Run Swift `image_browser` and `image_gallery`. Broken behavior: images did
+    not display. In fallback mode the two half-block "pixels" appeared swapped
+    top/bottom, visible in `fallback_problem.png`/`fallback.png`. Expected:
+    fallback half-block foreground is the top sample and background is the
+    bottom sample, matching C++/C#.
+  - In Swift `image_browser`, use the button that shows an image preview in
+    Sixel mode. Broken behavior: the preview showed fallback instead of Sixel in
+    cases where Sixel should have been active. Expected: supported Sixel
+    terminals render raw Sixel in the preview.
+  - Run `image_browser` over SSH or in macOS Terminal where Sixel is not
+    supported. Broken behavior: raw/random Sixel characters or only a small
+    insufficient status text appeared. Expected: no raw Sixel garbage; show the
+    standard UIMD warning/message box, then continue with fallback rendering if
+    the user chooses to continue.
+  - Run `image_browser` in iTerm2 with Sixel support. Broken behavior at one
+    point: fallback was forced even though iTerm2 supports Sixel. Expected:
+    iTerm2/known supported terminals should use Sixel, unsupported terminals
+    should use fallback plus warning.
+  - In Swift/iTerm2 `image_browser`, scroll so images are partially clipped at
+    the top. Broken behavior: images that should be clipped from the top were
+    moved down from the start instead of having their top cropped. Expected:
+    visible Sixel region starts at the correct clipped source offset.
+  - In Swift/iTerm2 `image_browser`, scroll so images are partially clipped at
+    the bottom. Broken behavior: bottom-clipped images sometimes were not drawn
+    at all. Expected: draw the visible upper part of the image.
+  - In `image_browser`, use small app heights where an image is clipped both at
+    the top and bottom. Broken behavior: clipped images were intermittent,
+    sometimes visible and sometimes skipped depending on height/scroll. Expected:
+    deterministic visible clipped Sixel payload for every top/bottom/both-side
+    clipping case.
+  - After an attempted Sixel clipping fix, run Python, Swift, and C++/C#
+    `image_browser` and inspect `temp/sixel_bug.png`. Broken behavior: not only
+    clipped images but also ordinary images, including the left panel/list, were
+    rendered incorrectly. Expected: fixing clipping must not change non-clipped
+    image placement or list thumbnails.
+  - In `image_browser`, add a new image/item in the `Image items` area. The
+    ScrollView correctly scrolls down immediately after insertion. Then move
+    focus with arrows into that ScrollView. Broken behavior in C++/Swift/C#:
+    entering the ScrollView reset its scroll position back to the top. Python
+    behaved correctly. Expected: focus entry preserves the current programmatic
+    scroll-to-bottom position.
+  - In `image_browser`, open a browse/FileBrowser dialog over the image
+    ScrollView to change an image. With the FileBrowser listbox in default edit
+    mode, press arrows. Broken behavior: arrows scrolled the background image
+    ScrollView behind the modal instead of moving inside the dialog listbox
+    (`temp/browse_dialog.png`). Expected: modal/listbox consumes arrows and the
+    background ScrollView does not move.
+  - In that same browse/FileBrowser dialog, press Escape to leave the listbox
+    edit mode, then move between dialog elements and press Enter on fields such
+    as TextInput. Broken behavior: arrows could move between dialog elements,
+    but Enter closed/accepted the dialog instead of entering the selected
+    control. Expected: Enter enters/activates the focused dialog control unless
+    the focused control is the accept/cancel action.
+  - In browse/FileBrowser dialogs, compare `text_editor` versus `image_browser`.
+    Broken behavior: mouse selection in the FileBrowser listbox worked in
+    `text_editor` but not in other browse contexts. Expected: FileBrowser
+    listbox mouse selection works identically regardless of which example opens
+    the dialog.
+  - In Swift `expense_tracker`, open the category ComboBox and try selecting
+    `Health` and `Other`. Broken behavior: those values could not be selected
+    because the dropdown overlapped a background ScrollView. Expected: open
+    ComboBox dropdown is topmost for hit testing and selection even over a
+    ScrollView background.
+  - Run C# `image_browser` after
+    `./uimd generate csharp/examples --target csharp && dotnet build
+    csharp/examples/image_browser/image_browser.csproj --configuration Debug &&
+    dotnet csharp/examples/image_browser/bin/Debug/net10.0/image_browser.dll`.
+    Broken behavior: process crashed with `System.AccessViolationException` /
+    segmentation fault at startup. Expected: image-heavy C# example starts and
+    renders or reports a managed/runtime error, not native memory corruption.
+  - In Swift `markdown_viewer`, click a ListBox item in the left panel with the
+    mouse. Broken behavior: item was not selected by mouse unless the ListBox
+    was first entered with Enter. Expected: direct mouse click selects the item
+    like C++.
+  - In Swift `special_elements`, click the ListBox with the mouse. Broken
+    behavior: item selection did not work. Expected: ListBox mouse selection
+    works without manually entering edit mode.
+  - In Swift `widget_gallery`, click the ListBox with the mouse. Broken
+    behavior: item selection did not work; same root issue as
+    `markdown_viewer`/`special_elements`. Expected: mouse selection persists and
+    updates the value.
+  - In Swift `widget_gallery`, try selecting a ComboBox item with the mouse.
+    Broken behavior: mouse selection from the dropdown did not work. Expected:
+    clicked dropdown item becomes selected.
+  - In Swift `widget_gallery`, try selecting text in TextInput with the mouse.
+    Broken behavior: mouse text selection did not work. Expected: selected
+    range is highlighted and can be replaced/copied like C++.
+  - In Swift `widget_gallery`, click a SpinBox/NumberInput, type a new value,
+    then click outside. Broken behavior: display reverted to the old value; if
+    clicking back into the same SpinBox, the typed value reappeared. Expected:
+    blur/leave commit applies the typed value.
+  - In Swift `special_elements` and `widget_gallery`, wait without input.
+    Broken behavior: animations did not play. Expected: animated elements
+    update while idle without requiring user input.
+  - In Swift `task_board`, open the `Edit task` dialog and try typing in the
+    title TextInput. Broken behavior: text input did not accept typed keys.
+    Expected: title TextInput enters edit mode and receives text.
+  - In Swift `task_board`, open `Edit task`, focus the description TextArea,
+    and type/edit text. Broken behavior: TextArea did not react to keypresses.
+    Expected: TextArea behaves like C++ including multiline input and cursor
+    movement.
+  - In Swift `task_board`, open `Edit task`, open the assignee ComboBox and use
+    arrows/Enter. Broken behavior: ComboBox keyboard navigation/selection did
+    not work. Expected: arrows move active dropdown item and Enter selects it.
+  - In Swift `task_board`, open `Edit task`, click one of the lower assignee
+    ComboBox items. Broken behavior: assignee menu closed but priority
+    ComboBox opened instead. Expected: the clicked assignee item is selected and
+    no neighboring ComboBox opens from the same click.
+  - In Swift `task_board`, scroll the task list after enough items exist that
+    not all fit. Broken behavior: ScrollView scrolled beyond the last item and
+    showed large blank space below content, visible in `temp/task_board.png`.
+    Expected: bottom clamp stops when the last item is aligned with the
+    viewport bottom.
+  - In Swift `expense_tracker`, scroll list/ScrollView content to the bottom.
+    Broken behavior: ScrollView could continue past the final item with extra
+    blank space. Expected: no scroll position beyond content height.
+  - In Swift `image_browser`, scroll image list/gallery content to the bottom.
+    Broken behavior: after fixes there was still about 70-80% of one item of
+    blank space below the last item (`scrollview_swirft_problem.png`).
+    Expected: bottom clamp leaves no extra item-sized blank region.
+  - ListBox multi-select styling: in `formular` or `widget_gallery`, select
+    multiple ListBox items, then move the keyboard active item with arrows.
+    Broken behavior: selected item and focused/active item used the same style,
+    so the user could not see where keyboard focus was. Expected: selected
+    style remains, active overlay is rendered on top with the agreed
+    `#DDDDDD99` background and readable text.
+  - ListBox active style after mouse: click ListBox items with the mouse.
+    Broken behavior during refinement: active/focused item style was visible
+    after mouse clicks even though it should appear only after keyboard arrow
+    movement. Expected: mouse click hides active overlay; first arrow key shows
+    it again.
+  - Single-select ListBox behavior: in a single-select ListBox, enter edit mode,
+    move with arrows, and do not press Enter yet. Broken behavior during
+    refinement: arrow movement changed the selected value immediately or hid
+    the original selected value. Expected: arrows move only the active item,
+    original selected item remains visible, Enter confirms and exits edit mode.
+  - Multi-select ListBox behavior: in a multi-select ListBox, enter edit mode,
+    use arrows and Enter on several items, then press Escape. Expected behavior
+    established during fixes: Enter toggles item selection without leaving edit
+    mode, Escape leaves edit mode preserving selection. Tests should reproduce
+    toggle, untoggle, move over selected/unselected rows, and exit.
+  - Full Python/C++ compare after ListBox behavior changes failed in
+    `tests/mcp/markdown_viewer.yaml`, `tests/mcp/text_editor.yaml`, and
+    `tests/mcp/widget_gallery.yaml` because scripts still expected old
+    single-select immediate-selection behavior. Repro: run
+    `./uimd mcp-test --all --compare python/examples cpp/build/examples
+    --mcp-fast --compare-app-size 90x35`. Expected tests should explicitly
+    assert active-versus-selected behavior and Enter-to-confirm.
+  - Full C++/C# compare failed in `tests/mcp/text_editor.yaml` after
+    single-select/FileBrowser changes. Repro command reported:
+    `./uimd mcp-test --backend python --headless --all --compare
+    cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35`.
+    Expected: FileBrowser/ListBox active row styling and confirmation path match
+    C++.
+  - Full C++/Swift compare failed in `widget_gallery`, `markdown_viewer`,
+    `text_editor`, and `contacts_manager` after ListBox/FileBrowser active-row
+    changes. Repro command reported:
+    `./uimd mcp-test --backend python --headless --all --compare
+    cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35`.
+    Expected: Swift FileBrowser/ListBox selected/active visibility and
+    callbacks match C++.
+  - Swift direct terminal copy: run
+    `./uimd generate swift/examples/formular --target swift && swift build
+    --package-path swift/examples/formular && swift run --package-path
+    swift/examples/formular formular`, type in `name_input`, select characters,
+    press Cmd+C, move to `email_input`, press Cmd+V. Broken behavior: selected
+    text did not copy/paste although C# did. Expected: selected text copies and
+    pastes in TextInput.
+  - Swift direct terminal copy with split escape: send legacy Cmd+C/Cmd+V as
+    `ESC[27;9;99~` / `ESC[27;9;118~` split across reads. Broken behavior:
+    Swift consumed the initial `ESC` as Escape before the rest arrived, losing
+    Cmd+C. Expected: wait long enough to collect the modified-key sequence and
+    parse it as `cmd_c`/`cmd_v`.
+  - Swift direct terminal TextArea copy: in `formular`, enter description
+    TextArea, type multiple lines, select `bc`, press Cmd+C, leave to
+    `email_input`, press Cmd+V. Broken behavior: TextArea selected text did not
+    copy/paste. Expected: same as C++/C#.
+  - macOS/SSH clipboard fallback: direct Swift copy could update internal
+    runtime clipboard and pass paste tests while `pbcopy` failed in the session;
+    `osascript` still worked. Expected: Python/C++/C#/Swift attempt the same
+    fallback chain so real macOS pasteboard copy works where possible.
+  - Swift direct terminal copy feedback: after selected text copy in `formular`,
+    especially over SSH, no visible feedback indicated the copy happened.
+    Expected: transient top-right `Copied to clipboard` notification like
+    C++/C#.
+  For each item above, create exact repro notes first, then add the smallest
+  deterministic test in the correct layer: Python unit tests, C++ runtime
+  tests, direct PTY tests, MCP compare scripts with `--compare-app-size 90x35`,
+  or a regression app. Do not change runtime behavior as part of the initial
+  inventory step.
+
+- [x] **Swift copy should show the same transient "Copied to clipboard" notification as C++/C#**.
+  User validation on 2026-07-10 reports that when running `swift run
+  --package-path swift/examples/formular formular` over SSH, copy likely works
+  but there is no visible feedback, unlike C++ where the runtime shows
+  `Copied to clipboard`. Parity decision: implement Swift terminal runtime
+  copy feedback in `swift/src/Uimd/Sources/Uimd/Uimd.swift` using the same
+  behavior as C++/C#: set a short-lived notification after successful
+  keyboard or mouse text copy, render it as a top-right terminal overlay, and
+  expire/redraw it automatically. Add direct PTY coverage for the visible
+  notification in `tools/swift_direct_terminal_smoke.py`; do not change
+  examples.
+  Done: Swift terminal runtime now keeps copy notification state in the direct
+  terminal loop, requests it from focused `cmd_c` and mouse text-selection copy
+  paths, renders the same top-right `Copied to clipboard` overlay with the
+  C++/C# colors, and expires it after three seconds without affecting MCP
+  render snapshots. Added Swift direct PTY coverage that forces a successful
+  clipboard command with a fake `pbcopy` and asserts the visible notification.
+  Validation passed on 2026-07-10: `./uimd generate swift/examples/formular
+  --target swift`, `swift test --package-path swift/src/Uimd`, `swift build
+  --package-path swift/examples/formular`, `cmake --build cpp/build --target
+  formular`, `python3 -m py_compile tools/swift_direct_terminal_smoke.py`,
+  full `python3 tools/swift_direct_terminal_smoke.py`, and focused C++/Swift
+  `formular` compare (`185 asserts passed, 0 failed, 0 step failures`) with
+  `--compare-app-size 90x35`.
+
+- [x] **Swift direct terminal copy fails when modified-key escape sequences arrive split across reads**.
+  User validation on 2026-07-10 still reports that Swift `formular` cannot copy
+  selected text when run exactly as `./uimd generate swift/examples/formular
+  --target swift && swift build --package-path swift/examples/formular &&
+  swift run --package-path swift/examples/formular formular`. Focused PTY tests
+  prove that `swift run` works when legacy `Cmd+C`/`Cmd+V` arrives as one
+  complete `ESC[27;9;<codepoint>~` byte sequence, and writes `xy` to the real
+  macOS pasteboard outside the Codex sandbox. Root cause: Swift waits only
+  `1 ms` after reading an initial `ESC`; if the terminal delivers the remaining
+  bytes slightly later, `TerminalInputParser` consumes the single `ESC` as the
+  Escape key and the `Cmd+C` sequence is lost. Python uses an escape-sequence
+  timeout before decoding. Parity decision: fix Swift terminal input collection
+  to wait long enough for split escape sequences before feeding the parser, and
+  add a direct PTY regression that sends `Cmd+C`/`Cmd+V` split across writes.
+  Done: Swift now waits `10 ms` after an initial `ESC`, matching the Python
+  escape-sequence timeout window, before feeding collected bytes to the parser.
+  Added a direct PTY regression for split legacy `Cmd+C`/`Cmd+V` in
+  `tools/swift_direct_terminal_smoke.py`. Validation passed on 2026-07-10:
+  `swift test --package-path swift/src/Uimd`, `swift build --package-path
+  swift/examples/formular`, `python3 -m py_compile
+  tools/swift_direct_terminal_smoke.py`, full
+  `python3 tools/swift_direct_terminal_smoke.py`, and an out-of-sandbox PTY
+  run of the exact user command path (`swift run --package-path
+  swift/examples/formular formular`) where split `Cmd+C`/`Cmd+V` copied `uv`
+  from `name_input` to `email_input` and wrote `uv` to the real macOS
+  pasteboard; focused C++/Swift `formular` compare passed (`185 asserts
+  passed, 0 failed, 0 step failures`).
+
+- [x] **Swift direct-terminal legacy Cmd+C/Cmd+V does not copy selected TextInput/TextArea text**.
+  User validation on 2026-07-10 reports that Swift still cannot copy selected
+  text from `TextInput` or `TextArea` in the `formular` example, even after the
+  MCP clipboard path was added. Parity decision: the previous validation only
+  proved synthetic MCP `cmd_c`/`cmd_v` and internal/runtime clipboard behavior;
+  the real direct-terminal key path must also parse the legacy modified-key
+  sequence used by terminals (`ESC[27;<modifier>;<codepoint>~`) the same way C#
+  does. Affected path: Swift
+  `swift/src/Uimd/Sources/Uimd/Uimd.swift` `TerminalInputParser` legacy
+  modified-key parsing and direct terminal validation in
+  `tools/swift_direct_terminal_smoke.py`. Keep this scoped to Swift direct
+  terminal copy/paste handling and do not change examples as a workaround.
+  Required validation: Swift runtime tests, focused Swift `formular` build, and
+  direct PTY smoke coverage for `TextInput` and `TextArea` legacy
+  `Cmd+C`/`Cmd+V` copy-paste.
+  Done: Swift legacy modified-key parsing now maps command/meta C and V to
+  `cmd_c`/`cmd_v`, matching the modern Swift parser and the C# unified
+  modified-key mapper. Added direct PTY smoke coverage for copying selected
+  text from `formular` `TextInput` and `TextArea` with legacy
+  `ESC[27;9;<codepoint>~` sequences and pasting the copied text into another
+  input. Validation passed on 2026-07-10: `swift test --package-path
+  swift/src/Uimd`, `swift build --package-path swift/examples/formular`,
+  `python3 -m py_compile tools/swift_direct_terminal_smoke.py`, and full
+  `python3 tools/swift_direct_terminal_smoke.py`; focused C++/Swift
+  `formular` MCP compare with `--compare-app-size 90x35` passed (`185 asserts
+  passed, 0 failed, 0 step failures`).
+
+- [x] **macOS clipboard fallback should work when pbcopy fails under terminal runtimes**.
+  During Swift direct-terminal validation on 2026-07-10, `pbcopy` returned
+  status 1 in the current terminal/session while `osascript` could still read
+  and write the user pasteboard. That means a runtime can pass internal
+  clipboard paste tests while failing real system copy. Parity decision: add
+  the same macOS AppleScript clipboard fallback after the existing command
+  chain in Python, C++, C#, and Swift runtimes instead of adding a Swift-only
+  workaround. Affected paths: Python `src/uimd/runtime/elements.py`; C++
+  `cpp/src/terminal/Clipboard.cpp`; C#
+  `csharp/src/Uimd/Runtime/GeneratedWindow.cs`; Swift
+  `swift/src/Uimd/Sources/Uimd/Uimd.swift`. Required validation: focused unit
+  or build checks for touched runtimes, direct Swift PTY copy to real macOS
+  pasteboard, and the focused `formular` compare gate.
+  Done: Python now continues to fallback commands only when the command exits
+  successfully instead of returning after a failed `pbcopy`; Python, C++, C#,
+  and Swift all use a macOS `osascript` pasteboard fallback after the existing
+  command chain. Validation passed on 2026-07-10: `python3 -m py_compile
+  src/uimd/runtime/elements.py tools/swift_direct_terminal_smoke.py`,
+  `python3 -m pytest python/tests/test_elements.py` (`106 passed, 1 skipped`),
+  `cmake --build cpp/build --target formular`, `dotnet build
+  csharp/examples/formular/formular.csproj --configuration Debug`,
+  `swift test --package-path swift/src/Uimd`, `swift build --package-path
+  swift/examples/formular`, direct Swift PTY legacy `Cmd+C` copied `xy` to the
+  real macOS pasteboard when run outside the Codex sandbox, and focused
+  Python/C++, C++/Swift, and C++/C# `formular` compares passed (`185 asserts
+  passed, 0 failed, 0 step failures` each).
+
+- [x] **Swift terminal copy selected text must match C++/C# runtime behavior**.
+  User validation on 2026-07-10 reports that selected text copy works in C# but
+  not in Swift, reproducible from the `formular` example. This is a Swift
+  runtime parity bug, not an example workaround. Parity decision: audit C++ and
+  C# clipboard handling for focused `TextInput`/`TextArea`/`NumberInput`, MCP
+  `copy_selection`, and mouse-drag text selection release, then implement the
+  matching Swift behavior in `swift/src/Uimd/Sources/Uimd/Uimd.swift` without
+  changing examples. Required validation: `swift test --package-path
+  swift/src/Uimd`, focused Swift `formular` build, and C++/Swift `formular`
+  compare with `--compare-app-size 90x35`.
+  Done: Swift now has a shared runtime clipboard store with best-effort system
+  clipboard writes through the same command set as C++/C# (`pbcopy`, `wl-copy`,
+  `xclip`, `xsel`). `TextInput`/`TextArea` and `NumberInput` handle `cmd_c` and
+  `cmd_v`; the generated runtime dispatches those keys for the currently
+  focused element even outside edit mode; MCP `copy_selection` writes the
+  selected text to the runtime/system clipboard; and direct terminal mouse
+  selection release for text inputs copies the selected text. Added focused
+  `formular` MCP coverage that proves `copy_selection` writes one selection and
+  `cmd_c` overwrites it before `cmd_v` pastes into another text input.
+  Validation passed on 2026-07-10: `swift test --package-path swift/src/Uimd`
+  (`9` tests), `swift build --package-path swift/examples/formular`,
+  `dotnet build csharp/examples/formular/formular.csproj --configuration
+  Debug`, focused C++/Swift, Python/C++, and C++/C# `formular` compares with
+  `--compare-app-size 90x35` (`185 asserts passed, 0 failed, 0 step failures`
+  each).
+
 - [x] **Swift all-example compare fails in ListBox/FileBrowser active-row parity after single-select changes**.
   User full C++/Swift compare run on 2026-07-09 reports four step failures:
   `tests/mcp/widget_gallery.yaml [cpp, swift]` with `97 asserts passed`,

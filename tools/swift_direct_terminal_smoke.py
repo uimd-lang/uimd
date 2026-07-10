@@ -29,6 +29,7 @@ DEFAULT_TITLE_SECONDS = 5.0
 DEFAULT_ANIMATION_SECONDS = 0.5
 DEFAULT_INPUT_DELAY_SECONDS = 0.12
 DEFAULT_STOP_SECONDS = 1.0
+SPLIT_ESCAPE_SEQUENCE_DELAY_SECONDS = 0.003
 TERMINAL_COORDINATE_BASE = 1
 ACTIVITY_FEED_WHEEL_X = 20
 ACTIVITY_FEED_WHEEL_Y = 4
@@ -43,6 +44,9 @@ TASK_BOARD_SCROLL_BOTTOM_X = 120
 TASK_BOARD_SCROLL_BOTTOM_Y = 35
 TASK_BOARD_SCROLL_BOTTOM_BATCH_SIZE = 12
 TASK_BOARD_SCROLL_BOTTOM_BATCHES = 2
+FAKE_CLIPBOARD_DIR_NAME = "uimd-swift-direct-terminal-clipboard"
+FAKE_PBCOPY_SCRIPT = "#!/bin/sh\ncat >/dev/null\n"
+FAKE_PBCOPY_MODE = 0o755
 
 
 class TerminalScreen:
@@ -384,6 +388,18 @@ def sgr_click(x: int, y: int, button: int = 0) -> bytes:
     return sgr_press(button, x, y) + sgr_release(button, x, y)
 
 
+def send_split_escape_sequence(app: PtyApp, sequence: bytes) -> None:
+    if app.master_fd is None:
+        raise RuntimeError("PTY app is not running")
+    if not sequence.startswith(b"\x1b"):
+        raise ValueError("split escape sequence must start with ESC")
+    os.write(app.master_fd, sequence[:1])
+    time.sleep(SPLIT_ESCAPE_SEQUENCE_DELAY_SECONDS)
+    os.write(app.master_fd, sequence[1:])
+    time.sleep(DEFAULT_INPUT_DELAY_SECONDS)
+    app.drain()
+
+
 def wait_for_screen_text(app: PtyApp, needle: str, timeout_seconds: float = DEFAULT_TITLE_SECONDS) -> tuple[int, int]:
     deadline = time.monotonic() + timeout_seconds
     last_error: AssertionError | None = None
@@ -443,6 +459,17 @@ def app_specs(cpp_build_dir: Path, swift_examples_dir: Path) -> dict[str, tuple[
             ROOT,
         ),
     }
+
+
+def fake_clipboard_env() -> dict[str, str]:
+    directory = Path(os.environ.get("TMPDIR", "/tmp")) / FAKE_CLIPBOARD_DIR_NAME
+    directory.mkdir(parents=True, exist_ok=True)
+    pbcopy = directory / "pbcopy"
+    if not pbcopy.exists() or pbcopy.read_text(encoding="utf-8") != FAKE_PBCOPY_SCRIPT:
+        pbcopy.write_text(FAKE_PBCOPY_SCRIPT, encoding="utf-8")
+    pbcopy.chmod(FAKE_PBCOPY_MODE)
+    path = f"{directory}{os.pathsep}{os.environ.get('PATH', '')}"
+    return {"PATH": path}
 
 
 def check_binaries(specs: dict[str, tuple[list[str], Path, list[str], Path]]) -> None:
@@ -508,6 +535,25 @@ def run_swift_title_case(
             swift_app.drain(total_seconds=DEFAULT_QUIET_SECONDS)
         if not swift_app.screen.title.endswith(" [swift]"):
             raise AssertionError(f"{name}: Swift terminal title is {swift_app.screen.title!r}")
+    print(f"PASS {name}", flush=True)
+
+
+def run_swift_dynamic_presence_case(
+    name: str,
+    specs: dict[str, tuple[list[str], Path, list[str], Path]],
+    app: str,
+    exercise: Callable[[PtyApp], None],
+    expected: list[str],
+    rows: int,
+    cols: int,
+    env_extra: dict[str, str] | None = None,
+) -> None:
+    _cpp_command, _cpp_cwd, swift_command, swift_cwd = specs[app]
+    env = {"UIMD_ACTIVITY_FEED_TIMESTAMP": ACTIVITY_FEED_TIMESTAMP}
+    if env_extra:
+        env.update(env_extra)
+    swift_screen = run_dynamic_screen(swift_command, swift_cwd, rows, cols, exercise, env)
+    assert_contains(f"{name} Swift", swift_screen, expected)
     print(f"PASS {name}", flush=True)
 
 
@@ -817,6 +863,9 @@ def main() -> int:
     up = b"\x1b[A"
     down = b"\x1b[B"
     shift_left = b"\x1b[1;2D"
+    escape = b"\x1b"
+    legacy_cmd_c = b"\x1b[27;9;99~"
+    legacy_cmd_v = b"\x1b[27;9;118~"
     wheel_up = sgr_wheel(64, ACTIVITY_FEED_WHEEL_X, ACTIVITY_FEED_WHEEL_Y)
     wheel_down = sgr_wheel(65, ACTIVITY_FEED_WHEEL_X, ACTIVITY_FEED_WHEEL_Y)
 
@@ -861,12 +910,77 @@ def main() -> int:
         args.rows,
         args.cols,
     )
+
+    def exercise_formular_textinput_legacy_cmd_copy(app: PtyApp) -> None:
+        app.send(tab + enter + b"abcd" + shift_left * 2)
+        app.send(legacy_cmd_c)
+        app.send(enter + tab + enter)
+        app.send(legacy_cmd_v)
+
+    run_swift_dynamic_presence_case(
+        "formular textinput legacy cmd copy paste",
+        specs,
+        "formular",
+        exercise_formular_textinput_legacy_cmd_copy,
+        ["Email            cd"],
+        args.rows,
+        args.cols,
+    )
+
+    def exercise_formular_textinput_legacy_cmd_copy_notification(app: PtyApp) -> None:
+        app.send(tab + enter + b"abcd" + shift_left * 2)
+        app.send(legacy_cmd_c)
+
+    run_swift_dynamic_presence_case(
+        "formular textinput legacy cmd copy notification",
+        specs,
+        "formular",
+        exercise_formular_textinput_legacy_cmd_copy_notification,
+        ["Copied to clipboard"],
+        args.rows,
+        args.cols,
+        env_extra=fake_clipboard_env(),
+    )
+
+    def exercise_formular_textinput_split_legacy_cmd_copy(app: PtyApp) -> None:
+        app.send(tab + enter + b"uv" + shift_left * 2)
+        send_split_escape_sequence(app, legacy_cmd_c)
+        app.send(enter + tab + enter)
+        send_split_escape_sequence(app, legacy_cmd_v)
+
+    run_swift_dynamic_presence_case(
+        "formular textinput split legacy cmd copy paste",
+        specs,
+        "formular",
+        exercise_formular_textinput_split_legacy_cmd_copy,
+        ["Email            uv"],
+        args.rows,
+        args.cols,
+    )
+
     run_case(
         "formular textarea arrow up edits previous line",
         specs,
         "formular",
         tab * 4 + enter + b"a" + enter + b"b" + up + b"X",
         ["Description      aX", "                  b"],
+        args.rows,
+        args.cols,
+    )
+
+    def exercise_formular_textarea_legacy_cmd_copy(app: PtyApp) -> None:
+        app.send(tab * 4 + enter + b"a" + enter + b"bc" + shift_left * 2)
+        app.send(legacy_cmd_c)
+        app.send(escape)
+        app.send(shift_tab * 2 + enter)
+        app.send(legacy_cmd_v)
+
+    run_swift_dynamic_presence_case(
+        "formular textarea legacy cmd copy paste",
+        specs,
+        "formular",
+        exercise_formular_textarea_legacy_cmd_copy,
+        ["Email            bc"],
         args.rows,
         args.cols,
     )

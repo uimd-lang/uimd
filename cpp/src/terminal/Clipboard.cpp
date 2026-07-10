@@ -94,6 +94,43 @@ void redirectToDevNull(int fd) {
     return wroteInput && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+#if defined(__APPLE__)
+[[nodiscard]] bool runAppleScriptClipboardCommand(std::string_view text) {
+    std::string textArgument(text);
+    const pid_t child = fork();
+    if (child < 0) {
+        return false;
+    }
+
+    if (child == 0) {
+        redirectToDevNull(STDOUT_FILENO);
+        redirectToDevNull(STDERR_FILENO);
+        const char* argv[] = {
+            "osascript",
+            "-e",
+            "on run argv",
+            "-e",
+            "set the clipboard to item 1 of argv",
+            "-e",
+            "end run",
+            "--",
+            textArgument.c_str(),
+            nullptr,
+        };
+        execvp(argv[0], const_cast<char* const*>(argv));
+        _exit(127);
+    }
+
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) {
+            return false;
+        }
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+#endif
+
 #endif
 
 }  // namespace
@@ -113,6 +150,11 @@ bool copyTextToClipboard(std::string_view text) {
             return true;
         }
     }
+#if defined(__APPLE__)
+    if (runAppleScriptClipboardCommand(text)) {
+        return true;
+    }
+#endif
 #endif
 
     return false;
