@@ -28,10 +28,17 @@ void ActivityFeedPanel::appendActivity(std::string timestamp,
         .showTimestamp = showTimestamp,
     });
     invalidateDynamicChildren();
+    if (autoScrollEnabled_) {
+        (void)scrollToBottom();
+    }
 }
 
 void ActivityFeedPanel::setAutoScroll(bool enabled) {
+    autoScrollEnabled_ = enabled;
     scrollView().setAutoScroll(enabled);
+    if (autoScrollEnabled_) {
+        (void)scrollToBottom();
+    }
 }
 
 std::size_t ActivityFeedPanel::activityCount() const {

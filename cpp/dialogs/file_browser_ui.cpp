@@ -327,6 +327,7 @@ this:
     entries->setFocusStyle(makeStyle({{"background", "#1d2f4d"}, {"color", "#ffffff"}}));
     entries->setEditStyle(makeStyle({{"background", "#243a5c"}, {"color", "#cbd5e1"}}));
     entries->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    entries->setActiveStyle(makeStyle({{"background", "#DDDDDD99"}, {"color", "#FFFFFF"}}));
     entries->setDisabledStyle(makeStyle({{"color", "#64748b"}}));
     filename = &static_cast<ui::TextInput&>(addElement<ui::TextInput>("filename", "", 120));
     filename->setStyle(makeStyle({{"background", "#0d1524"}, {"color", "#e5e7eb"}}));

@@ -278,6 +278,8 @@ COMPILED_STYLE = {
         "edit-color": '#cbd5e1',
         "selected-background": '#2563eb',
         "selected-color": '#ffffff',
+        "active-background": '#DDDDDD99',
+        "active-color": '#FFFFFF',
     },
     "uielement": {
         "focus-background": '#ffffff14',

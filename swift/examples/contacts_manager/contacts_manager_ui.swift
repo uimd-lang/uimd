@@ -84,6 +84,12 @@ open class ContactsManagerUI: GeneratedWindowBase
                     style.color = Color("#ffffff")
                     return style
                 }())
+        contacts.setActiveStyle({
+                    var style = Style()
+                    style.background = Color("#DDDDDD99")
+                    style.color = Color("#FFFFFF")
+                    return style
+                }())
         contacts.setDisabledStyle({
                     var style = Style()
                     style.color = Color("#64748b")

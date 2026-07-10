@@ -67,6 +67,8 @@ listbox:
   edit-color: "#000044"
   selected-background: #3366cc
   selected-color: "#ffffff"
+  active-background: "#DDDDDD99"
+  active-color: "#FFFFFF"
 uielement:
   focus-background: "#00000014"
   edit-background: "#00000018"

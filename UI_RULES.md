@@ -324,6 +324,7 @@ State prefixes:
 - `edit-background`, `edit-color`
 - `cursor-background`, `cursor-color`
 - `selected-background`, `selected-color`
+- `active-background`, `active-color`
 - `checked-background`, `checked-color`
 - `unchecked-background`, `unchecked-color`
 - `error-background`, `error-color`

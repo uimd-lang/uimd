@@ -1,4 +1,7 @@
 #include <cassert>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -18,6 +21,7 @@
 #include "ui/elements/CheckBox.hpp"
 #include "ui/elements/ComboBox.hpp"
 #include "ui/elements/FrameBufferView.hpp"
+#include "ui/elements/Image.hpp"
 #include "ui/elements/InfoLabel.hpp"
 #include "ui/elements/Label.hpp"
 #include "ui/elements/ListBox.hpp"
@@ -170,6 +174,57 @@ public:
     }
     return false;
 }
+
+void setEnvironmentValue(const char* name, const std::string& value)
+{
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
+
+void unsetEnvironmentValue(const char* name)
+{
+#ifdef _WIN32
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
+}
+
+class ScopedEnvironmentValue
+{
+public:
+    ScopedEnvironmentValue(const char* name, std::string value)
+        : name_(name)
+    {
+        if (const char* previous = std::getenv(name_.c_str()))
+        {
+            previous_ = previous;
+        }
+        setEnvironmentValue(name_.c_str(), value);
+    }
+
+    ~ScopedEnvironmentValue()
+    {
+        if (previous_.has_value())
+        {
+            setEnvironmentValue(name_.c_str(), *previous_);
+        }
+        else
+        {
+            unsetEnvironmentValue(name_.c_str());
+        }
+    }
+
+    ScopedEnvironmentValue(const ScopedEnvironmentValue&) = delete;
+    ScopedEnvironmentValue& operator=(const ScopedEnvironmentValue&) = delete;
+
+private:
+    std::string name_;
+    std::optional<std::string> previous_;
+};
 
 }  // namespace
 
@@ -1118,6 +1173,55 @@ int main() {
     const ui::RenderedContent frameRendered = frameView.render(ui::Size{1, 1});
     assert(frameRendered[0][0].text == std::string("\xE2\x96\x90"));
 
+    const std::filesystem::path fallbackImagePath =
+        std::filesystem::temp_directory_path() / "uimd-fallback-half-block.ppm";
+    {
+        std::ofstream imageFile{fallbackImagePath, std::ios::binary};
+        imageFile << "P6\n1 2\n255\n";
+        imageFile.put(static_cast<char>(255));
+        imageFile.put(static_cast<char>(0));
+        imageFile.put(static_cast<char>(0));
+        imageFile.put(static_cast<char>(0));
+        imageFile.put(static_cast<char>(0));
+        imageFile.put(static_cast<char>(255));
+    }
+    ui::Image fallbackImage{"fallback", fallbackImagePath.string(), "", "stretch", "fallback", "left", "top"};
+    const ui::RenderedContent fallbackRendered = fallbackImage.render(ui::Size{1, 1});
+    assert(fallbackRendered.size() == 1);
+    assert(fallbackRendered[0].size() == 1);
+    assert(fallbackRendered[0][0].text == std::string("\xE2\x96\x80"));
+    assert(fallbackRendered[0][0].foreground == ui::Color{"#ff0000"});
+    assert(fallbackRendered[0][0].background == ui::Color{"#0000ff"});
+    {
+        ScopedEnvironmentValue terminalProgram{"TERM_PROGRAM", "Apple_Terminal"};
+        ScopedEnvironmentValue term{"TERM", "xterm-256color"};
+        ScopedEnvironmentValue itermSession{"ITERM_SESSION_ID", ""};
+        ScopedEnvironmentValue lcTerminal{"LC_TERMINAL", ""};
+        ScopedEnvironmentValue forceSixel{"UIMD_FORCE_SIXEL", ""};
+        ScopedEnvironmentValue disableSixel{"UIMD_DISABLE_SIXEL", ""};
+        ui::Image sixelImage{"sixel", fallbackImagePath.string(), "", "stretch", "sixel", "left", "top"};
+        const ui::ImageRenderInfo sixelInfo = sixelImage.renderInfo(ui::Size{1, 1});
+        const ui::RenderedContent sixelRendered = sixelImage.render(ui::Size{1, 1});
+        assert(sixelInfo.resolvedRenderMode == "fallback");
+        assert(!sixelInfo.rawExpected);
+        assert(sixelRendered[0][0].raw.empty());
+        assert(ui::imageModeNeedsSixelFallbackWarning(sixelImage.renderMode()));
+    }
+    {
+        ScopedEnvironmentValue terminalProgram{"TERM_PROGRAM", ""};
+        ScopedEnvironmentValue term{"TERM", "xterm-256color"};
+        ScopedEnvironmentValue itermSession{"ITERM_SESSION_ID", "w0t0p0"};
+        ScopedEnvironmentValue lcTerminal{"LC_TERMINAL", ""};
+        ScopedEnvironmentValue forceSixel{"UIMD_FORCE_SIXEL", ""};
+        ScopedEnvironmentValue disableSixel{"UIMD_DISABLE_SIXEL", ""};
+        ui::Image sixelImage{"sixel", fallbackImagePath.string(), "", "stretch", "sixel", "left", "top"};
+        const ui::ImageRenderInfo sixelInfo = sixelImage.renderInfo(ui::Size{1, 1});
+        assert(sixelInfo.resolvedRenderMode == "sixel");
+        assert(sixelInfo.rawExpected);
+        assert(!ui::imageModeNeedsSixelFallbackWarning(sixelImage.renderMode()));
+    }
+    std::filesystem::remove(fallbackImagePath);
+
     ui::Button disabledButton{"disabled", "Disabled"};
     ui::Style disabledButtonStyle;
     disabledButtonStyle.color = ui::Color{"#64748b"};
@@ -1169,6 +1273,39 @@ int main() {
     assert(rawSyncEnd != std::string::npos);
     assert(rawSyncBegin < rawPayload);
     assert(rawPayload < rawSyncEnd);
+
+    ui::TerminalBuffer bottomClippedRawDiffBuffer{2, 1};
+    bottomClippedRawDiffBuffer.setCell(0, 0, ui::TerminalCell{
+        .text = " ",
+        .raw = "RAW",
+        .rawWidth = 2,
+        .rawHeight = 2,
+    });
+    bottomClippedRawDiffBuffer.setCell(0, 1, ui::TerminalCell{.text = " ", .rawSkip = true});
+    const std::string bottomClippedRawDiff = bottomClippedRawDiffBuffer.renderDiff();
+    assert(bottomClippedRawDiff.find("RAW") == std::string::npos);
+    assert(bottomClippedRawDiff.find("\x1b[1;1H") != std::string::npos);
+
+    auto putRawCells = [](ui::TerminalBuffer& buffer, int row, std::string raw) {
+        for (int coveredRow = row; coveredRow < row + 3; ++coveredRow) {
+            for (int coveredCol = 2; coveredCol < 7; ++coveredCol) {
+                buffer.setCell(coveredRow, coveredCol, ui::TerminalCell{.text = " ", .rawSkip = true});
+            }
+        }
+        buffer.setCell(row, 2, ui::TerminalCell{
+            .text = " ",
+            .raw = std::move(raw),
+            .rawWidth = 5,
+            .rawHeight = 3,
+        });
+    };
+    ui::TerminalBuffer rawScrollBuffer{20, 10};
+    putRawCells(rawScrollBuffer, 4, "RAW");
+    assert(rawScrollBuffer.renderDiff().find("RAW") != std::string::npos);
+    rawScrollBuffer.clear();
+    putRawCells(rawScrollBuffer, 3, "RAW");
+    assert(rawScrollBuffer.renderScrollRegion(0, 0, 10, -1).empty());
+    assert(rawScrollBuffer.renderDiff().find("RAW") != std::string::npos);
 
     ui::InputParser parser;
     std::vector<ui::Event> events = parser.feed("a\t\r\x7f\x03");

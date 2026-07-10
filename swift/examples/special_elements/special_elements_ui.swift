@@ -247,6 +247,12 @@ open class SpecialElementsUI: GeneratedWindowBase
                     style.color = Color("#ffffff")
                     return style
                 }())
+        raw_list.setActiveStyle({
+                    var style = Style()
+                    style.background = Color("#DDDDDD99")
+                    style.color = Color("#FFFFFF")
+                    return style
+                }())
         raw_list.setDisabledStyle({
                     var style = Style()
                     style.color = Color("#64748b")

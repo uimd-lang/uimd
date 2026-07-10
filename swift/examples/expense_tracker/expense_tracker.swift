@@ -14,8 +14,7 @@ private let kDefaultCategories = ["Food", "Transport", "Home", "Health", "Other"
 private let kDefaultCurrency = "EUR"
 private let kDefaultShowPaidExpenses = true
 private let kDefaultMonthlyLimit = 500.0
-private let kScrollIndicatorAbove = "^"
-private let kScrollIndicatorBelow = "v"
+private let kMinimumRenderHeight = 1
 
 private func seedExpenses() -> [ExpenseItem]
 {
@@ -38,10 +37,19 @@ private func seedExpenses() -> [ExpenseItem]
 private final class ExpenseRow: ExpenseRowUI
 {
     let record: ExpenseItem
+    private let onDelete: ((String) -> Void)?
+    private let onChange: ((String, String, Bool) -> Void)?
 
-    init(_ record: ExpenseItem, categories: [String])
+    init(
+        _ record: ExpenseItem,
+        categories: [String],
+        onDelete: ((String) -> Void)? = nil,
+        onChange: ((String, String, Bool) -> Void)? = nil
+    )
     {
         self.record = record
+        self.onDelete = onDelete
+        self.onChange = onChange
         super.init()
         mode = "expand_width"
         item.setText(record.item)
@@ -50,369 +58,73 @@ private final class ExpenseRow: ExpenseRowUI
         category.options = categories
         category.selectValue(record.category)
     }
+
+    override func onPaidChange(_ value: String)
+    {
+        _ = value
+        onChange?(record.id, category.terminalText, paid.checked)
+    }
+
+    override func onCategoryChange(_ value: String)
+    {
+        onChange?(record.id, value, paid.checked)
+    }
+
+    override func onDeleteBtnClick()
+    {
+        onDelete?(record.id)
+    }
 }
 
-private final class ExpensesList: ExpensesListUI, GeneratedScrollableElementVisibility
+private final class ExpensesList: ExpensesListUI
 {
-    private var rowViews: [ExpenseRow] = []
-    private var scrollOffset = 0
-    private var viewOffset = 0
-    var activeFocusedId: String?
-    var activeEditMode = false
+    private var rows: [ExpenseItem] = []
+    private var categories: [String] = []
+    private var onDelete: ((String) -> Void)?
+    private var onChange: ((String, String, Bool) -> Void)?
+
+    override init()
+    {
+        super.init()
+        setAutoScroll(false)
+    }
 
     func setRows(_ rows: [ExpenseItem], categories: [String])
     {
-        rowViews = rows.map { ExpenseRow($0, categories: categories) }
-        scrollOffset = 0
-        viewOffset = 0
+        self.rows = rows
+        self.categories = categories
+        refreshRows()
     }
 
-    func focusOrder(hostId: String) -> [String]
+    func setCallbacks(
+        onDelete: ((String) -> Void)?,
+        onChange: ((String, String, Bool) -> Void)?
+    )
     {
-        rowViews.indices.flatMap
+        self.onDelete = onDelete
+        self.onChange = onChange
+        refreshRows()
+    }
+
+    func refreshRows()
+    {
+        clearChildren()
+        for row in rows
         {
-            ["\(hostId)[\($0)].paid", "\(hostId)[\($0)].category", "\(hostId)[\($0)].delete_btn"]
+            let rowWindow = ExpenseRow(
+                row,
+                categories: categories,
+                onDelete: onDelete,
+                onChange: onChange
+            )
+            let naturalSize = rowWindow.generatedContentSize()
+            let measuredSize = rowWindow.generatedContentSizeForWidth(max(1, naturalSize.width))
+            let reusable = ReusableElement("row")
+            reusable.setChild(rowWindow)
+            reusable.frame = Rect(row: 0, col: 0, width: 0, height: max(kMinimumRenderHeight, measuredSize.height))
+            _ = scrollView().addChild(reusable)
         }
-    }
-
-    override func scrollBy(_ delta: Int, viewport: Size)
-    {
-        _ = scrollLines(delta, viewport: viewport)
-    }
-
-    override func handleScrollKey(_ key: String, viewport: Size) -> Bool
-    {
-        switch key
-        {
-        case "ArrowUp", "Up":
-            return scrollLines(-generatedScrollKeyboardStepRows, viewport: viewport)
-        case "ArrowDown", "Down":
-            return scrollLines(generatedScrollKeyboardStepRows, viewport: viewport)
-        case "PageUp":
-            return scrollLines(-max(1, viewport.height), viewport: viewport)
-        case "PageDown":
-            return scrollLines(max(1, viewport.height), viewport: viewport)
-        case "Home":
-            let changed = scrollOffset != 0 || viewOffset != 0
-            scrollOffset = 0
-            viewOffset = 0
-            return changed
-        case "End":
-            let previousOffset = scrollOffset
-            let previousView = viewOffset
-            scrollOffset = maxItemOffset(viewport: viewport)
-            viewOffset = maxLineOffset(viewport: viewport)
-            return scrollOffset != previousOffset || viewOffset != previousView
-        default:
-            return false
-        }
-    }
-
-    func ensureElementVisible(_ elementId: String, viewport: Size)
-    {
-        guard let index = rowIndex(from: elementId),
-              index >= scrollOffset,
-              index < rowViews.count
-        else
-        {
-            return
-        }
-        let scrollViewport = generatedScrollViewport(size: viewport, style: panelStyle())
-        let viewportHeight = max(1, scrollViewport.height)
-        var rowStart = 0
-        for rowIndex in scrollOffset..<index
-        {
-            rowStart += rowHeight(rowViews[rowIndex], width: max(1, scrollViewport.width))
-            if rowIndex < rowViews.count - 1
-            {
-                rowStart += panelGap()
-            }
-        }
-        let rowEnd = rowStart + rowHeight(rowViews[index], width: max(1, scrollViewport.width))
-        if rowStart < viewOffset
-        {
-            viewOffset = rowStart
-        }
-        else if rowEnd > viewOffset + viewportHeight
-        {
-            viewOffset = max(0, rowEnd - viewportHeight - generatedScrollIndicatorOverlapRows)
-        }
-        viewOffset = max(0, min(maxLineOffset(viewport: viewport), viewOffset))
-    }
-
-    func registerDynamicElements(on root: GeneratedWindowBase, hostId: String, hostFrame: Rect)
-    {
-        let paddingTop = panelPaddingTop()
-        let paddingLeft = panelPaddingLeft()
-        let paddingRight = panelPaddingRight()
-        let gap = panelGap()
-        let rowWidth = max(1, hostFrame.width - paddingLeft - paddingRight)
-        var rowCursor = paddingTop
-        guard scrollOffset < rowViews.count else
-        {
-            return
-        }
-        for index in scrollOffset..<rowViews.count
-        {
-            let row = rowViews[index]
-            let rowHeight = rowHeight(row, width: rowWidth)
-            _ = row.renderContent(size: Size(width: rowWidth, height: rowHeight), focusedName: nil, editMode: false)
-            let prefix = "\(hostId)[\(index)]"
-            for element in row.elements
-            {
-                element.frame = Rect(
-                    row: hostFrame.row + rowCursor + element.frame.row - viewOffset,
-                    col: hostFrame.col + paddingLeft + element.frame.col,
-                    width: element.frame.width,
-                    height: element.frame.height
-                )
-                root.registerDynamicElement(prefix + "." + element.name, element: element, parentFocusHostId: hostId)
-            }
-            rowCursor += rowHeight
-            if index < rowViews.count - 1
-            {
-                rowCursor += gap
-            }
-        }
-    }
-
-    override func renderContent(size: Size, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
-    {
-        _ = focusedName
-        _ = editMode
-        let width = max(1, size.width)
-        let height = max(1, size.height)
-        let style = panelStyle()
-        let blank = Array(repeating: TerminalCell(" ", foreground: style.color, background: style.background), count: width)
-        var output = Array(repeating: blank, count: height)
-        let rows = renderedRows(width: width, startIndex: scrollOffset)
-        let paddingTop = min(panelPaddingTop(), max(0, height - 1))
-        let paddingBottom = min(panelPaddingBottom(), max(0, height - paddingTop - 1))
-        let viewportHeight = max(0, height - paddingTop - paddingBottom)
-        viewOffset = max(0, min(max(0, rows.count - max(1, viewportHeight)), viewOffset))
-        for row in 0..<viewportHeight
-        {
-            let targetRow = paddingTop + row
-            let sourceRow = viewOffset + row
-            if targetRow >= 0 && targetRow < output.count && sourceRow >= 0 && sourceRow < rows.count
-            {
-                output[targetRow] = rows[sourceRow]
-            }
-        }
-        if width > 0 && height > 0
-        {
-            let indicatorCol = max(0, width - panelPaddingRight() - 1)
-            let topIndicatorRow = min(height - 1, max(0, paddingTop))
-            let bottomIndicatorRow = max(0, height - paddingBottom - 1)
-            if scrollOffset > 0 || viewOffset > 0
-            {
-                applyScrollIndicator(row: &output[topIndicatorRow], col: indicatorCol, indicator: kScrollIndicatorAbove)
-            }
-            if viewOffset + viewportHeight < rows.count
-            {
-                applyScrollIndicator(row: &output[bottomIndicatorRow], col: indicatorCol, indicator: kScrollIndicatorBelow)
-            }
-        }
-        return output
-    }
-
-    private func renderedRows(width: Int, startIndex: Int = 0) -> [[TerminalCell]]
-    {
-        var rows: [[TerminalCell]] = []
-        let style = panelStyle()
-        let blank = Array(repeating: TerminalCell(" ", foreground: style.color, background: style.background), count: max(1, width))
-        let paddingLeft = panelPaddingLeft()
-        let paddingRight = panelPaddingRight()
-        let rowWidth = max(1, width - paddingLeft - paddingRight)
-        guard startIndex < rowViews.count else
-        {
-            return rows
-        }
-        for index in startIndex..<rowViews.count
-        {
-            let rowView = rowViews[index]
-            let localFocus: String?
-            if let activeFocusedId, activeFocusedId.hasPrefix("main.expenses[\(index)].")
-            {
-                localFocus = String(activeFocusedId.split(separator: ".").last ?? "")
-            }
-            else
-            {
-                localFocus = nil
-            }
-            let rowHeight = rowHeight(rowView, width: rowWidth)
-            let rendered = rowView.renderContent(size: Size(width: rowWidth, height: rowHeight), focusedName: localFocus, editMode: activeEditMode && localFocus != nil)
-            for localRow in 0..<min(rowHeight, rendered.count)
-            {
-                var outputRow = blank
-                let renderedRow = rendered[localRow]
-                for col in 0..<min(rowWidth, renderedRow.count)
-                {
-                    let targetCol = paddingLeft + col
-                    if targetCol >= 0 && targetCol < outputRow.count
-                    {
-                        outputRow[targetCol] = renderedRow[col]
-                    }
-                }
-                if paddingRight > 0
-                {
-                    let firstTrailingCol = max(0, paddingLeft + rowWidth - paddingRight)
-                    for targetCol in firstTrailingCol..<min(outputRow.count, paddingLeft + rowWidth)
-                    {
-                        let sourceCol = targetCol - paddingLeft
-                        if sourceCol >= 0 && sourceCol < renderedRow.count && renderedRow[sourceCol].text == " "
-                        {
-                            outputRow[targetCol] = blank[targetCol]
-                        }
-                    }
-                }
-                rows.append(outputRow)
-            }
-            if index < rowViews.count - 1
-            {
-                for _ in 0..<panelGap()
-                {
-                    rows.append(blank)
-                }
-            }
-        }
-        return rows
-    }
-
-    private func renderedContentHeight(width: Int, startIndex: Int = 0) -> Int
-    {
-        guard startIndex < rowViews.count else
-        {
-            return 0
-        }
-        let rowWidth = max(1, max(1, width) - panelPaddingLeft() - panelPaddingRight())
-        let visibleRows = rowViews[startIndex..<rowViews.count]
-        let rowsHeight = visibleRows.reduce(0) { $0 + rowHeight($1, width: rowWidth) }
-        let gapsHeight = max(0, visibleRows.count - 1) * panelGap()
-        return rowsHeight + gapsHeight
-    }
-
-    private func maxLineOffset(viewport: Size) -> Int
-    {
-        let scrollViewport = generatedScrollViewport(size: viewport, style: panelStyle())
-        return max(
-            0,
-            renderedContentHeight(width: max(1, viewport.width), startIndex: scrollOffset) - max(1, scrollViewport.height)
-        )
-    }
-
-    @discardableResult
-    private func scrollLines(_ delta: Int, viewport: Size) -> Bool
-    {
-        let previous = viewOffset
-        viewOffset = max(0, min(maxLineOffset(viewport: viewport), viewOffset + delta))
-        return viewOffset != previous
-    }
-
-    private func maxItemOffset(viewport: Size) -> Int
-    {
-        max(0, rowViews.count - maxChildrenInViewport(viewport: viewport))
-    }
-
-    private func maxChildrenInViewport(viewport: Size) -> Int
-    {
-        guard !rowViews.isEmpty else
-        {
-            return 0
-        }
-        let scrollViewport = generatedScrollViewport(size: viewport, style: panelStyle())
-        let rowWidth = max(1, scrollViewport.width)
-        let viewportHeight = max(1, scrollViewport.height)
-        var usedHeight = 0
-        var visibleCount = 0
-        for row in rowViews
-        {
-            let nextHeight = rowHeight(row, width: rowWidth) + (visibleCount == 0 ? 0 : panelGap())
-            if visibleCount > 0 && usedHeight + nextHeight > viewportHeight
-            {
-                break
-            }
-            usedHeight += nextHeight
-            visibleCount += 1
-        }
-        return max(1, visibleCount)
-    }
-
-    private func rowIndex(from id: String) -> Int?
-    {
-        guard let open = id.firstIndex(of: "["),
-              let close = id[open...].firstIndex(of: "]")
-        else
-        {
-            return nil
-        }
-        return Int(id[id.index(after: open)..<close])
-    }
-
-    private func rowHeight(_ row: ExpenseRow, width: Int) -> Int
-    {
-        max(1, row.generatedContentSizeForWidth(max(1, width)).height)
-    }
-
-    private func inferredForeground(in row: [TerminalCell], endCol: Int) -> Color?
-    {
-        var foreground: Color?
-        for col in 0...min(max(0, endCol), max(0, row.count - 1))
-        {
-            if let color = row[col].foreground, !color.isTransparent
-            {
-                foreground = color
-            }
-        }
-        return foreground
-    }
-
-    private func applyScrollIndicator(row: inout [TerminalCell], col: Int, indicator: String)
-    {
-        guard col >= 0 && col < row.count else
-        {
-            return
-        }
-        row[col].text = indicator
-        if let foreground = row[col].foreground, !foreground.isTransparent
-        {
-            return
-        }
-        row[col].foreground = inferredForeground(in: row, endCol: col)
-    }
-
-    private func panelStyle() -> Style
-    {
-        scrollView().style
-    }
-
-    private func panelPaddingTop() -> Int
-    {
-        let style = panelStyle()
-        return max(0, style.paddingTop ?? style.padding ?? 0)
-    }
-
-    private func panelPaddingRight() -> Int
-    {
-        let style = panelStyle()
-        return max(0, style.paddingRight ?? style.padding ?? 0)
-    }
-
-    private func panelPaddingBottom() -> Int
-    {
-        let style = panelStyle()
-        return max(0, style.paddingBottom ?? style.padding ?? 0)
-    }
-
-    private func panelPaddingLeft() -> Int
-    {
-        let style = panelStyle()
-        return max(0, style.paddingLeft ?? style.padding ?? 0)
-    }
-
-    private func panelGap() -> Int
-    {
-        max(0, panelStyle().gap ?? 0)
+        scrollToTop()
     }
 }
 
@@ -420,8 +132,6 @@ private final class ExpensesView: ExpensesViewUI
 {
     private weak var shell: ExpenseTracker?
     let list = ExpensesList()
-    var activeFocusedId: String?
-    var activeEditMode = false
 
     init(_ shell: ExpenseTracker)
     {
@@ -444,13 +154,19 @@ private final class ExpensesView: ExpensesViewUI
             category_input.selectValue(shell.categories.first ?? "")
         }
         list.setRows(shell.visibleExpenses(), categories: shell.categories)
+        list.setCallbacks(
+            onDelete: { [weak shell] id in
+                shell?.confirmDeleteExpense(id)
+            },
+            onChange: { [weak shell] id, category, paid in
+                shell?.updateExpense(id: id, category: category, paid: paid)
+            }
+        )
     }
 
-    override func renderContent(size: Size, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
+    override func onAddExpenseBtnClick()
     {
-        list.activeFocusedId = activeFocusedId
-        list.activeEditMode = activeEditMode
-        return super.renderContent(size: size, focusedName: focusedName, editMode: editMode)
+        addExpenseFromInputs()
     }
 
     func addExpenseFromInputs()
@@ -491,6 +207,16 @@ private final class CategoriesView: CategoriesViewUI
         }
     }
 
+    override func onAddCategoryBtnClick()
+    {
+        addCategoryFromInput()
+    }
+
+    override func onRemoveCategoryBtnClick()
+    {
+        removeSelectedCategory()
+    }
+
     func addCategoryFromInput()
     {
         let added = shell?.addCategory(category_name.value) ?? ""
@@ -525,6 +251,34 @@ private final class SettingsView: SettingsViewUI
         currency.selectValue(shell.currency)
         show_paid.checked = shell.showPaidExpenses
         monthly_limit.setValue(shell.monthlyLimit)
+    }
+
+    override func onResetBtnClick()
+    {
+        shell?.resetDemoData()
+    }
+
+    override func onCurrencyChange(_ value: String)
+    {
+        shell?.setCurrency(value)
+    }
+
+    override func onShowPaidChange(_ value: String)
+    {
+        _ = value
+        shell?.setShowPaidExpenses(show_paid.checked)
+    }
+
+    override func onMonthlyLimitChange(_ value: String)
+    {
+        _ = value
+        shell?.setMonthlyLimit(monthly_limit.numberValue)
+    }
+
+    override func onMonthlyLimitSubmit(_ value: String)
+    {
+        _ = value
+        shell?.setMonthlyLimit(monthly_limit.numberValue)
     }
 }
 
@@ -579,102 +333,6 @@ private final class ExpenseTracker: ExpenseTrackerUI
         showSettings()
     }
 
-    override func renderContent(size: Size, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
-    {
-        clearDynamicElements()
-        if let expensesView = main.child as? ExpensesView
-        {
-            expensesView.activeFocusedId = focusedName
-            expensesView.activeEditMode = editMode
-        }
-        let rendered = super.renderContent(size: size, focusedName: focusedName, editMode: editMode)
-        registerMainChild()
-        return rendered
-    }
-
-    override func handleGeneratedButton(_ name: String) -> Bool
-    {
-        if name == "main.add_expense_btn", let view = main.child as? ExpensesView
-        {
-            view.addExpenseFromInputs()
-            return true
-        }
-        if name == "main.add_category_btn", let view = main.child as? CategoriesView
-        {
-            view.addCategoryFromInput()
-            return true
-        }
-        if name == "main.remove_category_btn", let view = main.child as? CategoriesView
-        {
-            view.removeSelectedCategory()
-            return true
-        }
-        if name == "main.reset_btn"
-        {
-            resetDemoData()
-            return true
-        }
-        if name.hasPrefix("main.expenses["), name.hasSuffix(".delete_btn"), let index = rowIndex(name)
-        {
-            let visible = visibleExpenses()
-            guard index >= 0 && index < visible.count else
-            {
-                return true
-            }
-            confirmDeleteExpense(visible[index].id)
-            return true
-        }
-        return super.handleGeneratedButton(name)
-    }
-
-    override func handleGeneratedTextChanged(_ name: String, value: String) -> Bool
-    {
-        if name.hasPrefix("main.expenses["), let index = rowIndex(name)
-        {
-            let visible = visibleExpenses()
-            guard index >= 0 && index < visible.count else
-            {
-                return true
-            }
-            if name.hasSuffix(".paid")
-            {
-                updateExpense(id: visible[index].id, category: nil, paid: value == "true")
-                return true
-            }
-        }
-        if name == "main.show_paid"
-        {
-            showPaidExpenses = value == "true"
-            return true
-        }
-        if name == "main.monthly_limit"
-        {
-            monthlyLimit = Double(value) ?? monthlyLimit
-            return true
-        }
-        return super.handleGeneratedTextChanged(name, value: value)
-    }
-
-    override func handleGeneratedSelectionChanged(_ name: String, value: [String]) -> Bool
-    {
-        if name.hasPrefix("main.expenses["), name.hasSuffix(".category"), let index = rowIndex(name)
-        {
-            let visible = visibleExpenses()
-            guard index >= 0 && index < visible.count else
-            {
-                return true
-            }
-            updateExpense(id: visible[index].id, category: value.first, paid: nil)
-            return true
-        }
-        if name == "main.currency", let selected = value.first
-        {
-            currency = selected
-            return true
-        }
-        return super.handleGeneratedSelectionChanged(name, value: value)
-    }
-
     func visibleExpenses() -> [ExpenseItem]
     {
         showPaidExpenses ? expenses : expenses.filter { !$0.paid }
@@ -687,6 +345,23 @@ private final class ExpenseTracker: ExpenseTrackerUI
         let selectedCategory = categories.contains(category) ? category : (categories.first ?? "")
         expenses.insert(ExpenseItem(id: "e-\(nextExpenseNumber)", item: name, amount: amount, category: selectedCategory, paid: false), at: 0)
         nextExpenseNumber += 1
+    }
+
+    func setCurrency(_ value: String)
+    {
+        currency = value.isEmpty ? kDefaultCurrency : value
+        refreshExpensesView()
+    }
+
+    func setShowPaidExpenses(_ value: Bool)
+    {
+        showPaidExpenses = value
+        refreshExpensesView()
+    }
+
+    func setMonthlyLimit(_ value: Double)
+    {
+        monthlyLimit = value
     }
 
     func addCategory(_ name: String) -> String
@@ -735,23 +410,17 @@ private final class ExpenseTracker: ExpenseTrackerUI
         main.setChild(SettingsView(self))
     }
 
-    private func updateExpense(id: String, category: String?, paid: Bool?)
+    func updateExpense(id: String, category: String, paid: Bool)
     {
         guard let index = expenses.firstIndex(where: { $0.id == id }) else
         {
             return
         }
-        if let category
-        {
-            expenses[index].category = category
-        }
-        if let paid
-        {
-            expenses[index].paid = paid
-        }
+        expenses[index].category = category
+        expenses[index].paid = paid
     }
 
-    private func confirmDeleteExpense(_ id: String)
+    func confirmDeleteExpense(_ id: String)
     {
         pendingDeleteId = id
         let item = expenses.first { $0.id == id }?.item ?? "expense"
@@ -772,7 +441,7 @@ private final class ExpenseTracker: ExpenseTrackerUI
         modalStack.push(dialog)
     }
 
-    private func resetDemoData()
+    func resetDemoData()
     {
         categories = kDefaultCategories
         currency = kDefaultCurrency
@@ -781,6 +450,14 @@ private final class ExpenseTracker: ExpenseTrackerUI
         expenses = seedExpenses()
         nextExpenseNumber = 13
         refreshCurrentView()
+    }
+
+    private func refreshExpensesView()
+    {
+        if let view = main.child as? ExpensesView
+        {
+            view.refresh()
+        }
     }
 
     private func refreshCurrentView()
@@ -831,39 +508,6 @@ private final class ExpenseTracker: ExpenseTrackerUI
         return target.style
     }
 
-    private func registerMainChild()
-    {
-        guard let child = main.child else
-        {
-            return
-        }
-        for element in child.elements
-        {
-            element.frame = Rect(row: main.frame.row + element.frame.row, col: main.frame.col + element.frame.col, width: element.frame.width, height: element.frame.height)
-            registerDynamicElement("main." + element.name, element: element, parentFocusHostId: "main")
-        }
-        main.childFocusOrder = child.elements.filter { $0.focusable }.map { "main." + $0.name }
-        if let view = child as? ExpensesView
-        {
-            guard let host = view.expenses else
-            {
-                return
-            }
-            host.childFocusOrder = view.list.focusOrder(hostId: "main.expenses")
-            view.list.registerDynamicElements(on: self, hostId: "main.expenses", hostFrame: host.frame)
-        }
-    }
-
-    private func rowIndex(_ id: String) -> Int?
-    {
-        guard let open = id.firstIndex(of: "["),
-              let close = id[open...].firstIndex(of: "]")
-        else
-        {
-            return nil
-        }
-        return Int(id[id.index(after: open)..<close])
-    }
 }
 
 @main

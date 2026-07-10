@@ -116,10 +116,33 @@ class TestImage(unittest.TestCase):
         self.assertTrue(any(cell.text == "▀" for row in rows for cell in row))
         self.assertTrue(any(cell.foreground is not None for row in rows for cell in row))
 
+    def test_image_fallback_half_block_keeps_top_pixel_in_foreground(self):
+        self._require_pillow()
+        with tempfile.NamedTemporaryFile(suffix=".ppm") as handle:
+            handle.write(b"P6\n1 2\n255\n" + bytes([255, 0, 0, 0, 0, 255]))
+            handle.flush()
+
+            image = Image(
+                name="sample",
+                source=handle.name,
+                render_mode="fallback",
+                fit="stretch",
+                align="left",
+                valign="top",
+            )
+            image.width = 1
+            image.height = 1
+
+            rows = image.render_cells()
+
+        self.assertEqual(rows[0][0].text, "▀")
+        self.assertEqual(rows[0][0].foreground, "#ff0000")
+        self.assertEqual(rows[0][0].background, "#0000ff")
+
     def test_image_sixel_mode_uses_raw_cell_when_forced(self):
         old_force = os.environ.get("UIMD_FORCE_SIXEL")
         old_disable = os.environ.get("UIMD_DISABLE_SIXEL")
-        os.environ.pop("UIMD_FORCE_SIXEL", None)
+        os.environ["UIMD_FORCE_SIXEL"] = "1"
         os.environ.pop("UIMD_DISABLE_SIXEL", None)
         try:
             image = Image(
@@ -148,21 +171,89 @@ class TestImage(unittest.TestCase):
             else:
                 os.environ["UIMD_DISABLE_SIXEL"] = old_disable
 
+    def test_image_sixel_visible_region_clips_top_bottom_and_both_edges(self):
+        class FakeImage:
+            size = (16, 16)
+
+        cases = [
+            ({"top": 2, "bottom": 8}, 2, 6, 2),
+            ({"top": 0, "bottom": 5}, 0, 5, 0),
+            ({"top": 2, "bottom": 6}, 2, 4, 2),
+        ]
+        with patch.dict(os.environ, {"UIMD_FORCE_SIXEL": "1", "UIMD_DISABLE_SIXEL": ""}, clear=False):
+            for clip, expected_anchor_row, expected_rows, expected_crop_top in cases:
+                with self.subTest(clip=clip):
+                    image = Image(
+                        name="sample",
+                        source="shared/assets/image_samples/camera.png",
+                        alt="camera",
+                        fit="stretch",
+                        render_mode="sixel",
+                    )
+                    image.width = 4
+                    image.height = 8
+                    image._render_cell_clip = clip
+                    payload_calls = []
+
+                    def fake_payload(cols, rows, fit, source_rows=None, crop_top=0):
+                        payload_calls.append((cols, rows, fit, source_rows, crop_top))
+                        return "\x1bPqmock\x1b\\"
+
+                    with patch.object(image_module, "require_sixel_for_image_rendering"), \
+                         patch.object(image_module, "_load_image", return_value=FakeImage()), \
+                         patch.object(Image, "_sixel_payload", side_effect=fake_payload):
+                        rows = image.render_cells()
+
+                    self.assertEqual(payload_calls, [(4, expected_rows, "stretch", 8, expected_crop_top)])
+                    self.assertEqual(rows[expected_anchor_row][0].raw, "\x1bPqmock\x1b\\")
+                    self.assertEqual(rows[expected_anchor_row][0].raw_height, expected_rows)
+                    self.assertFalse(any(cell.raw_skip for row in rows[:expected_anchor_row] for cell in row))
+                    trailing_rows = rows[expected_anchor_row + expected_rows:]
+                    self.assertFalse(any(cell.raw or cell.raw_skip for row in trailing_rows for cell in row))
+
+    def test_image_sixel_mode_falls_back_for_apple_terminal(self):
+        self._require_pillow()
+        with patch.dict(os.environ, {
+            "TERM_PROGRAM": "Apple_Terminal",
+            "TERM": "xterm-256color",
+            "COLORTERM": "",
+            "UIMD_FORCE_SIXEL": "",
+            "UIMD_DISABLE_SIXEL": "",
+            "UIMD_DETERMINISTIC_IMAGE_FALLBACK": "",
+        }, clear=False):
+            image = Image(
+                name="sample",
+                source="shared/assets/image_samples/camera.png",
+                alt="camera",
+                render_mode="sixel",
+            )
+            image.width = 2
+            image.height = 1
+
+            with patch.object(image_module, "require_sixel_for_image_rendering") as require_sixel:
+                rows = image.render_cells()
+
+            self.assertFalse(require_sixel.called)
+            self.assertEqual(image.render_info()["resolved_render_mode"], "fallback")
+            self.assertFalse(any(cell.raw for row in rows for cell in row))
+            self.assertTrue(image.should_warn_sixel_fallback())
+
     def test_image_sixel_encoder_uses_libsixel_when_available(self):
         self._require_pillow()
         if not image_module._load_libsixel():
             self.skipTest("libsixel Python binding is not installed")
 
-        image = Image(
-            name="sample",
-            source="shared/assets/image_samples/camera.png",
-            alt="camera",
-            render_mode="sixel",
-        )
-        image.width = 2
-        image.height = 1
+        with patch.dict(os.environ, {"UIMD_FORCE_SIXEL": "1", "UIMD_DISABLE_SIXEL": ""}, clear=False):
+            image = Image(
+                name="sample",
+                source="shared/assets/image_samples/camera.png",
+                alt="camera",
+                render_mode="sixel",
+            )
+            image.width = 2
+            image.height = 1
 
-        rows = image.render_cells()
+            rows = image.render_cells()
 
         self.assertTrue(rows[0][0].raw.startswith("\x1bPq"))
 
@@ -231,12 +322,26 @@ class TestImage(unittest.TestCase):
     def test_xterm_term_name_does_not_imply_sixel_support(self):
         old_term = os.environ.get("TERM")
         old_term_program = os.environ.get("TERM_PROGRAM")
+        old_color_term = os.environ.get("COLORTERM")
+        old_iterm_session = os.environ.get("ITERM_SESSION_ID")
+        old_lc_terminal = os.environ.get("LC_TERMINAL")
         os.environ["TERM"] = "xterm-256color"
         os.environ.pop("TERM_PROGRAM", None)
+        os.environ.pop("COLORTERM", None)
+        os.environ.pop("ITERM_SESSION_ID", None)
+        os.environ.pop("LC_TERMINAL", None)
         os.environ.pop("UIMD_FORCE_SIXEL", None)
         os.environ.pop("UIMD_DISABLE_SIXEL", None)
         try:
             self.assertFalse(terminal_supports_sixel())
+            with patch.dict(os.environ, {"TERM_PROGRAM": "Apple_Terminal", "TERM": "xterm-sixel"}, clear=False):
+                self.assertFalse(terminal_supports_sixel())
+            with patch.dict(os.environ, {"TERM_PROGRAM": "iTerm.app", "TERM": "xterm-256color"}, clear=False):
+                self.assertTrue(terminal_supports_sixel())
+            with patch.dict(os.environ, {"ITERM_SESSION_ID": "w0t0p0", "TERM": "xterm-256color"}, clear=False):
+                self.assertTrue(terminal_supports_sixel())
+            with patch.dict(os.environ, {"LC_TERMINAL": "iTerm2", "TERM": "xterm-256color"}, clear=False):
+                self.assertTrue(terminal_supports_sixel())
         finally:
             if old_term is None:
                 os.environ.pop("TERM", None)
@@ -246,6 +351,18 @@ class TestImage(unittest.TestCase):
                 os.environ.pop("TERM_PROGRAM", None)
             else:
                 os.environ["TERM_PROGRAM"] = old_term_program
+            if old_color_term is None:
+                os.environ.pop("COLORTERM", None)
+            else:
+                os.environ["COLORTERM"] = old_color_term
+            if old_iterm_session is None:
+                os.environ.pop("ITERM_SESSION_ID", None)
+            else:
+                os.environ["ITERM_SESSION_ID"] = old_iterm_session
+            if old_lc_terminal is None:
+                os.environ.pop("LC_TERMINAL", None)
+            else:
+                os.environ["LC_TERMINAL"] = old_lc_terminal
 
 
 class TestLabel(unittest.TestCase):
@@ -1087,11 +1204,15 @@ class TestListBox(unittest.TestCase):
         self.assertEqual(lb.selected_items, ["B"])
 
     def test_listbox_single_select(self):
-        """Test single selection mode."""
+        """Single selection changes only when the active item is confirmed."""
         lb = ListBox(name="test", options=["A", "B", "C"], multiple=False)
         lb._selected_items = ["A"]
-        lb.handle_key("Down")  # Move to B
+        lb.handle_key("Down")
+        self.assertEqual(lb.selected_items, ["A"])
+        self.assertTrue(lb._active_item_visible)
+        lb.handle_key("Enter")
         self.assertEqual(lb.selected_items, ["B"])
+        self.assertFalse(lb._active_item_visible)
 
     def test_listbox_multi_select(self):
         """Test multi selection mode."""
@@ -1099,6 +1220,45 @@ class TestListBox(unittest.TestCase):
         lb._selected_items = ["A"]
         lb.handle_key("Enter")  # Toggle A off
         self.assertEqual(lb.selected_items, [])
+
+    def test_listbox_active_style_blends_over_selected_style_in_edit_mode(self):
+        """The active edit row overlays its alpha background on selected rows."""
+        lb = ListBox(name="test", options=["A", "B", "C"], selected_items=["A", "B", "C"], multiple=True, width=4, height=3)
+        lb.selected_style = Style()
+        lb.selected_style.set("background", "#112233")
+        lb.selected_style.set("color", "#abcdef")
+        lb.active_style = Style()
+        lb.active_style.set("background", "#dddddd99")
+        lb.active_style.set("color", "#ffffff")
+        lb._active_index = 1
+        lb._active_item_visible = True
+        lb.edit_mode = True
+
+        cells = lb.render_cells()
+
+        self.assertEqual(cells[0][0].background.hex, "#112233")
+        self.assertEqual(cells[1][0].background.hex, "#8b9299")
+        self.assertEqual(cells[1][0].foreground.hex, "#ffffff")
+        self.assertEqual(cells[2][0].background.hex, "#112233")
+
+    def test_listbox_active_style_is_keyboard_visible_only(self):
+        """The active edit row appears only after keyboard list navigation."""
+        lb = ListBox(name="test", options=["A", "B", "C"], selected_items=["A", "B", "C"], multiple=True, width=4, height=3)
+        lb.selected_style = Style()
+        lb.selected_style.set("background", "#112233")
+        lb.active_style = Style()
+        lb.active_style.set("background", "#dddddd99")
+        lb._active_index = 1
+        lb.edit_mode = True
+
+        cells = lb.render_cells()
+
+        self.assertEqual(cells[1][0].background.hex, "#112233")
+
+        lb.handle_key("Down")
+        cells = lb.render_cells()
+
+        self.assertEqual(cells[2][0].background.hex, "#8b9299")
 
     def test_listbox_render(self):
         """Test basic rendering."""

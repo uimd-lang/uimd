@@ -397,6 +397,7 @@ button:
     contacts->setFocusStyle(makeStyle({{"background", "#ffffff22"}, {"color", "#ffffff"}}));
     contacts->setEditStyle(makeStyle({{"background", "#00000000"}, {"color", "#cbd5e1"}}));
     contacts->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    contacts->setActiveStyle(makeStyle({{"background", "#DDDDDD99"}, {"color", "#FFFFFF"}}));
     contacts->setDisabledStyle(makeStyle({{"color", "#64748b"}}));
     detail = &static_cast<ui::Label&>(addElement<ui::Label>("detail", "Select a contact."));
     detail->setStyle(makeStyle({{"background", "transparent"}, {"color", "#d1d5db"}, {"user-select", "text"}}));

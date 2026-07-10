@@ -442,6 +442,7 @@ cancel_btn:
     role_listbox->setFocusStyle(makeStyle({{"background", "#1d2f4d"}, {"color", "#ffffff"}}));
     role_listbox->setEditStyle(makeStyle({{"background", "#243a5c"}, {"color", "#cbd5e1"}}));
     role_listbox->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    role_listbox->setActiveStyle(makeStyle({{"background", "#DDDDDD99"}, {"color", "#FFFFFF"}}));
     role_listbox->setDisabledStyle(makeStyle({{"color", "#64748b"}}));
     notify_check = &static_cast<ui::CheckBox&>(addElement<ui::CheckBox>("notify_check", "Email notifications", false));
     notify_check->setStyle(makeStyle({{"background", "transparent"}, {"color", "#b8c4d8"}}));

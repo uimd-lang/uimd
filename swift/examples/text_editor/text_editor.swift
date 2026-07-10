@@ -341,13 +341,12 @@ private final class FileBrowser: FileBrowserUI
         entries.options = rows
         if let selected = rows.firstIndex(of: initialFilename)
         {
-            entries.selectedIndex = selected
+            entries.setSelectedIndex(selected)
         }
         else
         {
-            entries.selectedIndex = rows.isEmpty ? -1 : 0
+            entries.setSelectedIndex(0)
         }
-        entries.setSelectedValues(entries.selectedIndex >= 0 && entries.selectedIndex < rows.count ? [rows[entries.selectedIndex]] : [])
         lastClickedEntry = -1
         previewSelected()
     }
@@ -410,15 +409,11 @@ private final class FileBrowser: FileBrowserUI
     {
         if entries.options.isEmpty
         {
-            entries.selectedIndex = -1
+            entries.setSelectedIndex(0)
         }
         else
         {
-            entries.selectedIndex = clamp(index, lower: 0, upper: entries.options.count - 1)
-        }
-        if entries.selectedIndex >= 0 && entries.selectedIndex < entries.options.count
-        {
-            entries.setSelectedValues([entries.options[entries.selectedIndex]])
+            entries.setSelectedIndex(clamp(index, lower: 0, upper: entries.options.count - 1))
         }
         previewSelected()
     }
@@ -525,22 +520,7 @@ private final class FileBrowser: FileBrowserUI
         options.onTextConfirmed = { [weak self] name, _ in
             if name == "entries"
             {
-                self?.previewSelected()
-                return true
-            }
-            return false
-        }
-        options.onKeyBeforeFocusedElement = { [weak self] key, name, editMode in
-            guard let self else
-            {
-                return false
-            }
-            if name == "entries" && editMode && key == "Enter"
-            {
-                if self.selectedEntryIsDirectory()
-                {
-                    _ = self.acceptCurrent()
-                }
+                _ = self?.acceptCurrent()
                 return true
             }
             return false
@@ -1000,7 +980,15 @@ private final class TextEditorApp: TextEditorUI
             }
             return false
         }
-        frame.onTextConfirmed = frame.onTextChanged
+        frame.onTextConfirmed = { [weak self] name, _ in
+            if let browser = self?.browser, name == "entries"
+            {
+                browser.selectEntry(browser.entries.selectedIndex)
+                self?.acceptBrowserCurrent()
+                return true
+            }
+            return false
+        }
         frame.onMousePressBeforeFocused = { [weak self] point in
             self?.browser?.handleEntryMousePress(point) ?? false
         }
@@ -1012,11 +1000,6 @@ private final class TextEditorApp: TextEditorUI
             if key == "Escape"
             {
                 self.closeBrowser("")
-                return true
-            }
-            if name == "entries" && editMode && key == "Enter"
-            {
-                self.acceptBrowserCurrent()
                 return true
             }
             return false

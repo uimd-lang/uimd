@@ -464,6 +464,11 @@ listbox:
         Background = new Color("#2563eb"),
         Color = new Color("#ffffff")
     });
+        raw_list.SetActiveStyle(new Style
+    {
+        Background = new Color("#DDDDDD99"),
+        Color = new Color("#FFFFFF")
+    });
         raw_list.SetDisabledStyle(new Style
     {
         Color = new Color("#64748b")

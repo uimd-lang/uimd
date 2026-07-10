@@ -310,182 +310,29 @@ private final class TableBlock: TableBlockUI
 private final class DocumentView: DocumentViewUI
 {
     private var blocks: [MarkdownBlock] = []
-    private var viewOffset = 0
-    private var lastViewportHeight = 1
-    private var lastContentHeight = 1
+
+    override init()
+    {
+        super.init()
+        setAutoScroll(false)
+        setDynamicChildrenRenderer
+        {
+            [weak self] width in
+            self?.renderBlocks(width: width) ?? []
+        }
+    }
 
     func setBlocks(_ blocks: [MarkdownBlock])
     {
         self.blocks = blocks
-        scrollToTop()
+        invalidateDynamicChildren()
+        setAutoScroll(false)
     }
 
-    override func scrollToTop()
+    private func renderBlocks(width: Int) -> [[[TerminalCell]]]
     {
-        viewOffset = 0
-    }
-
-    override func contentHeight() -> Int
-    {
-        lastContentHeight
-    }
-
-    @discardableResult
-    override func handleKey(_ key: String) -> Bool
-    {
-        switch key
-        {
-        case "ArrowUp", "Up":
-            scrollLines(-1)
-            return true
-        case "ArrowDown", "Down":
-            scrollLines(1)
-            return true
-        case "PageUp":
-            scrollLines(-max(1, lastViewportHeight - 1))
-            return true
-        case "PageDown":
-            scrollLines(max(1, lastViewportHeight - 1))
-            return true
-        case "Home":
-            viewOffset = 0
-            return true
-        case "End":
-            viewOffset = maxOffset()
-            return true
-        default:
-            return false
-        }
-    }
-
-    override func scrollBy(_ delta: Int, viewport: Size)
-    {
-        lastViewportHeight = max(1, viewport.height)
-        scrollLines(delta)
-    }
-
-    override func renderContent(size: Size, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
-    {
-        _ = focusedName
-        _ = editMode
-        let width = max(1, size.width)
-        let height = max(1, size.height)
-        let panelStyle = scrollView().style
-        let padding = constrainedPadding(size: size, style: panelStyle)
-        let innerWidth = max(1, width - padding.left - padding.right)
-        let innerHeight = max(1, height - padding.top - padding.bottom)
-        lastViewportHeight = innerHeight
-        let fill = TerminalCell(" ", foreground: panelStyle.color, background: panelStyle.background)
-        var buffer = Array(repeating: Array(repeating: fill, count: width), count: height)
-        let content = renderedBlocks(width: innerWidth, style: panelStyle)
-        lastContentHeight = content.count
-        viewOffset = min(max(0, viewOffset), maxOffset())
-        var visibleRows: [[TerminalCell]] = []
-        for row in 0..<innerHeight
-        {
-            let sourceRow = viewOffset + row
-            if sourceRow < content.count
-            {
-                visibleRows.append(fitRow(content[sourceRow], width: innerWidth, fillCell: fill))
-            }
-            else
-            {
-                visibleRows.append(Array(repeating: fill, count: innerWidth))
-            }
-        }
-        if viewOffset > 0 && !visibleRows.isEmpty
-        {
-            applyScrollIndicator(row: &visibleRows[0], indicator: "^")
-        }
-        if viewOffset + innerHeight < content.count && !visibleRows.isEmpty
-        {
-            applyScrollIndicator(row: &visibleRows[visibleRows.count - 1], indicator: "v")
-        }
-        for row in 0..<visibleRows.count
-        {
-            for col in 0..<min(innerWidth, visibleRows[row].count)
-            {
-                let targetRow = padding.top + row
-                let targetCol = padding.left + col
-                if targetRow < height && targetCol < width
-                {
-                    buffer[targetRow][targetCol] = visibleRows[row][col]
-                }
-            }
-        }
-        return buffer
-    }
-
-    private func scrollLines(_ delta: Int)
-    {
-        viewOffset = min(max(0, viewOffset + delta), maxOffset())
-    }
-
-    private func maxOffset() -> Int
-    {
-        max(0, lastContentHeight - lastViewportHeight)
-    }
-
-    private func renderedBlocks(width: Int, style: Style) -> [[TerminalCell]]
-    {
-        let gap = max(0, style.gap ?? 0)
-        let fill = TerminalCell(" ", foreground: style.color, background: style.background)
-        var rows: [[TerminalCell]] = []
-        for block in blocks
-        {
-            if !rows.isEmpty
-            {
-                for _ in 0..<gap
-                {
-                    rows.append(Array(repeating: fill, count: max(1, width)))
-                }
-            }
-            rows.append(contentsOf: renderBlock(block, width: width))
-        }
-        return rows.isEmpty ? [Array(repeating: fill, count: max(1, width))] : rows
-    }
-
-    private func firstForeground(in rows: [[TerminalCell]]) -> Color?
-    {
-        for row in rows
-        {
-            for cell in row
-            {
-                if let foreground = cell.foreground, !foreground.isTransparent
-                {
-                    return foreground
-                }
-            }
-        }
-        return nil
-    }
-
-    private func inferredForeground(in row: [TerminalCell]) -> Color?
-    {
-        var foreground: Color?
-        for cell in row
-        {
-            if let color = cell.foreground, !color.isTransparent
-            {
-                foreground = color
-            }
-        }
-        return foreground
-    }
-
-    private func applyScrollIndicator(row: inout [TerminalCell], indicator: String)
-    {
-        guard !row.isEmpty else
-        {
-            return
-        }
-        let col = row.count - 1
-        row[col].text = indicator
-        if let foreground = row[col].foreground, !foreground.isTransparent
-        {
-            return
-        }
-        row[col].foreground = inferredForeground(in: row)
+        let blockWidth = max(1, width)
+        return blocks.map { renderBlock($0, width: blockWidth) }
     }
 
     private func renderBlock(_ block: MarkdownBlock, width: Int) -> [[TerminalCell]]
@@ -534,10 +381,9 @@ public final class MarkdownViewerApp: MarkdownViewerUI
         documents = loadDocuments()
         let names = documents.map(\.name)
         docs.options = names
-        if let first = names.first
+        if !names.isEmpty
         {
-            docs.selectedIndex = 0
-            docs.selectedValues = [first]
+            docs.setSelectedIndex(0)
         }
         showSelected()
     }
@@ -547,30 +393,11 @@ public final class MarkdownViewerApp: MarkdownViewerUI
         var options = super.runtimeOptions()
         options.initialFocusName = "docs"
         options.startInEditMode = true
-        options.onKeyBeforeFocusedElement = { [weak self] key, name, editMode in
-            guard let self else
-            {
-                return false
-            }
-            if name == "viewer" && editMode
-            {
-                return self.documentView.handleKey(key)
-            }
-            return false
-        }
         options.onFocusChanged = { [weak self] name, focused in
             if focused
             {
                 self?.focus(name)
             }
-        }
-        options.onKey = { [weak self] key in
-            if key == "q" || key == "Q"
-            {
-                self?.finished = true
-                return true
-            }
-            return false
         }
         return options
     }
@@ -611,10 +438,10 @@ public final class MarkdownViewerApp: MarkdownViewerUI
         }
         if docs.selectedIndex < 0 || docs.selectedIndex >= docs.options.count
         {
-            docs.selectedIndex = 0
+            docs.setSelectedIndex(0)
         }
+        docs.setSelectedIndex(docs.selectedIndex)
         let name = docs.options[docs.selectedIndex]
-        docs.selectedValues = [name]
         let text = documents.first { $0.name == name }?.text ?? ""
         let blocks = parseMarkdown(text)
         documentView.setBlocks(blocks)
@@ -663,7 +490,7 @@ private func logicTest()
     _ = app.renderContent(size: Size(width: 90, height: 35), focusedName: nil, editMode: false)
     precondition(app.documentContentHeight() > 0)
     precondition(app.status.text.hasPrefix("overview.markdown"))
-    app.docs.selectedIndex = 2
+    app.docs.setSelectedIndex(2)
     app.showSelected()
     _ = app.renderContent(size: Size(width: 90, height: 35), focusedName: nil, editMode: false)
     precondition(app.status.text.hasPrefix("tables.markdown"))

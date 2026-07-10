@@ -211,6 +211,11 @@ button:
         Background = new Color("#2563eb"),
         Color = new Color("#ffffff")
     });
+        docs.SetActiveStyle(new Style
+    {
+        Background = new Color("#DDDDDD99"),
+        Color = new Color("#FFFFFF")
+    });
         docs.SetDisabledStyle(new Style
     {
         Color = new Color("#64748b")

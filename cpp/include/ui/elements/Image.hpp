@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "ui/core/Element.hpp"
@@ -118,5 +119,6 @@ public:
 
 void requireSixelForImageRendering();
 void setImageTerminalCellPixels(Size size);
+[[nodiscard]] bool imageModeNeedsSixelFallbackWarning(std::string_view renderMode);
 
 }  // namespace ui

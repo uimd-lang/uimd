@@ -14,6 +14,10 @@ from activity_item import ActivityItem
 class ActivityFeedPanel(ActivityFeedPanelUI):
     """Activity feed scroll view with reusable child items."""
 
+    def __init__(self):
+        super().__init__()
+        self._activity_auto_scroll = False
+
     def clear_activities(self):
         self.clear_children()
 
@@ -25,11 +29,14 @@ class ActivityFeedPanel(ActivityFeedPanelUI):
         item.set_activity(timestamp, event_type, message, show_timestamp=show_timestamp)
         item.open()
         self.add_child(item)
+        if self._activity_auto_scroll:
+            self.scroll_to_bottom()
         return item
 
     def set_auto_scroll(self, enabled):
-        self._auto_scroll = bool(enabled)
-        if self._auto_scroll:
+        self._activity_auto_scroll = bool(enabled)
+        self._auto_scroll = self._activity_auto_scroll
+        if self._activity_auto_scroll:
             self.scroll_to_bottom()
 
     def _render_child(self, child, width):

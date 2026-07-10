@@ -1399,7 +1399,7 @@ std::string jsonCompact(const YamlValue& value)
 
 std::string styleStateName(const std::string& key)
 {
-    for (const std::string& prefix : {"focus-", "edit-", "cursor-", "selected-", "checked-", "unchecked-", "disabled-", "error-"})
+    for (const std::string& prefix : {"focus-", "edit-", "cursor-", "selected-", "active-", "checked-", "unchecked-", "disabled-", "error-"})
     {
         if (key.rfind(prefix, 0) == 0)
         {
@@ -1557,6 +1557,7 @@ std::vector<std::pair<std::string, YamlMap>> styleStatesForElement(
         {"setEditStyle", {}},
         {"setCursorStyle", {}},
         {"setSelectedStyle", {}},
+        {"setActiveStyle", {}},
         {"setCheckedStyle", {}},
         {"setUncheckedStyle", {}},
         {"setDisabledStyle", {}},
@@ -1594,6 +1595,10 @@ std::vector<std::pair<std::string, YamlMap>> styleStatesForElement(
         else if (state == "selected")
         {
             setter = "setSelectedStyle";
+        }
+        else if (state == "active")
+        {
+            setter = "setActiveStyle";
         }
         else if (state == "checked")
         {
@@ -1738,6 +1743,18 @@ std::vector<std::pair<std::string, YamlMap>> scrollviewExtensionStyleStates(cons
         states = mergeScrollviewDependencyStateStyles(states, thisStateStyles);
     }
     return states;
+}
+
+YamlMap scrollviewExtensionDescendantFocusStyle(const YamlMap& style)
+{
+    for (const auto& [setter, stateStyle] : styleStatesForElement(style, "this", "", "", nullptr))
+    {
+        if (setter == "setFocusStyle" && !stateStyle.empty())
+        {
+            return stateStyle;
+        }
+    }
+    return {};
 }
 
 std::vector<int> styleIntValues(const YamlValue& value)
@@ -2166,6 +2183,11 @@ std::string generateSource(const std::string& baseName, const std::string& class
             {
                 lines.push_back("        scrollView()." + setter + "(" + styleCode(stateStyle) + ")");
             }
+        }
+        YamlMap descendantFocusStyle = scrollviewExtensionDescendantFocusStyle(model.style);
+        if (!descendantFocusStyle.empty())
+        {
+            lines.push_back("        scrollView().setDescendantFocusStyle(" + styleCode(descendantFocusStyle) + ")");
         }
     }
 

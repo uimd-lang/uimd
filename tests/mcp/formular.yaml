@@ -92,8 +92,42 @@
         key: Enter
     - tool: get_edit_mode
       assert:
-        edit_mode: false
-    - tool: exit_edit_mode
+        edit_mode: true
+    - tool: get_element
+      arguments:
+        element_id: role_listbox
+      assert:
+        value: ["Developer", "Designer"]
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: role_listbox
+      assert:
+        value: ["Developer", "Designer"]
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: role_listbox
+      assert:
+        value: ["Developer", "Designer", "Manager"]
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: role_listbox
+      assert:
+        value: ["Developer", "Manager"]
+    - tool: press_key
+      arguments:
+        key: Escape
     - tool: get_edit_mode
       assert:
         edit_mode: false
@@ -101,7 +135,7 @@
       arguments:
         element_id: role_listbox
       assert:
-        value: ["Developer", "Designer"]
+        value: ["Developer", "Manager"]
     - tool: set_text
       arguments:
         element_id: name_input
@@ -196,7 +230,7 @@
       arguments:
         element_id: role_listbox
       assert:
-        value: ["Developer", "Designer"]
+        value: ["Developer", "Manager"]
     - tool: activate_element
       arguments:
         element_id: notify_check

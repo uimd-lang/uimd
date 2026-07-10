@@ -400,6 +400,7 @@ public sealed class FileBrowser : GeneratedWindowBase
         entries.SetFocusStyle(new Style { Background = new Color("#1d2f4d"), Color = new Color("#ffffff") });
         entries.SetEditStyle(new Style { Background = new Color("#243a5c"), Color = new Color("#cbd5e1") });
         entries.SetSelectedStyle(new Style { Background = new Color("#2563eb"), Color = new Color("#ffffff") });
+        entries.SetActiveStyle(new Style { Background = new Color("#DDDDDD99"), Color = new Color("#FFFFFF") });
         entries.SetDisabledStyle(new Style { Color = new Color("#64748b") });
         _label_3 = AddElement(new Label("_label_3", "File:"));
         ApplyDialogLabelStyle(_label_3);
@@ -471,11 +472,6 @@ public sealed class FileBrowser : GeneratedWindowBase
         };
         options.OnKeyBeforeFocusedElement = (key, name, editMode) =>
         {
-            if (name == "entries" && editMode && key == "Enter")
-            {
-                AcceptCurrent();
-                return true;
-            }
             return false;
         };
         options.OnEditStarted = name =>

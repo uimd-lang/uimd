@@ -40,8 +40,7 @@ private func resetValues(_ window: WidgetGalleryUI)
     window.count_input.setValue(Double(kResetCount))
     window.enabled_check.setChecked(true)
     window.theme_combo.selectedIndex = 0
-    window.mode_list.selectedIndex = 0
-    window.mode_list.setSelectedValues([selectedComboValue(window.mode_list)])
+    window.mode_list.setSelectedIndex(0)
     refreshSummary(window)
 }
 
@@ -127,8 +126,7 @@ private func logicTest()
     window.count_input.setValue(7)
     window.enabled_check.setChecked(false)
     window.theme_combo.selectedIndex = 1
-    window.mode_list.selectedIndex = 3
-    window.mode_list.setSelectedValues([selectedComboValue(window.mode_list)])
+    window.mode_list.setSelectedIndex(3)
     refreshSummary(window)
     precondition(window.summary.text == "values:\n  name: Grace Hopper\n  count: 7\n  theme: Light\n  mode: Publish\n  enabled: False")
 

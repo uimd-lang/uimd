@@ -53,6 +53,11 @@ open class ImageListScrollUI: GeneratedScrollViewBase
                     style.color = Color("#ffffff")
                     return style
                 }())
+        scrollView().setDescendantFocusStyle({
+                    var style = Style()
+                    style.background = Color("#1e3a5f")
+                    return style
+                }())
     }
 
     private static func buildLayout() -> [GeneratedLayoutEntry]

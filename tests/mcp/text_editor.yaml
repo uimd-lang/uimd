@@ -167,6 +167,9 @@
       assert:
         value:
           - ..
+    - tool: enter_edit_mode
+      arguments:
+        element_id: entries
     - tool: press_key
       arguments:
         key: Down
@@ -175,7 +178,7 @@
         element_id: entries
       assert:
         value:
-          - example_subdir/
+          - ..
     - tool: press_key
       arguments:
         key: Enter
@@ -189,6 +192,9 @@
       assert:
         value:
           - ..
+    - tool: enter_edit_mode
+      arguments:
+        element_id: entries
     - tool: press_key
       arguments:
         key: Down
@@ -197,7 +203,7 @@
         element_id: entries
       assert:
         value:
-          - nested_example.txt
+          - ..
     - tool: press_key
       arguments:
         key: Enter

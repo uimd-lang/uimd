@@ -344,6 +344,7 @@ button:
     categories->setFocusStyle(makeStyle({{"background", "#25364f"}, {"color", "#ffffff"}}));
     categories->setEditStyle(makeStyle({{"background", "#243a5c"}, {"color", "#cbd5e1"}}));
     categories->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    categories->setActiveStyle(makeStyle({{"background", "#DDDDDD99"}, {"color", "#FFFFFF"}}));
     categories->setDisabledStyle(makeStyle({{"color", "#64748b"}}));
     remove_category_btn = &static_cast<ui::Button&>(addElement<ui::Button>("remove_category_btn", "Remove selected"));
     remove_category_btn->setStyle(makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}}));

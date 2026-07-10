@@ -479,6 +479,9 @@ class TerminalBuffer:
         if self.force_full_redraw or region_height <= 1 or distance <= 0 or distance >= region_height:
             self._stats.scroll_region_fallbacks += 1
             return ""
+        if self._scroll_region_has_raw_cells(first_row, last_row):
+            self._stats.scroll_region_fallbacks += 1
+            return ""
 
         before = [list(row) for row in self.previous]
         if delta > 0:
@@ -507,3 +510,17 @@ class TerminalBuffer:
         self._stats.scroll_region_uses += 1
         self._stats.output_bytes += len(output)
         return output
+
+    def _scroll_region_has_raw_cells(self, first_row, last_row):
+        for row in range(first_row, last_row):
+            for col in range(self.width):
+                current = self.cells[row][col]
+                previous = self.previous[row][col]
+                if (
+                    getattr(current, "raw", "")
+                    or getattr(current, "raw_skip", False)
+                    or getattr(previous, "raw", "")
+                    or getattr(previous, "raw_skip", False)
+                ):
+                    return True
+        return False

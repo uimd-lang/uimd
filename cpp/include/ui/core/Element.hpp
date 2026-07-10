@@ -99,6 +99,10 @@ public:
         selectedStyle_ = std::move(style);
     }
 
+    void setActiveStyle(Style style) {
+        activeStyle_ = std::move(style);
+    }
+
     void setCheckedStyle(Style style) {
         checkedStyle_ = std::move(style);
     }
@@ -125,6 +129,10 @@ public:
 
     [[nodiscard]] const std::optional<Style>& selectedStyle() const {
         return selectedStyle_;
+    }
+
+    [[nodiscard]] const std::optional<Style>& activeStyle() const {
+        return activeStyle_;
     }
 
     [[nodiscard]] const std::optional<Style>& checkedStyle() const {
@@ -171,6 +179,7 @@ private:
     std::optional<Style> editStyle_;
     std::optional<Style> cursorStyle_;
     std::optional<Style> selectedStyle_;
+    std::optional<Style> activeStyle_;
     std::optional<Style> checkedStyle_;
     std::optional<Style> uncheckedStyle_;
     std::optional<Style> disabledStyle_;

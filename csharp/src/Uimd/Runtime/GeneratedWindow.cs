@@ -399,6 +399,7 @@ public static class GeneratedWindowRuntime
     private const char TerminalCellPixelResponseTerminator = 't';
     private const string TerminalImageHalfBlockGlyph = "▀";
     private const string CopyNotificationText = "Copied to clipboard";
+    private const string SixelFallbackWarningText = "Sixel is not supported. Continue with fallback image blocks?";
     private const int SttySuccessExitCode = 0;
     private const int WindowsStdInputHandle = -10;
     private const int WindowsStdOutputHandle = -11;
@@ -1354,6 +1355,10 @@ public static class GeneratedWindowRuntime
         {
             return true;
         }
+        if (element.ActiveStyle is not null && StyleHasAnimatedTextGradient(element.ActiveStyle))
+        {
+            return true;
+        }
         foreach (Element child in element.Children)
         {
             if (ElementHasAnimatedTextGradient(child))
@@ -1408,6 +1413,19 @@ public static class GeneratedWindowRuntime
             DateTime lastAnimatedRenderAt = DateTime.UtcNow;
             string notification = "";
             DateTime notificationExpiresAt = DateTime.MinValue;
+            bool sixelFallbackWarningRejected = false;
+            if (WindowNeedsSixelFallbackWarning(window))
+            {
+                MessageBoxYesNo warningDialog = new("Warning", SixelFallbackWarningText);
+                warningDialog.OnClose = confirmed =>
+                {
+                    if (!confirmed)
+                    {
+                        sixelFallbackWarningRejected = true;
+                    }
+                };
+                controller.OpenModalWindow(warningDialog);
+            }
             controller.BeforeStandardEscapeButtonAction = () =>
             {
                 RenderControllerToConsole(
@@ -1420,7 +1438,7 @@ public static class GeneratedWindowRuntime
             controller.BeforeModalButtonAction = controller.BeforeStandardEscapeButtonAction;
             while (true)
             {
-                if (controller.ShouldCloseRequested())
+                if (controller.ShouldCloseRequested() || sixelFallbackWarningRejected)
                 {
                     break;
                 }
@@ -1575,10 +1593,13 @@ public static class GeneratedWindowRuntime
         {
             return null;
         }
-        Size? ioctlSize = TerminalCellPixelSizeFromIoctl();
-        if (ioctlSize.HasValue)
+        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
         {
-            return ioctlSize.Value;
+            Size? ioctlSize = TerminalCellPixelSizeFromIoctl();
+            if (ioctlSize.HasValue)
+            {
+                return ioctlSize.Value;
+            }
         }
         Size? direct = QueryTerminalPixelReport(input, TerminalCellPixelQuery, TerminalCellPixelResponsePrefix);
         if (direct.HasValue)
@@ -1746,6 +1767,53 @@ public static class GeneratedWindowRuntime
                 Background = CopyNotificationBackground,
             });
         }
+    }
+
+    private static bool WindowNeedsSixelFallbackWarning(GeneratedWindowBase window)
+    {
+        HashSet<object> visited = new();
+        return WindowNeedsSixelFallbackWarning(window, visited);
+    }
+
+    private static bool WindowNeedsSixelFallbackWarning(GeneratedWindowBase? window, HashSet<object> visited)
+    {
+        if (window is null || !visited.Add(window))
+        {
+            return false;
+        }
+        foreach (Element element in window.Elements)
+        {
+            if (ElementNeedsSixelFallbackWarning(element, visited))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool ElementNeedsSixelFallbackWarning(Element? element, HashSet<object> visited)
+    {
+        if (element is null || !visited.Add(element))
+        {
+            return false;
+        }
+        if (element is Image image && image.ShouldWarnSixelFallback())
+        {
+            return true;
+        }
+        if (element is ReusableElement reusable &&
+            WindowNeedsSixelFallbackWarning(reusable.Child, visited))
+        {
+            return true;
+        }
+        foreach (Element child in element.Children)
+        {
+            if (ElementNeedsSixelFallbackWarning(child, visited))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<DirectTerminalEvent> ReadDirectTerminalEvents(Stream input)
@@ -1932,7 +2000,7 @@ public static class GeneratedWindowRuntime
     private static bool PosixStdinInputAvailable(int timeoutMilliseconds)
     {
         PollFd[] fds = { new() { Fd = PosixStdinFileDescriptor, Events = PosixPollInput } };
-        int ready = PosixPoll(fds, (nuint)fds.Length, Math.Max(0, timeoutMilliseconds));
+        int ready = PosixPoll(fds, (uint)fds.Length, Math.Max(0, timeoutMilliseconds));
         return ready > 0 && (fds[0].Revents & PosixPollInput) != 0;
     }
 
@@ -1971,9 +2039,6 @@ public static class GeneratedWindowRuntime
         }
     }
 
-    [DllImport("libc", EntryPoint = "read", SetLastError = true)]
-    private static extern nint PosixRead(int fd, byte[] buffer, nuint count);
-
     [StructLayout(LayoutKind.Sequential)]
     private struct PollFd
     {
@@ -1992,7 +2057,10 @@ public static class GeneratedWindowRuntime
     }
 
     [DllImport("libc", EntryPoint = "poll", SetLastError = true)]
-    private static extern int PosixPoll([In, Out] PollFd[] fds, nuint nfds, int timeout);
+    private static extern int PosixPoll([In, Out] PollFd[] fds, uint nfds, int timeout);
+
+    [DllImport("libc", EntryPoint = "read", SetLastError = true)]
+    private static extern nint PosixRead(int fd, byte[] buffer, nuint count);
 
     [DllImport("libc", EntryPoint = "ioctl", SetLastError = true)]
     private static extern int PosixIoctl(int fd, ulong request, ref PosixWinSize size);
@@ -2534,16 +2602,25 @@ public static class GeneratedWindowRuntime
         Size size = RenderSizeFor(entry, cellRect, element);
         int row = RenderRowFor(window.GeneratedLayout, entry, cellRect, size);
         int col = RenderColFor(window.GeneratedLayout, entry, cellRect, size);
+        Rect clip = EntryContentClip(cellRect, entry.CellStyle);
         int? elementClipTop = null;
         int? elementClipBottom = null;
-        if (renderClipTop.HasValue || renderClipBottom.HasValue)
         {
-            int clipTop = renderClipTop ?? row;
-            int clipBottom = renderClipBottom ?? row + size.Height;
-            int visibleTop = Math.Max(row, clipTop);
-            int visibleBottom = Math.Min(row + size.Height, clipBottom);
+            int baseClipTop = Math.Max(0, clip.Row);
+            int baseClipBottom = Math.Max(baseClipTop, Math.Min(buffer.Height, clip.Row + clip.Height));
+            int absoluteClipTop = Math.Max(baseClipTop, renderClipTop ?? baseClipTop);
+            int absoluteClipBottom = Math.Max(
+                absoluteClipTop,
+                Math.Min(baseClipBottom, renderClipBottom ?? baseClipBottom));
+            int visibleTop = Math.Max(row, absoluteClipTop);
+            int visibleBottom = Math.Min(row + size.Height, absoluteClipBottom);
             elementClipTop = Math.Max(0, visibleTop - row);
             elementClipBottom = Math.Max(0, visibleBottom - row);
+            if (elementClipTop == 0 && elementClipBottom == size.Height)
+            {
+                elementClipTop = null;
+                elementClipBottom = null;
+            }
         }
         element.Frame = new Rect(row, col, size.Width, size.Height);
         Color? parentBackground =
@@ -2738,7 +2815,7 @@ public static class GeneratedWindowRuntime
                     });
             }
         }
-        Blit(buffer, rendered, row, col, EntryContentClip(cellRect, entry.CellStyle));
+        Blit(buffer, rendered, row, col, clip);
         if (element is ReusableElement renderedReusable &&
             renderedReusable.Child is not null &&
             !suppressActiveScrollViewScopeVisuals)
@@ -3211,7 +3288,7 @@ public static class GeneratedWindowRuntime
             Math.Max(0, bottom - top));
     }
 
-    private static Rect ScrollViewViewportClip(Rect frame, Style style)
+    internal static Rect ScrollViewViewportClip(Rect frame, Style style)
     {
         int top = PaddingTop(style);
         int right = PaddingRight(style);
@@ -5733,7 +5810,7 @@ public static class GeneratedWindowRuntime
         return false;
     }
 
-    private static Rect? FocusRectWithinScrollChild(Element child, Element target, int width, int height)
+    internal static Rect? FocusRectWithinScrollChild(Element child, Element target, int width, int height)
     {
         if (ReferenceEquals(child, target))
         {
@@ -6032,6 +6109,11 @@ public sealed class McpController
         }
         PushFrame(nextWindow, nextOptions ?? nextWindow.RuntimeOptions());
         ApplyInitialFocus(Current);
+    }
+
+    public void OpenModalWindow(GeneratedWindowBase nextWindow)
+    {
+        OpenWindow(nextWindow, null);
     }
 
     private static void ClearActiveScrollViewScope(RuntimeFrame frame)
@@ -6361,6 +6443,10 @@ public sealed class McpController
 
     private static bool UsesLeaveCommit(Element? element)
     {
+        if (element is ListBox listBox && listBox.Multiple)
+        {
+            return true;
+        }
         return element is not null && element.CommitMode == Element.CommitModeLeave;
     }
 
@@ -6459,6 +6545,10 @@ public sealed class McpController
         else if (element is NumberInput numberInput)
         {
             numberInput.BeginEdit();
+        }
+        else if (element is ListBox listBox)
+        {
+            listBox.HideActiveItem();
         }
     }
 
@@ -7569,6 +7659,10 @@ public sealed class McpController
             target = remembered;
         }
         target ??= scoped.FirstOrDefault(element =>
+            !ReferenceEquals(element, scrollView) &&
+            !ReferenceEquals(element, proxy) &&
+            ElementVisibleInScrollView(scrollView, element));
+        target ??= scoped.FirstOrDefault(element =>
             !ReferenceEquals(element, scrollView) && !ReferenceEquals(element, proxy));
         target ??= proxy is not null ? proxy : scrollView;
         int index = focusable.IndexOf(target);
@@ -7578,6 +7672,36 @@ public sealed class McpController
         }
         frame.FocusedIndex = index;
         frame.FocusedElementRef = focusable[index];
+    }
+
+    private static bool ElementVisibleInScrollView(ScrollView scrollView, Element element)
+    {
+        Rect viewport = GeneratedWindowRuntime.ScrollViewViewportClip(scrollView.Frame, scrollView.Style);
+        if (viewport.Width <= 0 || viewport.Height <= 0)
+        {
+            return false;
+        }
+        Rect scrollFrame = scrollView.Frame;
+        foreach (ScrollViewChildView childView in scrollView.ChildViews(new Size(scrollFrame.Width, scrollFrame.Height)))
+        {
+            if (!childView.Visible || childView.Element is null)
+            {
+                continue;
+            }
+            Rect? targetRect = GeneratedWindowRuntime.FocusRectWithinScrollChild(
+                childView.Element,
+                element,
+                childView.Frame.Width,
+                childView.Frame.Height);
+            if (targetRect is null)
+            {
+                continue;
+            }
+            int targetTop = scrollFrame.Row + childView.Frame.Row + targetRect.Value.Row;
+            int targetBottom = targetTop + Math.Max(GeneratedWindowRuntime.MinimumRenderableSize, targetRect.Value.Height);
+            return targetBottom > viewport.Row && targetTop < viewport.Row + viewport.Height;
+        }
+        return false;
     }
 
     private static (ReusableElement Proxy, ScrollView ScrollView)? ScrollViewFocusContextForElement(
@@ -7981,6 +8105,10 @@ public sealed class McpController
                             Current.ActiveScrollViewEditElement,
                             previousSelectionIndex,
                             previousSelectionValues);
+                        if (Current.ActiveScrollViewEditElement is ListBox { Multiple: true })
+                        {
+                            return Snapshot(Current.ActiveScrollViewEditElement);
+                        }
                         DispatchConfirmed(Current.ActiveScrollViewEditElement);
                         CommitEdit(Current.ActiveScrollViewEditElement);
                         Current.EditSnapshot = null;
@@ -8025,6 +8153,33 @@ public sealed class McpController
                         BeginElementEdit(focused);
                         Current.ActiveScrollViewEditElement = focused;
                         Current.Options.OnEditStarted?.Invoke(focused.Name);
+                    }
+                }
+            }
+            else if (key == "Enter" && focused is ListBox focusedListBox)
+            {
+                int previousSelectionIndex = SelectedIndexOf(focused);
+                List<string>? previousSelectionValues = SelectionValuesForChange(focused);
+                focused.HandleKey(key);
+                DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
+                if (focusedListBox.Multiple)
+                {
+                    Current.EditSnapshot = null;
+                }
+                else
+                {
+                    DispatchConfirmed(focused);
+                    CommitEdit(focused);
+                    Current.EditMode = Current.Options.KeepEditModeAfterConfirm && IsEditableElement(focused);
+                    if (Current.EditMode)
+                    {
+                        Current.EditSnapshot = CaptureSnapshot(focused);
+                        BeginElementEdit(focused);
+                        Current.Options.OnEditStarted?.Invoke(focused.Name);
+                    }
+                    else
+                    {
+                        Current.EditSnapshot = null;
                     }
                 }
             }
@@ -8774,6 +8929,8 @@ public sealed class McpController
                 {
                     targetListBox.SetSelectedIndex(optionIndex);
                 }
+                targetListBox.SetActiveIndex(optionIndex);
+                targetListBox.HideActiveItem();
                 DispatchSelectionChangedIfDifferent(targetListBox, previousValues);
             }
             Current.EditSnapshot = CaptureSnapshot(targetListBox);

@@ -1,5 +1,7 @@
 - name: image_gallery
   app: python/examples/image_gallery/image_gallery.py
+  env:
+    UIMD_FORCE_SIXEL: "1"
   tests:
     - tool: get_window
       compare_snapshot: false
@@ -113,4 +115,4 @@
         raw_expected: true
         raw_present: true
         sample_signature:
-          contains: "#804040"
+          contains: "#800040"

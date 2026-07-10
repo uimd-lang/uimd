@@ -11,9 +11,20 @@
         element_id: status
       assert:
         value: "overview.markdown - 47 blocks - arrows preview"
+    - tool: enter_edit_mode
+      arguments:
+        element_id: docs
     - tool: press_key
       arguments:
         key: Down
+    - tool: get_element
+      arguments:
+        element_id: docs
+      assert:
+        value: ["overview.markdown"]
+    - tool: press_key
+      arguments:
+        key: Enter
     - tool: get_element
       arguments:
         element_id: docs
@@ -24,9 +35,20 @@
         element_id: status
       assert:
         value: "styles.markdown - 46 blocks - arrows preview"
+    - tool: enter_edit_mode
+      arguments:
+        element_id: docs
     - tool: press_key
       arguments:
         key: Down
+    - tool: get_element
+      arguments:
+        element_id: docs
+      assert:
+        value: ["styles.markdown"]
+    - tool: press_key
+      arguments:
+        key: Enter
     - tool: get_element
       arguments:
         element_id: docs
@@ -37,9 +59,20 @@
         element_id: status
       assert:
         value: "tables.markdown - 32 blocks - arrows preview"
+    - tool: enter_edit_mode
+      arguments:
+        element_id: docs
     - tool: press_key
       arguments:
         key: Down
+    - tool: get_element
+      arguments:
+        element_id: docs
+      assert:
+        value: ["tables.markdown"]
+    - tool: press_key
+      arguments:
+        key: Enter
     - tool: get_element
       arguments:
         element_id: docs

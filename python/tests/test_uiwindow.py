@@ -460,6 +460,90 @@ class TestUIWindow(unittest.TestCase):
 
         self.assertEqual(events, [("changed", "open_btn")])
 
+    def test_single_listbox_enter_commits_and_exits_edit_mode(self):
+        """Enter confirms a single-select listbox and leaves edit mode."""
+        events = []
+
+        class TestWindow(UIWindow):
+            def confirmed(self, element, value):
+                events.append(("confirmed", element.name, list(element.selected_items)))
+
+        w = TestWindow(title="Test")
+        listbox = w.create_element("items", "listbox", options=["A", "B", "C"], selected_items=["A"])
+        listbox.width = 10
+        listbox.height = 3
+        w.set_focus(listbox)
+        w.handle_key("Enter")
+        w.handle_key("Down")
+
+        self.assertTrue(w._edit_mode)
+        self.assertEqual(listbox.selected_items, ["A"])
+
+        w.handle_key("Enter")
+
+        self.assertFalse(w._edit_mode)
+        self.assertEqual(listbox.selected_items, ["B"])
+        self.assertEqual(events, [("confirmed", "items", ["B"])])
+
+    def test_multi_listbox_enter_toggles_and_escape_commits_leave(self):
+        """Enter toggles multi-select rows and Escape leaves without rollback."""
+        events = []
+
+        class TestWindow(UIWindow):
+            def confirmed(self, element, value):
+                events.append(("confirmed", element.name))
+
+            def selectionchanged(self, element, value):
+                events.append(("selection", element.name, list(value)))
+
+        w = TestWindow(title="Test")
+        listbox = w.create_element("items", "listbox", options=["A", "B", "C"], selected_items=["A"], multiple=True)
+        listbox.width = 10
+        listbox.height = 3
+        w.set_focus(listbox)
+        w.handle_key("Enter")
+
+        self.assertTrue(w._edit_mode)
+
+        w.handle_key("Enter")
+        self.assertTrue(w._edit_mode)
+        self.assertEqual(listbox.selected_items, [])
+
+        w.handle_key("Down")
+        self.assertEqual(listbox.selected_items, [])
+
+        w.handle_key("Enter")
+        self.assertTrue(w._edit_mode)
+        self.assertEqual(listbox.selected_items, ["B"])
+
+        w.handle_key("Escape")
+
+        self.assertFalse(w._edit_mode)
+        self.assertEqual(listbox.selected_items, ["B"])
+        self.assertEqual(events, [
+            ("selection", "items", []),
+            ("selection", "items", ["B"]),
+        ])
+
+    def test_listbox_mouse_click_hides_keyboard_active_item_style(self):
+        """Mouse selection should leave ListBox editing without the keyboard active row style."""
+        w = UIWindow(title="Test")
+        listbox = w.create_element("items", "listbox", options=["A", "B", "C"], selected_items=["A", "B", "C"], multiple=True)
+        listbox.width = 10
+        listbox.height = 3
+        w.set_focus(listbox)
+
+        w.handle_key("Enter")
+        self.assertFalse(listbox._active_item_visible)
+
+        w.handle_key("Down")
+        self.assertTrue(listbox._active_item_visible)
+
+        w.handle_key({"type": "mouse", "event": "press", "button": 0, "row": 2, "col": 1})
+
+        self.assertFalse(listbox._active_item_visible)
+        self.assertTrue(w._edit_mode)
+
     def test_textinput_key_change_notifies_elementchanged(self):
         """Text input edits should notify the owning window immediately."""
         events = []

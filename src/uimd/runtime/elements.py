@@ -2156,6 +2156,7 @@ class ListBox(UIElement):
         self._scroll_offset = 0
         self._disabled_items = set()
         self._active_index = 0
+        self._active_item_visible = False
         if self._selected_items:
             try:
                 self._active_index = self._options.index(self._selected_items[-1])
@@ -2200,6 +2201,9 @@ class ListBox(UIElement):
         elif idx >= self._scroll_offset + h:
             self._scroll_offset = idx - h + 1
 
+    def begin_edit(self):
+        self._active_item_visible = False
+
     def _max_scroll_offset(self):
         h = max(1, int(self.height or LISTBOX_DEFAULT_HEIGHT))
         return max(0, len(self._options) - h)
@@ -2229,27 +2233,26 @@ class ListBox(UIElement):
             return False
 
         idx = max(0, min(getattr(self, "_active_index", 0), len(self._options) - 1))
-        if not self.multiple and self._selected_items:
+        if not self.multiple and self._selected_items and not self._active_item_visible:
             current = self._selected_items[-1]
             idx = self._options.index(current) if current in self._options else idx
 
         if key == "Up":
             idx = max(0, idx - 1)
             self._active_index = idx
-            if not self.multiple:
-                self._selected_items = [self._options[idx]]
+            self._active_item_visible = True
             self._ensure_selection_visible(idx)
             return True
         if key == "Down":
             idx = min(len(self._options) - 1, idx + 1)
             self._active_index = idx
-            if not self.multiple:
-                self._selected_items = [self._options[idx]]
+            self._active_item_visible = True
             self._ensure_selection_visible(idx)
             return True
         if key == "Enter":
             if not self.multiple:
                 self._selected_items = [self._options[idx]]
+                self._active_item_visible = False
             else:
                 current = self._options[idx]
                 if current in self._selected_items:
@@ -2277,6 +2280,9 @@ class ListBox(UIElement):
         sel = self.selected_style
         sel_fg = sel.color if sel else None
         sel_bg = sel.background if sel else None
+        active = self.active_style
+        active_fg = active.color if active else None
+        active_bg = active.background if active else None
         disabled = self.disabled_style
         disabled_fg = disabled.color if disabled and disabled.color is not None else fg
         disabled_bg = disabled.background if disabled and disabled.background is not None else bg
@@ -2284,7 +2290,12 @@ class ListBox(UIElement):
         h = self.height or LISTBOX_DEFAULT_HEIGHT
         if self._options:
             self._active_index = max(0, min(getattr(self, "_active_index", 0), len(self._options) - 1))
-            self._ensure_selection_visible(self._active_index)
+            visible_index = self._active_index
+            if not (self._edit_mode and self._active_item_visible):
+                selected_item = self._selected_items[-1] if self._selected_items else None
+                if selected_item in self._options:
+                    visible_index = self._options.index(selected_item)
+            self._ensure_selection_visible(visible_index)
         has_above = self._scroll_offset > 0
         has_below = (self._scroll_offset + h) < len(self._options)
 
@@ -2295,10 +2306,24 @@ class ListBox(UIElement):
                 break
             opt = self._options[opt_idx]
             is_sel = opt in self._selected_items
-            is_active = self.multiple and self._edit_mode and opt_idx == self._active_index
+            is_active = self._edit_mode and self._active_item_visible and opt_idx == self._active_index
             is_disabled = opt in self._disabled_items
-            item_fg = disabled_fg if is_disabled else (sel_fg if (is_sel or is_active) and sel_fg is not None else fg)
-            item_bg = disabled_bg if is_disabled else (_overlay_background(sel_bg, bg, parent_bg) if (is_sel or is_active) and sel_bg is not None else bg)
+            if is_disabled:
+                item_fg = disabled_fg
+                item_bg = disabled_bg
+            else:
+                item_fg = fg
+                item_bg = bg
+                if is_sel:
+                    item_fg = sel_fg if sel_fg is not None else item_fg
+                    item_bg = _overlay_background(sel_bg, item_bg, parent_bg) if sel_bg is not None else item_bg
+                if is_active:
+                    fallback_active = active or (sel if not is_sel else None)
+                    if fallback_active is not None:
+                        fallback_fg = fallback_active.color
+                        fallback_bg = fallback_active.background
+                        item_fg = fallback_fg if fallback_fg is not None else item_fg
+                        item_bg = _overlay_background(fallback_bg, item_bg, parent_bg) if fallback_bg is not None else item_bg
             item_text = self._format_item_text(opt, w, pad_left, pad_right)
             if i == 0 and has_above and w > 0:
                 item_text = item_text[:w - 1] + "^"
@@ -2314,9 +2339,20 @@ class ListBox(UIElement):
             opt_idx = data_rows - 1 + self._scroll_offset
             opt = self._options[opt_idx]
             is_sel = opt in self._selected_items
+            is_active = self._edit_mode and self._active_item_visible and opt_idx == self._active_index
             is_disabled = opt in self._disabled_items
-            item_fg = disabled_fg if is_disabled else (sel_fg if is_sel and sel_fg is not None else fg)
-            item_bg = disabled_bg if is_disabled else (_overlay_background(sel_bg, bg, parent_bg) if is_sel and sel_bg is not None else bg)
+            if is_disabled:
+                item_fg = disabled_fg
+                item_bg = disabled_bg
+            elif is_active:
+                item_fg = active_fg if active_fg is not None else fg
+                item_bg = _overlay_background(active_bg, bg, parent_bg) if active_bg is not None else bg
+            elif is_sel:
+                item_fg = sel_fg if sel_fg is not None else fg
+                item_bg = _overlay_background(sel_bg, bg, parent_bg) if sel_bg is not None else bg
+            else:
+                item_fg = fg
+                item_bg = bg
             item_text = self._format_item_text(opt, w, pad_left, pad_right)[:w - 1] + "v"
             lines[data_rows - 1] = _styled_cells(item_text, item_fg, item_bg, parent_bg, parent_fg=self._get_cell_color())
 
@@ -2827,6 +2863,24 @@ class UIElementReusable(UIElement):
                 )
             )
         )
+        render_clip = getattr(self, "_render_cell_clip", None)
+
+        def render_child_cells():
+            if child is None:
+                return []
+            previous_clip = getattr(child, "_render_cell_clip", None)
+            if render_clip is not None:
+                child._render_cell_clip = render_clip
+            try:
+                return (
+                    child.render_cells()
+                    if hasattr(child, "render_cells")
+                    else [self._row_to_cells(line) for line in child.render()]
+                )
+            finally:
+                if render_clip is not None:
+                    child._render_cell_clip = previous_clip
+
         if child is not None and hasattr(child, "style") and apply_state and state_style is not None:
             previous_style = child.style
             focused_style = child.style.copy()
@@ -2840,9 +2894,7 @@ class UIElementReusable(UIElement):
                 focused_style.background = original_bg
             child.style = focused_style
             try:
-                rendered = child.render_cells() if hasattr(child, "render_cells") else [
-                    self._row_to_cells(line) for line in child.render()
-                ]
+                rendered = render_child_cells()
                 fill_fg = getattr(child.style, "color", None)
                 focus_bg = getattr(state_style, "background", None)
                 cell_bg = self._get_cell_background()
@@ -2859,11 +2911,7 @@ class UIElementReusable(UIElement):
             finally:
                 child.style = previous_style
         else:
-            rendered = (
-                child.render_cells()
-                if child is not None and hasattr(child, "render_cells")
-                else [self._row_to_cells(line) for line in child.render()] if child is not None else []
-            )
+            rendered = render_child_cells()
             if child is not None:
                 child_style = getattr(child, "style", None)
                 fill_fg = getattr(child_style, "color", None)

@@ -39,26 +39,36 @@ public:
         return disabledValues_;
     }
 
+    [[nodiscard]] bool activeItemVisible() const {
+        return activeItemVisible_;
+    }
+
     void setOptions(std::vector<std::string> options);
     void setDisabledValues(std::vector<std::string> disabledValues);
     void setMultiple(bool multiple);
     void setSelectedIndex(int selectedIndex);
     void setSelectedIndices(std::vector<int> selectedIndices);
     void setSelectedValues(const std::vector<std::string>& selectedValues);
+    void setActiveIndex(int activeIndex);
     void scrollBy(int delta, int viewportHeight);
+    void showActiveItem();
+    void hideActiveItem();
 
     [[nodiscard]] bool handleKey(std::string_view key);
     [[nodiscard]] RenderedContent render(Size size, ElementRenderState state = {}) const;
 
 private:
+    void ensureIndexVisible(int index, int height);
     void ensureSelectedVisible(int height);
 
     std::vector<std::string> options_;
     std::vector<std::string> disabledValues_;
     int selectedIndex_ = 0;
+    int activeIndex_ = 0;
     std::vector<int> selectedIndices_;
     bool multiple_ = false;
     int scrollOffset_ = 0;
+    bool activeItemVisible_ = false;
     mutable int lastViewportHeight_ = 0;
 };
 

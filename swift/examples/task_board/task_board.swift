@@ -234,267 +234,92 @@ private final class TaskDialog: TaskDialogUI
 private final class TaskRow: TaskRowUI
 {
     let record: TaskItem
+    private let onOpen: ((String) -> Void)?
+    private let onDelete: ((String) -> Void)?
+    private let onDone: ((String, Bool) -> Void)?
 
-    init(_ record: TaskItem)
+    init(
+        _ record: TaskItem,
+        onOpen: ((String) -> Void)?,
+        onDelete: ((String) -> Void)?,
+        onDone: ((String, Bool) -> Void)?
+    )
     {
         self.record = record
+        self.onOpen = onOpen
+        self.onDelete = onDelete
+        self.onDone = onDone
         super.init()
         mode = "expand_width"
         task_title.setText(record.title)
         meta.setText(record.status + " / " + record.assignee + " / " + record.priority)
         done.checked = record.done
     }
+
+    override func onOpenBtnClick()
+    {
+        onOpen?(record.id)
+    }
+
+    override func onDeleteBtnClick()
+    {
+        onDelete?(record.id)
+    }
+
+    override func onDoneChange(_ value: String)
+    {
+        _ = value
+        onDone?(record.id, done.checked)
+    }
 }
 
-private final class TaskList: TaskListUI, GeneratedScrollableElementVisibility
+private final class TaskList: TaskListUI
 {
-    private var rows: [TaskItem] = []
-    private var rowViews: [TaskRow] = []
-    private var viewOffset = 0
-    var activeFocusedId: String?
-    var activeEditMode = false
+    private let minimumRenderHeight = 1
+    private var rowsProvider: (() -> [TaskItem])?
+    private var onOpen: ((String) -> Void)?
+    private var onDelete: ((String) -> Void)?
+    private var onDone: ((String, Bool) -> Void)?
 
-    func setRows(_ nextRows: [TaskItem])
+    func setRowsProvider(_ rowsProvider: @escaping () -> [TaskItem])
     {
-        rows = nextRows
-        rowViews = rows.map(TaskRow.init)
-        viewOffset = min(viewOffset, max(0, renderedContentHeight(width: generatedContentSize().width) - 1))
+        self.rowsProvider = rowsProvider
+        refreshRows()
     }
 
-    override func scrollBy(_ delta: Int, viewport: Size)
+    func setCallbacks(
+        onOpen: @escaping (String) -> Void,
+        onDelete: @escaping (String) -> Void,
+        onDone: @escaping (String, Bool) -> Void
+    )
     {
-        _ = scrollLines(delta, viewport: viewport)
+        self.onOpen = onOpen
+        self.onDelete = onDelete
+        self.onDone = onDone
+        refreshRows()
     }
 
-    override func handleScrollKey(_ key: String, viewport: Size) -> Bool
+    func refreshRows()
     {
-        switch key
-        {
-        case "ArrowUp", "Up":
-            return scrollLines(-generatedScrollKeyboardStepRows, viewport: viewport)
-        case "ArrowDown", "Down":
-            return scrollLines(generatedScrollKeyboardStepRows, viewport: viewport)
-        case "PageUp":
-            return scrollLines(-max(1, viewport.height), viewport: viewport)
-        case "PageDown":
-            return scrollLines(max(1, viewport.height), viewport: viewport)
-        case "Home":
-            let changed = viewOffset != 0
-            viewOffset = 0
-            return changed
-        case "End":
-            let previous = viewOffset
-            viewOffset = maxLineOffset(viewport: viewport)
-            return viewOffset != previous
-        default:
-            return false
-        }
-    }
-
-    func ensureElementVisible(_ elementId: String, viewport: Size)
-    {
-        guard let index = rowIndex(from: elementId),
-              index >= 0,
-              index < rowViews.count
-        else
+        clearChildren()
+        guard let rowsProvider else
         {
             return
         }
-        let scrollViewport = generatedScrollViewport(size: viewport, style: panelStyle())
-        let viewportHeight = max(1, scrollViewport.height)
-        var rowStart = 0
-        for rowIndex in 0..<index
+        for row in rowsProvider()
         {
-            rowStart += rowHeight(rowViews[rowIndex], width: max(1, scrollViewport.width))
-            if rowIndex < rowViews.count - 1
-            {
-                rowStart += panelGap()
-            }
+            let rowWindow = TaskRow(row, onOpen: onOpen, onDelete: onDelete, onDone: onDone)
+            let naturalSize = rowWindow.generatedContentSize()
+            let reusable = ReusableElement("row")
+            reusable.setChild(rowWindow)
+            reusable.frame = Rect(row: 0, col: 0, width: 0, height: max(minimumRenderHeight, naturalSize.height))
+            _ = scrollView().addChild(reusable)
         }
-        let rowEnd = rowStart + rowHeight(rowViews[index], width: max(1, scrollViewport.width))
-        if rowStart < viewOffset
+        let currentFrame = scrollView().frame
+        if currentFrame.width > 0 && currentFrame.height > 0
         {
-            viewOffset = rowStart
+            _ = scrollView().scrollToTop(Size(width: currentFrame.width, height: currentFrame.height))
         }
-        else if rowEnd > viewOffset + viewportHeight
-        {
-            viewOffset = max(0, rowEnd - viewportHeight - generatedScrollIndicatorOverlapRows)
-        }
-        viewOffset = max(0, min(maxLineOffset(viewport: viewport), viewOffset))
-    }
-
-    func focusOrder(hostId: String) -> [String]
-    {
-        rowViews.indices.flatMap
-        {
-            ["\(hostId)[\($0)].done", "\(hostId)[\($0)].open_btn", "\(hostId)[\($0)].delete_btn"]
-        }
-    }
-
-    func registerDynamicElements(on root: GeneratedWindowBase, hostId: String, hostFrame: Rect)
-    {
-        let viewport = generatedScrollViewport(size: Size(width: hostFrame.width, height: hostFrame.height), style: panelStyle())
-        let gap = panelGap()
-        var rowCursor = 0
-        for index in rowViews.indices
-        {
-            let row = rowViews[index]
-            let prefix = "\(hostId)[\(index)]"
-            let rowHeight = rowHeight(row, width: max(1, viewport.width))
-            for element in row.elements
-            {
-                let id = prefix + "." + element.name
-                element.frame = Rect(
-                    row: hostFrame.row + viewport.row + rowCursor + element.frame.row - viewOffset,
-                    col: hostFrame.col + viewport.col + element.frame.col,
-                    width: element.frame.width,
-                    height: element.frame.height
-                )
-                root.registerDynamicElement(id, element: element, parentFocusHostId: hostId)
-            }
-            rowCursor += rowHeight
-            if index + 1 < rowViews.count
-            {
-                rowCursor += gap
-            }
-        }
-    }
-
-    override func renderContent(size: Size, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
-    {
-        _ = focusedName
-        _ = editMode
-        let width = max(1, size.width)
-        let height = max(1, size.height)
-        let style = panelStyle()
-        let blank = Array(repeating: TerminalCell(" ", foreground: style.color, background: style.background), count: width)
-        var output = Array(repeating: blank, count: height)
-        let viewport = generatedScrollViewport(size: Size(width: width, height: height), style: style)
-        guard viewport.width > 0 && viewport.height > 0 else
-        {
-            return output
-        }
-        let rows = renderedRows(width: max(1, viewport.width), focusedName: focusedName, editMode: editMode)
-        let maxOffset = max(0, rows.count - viewport.height)
-        viewOffset = min(viewOffset, maxOffset)
-        for row in 0..<viewport.height
-        {
-            let sourceRow = viewOffset + row
-            guard sourceRow >= 0 && sourceRow < rows.count else
-            {
-                continue
-            }
-            let targetRow = viewport.row + row
-            guard targetRow >= 0 && targetRow < output.count else
-            {
-                continue
-            }
-            let source = rows[sourceRow]
-            for col in 0..<min(viewport.width, source.count)
-            {
-                let targetCol = viewport.col + col
-                guard targetCol >= 0 && targetCol < output[targetRow].count else
-                {
-                    continue
-                }
-                output[targetRow][targetCol] = source[col]
-            }
-        }
-        applyGeneratedScrollIndicators(
-            content: &output,
-            viewOffset: viewOffset,
-            maxViewOffset: maxOffset,
-            viewport: Size(width: width, height: height),
-            style: style,
-            childContentBelowViewport: viewOffset + viewport.height < rows.count
-        )
-        return output
-    }
-
-    private func renderedRows(width: Int, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
-    {
-        var rows: [[TerminalCell]] = []
-        let style = panelStyle()
-        let gap = panelGap()
-        let gapRow = Array(repeating: TerminalCell(" ", foreground: style.color, background: style.background), count: max(1, width))
-        for index in rowViews.indices
-        {
-            let rowView = rowViews[index]
-            let focusedLocalName: String?
-            if let activeFocusedId, activeFocusedId.hasPrefix("board[\(index)].")
-            {
-                focusedLocalName = String(activeFocusedId.split(separator: ".").last ?? "")
-            }
-            else
-            {
-                focusedLocalName = nil
-            }
-            let rowHeight = rowHeight(rowView, width: width)
-            let rendered = renderGeneratedContentForHost(
-                rowView,
-                size: Size(width: width, height: rowHeight),
-                focusedName: focusedLocalName,
-                editMode: activeEditMode && focusedLocalName != nil
-            )
-            for localRow in 0..<min(rowHeight, rendered.count)
-            {
-                rows.append(rendered[localRow])
-            }
-            if index + 1 < rowViews.count
-            {
-                for _ in 0..<gap
-                {
-                    rows.append(gapRow)
-                }
-            }
-        }
-        return rows
-    }
-
-    private func renderedContentHeight(width: Int) -> Int
-    {
-        let rowsHeight = rowViews.reduce(0) { $0 + rowHeight($1, width: max(1, width)) }
-        return rowsHeight + max(0, rowViews.count - 1) * panelGap()
-    }
-
-    private func maxLineOffset(viewport: Size) -> Int
-    {
-        let scrollViewport = generatedScrollViewport(size: viewport, style: panelStyle())
-        return max(0, renderedContentHeight(width: max(1, scrollViewport.width)) - max(1, scrollViewport.height))
-    }
-
-    @discardableResult
-    private func scrollLines(_ delta: Int, viewport: Size) -> Bool
-    {
-        let previous = viewOffset
-        viewOffset = max(0, min(maxLineOffset(viewport: viewport), viewOffset + delta))
-        return viewOffset != previous
-    }
-
-    private func rowIndex(from id: String) -> Int?
-    {
-        guard let open = id.firstIndex(of: "["),
-              let close = id[open...].firstIndex(of: "]")
-        else
-        {
-            return nil
-        }
-        return Int(id[id.index(after: open)..<close])
-    }
-
-    private func rowHeight(_ rowView: TaskRow, width: Int) -> Int
-    {
-        max(1, rowView.generatedContentSizeForWidth(max(1, width)).height)
-    }
-
-    private func panelStyle() -> Style
-    {
-        scrollView().style
-    }
-
-    private func panelGap() -> Int
-    {
-        generatedScrollGap(style: panelStyle())
     }
 }
 
@@ -518,6 +343,20 @@ private final class TaskBoard: TaskBoardUI
         }
         filters.setChild(filterPanel)
         board.setChild(taskList)
+        taskList.setRowsProvider { [weak self] in
+            self?.matchingTasks() ?? []
+        }
+        taskList.setCallbacks(
+            onOpen: { [weak self] id in
+                self?.openTaskById(id)
+            },
+            onDelete: { [weak self] id in
+                self?.confirmDeleteTask(id)
+            },
+            onDone: { [weak self] id, done in
+                self?.setTaskDone(id, done: done)
+            }
+        )
         refreshBoard()
     }
 
@@ -526,19 +365,6 @@ private final class TaskBoard: TaskBoardUI
         var options = super.runtimeOptions()
         options.windowStack = modalStack
         return options
-    }
-
-    override func renderContent(size: Size, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
-    {
-        clearDynamicElements()
-        taskList.activeFocusedId = focusedName
-        taskList.activeEditMode = editMode
-        let rendered = super.renderContent(size: size, focusedName: focusedName, editMode: editMode)
-        taskList.registerDynamicElements(on: self, hostId: "board", hostFrame: board.frame)
-        board.childFocusOrder = taskList.focusOrder(hostId: "board")
-        registerPanel(filterPanel, hostId: "filters", hostFrame: filters.frame)
-        filters.childFocusOrder = filterPanel.elements.filter { $0.focusable }.map { "filters." + $0.name }
-        return rendered
     }
 
     override func onQuitBtnClick()
@@ -566,41 +392,6 @@ private final class TaskBoard: TaskBoardUI
         quitRequested
     }
 
-    override func handleGeneratedButton(_ name: String) -> Bool
-    {
-        if name.hasPrefix("board[")
-        {
-            return handleBoardButton(name)
-        }
-        if name == "filters.apply_filters_btn"
-        {
-            refreshBoard()
-            return true
-        }
-        if name == "filters.reset_filters_btn"
-        {
-            resetFilters()
-            refreshBoard()
-            return true
-        }
-        return super.handleGeneratedButton(name)
-    }
-
-    override func handleGeneratedTextChanged(_ name: String, value: String) -> Bool
-    {
-        if name.hasPrefix("board["), name.hasSuffix(".done"), let index = rowIndex(name)
-        {
-            let visible = matchingTasks()
-            guard index >= 0 && index < visible.count else
-            {
-                return true
-            }
-            setTaskDone(visible[index].id, done: value == "true")
-            return true
-        }
-        return super.handleGeneratedTextChanged(name, value: value)
-    }
-
     override func callAppTool(_ name: String, inputJson: String) throws -> String
     {
         switch name
@@ -616,51 +407,6 @@ private final class TaskBoard: TaskBoardUI
         default:
             return try super.callAppTool(name, inputJson: inputJson)
         }
-    }
-
-    private func registerPanel(_ panel: GeneratedWindowBase, hostId: String, hostFrame: Rect)
-    {
-        for element in panel.elements
-        {
-            element.frame = Rect(row: hostFrame.row + element.frame.row, col: hostFrame.col + element.frame.col, width: element.frame.width, height: element.frame.height)
-            registerDynamicElement(hostId + "." + element.name, element: element, parentFocusHostId: hostId)
-        }
-    }
-
-    private func handleBoardButton(_ name: String) -> Bool
-    {
-        guard let index = rowIndex(name) else
-        {
-            return false
-        }
-        let visible = matchingTasks()
-        guard index >= 0 && index < visible.count else
-        {
-            return false
-        }
-        let id = visible[index].id
-        if name.hasSuffix(".open_btn")
-        {
-            openTaskById(id)
-            return true
-        }
-        if name.hasSuffix(".delete_btn")
-        {
-            confirmDeleteTask(id)
-            return true
-        }
-        return false
-    }
-
-    private func rowIndex(_ id: String) -> Int?
-    {
-        guard let open = id.firstIndex(of: "["),
-              let close = id[open...].firstIndex(of: "]")
-        else
-        {
-            return nil
-        }
-        return Int(id[id.index(after: open)..<close])
     }
 
     private func matchingTasks() -> [TaskItem]
@@ -711,9 +457,8 @@ private final class TaskBoard: TaskBoardUI
 
     private func refreshBoard()
     {
-        let visible = matchingTasks()
-        taskList.setRows(visible)
-        status.setText("\(visible.count) visible / \(tasks.count) total")
+        taskList.refreshRows()
+        status.setText("\(matchingTasks().count) visible / \(tasks.count) total")
     }
 
     private func resetFilters()

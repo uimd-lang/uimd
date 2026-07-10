@@ -175,7 +175,14 @@ public sealed class TextEditor : TextEditorUI
                 browser.SelectEntry(browser.entries.SelectedIndex);
             }
         };
-        options.OnTextConfirmed = options.OnTextChanged;
+        options.OnTextConfirmed = (name, _) =>
+        {
+            if (browser is not null && name == "entries")
+            {
+                browser.SelectEntry(browser.entries.SelectedIndex);
+                AcceptBrowserCurrent();
+            }
+        };
         options.OnKeyBeforeFocusedElement = (key, name, editMode) =>
         {
             if (browser is null)
@@ -185,11 +192,6 @@ public sealed class TextEditor : TextEditorUI
             if (key == "Escape")
             {
                 CloseBrowser("");
-                return true;
-            }
-            if (name == "entries" && editMode && key == "Enter")
-            {
-                AcceptBrowserCurrent();
                 return true;
             }
             return false;

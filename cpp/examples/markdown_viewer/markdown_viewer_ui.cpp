@@ -378,6 +378,7 @@ button:
     docs->setFocusStyle(makeStyle({{"background", "#ffffff22"}, {"color", "#ffffff"}}));
     docs->setEditStyle(makeStyle({{"background", "#00000000"}, {"color", "#cbd5e1"}}));
     docs->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    docs->setActiveStyle(makeStyle({{"background", "#DDDDDD99"}, {"color", "#FFFFFF"}}));
     docs->setDisabledStyle(makeStyle({{"color", "#64748b"}}));
     up_btn = &static_cast<ui::Button&>(addElement<ui::Button>("up_btn", "up"));
     up_btn->setStyle(makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}}));

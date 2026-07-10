@@ -160,6 +160,21 @@ thread_local std::optional<std::int64_t> renderTimeOverrideMs;
     return base;
 }
 
+[[nodiscard]] Style mergedListBoxRowLayer(Style base, const std::optional<Style>& override) {
+    if (!override.has_value()) {
+        return base;
+    }
+    const std::optional<Color> inheritedBackground = base.background;
+    base.merge(*override);
+    if (override->background.has_value() &&
+        override->background->rgba().has_value() &&
+        override->background->rgba()->alpha < 255 &&
+        inheritedBackground.has_value()) {
+        base.background = override->background->blendOver(*inheritedBackground);
+    }
+    return base;
+}
+
 [[nodiscard]] Style mergedIndicatorStyleForCheckBox(Style base,
                                                     const std::optional<Style>& override,
                                                     bool focusedOrEditing) {
@@ -1373,15 +1388,15 @@ void ListBox::setMultiple(bool multiple) {
 void ListBox::setSelectedIndex(int selectedIndex) {
     if (options_.empty()) {
         selectedIndex_ = 0;
+        activeIndex_ = 0;
         selectedIndices_.clear();
         scrollOffset_ = 0;
         return;
     }
     selectedIndex_ = clampIndex(selectedIndex, 0, static_cast<int>(options_.size()) - 1);
+    activeIndex_ = selectedIndex_;
     if (!multiple_) {
         selectedIndices_ = {selectedIndex_};
-    } else if (selectedIndices_.empty()) {
-        selectedIndices_.push_back(selectedIndex_);
     }
     if (lastViewportHeight_ > 0) {
         ensureSelectedVisible(lastViewportHeight_);
@@ -1392,6 +1407,7 @@ void ListBox::setSelectedIndices(std::vector<int> selectedIndices) {
     selectedIndices_.clear();
     if (options_.empty()) {
         selectedIndex_ = 0;
+        activeIndex_ = 0;
         scrollOffset_ = 0;
         return;
     }
@@ -1406,9 +1422,11 @@ void ListBox::setSelectedIndices(std::vector<int> selectedIndices) {
     }
     if (selectedIndices_.empty()) {
         selectedIndex_ = clampIndex(selectedIndex_, 0, static_cast<int>(options_.size()) - 1);
+        activeIndex_ = selectedIndex_;
         return;
     }
     selectedIndex_ = selectedIndices_.back();
+    activeIndex_ = selectedIndex_;
     if (lastViewportHeight_ > 0) {
         ensureSelectedVisible(lastViewportHeight_);
     }
@@ -1423,6 +1441,19 @@ void ListBox::setSelectedValues(const std::vector<std::string>& selectedValues) 
         }
     }
     setSelectedIndices(std::move(indices));
+}
+
+void ListBox::setActiveIndex(int activeIndex) {
+    if (options_.empty()) {
+        selectedIndex_ = 0;
+        activeIndex_ = 0;
+        scrollOffset_ = 0;
+        return;
+    }
+    activeIndex_ = clampIndex(activeIndex, 0, static_cast<int>(options_.size()) - 1);
+    if (lastViewportHeight_ > 0) {
+        ensureIndexVisible(activeIndex_, lastViewportHeight_);
+    }
 }
 
 std::vector<std::string> ListBox::selectedValues() const {
@@ -1444,25 +1475,40 @@ void ListBox::scrollBy(int delta, int viewportHeight) {
     scrollOffset_ = clampIndex(scrollOffset_ + delta, 0, maxOffset);
 }
 
+void ListBox::showActiveItem() {
+    activeItemVisible_ = true;
+}
+
+void ListBox::hideActiveItem() {
+    activeItemVisible_ = false;
+}
+
 bool ListBox::handleKey(std::string_view key) {
     if (options_.empty()) {
         return false;
     }
     if (key == "Down") {
-        setSelectedIndex(selectedIndex_ + 1);
+        setActiveIndex(activeIndex_ + 1);
+        showActiveItem();
         return true;
     }
     if (key == "Up") {
-        setSelectedIndex(selectedIndex_ - 1);
+        setActiveIndex(activeIndex_ - 1);
+        showActiveItem();
         return true;
     }
     if (key == "Enter" && multiple_) {
-        const auto found = std::find(selectedIndices_.begin(), selectedIndices_.end(), selectedIndex_);
+        const auto found = std::find(selectedIndices_.begin(), selectedIndices_.end(), activeIndex_);
         if (found == selectedIndices_.end()) {
-            selectedIndices_.push_back(selectedIndex_);
+            selectedIndices_.push_back(activeIndex_);
         } else {
             selectedIndices_.erase(found);
         }
+        return true;
+    }
+    if (key == "Enter") {
+        setSelectedIndex(activeIndex_);
+        hideActiveItem();
         return true;
     }
     return false;
@@ -1470,11 +1516,16 @@ bool ListBox::handleKey(std::string_view key) {
 
 RenderedContent ListBox::render(Size size, ElementRenderState state) const {
     const int height = safeHeight(size);
-    const int width = safeWidth(size, options_.empty() ? "" : options_[static_cast<std::size_t>(selectedIndex_)]) + (size.width > 0 ? 0 : 2);
+    const int displayIndex = (state.editMode && activeItemVisible_) ? activeIndex_ : selectedIndex_;
+    const int width = safeWidth(size, options_.empty() ? "" : options_[static_cast<std::size_t>(displayIndex)]) + (size.width > 0 ? 0 : 2);
     lastViewportHeight_ = height;
     const int maxOffset = std::max(0, static_cast<int>(options_.size()) - height);
     const_cast<ListBox*>(this)->scrollOffset_ = clampIndex(scrollOffset_, 0, maxOffset);
-    const_cast<ListBox*>(this)->ensureSelectedVisible(height);
+    if (state.editMode && activeItemVisible_) {
+        const_cast<ListBox*>(this)->ensureIndexVisible(activeIndex_, height);
+    } else {
+        const_cast<ListBox*>(this)->ensureSelectedVisible(height);
+    }
 
     const Style base = effectiveStyle(state.focused, state.editMode);
     RenderedContent rendered;
@@ -1483,8 +1534,11 @@ RenderedContent ListBox::render(Size size, ElementRenderState state) const {
     for (int row = 0; row < height; ++row) {
         const int optionIndex = scrollOffset_ + row;
         const bool selected = optionIndex < static_cast<int>(options_.size()) &&
-            (std::find(selectedIndices_.begin(), selectedIndices_.end(), optionIndex) != selectedIndices_.end() ||
-             (multiple_ && state.editMode && optionIndex == selectedIndex_));
+            std::find(selectedIndices_.begin(), selectedIndices_.end(), optionIndex) != selectedIndices_.end();
+        const bool active = optionIndex < static_cast<int>(options_.size()) &&
+            state.editMode &&
+            activeItemVisible_ &&
+            optionIndex == activeIndex_;
         const bool disabled = optionIndex < static_cast<int>(options_.size()) &&
             std::find(disabledValues_.begin(), disabledValues_.end(), options_[static_cast<std::size_t>(optionIndex)]) != disabledValues_.end();
         std::string text = optionIndex < static_cast<int>(options_.size())
@@ -1496,7 +1550,15 @@ RenderedContent ListBox::render(Size size, ElementRenderState state) const {
         } else if (row == height - 1 && hasBelow && width > 0) {
             text[static_cast<std::size_t>(width - 1)] = 'v';
         }
-        Style rowStyle = selected ? mergedOptional(base, selectedStyle()) : base;
+        Style rowStyle = base;
+        if (selected) {
+            rowStyle = mergedListBoxRowLayer(rowStyle, selectedStyle());
+        }
+        if (active) {
+            rowStyle = activeStyle().has_value()
+                ? mergedListBoxRowLayer(rowStyle, activeStyle())
+                : (selected ? rowStyle : mergedListBoxRowLayer(rowStyle, selectedStyle()));
+        }
         if (disabled) {
             rowStyle = mergedOptional(base, disabledStyle());
         }
@@ -1505,12 +1567,16 @@ RenderedContent ListBox::render(Size size, ElementRenderState state) const {
     return rendered;
 }
 
-void ListBox::ensureSelectedVisible(int height) {
-    if (selectedIndex_ < scrollOffset_) {
-        scrollOffset_ = selectedIndex_;
-    } else if (selectedIndex_ >= scrollOffset_ + height) {
-        scrollOffset_ = selectedIndex_ - height + 1;
+void ListBox::ensureIndexVisible(int index, int height) {
+    if (index < scrollOffset_) {
+        scrollOffset_ = index;
+    } else if (index >= scrollOffset_ + height) {
+        scrollOffset_ = index - height + 1;
     }
+}
+
+void ListBox::ensureSelectedVisible(int height) {
+    ensureIndexVisible(selectedIndex_, height);
 }
 
 }  // namespace ui

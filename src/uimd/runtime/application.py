@@ -105,6 +105,7 @@ TERMINAL_CELL_PIXEL_QUERY_MAX_BYTES = 64
 TERMINAL_WINSIZE_STRUCT = "HHHH"
 TERMINAL_WINSIZE_STRUCT_BYTES = 8
 TERMINAL_TITLE_SUFFIX = " [python]"
+SIXEL_FALLBACK_MESSAGE_BOX_TEXT = "Sixel is not supported. Continue with fallback image blocks?"
 
 
 class _TerminalFrameDiff:
@@ -229,6 +230,7 @@ class UIApplication:
         self._render_lock = threading.RLock()
         self._input_buffer = bytearray()
         self._mcp_headless = False
+        self._sixel_fallback_warning_opened = False
 
     @property
     def active_window(self):
@@ -309,6 +311,56 @@ class UIApplication:
             "level": level,
         })
         self.mark_dirty()
+
+    def _maybe_open_sixel_fallback_warning(self):
+        if self._sixel_fallback_warning_opened:
+            return
+        if self._window_stack and any(self._window_needs_sixel_fallback_warning(window) for window in self._window_stack):
+            from uimd.dialogs import MessageBoxYesNo
+            self._sixel_fallback_warning_opened = True
+
+            def on_close(result):
+                if result != "yes":
+                    self._running = False
+
+            self.open(MessageBoxYesNo("Warning", SIXEL_FALLBACK_MESSAGE_BOX_TEXT, on_close=on_close))
+
+    @classmethod
+    def _window_needs_sixel_fallback_warning(cls, view):
+        from uimd.runtime.image import Image
+        if view is None:
+            return False
+        seen = set()
+
+        def visit(obj):
+            if obj is None:
+                return False
+            obj_id = id(obj)
+            if obj_id in seen:
+                return False
+            seen.add(obj_id)
+            if isinstance(obj, Image) and obj.should_warn_sixel_fallback():
+                return True
+            current_view = obj.current_view() if hasattr(obj, "current_view") else None
+            if current_view is not None and visit(current_view):
+                return True
+            child_instance = getattr(obj, "_child_instance", None)
+            if child_instance is not None and visit(child_instance):
+                return True
+            get_children = getattr(obj, "_get_children", None)
+            if callable(get_children):
+                for child in get_children():
+                    if visit(child):
+                        return True
+            for child in getattr(obj, "_children", []) or []:
+                if visit(child):
+                    return True
+            for child in getattr(obj, "_elements", {}).values():
+                if visit(child):
+                    return True
+            return False
+
+        return visit(view)
 
     def _active_notifications(self):
         now = time.monotonic()
@@ -815,6 +867,31 @@ class UIApplication:
                 previous = rendered[row][col]
                 rendered[row][col] = TerminalCell(char, previous.foreground, previous.background)
         return rendered
+
+    @staticmethod
+    def _wrap_dialog_text(message, max_width):
+        width = max(1, int(max_width))
+        words = str(message).split()
+        if not words:
+            return [""]
+        lines = []
+        current = ""
+        for word in words:
+            while len(word) > width:
+                if current:
+                    lines.append(current)
+                    current = ""
+                lines.append(word[:width])
+                word = word[width:]
+            candidate = word if not current else f"{current} {word}"
+            if len(candidate) <= width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines or [""]
 
     @staticmethod
     def _strip_ansi(text):
@@ -1700,14 +1777,15 @@ class UIApplication:
         if distance <= 0 or distance >= height:
             return None
 
+        if self._terminal_scroll_rows_have_raw_cells(cell_rows, int(operation["row"]), height):
+            return None
+
+        scroll_output = self._terminal_frame_diff.render_scroll_region(0, target_top, height, delta)
+        if not scroll_output:
+            return None
+
         self._pending_terminal_scrolls.clear()
-        command = "T" if delta > 0 else "S"
-        parts = [
-            f"\x1b[{target_top + 1};{target_bottom}r",
-            f"\x1b[{target_top + 1};1H",
-            f"\x1b[{distance}{command}",
-            "\x1b[r",
-        ]
+        parts = [scroll_output]
         rows_to_repaint = set()
         if delta > 0:
             rows_to_repaint.update(range(target_top, target_top + distance))
@@ -1725,6 +1803,16 @@ class UIApplication:
         parts.append("\x1b[0m")
         self._sync_terminal_diff_frame([(cell_rows, col_offset, row_offset)], protected_rects=[])
         return "".join(parts)
+
+    @staticmethod
+    def _terminal_scroll_rows_have_raw_cells(rows, start_row, height):
+        first_row = max(0, int(start_row))
+        last_row = min(len(rows), int(start_row) + max(0, int(height)))
+        for row in range(first_row, last_row):
+            for cell in rows[row]:
+                if getattr(cell, "raw", "") or getattr(cell, "raw_skip", False):
+                    return True
+        return False
 
     @staticmethod
     def _combobox_overlay_active(window):
@@ -2085,6 +2173,7 @@ class UIApplication:
             for signum in _terminate_signals:
                 signal.signal(signum, _handle_terminate)
             self._sync_terminal_cell_px(fd)
+            self._maybe_open_sixel_fallback_warning()
             self._enter_terminal_ui()
 
             while self._running:
@@ -2127,6 +2216,7 @@ class UIApplication:
         previous_size = self._get_terminal_size()
 
         try:
+            self._maybe_open_sixel_fallback_warning()
             self._enter_terminal_ui()
 
             while self._running:

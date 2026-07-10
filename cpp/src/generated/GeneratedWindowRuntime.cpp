@@ -1,5 +1,6 @@
 #include "ui/generated/GeneratedWindowRuntime.hpp"
 
+#include "message_box.hpp"
 #include "ui/elements/Button.hpp"
 #include "ui/elements/CheckBox.hpp"
 #include "ui/elements/ComboBox.hpp"
@@ -95,6 +96,7 @@ constexpr int kDefaultHeadlessMcpTypeDelayMs = 0;
 constexpr int kDialogButtonCloseDelayMs = 180;
 constexpr int kJsonRpcErrorCode = -32000;
 constexpr std::string_view kImageHalfBlockGlyph = "▀";
+constexpr std::string_view kSixelFallbackWarning = "Sixel is not supported. Continue with fallback image blocks?";
 constexpr std::string_view kAnsiClearScreen = "\x1b[H\x1b[2J";
 constexpr std::string_view kTerminalTitleSuffix = " [c++]";
 constexpr std::string_view kDefaultMcpHost = "127.0.0.1";
@@ -3245,6 +3247,35 @@ void applyActiveScrollViewFocusBackgroundGaps(TerminalBuffer& buffer,
     return scrollViewByLines(scrollView, delta);
 }
 
+[[nodiscard]] bool elementVisibleInScrollView(ScrollView& scrollView, const Element* element) {
+    if (element == nullptr) {
+        return false;
+    }
+    const Rect viewport = scrollViewViewportClip(scrollView.frame(), scrollView.style());
+    if (viewport.width <= 0 || viewport.height <= 0) {
+        return false;
+    }
+    const Rect scrollFrame = scrollView.frame();
+    for (const ScrollViewChildView& childView : scrollView.childViews(Size{scrollFrame.width, scrollFrame.height})) {
+        if (!childView.visible || childView.element == nullptr) {
+            continue;
+        }
+        std::optional<Rect> targetRect = focusRectWithinScrollChild(
+            *childView.element,
+            element,
+            childView.frame.width,
+            childView.frame.height);
+        if (!targetRect.has_value()) {
+            continue;
+        }
+        const int targetTop = scrollFrame.row + childView.frame.row + targetRect->row;
+        const int targetBottom =
+            targetTop + std::max(kMinimumRenderableSize, targetRect->height);
+        return targetBottom > viewport.row && targetTop < viewport.row + viewport.height;
+    }
+    return false;
+}
+
 void renderEntryCellStyle(TerminalBuffer& buffer, const GeneratedLayoutEntry& entry, Rect cellRect) {
     if (!entry.cellStyle.background.has_value() &&
         !entry.cellStyle.color.has_value() &&
@@ -3309,15 +3340,24 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
     if (col >= buffer.width()) {
         return;
     }
+    Rect clip = cellContentClip(entry, cellRect);
     std::optional<int> elementClipTop;
     std::optional<int> elementClipBottom;
-    if (renderClipTop.has_value() || renderClipBottom.has_value()) {
-        const int clipTop = renderClipTop.value_or(row);
-        const int clipBottom = renderClipBottom.value_or(row + size.height);
-        const int visibleTop = std::max(row, clipTop);
-        const int visibleBottom = std::min(row + size.height, clipBottom);
+    {
+        const int baseClipTop = std::max(0, clip.row);
+        const int baseClipBottom = std::max(baseClipTop, std::min(buffer.height(), clip.row + clip.height));
+        const int absoluteClipTop = std::max(baseClipTop, renderClipTop.value_or(baseClipTop));
+        const int absoluteClipBottom = std::max(
+            absoluteClipTop,
+            std::min(baseClipBottom, renderClipBottom.value_or(baseClipBottom)));
+        const int visibleTop = std::max(row, absoluteClipTop);
+        const int visibleBottom = std::min(row + size.height, absoluteClipBottom);
         elementClipTop = std::max(0, visibleTop - row);
         elementClipBottom = std::max(0, visibleBottom - row);
+        if (elementClipTop == 0 && elementClipBottom == size.height) {
+            elementClipTop = std::nullopt;
+            elementClipBottom = std::nullopt;
+        }
     }
     element->setFrame(Rect{row, col, size.width, size.height});
     const std::optional<Color> parentBackground =
@@ -3455,7 +3495,6 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
                 .clipBottom = elementClipBottom,
             });
     }
-    Rect clip = cellContentClip(entry, cellRect);
     if (dynamic_cast<ComboBox*>(element) != nullptr && elementEditActive && !content.empty()) {
         const int clipBottom = std::max(clip.row + clip.height, row + static_cast<int>(content.size()));
         clip.height = std::max(0, clipBottom - clip.row);
@@ -3892,6 +3931,10 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
 }
 
 [[nodiscard]] bool usesLeaveCommit(const Element* element) {
+    if (const auto* listBox = dynamic_cast<const ListBox*>(element);
+        listBox != nullptr && listBox->multiple()) {
+        return true;
+    }
     return element != nullptr && element->commitMode() == kCommitModeLeave;
 }
 
@@ -4158,6 +4201,13 @@ void moveFocusSpatial(int& focusedIndex, const std::vector<Element*>& focusable,
         remembered.erase(rememberedIt);
     }
     for (Element* element : scoped) {
+        if (element != &scrollView &&
+            element != scopeRoot &&
+            elementVisibleInScrollView(scrollView, element)) {
+            return element;
+        }
+    }
+    for (Element* element : scoped) {
         if (element != &scrollView && element != scopeRoot) {
             return element;
         }
@@ -4378,6 +4428,8 @@ void beginElementEdit(Element* element) {
         textInput->setCursor(static_cast<int>(textInput->value().size()));
     } else if (auto* numberInput = dynamic_cast<NumberInput*>(element)) {
         numberInput->beginEdit();
+    } else if (auto* listBox = dynamic_cast<ListBox*>(element)) {
+        listBox->hideActiveItem();
     }
 }
 
@@ -4449,6 +4501,53 @@ void renderNotification(TerminalBuffer& buffer, std::string_view message) {
     for (std::size_t index = 0; index < text.size() && col + static_cast<int>(index) < buffer.width(); ++index) {
         buffer.setCell(row, col + static_cast<int>(index), styledTextCell(text[index], style));
     }
+}
+
+[[nodiscard]] bool elementNeedsSixelFallbackWarning(const Element* element, std::vector<const void*>& visited);
+
+[[nodiscard]] bool windowNeedsSixelFallbackWarning(const GeneratedWindowBase* window, std::vector<const void*>& visited) {
+    if (window == nullptr) {
+        return false;
+    }
+    if (std::find(visited.begin(), visited.end(), static_cast<const void*>(window)) != visited.end()) {
+        return false;
+    }
+    visited.push_back(static_cast<const void*>(window));
+    for (const auto& element : window->elements()) {
+        if (elementNeedsSixelFallbackWarning(element.get(), visited)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool elementNeedsSixelFallbackWarning(const Element* element, std::vector<const void*>& visited) {
+    if (element == nullptr) {
+        return false;
+    }
+    if (std::find(visited.begin(), visited.end(), static_cast<const void*>(element)) != visited.end()) {
+        return false;
+    }
+    visited.push_back(static_cast<const void*>(element));
+    if (const auto* image = dynamic_cast<const Image*>(element);
+        image != nullptr && imageModeNeedsSixelFallbackWarning(image->renderMode())) {
+        return true;
+    }
+    if (const auto* reusable = dynamic_cast<const ReusableElement*>(element);
+        reusable != nullptr && windowNeedsSixelFallbackWarning(reusable->child(), visited)) {
+        return true;
+    }
+    for (const auto& child : element->children()) {
+        if (elementNeedsSixelFallbackWarning(child.get(), visited)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool windowNeedsSixelFallbackWarning(const GeneratedWindowBase& window) {
+    std::vector<const void*> visited;
+    return windowNeedsSixelFallbackWarning(&window, visited);
 }
 
 [[nodiscard]] bool pasteIntoFocused(Element* focused, std::string_view text) {
@@ -4859,11 +4958,20 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
         if (frame.activeScrollView != nullptr) {
             if (frame.activeScrollViewEditElement != nullptr) {
                 if (key == "Enter") {
+                    const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(frame.activeScrollViewEditElement);
                     (void)handleElementKey(*frame.activeScrollViewEditElement, key);
-                    notifyOwnerAwareTextConfirmed(*frame.window, notifyOptions, frame.activeScrollViewEditElement);
-                    commitEdit(frame.activeScrollViewEditElement);
+                    notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions,
+                                                                frame.activeScrollViewEditElement,
+                                                                previousSelection);
+                    if (const auto* listBox = dynamic_cast<const ListBox*>(frame.activeScrollViewEditElement);
+                        listBox != nullptr && listBox->multiple()) {
+                        return true;
+                    }
+                    Element* confirmedElement = frame.activeScrollViewEditElement;
+                    commitEdit(confirmedElement);
                     frame.editSnapshot.reset();
                     frame.activeScrollViewEditElement = nullptr;
+                    notifyOwnerAwareTextConfirmed(*frame.window, notifyOptions, confirmedElement);
                     return true;
                 }
                 if (isArrowKey(key)) {
@@ -4924,17 +5032,32 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             }
             return true;
         }
-        if (key == "Enter" && usesLeaveCommit(focused)) {
+        if (key == "Enter" && dynamic_cast<ListBox*>(focused) != nullptr) {
+            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
+            (void)handleElementKey(*focused, key);
+            notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
+            if (const auto* listBox = dynamic_cast<const ListBox*>(focused);
+                listBox != nullptr && listBox->multiple()) {
+                frame.editSnapshot.reset();
+                return true;
+            }
+            Element* confirmedElement = focused;
+            commitEdit(confirmedElement);
+            frame.editMode = false;
+            frame.editSnapshot.reset();
+            notifyOwnerAwareTextConfirmed(*frame.window, notifyOptions, confirmedElement);
+        } else if (key == "Enter" && usesLeaveCommit(focused)) {
             const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
             (void)handleElementKey(*focused, key);
             notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
             frame.editSnapshot.reset();
         } else if (key == "Enter" && !usesLeaveCommit(focused)) {
             (void)handleElementKey(*focused, key);
-            notifyOwnerAwareTextConfirmed(*frame.window, notifyOptions, focused);
-            commitEdit(focused);
+            Element* confirmedElement = focused;
+            commitEdit(confirmedElement);
             frame.editMode = false;
             frame.editSnapshot.reset();
+            notifyOwnerAwareTextConfirmed(*frame.window, notifyOptions, confirmedElement);
         } else {
             const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
             (void)handleElementKey(*focused, key);
@@ -5138,6 +5261,8 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
         } else {
             listBox->setSelectedIndex(optionIndex);
         }
+        listBox->setActiveIndex(optionIndex);
+        listBox->hideActiveItem();
         editSnapshot = captureSnapshot(element);
         editMode = true;
         if (scrollViewScopeActive) {
@@ -5643,6 +5768,9 @@ void queueScrollRegionHintForPosition(
         return true;
     }
     if (element.selectedStyle().has_value() && styleHasAnimatedTextGradient(*element.selectedStyle())) {
+        return true;
+    }
+    if (element.activeStyle().has_value() && styleHasAnimatedTextGradient(*element.activeStyle())) {
         return true;
     }
     for (const auto& child : element.children()) {
@@ -7200,8 +7328,12 @@ private:
                 commitEdit(focused);
                 notifyActiveFrameTextChanged(focused);
             } else {
-                notifyActiveFrameTextConfirmed(focused);
-                commitEdit(focused);
+                Element* confirmedElement = focused;
+                commitEdit(confirmedElement);
+                editSnapshot_.reset();
+                editMode = false;
+                activeScrollViewEditElement_ = nullptr;
+                notifyActiveFrameTextConfirmed(confirmedElement);
             }
         }
         editSnapshot_.reset();
@@ -7558,10 +7690,19 @@ private:
             if (activeScrollView_ != nullptr) {
                 if (activeScrollViewEditElement_ != nullptr) {
                     if (key == "Enter") {
-                        notifyActiveFrameTextConfirmed(activeScrollViewEditElement_);
-                        commitEdit(activeScrollViewEditElement_);
+                        const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement_);
+                        (void)handleElementKey(*activeScrollViewEditElement_, key);
+                        notifyActiveFrameValueChangedAfterHandledKey(activeScrollViewEditElement_, previousSelection);
+                        if (const auto* listBox = dynamic_cast<const ListBox*>(activeScrollViewEditElement_);
+                            listBox != nullptr && listBox->multiple()) {
+                            state_.fullRedrawRequested = true;
+                            return toolGetState();
+                        }
+                        Element* confirmedElement = activeScrollViewEditElement_;
+                        commitEdit(confirmedElement);
                         editSnapshot_.reset();
                         activeScrollViewEditElement_ = nullptr;
+                        notifyActiveFrameTextConfirmed(confirmedElement);
                     } else if (isArrowKey(key)) {
                         const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement_);
                         (void)handleElementKey(*activeScrollViewEditElement_, key);
@@ -7591,6 +7732,22 @@ private:
                         notifyMcpEditStarted(focused);
                     }
                 }
+            } else if (key == "Enter" && dynamic_cast<ListBox*>(focused) != nullptr) {
+                const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
+                (void)handleElementKey(*focused, key);
+                notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelection);
+                if (const auto* listBox = dynamic_cast<const ListBox*>(focused);
+                    listBox != nullptr && listBox->multiple()) {
+                    editSnapshot_.reset();
+                } else {
+                    Element* confirmedElement = focused;
+                    commitEdit(confirmedElement);
+                    editMode = options_.keepEditModeAfterConfirm && isEditableElement(*confirmedElement);
+                    if (!editMode) {
+                        editSnapshot_.reset();
+                    }
+                    notifyActiveFrameTextConfirmed(confirmedElement);
+                }
             } else if (key == "Enter" && usesLeaveCommit(focused)) {
                 const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                 (void)handleElementKey(*focused, key);
@@ -7598,12 +7755,13 @@ private:
                 editSnapshot_.reset();
             } else if (key == "Enter" && !usesLeaveCommit(focused)) {
                 (void)handleElementKey(*focused, key);
-                notifyActiveFrameTextConfirmed(focused);
-                commitEdit(focused);
-                editMode = options_.keepEditModeAfterConfirm && isEditableElement(*focused);
+                Element* confirmedElement = focused;
+                commitEdit(confirmedElement);
+                editMode = options_.keepEditModeAfterConfirm && isEditableElement(*confirmedElement);
                 if (!editMode) {
                     editSnapshot_.reset();
                 }
+                notifyActiveFrameTextConfirmed(confirmedElement);
             } else {
                 const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                 (void)handleElementKey(*focused, key);
@@ -9612,6 +9770,10 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
         editMode = true;
         notifyEditStarted(options, initialFocusable[static_cast<std::size_t>(focusedIndex)]);
     }
+    GeneratedWindowStack internalWindowStack;
+    if (options.windowStack == nullptr) {
+        options.windowStack = &internalWindowStack;
+    }
     Element* mouseSelectionElement = nullptr;
     int mouseSelectionAnchor = 0;
     MouseClickCandidate mouseClickCandidate;
@@ -9620,6 +9782,25 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
     std::string notification;
     std::chrono::steady_clock::time_point notificationExpiresAt{};
     bool running = true;
+    std::unique_ptr<dialogs::MessageBoxYesNo> sixelFallbackDialog;
+    if (windowNeedsSixelFallbackWarning(window)) {
+        sixelFallbackDialog = std::make_unique<dialogs::MessageBoxYesNo>(
+            "Warning",
+            std::string(kSixelFallbackWarning));
+        GeneratedWindowFrameOptions frame;
+        frame.className = "MessageBoxYesNo";
+        frame.initialFocusName = "no_btn";
+        frame.onButton = [&options, &sixelFallbackDialog, &running](std::string_view name) {
+            const bool continueRequested = name == "yes_btn";
+            if (options.windowStack != nullptr && sixelFallbackDialog != nullptr) {
+                options.windowStack->remove(*sixelFallbackDialog);
+            }
+            if (!continueRequested) {
+                running = false;
+            }
+        };
+        options.windowStack->push(*sixelFallbackDialog, std::move(frame));
+    }
     bool dirty = true;
     bool clearBeforeNextFrame = false;
     std::size_t previousWindowStackSize = options.windowStack == nullptr ? 0 : options.windowStack->frames().size();
@@ -10189,11 +10370,19 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                 if (activeScrollView != nullptr) {
                     if (activeScrollViewEditElement != nullptr) {
                         if (key == "Enter") {
+                            const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement);
                             (void)handleElementKey(*activeScrollViewEditElement, key);
-                            notifyOwnerAwareTextConfirmed(window, options, activeScrollViewEditElement);
-                            commitEdit(activeScrollViewEditElement);
+                            notifyOwnerAwareValueChangedAfterHandledKey(window, options, activeScrollViewEditElement,
+                                                                        previousSelection);
+                            if (const auto* listBox = dynamic_cast<const ListBox*>(activeScrollViewEditElement);
+                                listBox != nullptr && listBox->multiple()) {
+                                continue;
+                            }
+                            Element* confirmedElement = activeScrollViewEditElement;
+                            commitEdit(confirmedElement);
                             editSnapshot.reset();
                             activeScrollViewEditElement = nullptr;
+                            notifyOwnerAwareTextConfirmed(window, options, confirmedElement);
                         } else if (isArrowKey(key)) {
                             const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement);
                             (void)handleElementKey(*activeScrollViewEditElement, key);
@@ -10228,23 +10417,45 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                 } else if (key == "Tab" && options.onKey && options.onKey(key)) {
                     editSnapshot = captureSnapshot(focused);
                 } else if (key == "Enter") {
-                    if (usesLeaveCommit(focused)) {
+                    if (dynamic_cast<ListBox*>(focused) != nullptr) {
+                        const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
+                        (void)handleElementKey(*focused, key);
+                        notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
+                        if (const auto* listBox = dynamic_cast<const ListBox*>(focused);
+                            listBox != nullptr && listBox->multiple()) {
+                            editSnapshot.reset();
+                            continue;
+                        }
+                        Element* confirmedElement = focused;
+                        commitEdit(confirmedElement);
+                        if (options.keepEditModeAfterConfirm && isEditableElement(*confirmedElement)) {
+                            editSnapshot = captureSnapshot(confirmedElement);
+                            editMode = true;
+                            notifyEditStarted(options, confirmedElement);
+                        } else {
+                            editSnapshot.reset();
+                            editMode = false;
+                        }
+                        notifyOwnerAwareTextConfirmed(window, options, confirmedElement);
+                        continue;
+                    } else if (usesLeaveCommit(focused)) {
                         const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                         (void)handleElementKey(*focused, key);
                         notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
                         continue;
                     }
                     (void)handleElementKey(*focused, key);
-                    notifyOwnerAwareTextConfirmed(window, options, focused);
-                    commitEdit(focused);
-                    if (options.keepEditModeAfterConfirm && isEditableElement(*focused)) {
-                        editSnapshot = captureSnapshot(focused);
+                    Element* confirmedElement = focused;
+                    commitEdit(confirmedElement);
+                    if (options.keepEditModeAfterConfirm && isEditableElement(*confirmedElement)) {
+                        editSnapshot = captureSnapshot(confirmedElement);
                         editMode = true;
-                        notifyEditStarted(options, focused);
+                        notifyEditStarted(options, confirmedElement);
                     } else {
                         editSnapshot.reset();
                         editMode = false;
                     }
+                    notifyOwnerAwareTextConfirmed(window, options, confirmedElement);
                 } else {
                     const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                     (void)handleElementKey(*focused, key);

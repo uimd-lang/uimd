@@ -1710,7 +1710,7 @@ std::string generateCppToolHookDeclarations(const YamlMap& mcpTools)
 
 std::string styleStateName(const std::string& key)
 {
-    for (const std::string& prefix : {"focus-", "edit-", "cursor-", "selected-", "checked-", "unchecked-", "disabled-", "error-"})
+    for (const std::string& prefix : {"focus-", "edit-", "cursor-", "selected-", "active-", "checked-", "unchecked-", "disabled-", "error-"})
     {
         if (key.rfind(prefix, 0) == 0)
         {
@@ -1868,6 +1868,7 @@ std::vector<std::pair<std::string, YamlMap>> styleStatesForElement(
         {"setEditStyle", {}},
         {"setCursorStyle", {}},
         {"setSelectedStyle", {}},
+        {"setActiveStyle", {}},
         {"setCheckedStyle", {}},
         {"setUncheckedStyle", {}},
         {"setDisabledStyle", {}},
@@ -1905,6 +1906,10 @@ std::vector<std::pair<std::string, YamlMap>> styleStatesForElement(
         else if (state == "selected")
         {
             setter = "setSelectedStyle";
+        }
+        else if (state == "active")
+        {
+            setter = "setActiveStyle";
         }
         else if (state == "checked")
         {

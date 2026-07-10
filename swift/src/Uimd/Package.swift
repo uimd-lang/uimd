@@ -8,7 +8,12 @@ let package = Package(
         .library(name: "Uimd", targets: ["Uimd"]),
     ],
     targets: [
-        .target(name: "CUimdImageDecoder"),
+        .target(
+            name: "CUimdImageDecoder",
+            linkerSettings: [
+                .linkedLibrary("dl", .when(platforms: [.linux])),
+            ]
+        ),
         .target(name: "Uimd", dependencies: ["CUimdImageDecoder"]),
         .testTarget(name: "UimdTests", dependencies: ["Uimd"]),
     ]

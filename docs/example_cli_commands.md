@@ -69,10 +69,11 @@ This runs the full local gate: regenerate/build all supported sources including
 reported-bug regression corpora, build C# examples, build Swift examples on
 POSIX when SwiftPM is available, compile Python sources, run Python unit tests,
 run C++ `ctest`, run Swift runtime tests on POSIX, run Python/C++, C++/C#, and
-C++/Swift MCP example compare tests with `--compare-app-size 90x35`, and run
-the UIMD regression parity compare corpus when `tests/regressions/uimd/parity`
-exists. Pass `--no-swift` to the POSIX helper only when the local Swift
-toolchain is intentionally unavailable.
+run direct Swift terminal PTY smoke tests against C++, run Python/C++, C++/C#,
+and C++/Swift MCP example compare tests with `--compare-app-size 90x35`, and
+run the UIMD regression parity compare corpus when
+`tests/regressions/uimd/parity` exists. Pass `--no-swift` to the POSIX helper
+only when the local Swift toolchain is intentionally unavailable.
 
 macOS/Linux (POSIX shell):
 
@@ -87,6 +88,7 @@ Equivalent explicit command sequence:
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
 swift test --package-path swift/src/Uimd
+python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
@@ -478,7 +480,9 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_configured_sixel_library_lookup_honors_directory_override
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_configured_sixel_library_lookup_overrides_ctypes_find_library
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_image_sixel_encoder_uses_libsixel_when_available
+PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_image_sixel_mode_falls_back_for_apple_terminal
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_sixel_unavailable_excepthook_prints_actionable_error_without_traceback
+PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_xterm_term_name_does_not_imply_sixel_support
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_transports.py
@@ -511,6 +515,12 @@ ctest --test-dir cpp\build-windows -C Release --output-on-failure
 
 ```bash
 swift test --package-path swift/src/Uimd
+```
+
+## Swift Direct Terminal Smoke Tests
+
+```bash
+python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
 ```
 
 ## Native CLI Smoke Tests

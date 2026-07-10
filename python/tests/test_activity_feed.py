@@ -161,6 +161,45 @@ class TestActivityFeed(unittest.TestCase):
         self.assertEqual(item.timestamp.text, "")
         self.assertEqual(item.event_type.text, "Deploy")
 
+    def test_add_with_auto_scroll_enabled_returns_to_bottom_after_manual_scroll(self):
+        self.feed.clear_activities()
+        for index in range(len(SAMPLE_ACTIVITIES) * 3):
+            self.feed.append_activity("Info", f"Older activity {index}")
+        self.feed.resize(80, 30)
+        self.feed.feed.child.render()
+        self.feed.feed.child.scroll_to_top()
+
+        self.assertGreater(self.feed.feed.child._view_offset, 0)
+        self.assertFalse(self.feed.feed.child._auto_scroll)
+
+        self.feed.message.value = "Newest activity visible"
+        self.feed.add_current_activity()
+
+        self.assertEqual(self.feed.feed.child._view_offset, 0)
+        self.assertTrue(self.feed.feed.child._auto_scroll)
+        self.assertIn("Newest activity visible", self.plain_feed())
+
+    def test_add_with_auto_scroll_disabled_preserves_manual_scroll(self):
+        self.feed.clear_activities()
+        self.feed._settings_closed({
+            "auto_scroll": False,
+            "show_timestamps": True,
+            "default_type": "Info",
+        })
+        for index in range(len(SAMPLE_ACTIVITIES) * 3):
+            self.feed.append_activity("Info", f"Older activity {index}")
+        self.feed.resize(80, 30)
+        self.feed.feed.child.render()
+        self.feed.feed.child.scroll_to_top()
+        previous_offset = self.feed.feed.child._view_offset
+
+        self.feed.message.value = "Newest activity hidden"
+        self.feed.add_current_activity()
+
+        self.assertEqual(self.feed.feed.child._view_offset, previous_offset)
+        self.assertFalse(self.feed.feed.child._auto_scroll)
+        self.assertNotIn("Newest activity hidden", self.plain_feed())
+
     def test_settings_cancel_leaves_existing_values(self):
         previous = (self.feed.auto_scroll, self.feed.show_timestamps, self.feed.default_type)
 

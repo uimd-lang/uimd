@@ -315,6 +315,12 @@ open class FormularUI: GeneratedWindowBase
                     style.color = Color("#ffffff")
                     return style
                 }())
+        role_listbox.setActiveStyle({
+                    var style = Style()
+                    style.background = Color("#DDDDDD99")
+                    style.color = Color("#FFFFFF")
+                    return style
+                }())
         role_listbox.setDisabledStyle({
                     var style = Style()
                     style.color = Color("#64748b")

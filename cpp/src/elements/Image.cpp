@@ -159,6 +159,12 @@ struct ImageRenderCacheKey
     return text == "1" || text == "true" || text == "yes" || text == "on";
 }
 
+[[nodiscard]] std::string envText(const char* name)
+{
+    const char* value = std::getenv(name);
+    return normalizedMode(value == nullptr ? "" : value, "");
+}
+
 [[nodiscard]] bool terminalSupportsSixel()
 {
     if (truthyEnv("UIMD_FORCE_SIXEL"))
@@ -169,8 +175,34 @@ struct ImageRenderCacheKey
     {
         return false;
     }
-    const std::string term = normalizedMode(std::getenv("TERM") == nullptr ? "" : std::getenv("TERM"), "");
-    if (term.find("sixel") != std::string::npos)
+    const std::string termProgram = envText("TERM_PROGRAM");
+    const std::string term = envText("TERM");
+    const std::string colorTerm = envText("COLORTERM");
+    const std::string itermSession = envText("ITERM_SESSION_ID");
+    const std::string lcTerminal = envText("LC_TERMINAL");
+    if (termProgram.find("apple_terminal") != std::string::npos)
+    {
+        return false;
+    }
+    if (!itermSession.empty() || lcTerminal.find("iterm") != std::string::npos)
+    {
+        return true;
+    }
+    if (termProgram.find("iterm") != std::string::npos ||
+        termProgram.find("wezterm") != std::string::npos ||
+        termProgram.find("mlterm") != std::string::npos ||
+        termProgram.find("foot") != std::string::npos ||
+        termProgram.find("contour") != std::string::npos)
+    {
+        return true;
+    }
+    if (term.find("sixel") != std::string::npos || colorTerm.find("sixel") != std::string::npos)
+    {
+        return true;
+    }
+    if (term.find("mlterm") != std::string::npos ||
+        term.find("foot") != std::string::npos ||
+        term.find("contour") != std::string::npos)
     {
         return true;
     }
@@ -185,6 +217,11 @@ struct ImageRenderCacheKey
 [[nodiscard]] bool deterministicImageFallbackEnabled()
 {
     return truthyEnv("UIMD_DETERMINISTIC_IMAGE_FALLBACK");
+}
+
+[[nodiscard]] bool shouldRenderSixelForMode(std::string_view renderMode)
+{
+    return (renderMode == "sixel" || renderMode == "auto") && terminalSupportsSixel();
 }
 
 [[nodiscard]] bool sixelStatusSucceeded(SixelStatus status)
@@ -535,6 +572,70 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
     return raster.pixels[static_cast<std::size_t>(y) * raster.width + static_cast<std::size_t>(x)];
 }
 
+[[nodiscard]] unsigned char channelFromSample(double value)
+{
+    return static_cast<unsigned char>(std::clamp(static_cast<int>(std::lround(value)), 0, 255));
+}
+
+[[nodiscard]] double intervalOverlap(double firstStart, double firstEnd, double secondStart, double secondEnd)
+{
+    return std::max(0.0, std::min(firstEnd, secondEnd) - std::max(firstStart, secondStart));
+}
+
+[[nodiscard]] Rgb sampleRasterArea(const Raster& source,
+                                   double left,
+                                   double top,
+                                   double right,
+                                   double bottom,
+                                   Rgb background)
+{
+    const double fullArea = std::max(0.000001, (right - left) * (bottom - top));
+    if (source.width == 0 || source.height == 0 || source.pixels.empty() ||
+        right <= 0.0 || bottom <= 0.0 ||
+        left >= static_cast<double>(source.width) ||
+        top >= static_cast<double>(source.height))
+    {
+        return background;
+    }
+
+    double red = static_cast<double>(background.red) * fullArea;
+    double green = static_cast<double>(background.green) * fullArea;
+    double blue = static_cast<double>(background.blue) * fullArea;
+    const int startX = std::max(0, static_cast<int>(std::floor(left)));
+    const int endX = std::min(static_cast<int>(source.width), static_cast<int>(std::ceil(right)));
+    const int startY = std::max(0, static_cast<int>(std::floor(top)));
+    const int endY = std::min(static_cast<int>(source.height), static_cast<int>(std::ceil(bottom)));
+
+    for (int y = startY; y < endY; ++y)
+    {
+        const double yWeight = intervalOverlap(top, bottom, static_cast<double>(y), static_cast<double>(y + 1));
+        if (yWeight <= 0.0)
+        {
+            continue;
+        }
+        for (int x = startX; x < endX; ++x)
+        {
+            const double xWeight = intervalOverlap(left, right, static_cast<double>(x), static_cast<double>(x + 1));
+            if (xWeight <= 0.0)
+            {
+                continue;
+            }
+            const double weight = xWeight * yWeight;
+            const double alpha = static_cast<double>(pixelAlphaAt(source, x, y)) / 255.0;
+            const Rgb pixel = pixelAt(source, x, y);
+            red += (static_cast<double>(pixel.red) - static_cast<double>(background.red)) * alpha * weight;
+            green += (static_cast<double>(pixel.green) - static_cast<double>(background.green)) * alpha * weight;
+            blue += (static_cast<double>(pixel.blue) - static_cast<double>(background.blue)) * alpha * weight;
+        }
+    }
+
+    return {
+        channelFromSample(red / fullArea),
+        channelFromSample(green / fullArea),
+        channelFromSample(blue / fullArea),
+    };
+}
+
 [[nodiscard]] double alignmentOffset(double outer, double inner, const std::string& value,
                                      const std::string& startValue, const std::string& endValue)
 {
@@ -575,24 +676,49 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
     );
     const double drawnWidth = stretch ? targetWidth : std::max(1.0, source.width * scale);
     const double drawnHeight = stretch ? targetHeight : std::max(1.0, source.height * scale);
-    const double xOffset = stretch ? 0.0 : alignmentOffset(targetWidth, drawnWidth, align, "left", "right");
-    const double yOffset = stretch ? 0.0 : alignmentOffset(targetHeight, drawnHeight, verticalAlign, "top", "bottom");
+    const bool cover = fit == "cover";
+    const double xOffset = stretch ? 0.0 : (
+        cover
+            ? alignmentOffset(drawnWidth, targetWidth, align, "left", "right")
+            : alignmentOffset(targetWidth, drawnWidth, align, "left", "right")
+    );
+    const double yOffset = stretch ? 0.0 : (
+        cover
+            ? alignmentOffset(drawnHeight, targetHeight, verticalAlign, "top", "bottom")
+            : alignmentOffset(targetHeight, drawnHeight, verticalAlign, "top", "bottom")
+    );
 
     for (int y = 0; y < targetHeight; ++y)
     {
         for (int x = 0; x < targetWidth; ++x)
         {
-            const double sourceX = stretch ? (static_cast<double>(x) * source.width / targetWidth) : ((x - xOffset) / scale);
-            const double sourceY = stretch ? (static_cast<double>(y) * source.height / targetHeight) : ((y - yOffset) / scale);
-            if (sourceX < 0.0 || sourceY < 0.0 ||
-                sourceX >= static_cast<double>(source.width) || sourceY >= static_cast<double>(source.height))
+            double sourceLeft = 0.0;
+            double sourceRight = 0.0;
+            double sourceTop = 0.0;
+            double sourceBottom = 0.0;
+            if (stretch)
             {
-                continue;
+                sourceLeft = static_cast<double>(x) * source.width / targetWidth;
+                sourceRight = static_cast<double>(x + 1) * source.width / targetWidth;
+                sourceTop = static_cast<double>(y) * source.height / targetHeight;
+                sourceBottom = static_cast<double>(y + 1) * source.height / targetHeight;
             }
-            const int sx = static_cast<int>(std::floor(sourceX));
-            const int sy = static_cast<int>(std::floor(sourceY));
+            else if (cover)
+            {
+                sourceLeft = (static_cast<double>(x) + xOffset) / scale;
+                sourceRight = (static_cast<double>(x + 1) + xOffset) / scale;
+                sourceTop = (static_cast<double>(y) + yOffset) / scale;
+                sourceBottom = (static_cast<double>(y + 1) + yOffset) / scale;
+            }
+            else
+            {
+                sourceLeft = (static_cast<double>(x) - xOffset) / scale;
+                sourceRight = (static_cast<double>(x + 1) - xOffset) / scale;
+                sourceTop = (static_cast<double>(y) - yOffset) / scale;
+                sourceBottom = (static_cast<double>(y + 1) - yOffset) / scale;
+            }
             const std::size_t dstIdx = static_cast<std::size_t>(y) * targetWidth + static_cast<std::size_t>(x);
-            result.pixels[dstIdx] = blendWithBackground(pixelAt(source, sx, sy), pixelAlphaAt(source, sx, sy), background);
+            result.pixels[dstIdx] = sampleRasterArea(source, sourceLeft, sourceTop, sourceRight, sourceBottom, background);
             result.alpha[dstIdx] = 255;
         }
     }
@@ -1202,6 +1328,20 @@ int libsixelWrite(char* data, int size, void* priv)
 
 }  // namespace
 
+bool imageModeNeedsSixelFallbackWarning(std::string_view renderMode)
+{
+    if (deterministicImageFallbackEnabled() || sixelDisabled() || truthyEnv("UIMD_FORCE_SIXEL"))
+    {
+        return false;
+    }
+    const std::string mode = normalizedMode(std::string(renderMode), kDefaultImageRenderMode);
+    if (mode == "fallback")
+    {
+        return false;
+    }
+    return !terminalSupportsSixel();
+}
+
 ScopedImageFallbackRendering::ScopedImageFallbackRendering()
 {
     ++gForceFallbackRenderingDepth;
@@ -1302,9 +1442,7 @@ ImageRenderInfo Image::renderInfo(Size size, ElementRenderState state) const
 
     const bool forceFallback = gForceFallbackRenderingDepth > 0;
     const bool forceCellBackground = gForceCellBackgroundRenderingDepth > 0;
-    const bool sixel = !forceFallback && !forceCellBackground && (
-        (renderMode_ == "sixel" && !sixelDisabled()) ||
-        (renderMode_ == "auto" && terminalSupportsSixel()));
+    const bool sixel = !forceFallback && !forceCellBackground && shouldRenderSixelForMode(renderMode_);
     if (forceCellBackground)
     {
         info.resolvedRenderMode = "cell_background";
@@ -1392,9 +1530,7 @@ RenderedContent Image::render(Size size, ElementRenderState state) const
     const Style style = effectiveStyle(state.focused, state.editMode);
     const bool forceFallback = gForceFallbackRenderingDepth > 0;
     const bool forceCellBackground = gForceCellBackgroundRenderingDepth > 0;
-    const bool sixel = !forceFallback && !forceCellBackground && (
-        (renderMode_ == "sixel" && !sixelDisabled()) ||
-        (renderMode_ == "auto" && terminalSupportsSixel()));
+    const bool sixel = !forceFallback && !forceCellBackground && shouldRenderSixelForMode(renderMode_);
     if (sixel)
     {
         requireSixelForImageRendering();

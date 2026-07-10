@@ -235,6 +235,11 @@ button:
         Background = new Color("#2563eb"),
         Color = new Color("#ffffff")
     });
+        contacts.SetActiveStyle(new Style
+    {
+        Background = new Color("#DDDDDD99"),
+        Color = new Color("#FFFFFF")
+    });
         contacts.SetDisabledStyle(new Style
     {
         Color = new Color("#64748b")

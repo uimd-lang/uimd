@@ -485,6 +485,10 @@ public sealed class TerminalBuffer
         {
             return "";
         }
+        if (ScrollRegionHasRawCells(firstRow, lastRow))
+        {
+            return "";
+        }
 
         TerminalCell[,] before = (TerminalCell[,])previous.Clone();
         if (delta > 0)
@@ -527,6 +531,24 @@ public sealed class TerminalBuffer
             $"\x1b[{firstRow + rowOffset + AnsiBaseRow};1H" +
             $"\x1b[{distance}{command}" +
             "\x1b[r";
+    }
+
+    private bool ScrollRegionHasRawCells(int firstRow, int lastRow)
+    {
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            for (int col = 0; col < Width; ++col)
+            {
+                TerminalCell current = cells[row, col];
+                TerminalCell prior = previous[row, col];
+                if (!string.IsNullOrEmpty(current.Raw) || current.RawSkip ||
+                    !string.IsNullOrEmpty(prior.Raw) || prior.RawSkip)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void RepaintTextOverRaw(

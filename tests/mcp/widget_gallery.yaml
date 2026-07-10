@@ -160,7 +160,14 @@
     - tool: press_key
       arguments:
         key: Down
-    - tool: exit_edit_mode
+    - tool: get_element
+      arguments:
+        element_id: mode_list
+      assert:
+        value: ["Preview"]
+    - tool: press_key
+      arguments:
+        key: Enter
     - tool: get_element
       arguments:
         element_id: mode_list

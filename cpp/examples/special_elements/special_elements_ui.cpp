@@ -552,6 +552,7 @@ listbox:
     raw_list->setFocusStyle(makeStyle({{"background", "#1d2f4d"}, {"color", "#ffffff"}}));
     raw_list->setEditStyle(makeStyle({{"background", "#243a5c"}, {"color", "#cbd5e1"}}));
     raw_list->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    raw_list->setActiveStyle(makeStyle({{"background", "#DDDDDD99"}, {"color", "#FFFFFF"}}));
     raw_list->setDisabledStyle(makeStyle({{"color", "#64748b"}}));
     raw_input = &static_cast<ui::TextInput&>(addElement<ui::TextInput>("raw_input", "Input	valuewide中", 80));
     raw_input->setStyle(makeStyle({{"background", "#0d1524"}, {"color", "#e5e7eb"}}));

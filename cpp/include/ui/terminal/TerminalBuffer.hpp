@@ -69,6 +69,7 @@ public:
 private:
     [[nodiscard]] std::size_t index(int row, int col) const;
     [[nodiscard]] bool inBounds(int row, int col) const;
+    [[nodiscard]] bool scrollRegionHasRawCells(int firstRow, int lastRow) const;
 
     int width_;
     int height_;

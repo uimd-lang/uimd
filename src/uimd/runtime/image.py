@@ -65,6 +65,11 @@ SIXEL_UNAVAILABLE_MESSAGE = (
     "Install libsixel and the Python libsixel binding, or use fallback rendering."
 )
 SIXEL_DISABLE_ENV = "UIMD_DISABLE_SIXEL"
+SIXEL_FORCE_ENV = "UIMD_FORCE_SIXEL"
+SIXEL_UNSUPPORTED_WARNING = (
+    "Sixel graphics are not supported by this terminal. "
+    "Rendering images with fallback blocks."
+)
 LIBSIXEL_PATH_ENV = "UIMD_LIBSIXEL_PATH"
 LIBSIXEL_DIR_ENV = "UIMD_LIBSIXEL_DIR"
 SIXEL_PYTHON_PACKAGE = "libsixel-python"
@@ -429,10 +434,14 @@ class Image(UIElement):
             return "deterministic"
         mode = self.render_mode
         if mode == "sixel":
-            return "fallback" if sixel_disabled() else "sixel"
+            return "sixel" if terminal_supports_sixel() else "fallback"
         if mode == "fallback":
             return "fallback"
         return "sixel" if terminal_supports_sixel() else "fallback"
+
+    def should_warn_sixel_fallback(self):
+        mode = str(self.render_mode or DEFAULT_IMAGE_RENDER_MODE).strip().lower()
+        return image_mode_needs_sixel_warning(mode)
 
     def _image_path(self):
         if not self.source:
@@ -635,23 +644,54 @@ def _terminal_cell_px():
     return _terminal_cell_px_cache
 
 
+def _truthy_env(name):
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _terminal_identity_values():
+    return (
+        os.environ.get("TERM_PROGRAM", "").strip().lower(),
+        os.environ.get("TERM", "").strip().lower(),
+        os.environ.get("COLORTERM", "").strip().lower(),
+        os.environ.get("ITERM_SESSION_ID", "").strip().lower(),
+        os.environ.get("LC_TERMINAL", "").strip().lower(),
+    )
+
+
 def terminal_supports_sixel():
-    if os.environ.get("UIMD_FORCE_SIXEL", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if _truthy_env(SIXEL_FORCE_ENV):
         return True
     if sixel_disabled():
         return False
-    term = os.environ.get("TERM", "").lower()
-    if "sixel" in term:
+    term_program, term, color_term, iterm_session, lc_terminal = _terminal_identity_values()
+    if "apple_terminal" in term_program:
+        return False
+    if iterm_session or "iterm" in lc_terminal:
+        return True
+    if any(token in term_program for token in ("iterm", "wezterm", "mlterm", "foot", "contour")):
+        return True
+    if "sixel" in term or "sixel" in color_term:
+        return True
+    if any(token in term for token in ("mlterm", "foot", "contour")):
         return True
     return False
 
 
 def sixel_disabled():
-    return os.environ.get("UIMD_DISABLE_SIXEL", "").strip().lower() in {"1", "true", "yes", "on"}
+    return _truthy_env(SIXEL_DISABLE_ENV)
 
 
 def deterministic_image_fallback_enabled():
-    return os.environ.get("UIMD_DETERMINISTIC_IMAGE_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
+    return _truthy_env("UIMD_DETERMINISTIC_IMAGE_FALLBACK")
+
+
+def image_mode_needs_sixel_warning(render_mode):
+    if deterministic_image_fallback_enabled() or sixel_disabled() or _truthy_env(SIXEL_FORCE_ENV):
+        return False
+    mode = str(render_mode or DEFAULT_IMAGE_RENDER_MODE).strip().lower()
+    if mode == "fallback":
+        return False
+    return not terminal_supports_sixel()
 
 
 def require_sixel_for_image_rendering():
@@ -827,25 +867,101 @@ def _fit_image(image, width, height, fit, background=(0, 0, 0), align=DEFAULT_IM
     height = max(1, int(height))
     fit = str(fit or DEFAULT_IMAGE_FIT).strip().lower()
     src = image if image.mode == "RGBA" else image.convert("RGBA")
-    if fit == "stretch":
-        return src.resize((width, height), pillow_image.Resampling.LANCZOS)
+    stretch = fit == "stretch"
+    cover = fit == "cover"
+    scale = 0.0 if stretch else (
+        max(width / src.width, height / src.height)
+        if cover
+        else min(width / src.width, height / src.height)
+    )
+    drawn_width = float(width) if stretch else max(1.0, src.width * scale)
+    drawn_height = float(height) if stretch else max(1.0, src.height * scale)
+    x_offset = 0.0 if stretch else (
+        _alignment_offset_float(drawn_width, width, align, "left", "right")
+        if cover
+        else _alignment_offset_float(width, drawn_width, align, "left", "right")
+    )
+    y_offset = 0.0 if stretch else (
+        _alignment_offset_float(drawn_height, height, valign, "top", "bottom")
+        if cover
+        else _alignment_offset_float(height, drawn_height, valign, "top", "bottom")
+    )
 
-    scale = max(width / src.width, height / src.height) if fit == "cover" else min(width / src.width, height / src.height)
-    resized_width = max(1, round(src.width * scale))
-    resized_height = max(1, round(src.height * scale))
-    resized = src.resize((resized_width, resized_height), pillow_image.Resampling.LANCZOS)
-    if fit == "cover":
-        canvas = pillow_image.new("RGBA", (width, height), (*background, 255))
-        left = _alignment_offset(resized_width, width, align, "left", "right")
-        top = _alignment_offset(resized_height, height, valign, "top", "bottom")
-        canvas.alpha_composite(resized.crop((left, top, left + width, top + height)))
-        return canvas
+    pixels = []
+    for y in range(height):
+        for x in range(width):
+            if stretch:
+                source_left = x * src.width / width
+                source_right = (x + 1) * src.width / width
+                source_top = y * src.height / height
+                source_bottom = (y + 1) * src.height / height
+            elif cover:
+                source_left = (x + x_offset) / scale
+                source_right = (x + 1 + x_offset) / scale
+                source_top = (y + y_offset) / scale
+                source_bottom = (y + 1 + y_offset) / scale
+            else:
+                source_left = (x - x_offset) / scale
+                source_right = (x + 1 - x_offset) / scale
+                source_top = (y - y_offset) / scale
+                source_bottom = (y + 1 - y_offset) / scale
+            pixels.append(_sample_image_area(
+                src, source_left, source_top, source_right, source_bottom, background,
+            ) + (255,))
+    result = pillow_image.new("RGBA", (width, height), (*background, 255))
+    result.putdata(pixels)
+    return result
 
-    canvas = pillow_image.new("RGBA", (width, height), (*background, 255))
-    left = _alignment_offset(width, resized_width, align, "left", "right")
-    top = _alignment_offset(height, resized_height, valign, "top", "bottom")
-    canvas.alpha_composite(resized, dest=(left, top))
-    return canvas
+
+def _channel_from_image_sample(value):
+    return max(0, min(255, round(float(value))))
+
+
+def _interval_overlap(first_start, first_end, second_start, second_end):
+    return max(0.0, min(first_end, second_end) - max(first_start, second_start))
+
+
+def _sample_image_area(image, left, top, right, bottom, background=(0, 0, 0)):
+    src = image if image.mode == "RGBA" else image.convert("RGBA")
+    background = tuple(int(channel) for channel in (background or (0, 0, 0)))
+    full_area = max(0.000001, (right - left) * (bottom - top))
+    if (
+        src.width <= 0
+        or src.height <= 0
+        or right <= 0.0
+        or bottom <= 0.0
+        or left >= src.width
+        or top >= src.height
+    ):
+        return background
+
+    red = background[0] * full_area
+    green = background[1] * full_area
+    blue = background[2] * full_area
+    start_x = max(0, int(left // 1))
+    end_x = min(src.width, int(-(-right // 1)))
+    start_y = max(0, int(top // 1))
+    end_y = min(src.height, int(-(-bottom // 1)))
+    pixels = src.load()
+    for sample_y in range(start_y, end_y):
+        y_weight = _interval_overlap(top, bottom, sample_y, sample_y + 1)
+        if y_weight <= 0.0:
+            continue
+        for sample_x in range(start_x, end_x):
+            x_weight = _interval_overlap(left, right, sample_x, sample_x + 1)
+            if x_weight <= 0.0:
+                continue
+            weight = x_weight * y_weight
+            pixel_red, pixel_green, pixel_blue, alpha = pixels[sample_x, sample_y]
+            alpha_ratio = alpha / 255.0
+            red += (pixel_red - background[0]) * alpha_ratio * weight
+            green += (pixel_green - background[1]) * alpha_ratio * weight
+            blue += (pixel_blue - background[2]) * alpha_ratio * weight
+    return (
+        _channel_from_image_sample(red / full_area),
+        _channel_from_image_sample(green / full_area),
+        _channel_from_image_sample(blue / full_area),
+    )
 
 
 def _alignment_offset(outer, inner, value, start_value, end_value):
@@ -906,25 +1022,37 @@ def _image_background_sample_color(image, x, y, target_width, target_height, fit
 
     fit = str(fit or DEFAULT_IMAGE_FIT).strip().lower()
     if fit == "stretch":
-        source_x = int(x * src.width / target_width)
-        source_y = int(y * src.height / target_height)
+        source_left = x * src.width / target_width
+        source_right = (x + 1) * src.width / target_width
+        source_top = y * src.height / target_height
+        source_bottom = (y + 1) * src.height / target_height
     else:
+        cover = fit == "cover"
         scale = max(target_width / src.width, target_height / src.height) if fit == "cover" else min(target_width / src.width, target_height / src.height)
         drawn_width = max(1.0, src.width * scale)
         drawn_height = max(1.0, src.height * scale)
-        x_offset = _alignment_offset_float(target_width, drawn_width, align, "left", "right")
-        y_offset = _alignment_offset_float(target_height, drawn_height, valign, "top", "bottom")
-        source_x_float = (x - x_offset) / scale
-        source_y_float = (y - y_offset) / scale
-        if source_x_float < 0 or source_y_float < 0 or source_x_float >= src.width or source_y_float >= src.height:
-            return _rgb_hex(base)
-        source_x = int(source_x_float)
-        source_y = int(source_y_float)
+        x_offset = (
+            _alignment_offset_float(drawn_width, target_width, align, "left", "right")
+            if cover
+            else _alignment_offset_float(target_width, drawn_width, align, "left", "right")
+        )
+        y_offset = (
+            _alignment_offset_float(drawn_height, target_height, valign, "top", "bottom")
+            if cover
+            else _alignment_offset_float(target_height, drawn_height, valign, "top", "bottom")
+        )
+        if cover:
+            source_left = (x + x_offset) / scale
+            source_right = (x + 1 + x_offset) / scale
+            source_top = (y + y_offset) / scale
+            source_bottom = (y + 1 + y_offset) / scale
+        else:
+            source_left = (x - x_offset) / scale
+            source_right = (x + 1 - x_offset) / scale
+            source_top = (y - y_offset) / scale
+            source_bottom = (y + 1 - y_offset) / scale
 
-    source_x = max(0, min(src.width - 1, source_x))
-    source_y = max(0, min(src.height - 1, source_y))
-    red, green, blue, alpha = src.getpixel((source_x, source_y))
-    return _rgb_hex(_blend_rgb((red, green, blue), base, alpha))
+    return _rgb_hex(_sample_image_area(src, source_left, source_top, source_right, source_bottom, base))
 
 
 def _test_fallback_sample_color(image, x, y, target_width, target_height, fit, align, valign, background_rgb, checker=False):

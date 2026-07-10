@@ -408,6 +408,11 @@ class UIBase(UIInstance):
                         from .style import Style
                         elem.selected_style = Style()
                     elem.selected_style.set(k[len("selected-"):], v)
+                elif k.startswith("active-"):
+                    if elem.active_style is None:
+                        from .style import Style
+                        elem.active_style = Style()
+                    elem.active_style.set(k[len("active-"):], v)
                 elif k.startswith("checked-"):
                     if elem.checked_style is None:
                         from .style import Style
@@ -1239,7 +1244,16 @@ class UIBase(UIInstance):
 
     @staticmethod
     def _uses_leave_commit(elem):
-        return getattr(elem, "commit_mode", "standard") == "leave"
+        return (
+            elem is not None
+            and (
+                getattr(elem, "commit_mode", "standard") == "leave"
+                or (
+                    getattr(elem, "ELEMENT_TYPE", None) == "listbox"
+                    and bool(getattr(elem, "multiple", False))
+                )
+            )
+        )
 
     def _exit_edit_mode(self, commit=True, notify=True):
         if self._active_scrollview_scope is not None:
@@ -1762,6 +1776,8 @@ class UIBase(UIInstance):
                 return True
             if key == "Enter":
                 handled = self._handle_focused_element_key(key)
+                if elem.ELEMENT_TYPE == "listbox" and getattr(elem, "multiple", False):
+                    return handled or True
                 self._end_scoped_child_edit(elem, commit=True)
                 return handled or True
             if key in ("Up", "Down", "Left", "Right") and elem.ELEMENT_TYPE in ("textinput", "textarea", "numberinput", "combobox", "listbox"):
@@ -2326,6 +2342,8 @@ class UIBase(UIInstance):
             elem.selected_items = [elem._options[option_idx]]
         if hasattr(elem, "_active_index"):
             elem._active_index = option_idx
+        if hasattr(elem, "_active_item_visible"):
+            elem._active_item_visible = False
         elem._ensure_selection_visible(option_idx)
         after = list(elem.selected_items or [])
         if after != before:
@@ -2595,17 +2613,15 @@ class UIBase(UIInstance):
                 self._exit_edit_mode(commit=commit)
                 return True
             if key == "Enter":
+                if self._focused_element and self._focused_element.ELEMENT_TYPE == "listbox":
+                    handled = self._handle_focused_element_key(key)
+                    if getattr(self._focused_element, "multiple", False):
+                        return handled or True
+                    self._exit_edit_mode(commit=True)
+                    return handled or True
                 if self._focused_element and self._uses_leave_commit(self._focused_element):
                     handled = self._handle_focused_element_key(key)
-                    if handled and self._focused_element.ELEMENT_TYPE == "listbox":
-                        self._dispatch_confirmed_for(self._focused_element, getattr(self._focused_element, "value", None))
                     return handled
-                if (
-                    self._focused_element
-                    and self._focused_element.ELEMENT_TYPE == "listbox"
-                    and getattr(self._focused_element, "multiple", False)
-                ):
-                    self._handle_focused_element_key(key)
                 self._exit_edit_mode(commit=True)
                 return True
             if self._focused_element:
@@ -2725,16 +2741,45 @@ class UIBase(UIInstance):
             abs_row = getattr(elem, "_cell_row", 0) + elem.row
             abs_col = getattr(elem, "_cell_col", 0) + elem.col
             render_clip = getattr(self, "_render_cell_clip", None)
+            resolved_cell = getattr(elem, "_resolved_cell", None)
             previous_clip = getattr(elem, "_render_cell_clip", None)
-            if use_cell_render and render_clip is not None and getattr(elem, "ELEMENT_TYPE", None) == "image":
+            supports_render_clip = (
+                use_cell_render
+                and getattr(elem, "ELEMENT_TYPE", None) in ("image", "uielement", "viewhost")
+            )
+            if supports_render_clip:
                 elem_top = abs_row
                 elem_bottom = abs_row + max(1, int(getattr(elem, "height", 1) or 1))
-                clip_top = max(elem_top, int(render_clip.get("top", elem_top) or elem_top))
-                clip_bottom = min(elem_bottom, int(render_clip.get("bottom", elem_bottom) or elem_bottom))
-                elem._render_cell_clip = {
-                    "top": max(0, clip_top - elem_top),
-                    "bottom": max(0, clip_bottom - elem_top),
-                }
+                clip_top = 0
+                clip_bottom = self._window_height
+                if render_clip is not None:
+                    top_value = render_clip.get("top", clip_top)
+                    bottom_value = render_clip.get("bottom", clip_bottom)
+                    clip_top = max(clip_top, int(clip_top if top_value is None else top_value))
+                    clip_bottom = min(clip_bottom, int(clip_bottom if bottom_value is None else bottom_value))
+                if resolved_cell is not None:
+                    pad_top, pad_right, pad_bottom, pad_left = getattr(
+                        elem, "_cell_padding", (0, 0, 0, 0)
+                    )
+                    clip_top = max(clip_top, resolved_cell.row + pad_top)
+                    clip_bottom = min(clip_bottom, resolved_cell.row + resolved_cell.height - pad_bottom)
+                clip_top = max(elem_top, clip_top)
+                clip_bottom = min(elem_bottom, clip_bottom)
+                local_top = max(0, clip_top - elem_top)
+                local_bottom = max(0, clip_bottom - elem_top)
+                if previous_clip is not None:
+                    previous_top = previous_clip.get("top", 0)
+                    previous_bottom = previous_clip.get("bottom", elem_bottom - elem_top)
+                    local_top = max(local_top, int(0 if previous_top is None else previous_top))
+                    local_bottom = min(
+                        local_bottom,
+                        int((elem_bottom - elem_top) if previous_bottom is None else previous_bottom),
+                    )
+                if previous_clip is not None or local_top > 0 or local_bottom < elem_bottom - elem_top:
+                    elem._render_cell_clip = {
+                        "top": local_top,
+                        "bottom": local_bottom,
+                    }
             try:
                 rendered = (
                     elem.render_cells()
@@ -2742,7 +2787,7 @@ class UIBase(UIInstance):
                     else elem.render()
                 )
             finally:
-                if use_cell_render and render_clip is not None and getattr(elem, "ELEMENT_TYPE", None) == "image":
+                if supports_render_clip:
                     elem._render_cell_clip = previous_clip
             # ###TODO BEGIN###
             # Element absolute render position:
@@ -2753,7 +2798,6 @@ class UIBase(UIInstance):
             # Gap between cells: if two elements from different structural cells have abs_row/abs_col with a gap,
             # that gap is filled with spaces in _render() (line 867-874).
             # ###TODO END###
-            resolved_cell = getattr(elem, "_resolved_cell", None)
             for i, line in enumerate(rendered):
                 gr = abs_row + i
                 line_col = abs_col

@@ -22,6 +22,7 @@ public class Element
     public Style? EditStyle { get; private set; }
     public Style? CursorStyle { get; private set; }
     public Style? SelectedStyle { get; private set; }
+    public Style? ActiveStyle { get; private set; }
     public Style? CheckedStyle { get; private set; }
     public Style? UncheckedStyle { get; private set; }
     public Style? DisabledStyle { get; private set; }
@@ -66,6 +67,11 @@ public class Element
     public void SetSelectedStyle(Style style)
     {
         SelectedStyle = style;
+    }
+
+    public void SetActiveStyle(Style style)
+    {
+        ActiveStyle = style;
     }
 
     public void SetCheckedStyle(Style style)
@@ -1003,17 +1009,48 @@ public sealed class Image : Element
         {
             return false;
         }
+        string termProgram = (Environment.GetEnvironmentVariable("TERM_PROGRAM") ?? "").Trim().ToLowerInvariant();
         string term = (Environment.GetEnvironmentVariable("TERM") ?? "").Trim().ToLowerInvariant();
-        return term.Contains("sixel", StringComparison.Ordinal);
+        string colorTerm = (Environment.GetEnvironmentVariable("COLORTERM") ?? "").Trim().ToLowerInvariant();
+        string itermSession = (Environment.GetEnvironmentVariable("ITERM_SESSION_ID") ?? "").Trim().ToLowerInvariant();
+        string lcTerminal = (Environment.GetEnvironmentVariable("LC_TERMINAL") ?? "").Trim().ToLowerInvariant();
+        if (termProgram.Contains("apple_terminal", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        if (!string.IsNullOrEmpty(itermSession) || lcTerminal.Contains("iterm", StringComparison.Ordinal))
+        {
+            return true;
+        }
+        if (termProgram.Contains("iterm", StringComparison.Ordinal) ||
+            termProgram.Contains("wezterm", StringComparison.Ordinal) ||
+            termProgram.Contains("mlterm", StringComparison.Ordinal) ||
+            termProgram.Contains("foot", StringComparison.Ordinal) ||
+            termProgram.Contains("contour", StringComparison.Ordinal))
+        {
+            return true;
+        }
+        if (term.Contains("sixel", StringComparison.Ordinal) || colorTerm.Contains("sixel", StringComparison.Ordinal))
+        {
+            return true;
+        }
+        return term.Contains("mlterm", StringComparison.Ordinal) ||
+            term.Contains("foot", StringComparison.Ordinal) ||
+            term.Contains("contour", StringComparison.Ordinal);
     }
 
     private bool ShouldRenderSixel()
     {
-        if (SixelDisabled())
+        return (RenderMode == "sixel" || RenderMode == "auto") && TerminalSupportsSixel();
+    }
+
+    public bool ShouldWarnSixelFallback()
+    {
+        if (DeterministicImageFallbackEnabled() || SixelDisabled() || TruthyEnv(ForceSixelEnv))
         {
             return false;
         }
-        return RenderMode == "sixel" || RenderMode == "auto" && TerminalSupportsSixel();
+        return RenderMode != "fallback" && !TerminalSupportsSixel();
     }
 
     private List<List<TerminalCell>> FallbackImageContent(
@@ -1664,30 +1701,50 @@ public sealed class Image : Element
         }
         fit = NormalizedMode(fit, DefaultImageFit);
         bool stretch = fit == "stretch";
+        bool cover = fit == "cover";
         double scale = stretch
             ? 0.0
-            : fit == "cover"
+            : cover
                 ? Math.Max(targetWidth / (double)raster.Width, targetHeight / (double)raster.Height)
                 : Math.Min(targetWidth / (double)raster.Width, targetHeight / (double)raster.Height);
         double drawnWidth = stretch ? targetWidth : Math.Max(1.0, raster.Width * scale);
         double drawnHeight = stretch ? targetHeight : Math.Max(1.0, raster.Height * scale);
-        double xOffset = stretch ? 0.0 : AlignmentOffsetFloat(targetWidth, drawnWidth, align, "left", "right");
-        double yOffset = stretch ? 0.0 : AlignmentOffsetFloat(targetHeight, drawnHeight, verticalAlign, "top", "bottom");
+        double xOffset = stretch ? 0.0 : cover
+            ? AlignmentOffsetFloat(drawnWidth, targetWidth, align, "left", "right")
+            : AlignmentOffsetFloat(targetWidth, drawnWidth, align, "left", "right");
+        double yOffset = stretch ? 0.0 : cover
+            ? AlignmentOffsetFloat(drawnHeight, targetHeight, verticalAlign, "top", "bottom")
+            : AlignmentOffsetFloat(targetHeight, drawnHeight, verticalAlign, "top", "bottom");
         for (int y = 0; y < targetHeight; ++y)
         {
             for (int x = 0; x < targetWidth; ++x)
             {
-                RgbSample color = background;
-                double sourceX = stretch ? x * raster.Width / (double)targetWidth : (x - xOffset) / scale;
-                double sourceY = stretch ? y * raster.Height / (double)targetHeight : (y - yOffset) / scale;
-                if (sourceX >= 0.0 &&
-                    sourceY >= 0.0 &&
-                    sourceX < raster.Width &&
-                    sourceY < raster.Height)
+                double sourceLeft;
+                double sourceRight;
+                double sourceTop;
+                double sourceBottom;
+                if (stretch)
                 {
-                    RgbaSample pixel = raster.PixelAt((int)Math.Floor(sourceX), (int)Math.Floor(sourceY));
-                    color = BlendRgb(new RgbSample(pixel.Red, pixel.Green, pixel.Blue), background, pixel.Alpha);
+                    sourceLeft = x * raster.Width / (double)targetWidth;
+                    sourceRight = (x + 1) * raster.Width / (double)targetWidth;
+                    sourceTop = y * raster.Height / (double)targetHeight;
+                    sourceBottom = (y + 1) * raster.Height / (double)targetHeight;
                 }
+                else if (cover)
+                {
+                    sourceLeft = (x + xOffset) / scale;
+                    sourceRight = (x + 1 + xOffset) / scale;
+                    sourceTop = (y + yOffset) / scale;
+                    sourceBottom = (y + 1 + yOffset) / scale;
+                }
+                else
+                {
+                    sourceLeft = (x - xOffset) / scale;
+                    sourceRight = (x + 1 - xOffset) / scale;
+                    sourceTop = (y - yOffset) / scale;
+                    sourceBottom = (y + 1 - yOffset) / scale;
+                }
+                RgbSample color = SampleRasterArea(raster, sourceLeft, sourceTop, sourceRight, sourceBottom, background);
                 int offset = (y * targetWidth + x) * 4;
                 data[offset] = (byte)color.Red;
                 data[offset + 1] = (byte)color.Green;
@@ -1696,6 +1753,71 @@ public sealed class Image : Element
             }
         }
         return new Raster(targetWidth, targetHeight, data);
+    }
+
+    private static int ChannelFromSample(double value)
+    {
+        return Math.Clamp((int)Math.Round(value), 0, byte.MaxValue);
+    }
+
+    private static double IntervalOverlap(double firstStart, double firstEnd, double secondStart, double secondEnd)
+    {
+        return Math.Max(0.0, Math.Min(firstEnd, secondEnd) - Math.Max(firstStart, secondStart));
+    }
+
+    private static RgbSample SampleRasterArea(
+        Raster raster,
+        double left,
+        double top,
+        double right,
+        double bottom,
+        RgbSample background)
+    {
+        double fullArea = Math.Max(0.000001, (right - left) * (bottom - top));
+        if (raster.Width <= 0 ||
+            raster.Height <= 0 ||
+            right <= 0.0 ||
+            bottom <= 0.0 ||
+            left >= raster.Width ||
+            top >= raster.Height)
+        {
+            return background;
+        }
+
+        double red = background.Red * fullArea;
+        double green = background.Green * fullArea;
+        double blue = background.Blue * fullArea;
+        int startX = Math.Max(0, (int)Math.Floor(left));
+        int endX = Math.Min(raster.Width, (int)Math.Ceiling(right));
+        int startY = Math.Max(0, (int)Math.Floor(top));
+        int endY = Math.Min(raster.Height, (int)Math.Ceiling(bottom));
+        for (int y = startY; y < endY; ++y)
+        {
+            double yWeight = IntervalOverlap(top, bottom, y, y + 1);
+            if (yWeight <= 0.0)
+            {
+                continue;
+            }
+            for (int x = startX; x < endX; ++x)
+            {
+                double xWeight = IntervalOverlap(left, right, x, x + 1);
+                if (xWeight <= 0.0)
+                {
+                    continue;
+                }
+                double weight = xWeight * yWeight;
+                RgbaSample pixel = raster.PixelAt(x, y);
+                double alpha = pixel.Alpha / (double)byte.MaxValue;
+                red += (pixel.Red - background.Red) * alpha * weight;
+                green += (pixel.Green - background.Green) * alpha * weight;
+                blue += (pixel.Blue - background.Blue) * alpha * weight;
+            }
+        }
+
+        return new RgbSample(
+            ChannelFromSample(red / fullArea),
+            ChannelFromSample(green / fullArea),
+            ChannelFromSample(blue / fullArea));
     }
 
     private static IEnumerable<string> ImageInfoSampleSignature(
@@ -3396,7 +3518,9 @@ public sealed class ListBox : Element
     public List<string> Options { get; }
     public IReadOnlyList<string> DisabledValues => disabledValues;
     public int SelectedIndex { get; private set; }
+    public int ActiveIndex { get; private set; }
     public bool Multiple { get; private set; }
+    public bool ActiveItemVisible { get; private set; }
     private readonly List<int> selectedIndices = new();
     private readonly List<string> disabledValues = new();
     private int scrollOffset;
@@ -3453,18 +3577,16 @@ public sealed class ListBox : Element
         if (Options.Count == 0)
         {
             SelectedIndex = 0;
+            ActiveIndex = 0;
             selectedIndices.Clear();
             scrollOffset = 0;
             return;
         }
         SelectedIndex = Math.Clamp(index, 0, Options.Count - 1);
+        ActiveIndex = SelectedIndex;
         if (!Multiple)
         {
             selectedIndices.Clear();
-            selectedIndices.Add(SelectedIndex);
-        }
-        else if (selectedIndices.Count == 0)
-        {
             selectedIndices.Add(SelectedIndex);
         }
         if (lastViewportHeight > 0)
@@ -3479,6 +3601,7 @@ public sealed class ListBox : Element
         if (Options.Count == 0)
         {
             SelectedIndex = 0;
+            ActiveIndex = 0;
             scrollOffset = 0;
             return;
         }
@@ -3497,9 +3620,11 @@ public sealed class ListBox : Element
         if (selectedIndices.Count == 0)
         {
             SelectedIndex = Math.Clamp(SelectedIndex, 0, Options.Count - 1);
+            ActiveIndex = SelectedIndex;
             return;
         }
         SelectedIndex = selectedIndices[^1];
+        ActiveIndex = SelectedIndex;
         if (lastViewportHeight > 0)
         {
             EnsureSelectedVisible(lastViewportHeight);
@@ -3511,15 +3636,16 @@ public sealed class ListBox : Element
         if (Options.Count == 0)
         {
             SelectedIndex = 0;
+            ActiveIndex = 0;
             selectedIndices.Clear();
             scrollOffset = 0;
             return;
         }
-        SelectedIndex = Math.Clamp(index, 0, Options.Count - 1);
-        int existing = selectedIndices.IndexOf(SelectedIndex);
+        SetActiveIndex(index);
+        int existing = selectedIndices.IndexOf(ActiveIndex);
         if (existing < 0)
         {
-            selectedIndices.Add(SelectedIndex);
+            selectedIndices.Add(ActiveIndex);
         }
         else
         {
@@ -3545,6 +3671,22 @@ public sealed class ListBox : Element
         SetSelectedIndices(indices);
     }
 
+    public void SetActiveIndex(int index)
+    {
+        if (Options.Count == 0)
+        {
+            SelectedIndex = 0;
+            ActiveIndex = 0;
+            scrollOffset = 0;
+            return;
+        }
+        ActiveIndex = Math.Clamp(index, 0, Options.Count - 1);
+        if (lastViewportHeight > 0)
+        {
+            EnsureIndexVisible(ActiveIndex, lastViewportHeight);
+        }
+    }
+
     public bool ScrollLines(int delta)
     {
         int viewportHeight = lastViewportHeight > 0 ? lastViewportHeight : Math.Max(1, Frame.Height);
@@ -3558,29 +3700,62 @@ public sealed class ListBox : Element
         return true;
     }
 
+    public void ShowActiveItem()
+    {
+        ActiveItemVisible = true;
+    }
+
+    public void HideActiveItem()
+    {
+        ActiveItemVisible = false;
+    }
+
+    private static Style MergeListBoxRowLayer(Style baseStyle, Style? layer)
+    {
+        if (layer is null)
+        {
+            return baseStyle;
+        }
+        Color? inheritedBackground = baseStyle.Background;
+        baseStyle.Merge(layer);
+        if (layer.Background?.Rgba is { Alpha: < 255 } && inheritedBackground is not null)
+        {
+            baseStyle.Background = layer.Background.BlendOver(inheritedBackground);
+        }
+        return baseStyle;
+    }
+
     public override bool HandleKey(string key)
     {
         if (key == "Up")
         {
-            SetSelectedIndex(SelectedIndex - 1);
+            SetActiveIndex(ActiveIndex - 1);
+            ShowActiveItem();
             return true;
         }
         if (key == "Down")
         {
-            SetSelectedIndex(SelectedIndex + 1);
+            SetActiveIndex(ActiveIndex + 1);
+            ShowActiveItem();
             return true;
         }
-        if (key == "Enter" && Multiple && SelectedIndex >= 0 && SelectedIndex < Options.Count)
+        if (key == "Enter" && Multiple && ActiveIndex >= 0 && ActiveIndex < Options.Count)
         {
-            int existing = selectedIndices.IndexOf(SelectedIndex);
+            int existing = selectedIndices.IndexOf(ActiveIndex);
             if (existing < 0)
             {
-                selectedIndices.Add(SelectedIndex);
+                selectedIndices.Add(ActiveIndex);
             }
             else
             {
                 selectedIndices.RemoveAt(existing);
             }
+            return true;
+        }
+        if (key == "Enter")
+        {
+            SetSelectedIndex(ActiveIndex);
+            HideActiveItem();
             return true;
         }
         return false;
@@ -3596,20 +3771,33 @@ public sealed class ListBox : Element
         lastViewportHeight = height;
         int maxOffset = Math.Max(0, Options.Count - height);
         scrollOffset = Math.Clamp(scrollOffset, 0, maxOffset);
-        EnsureSelectedVisible(height);
+        if (state.EditMode && ActiveItemVisible)
+        {
+            EnsureIndexVisible(ActiveIndex, height);
+        }
+        else
+        {
+            EnsureSelectedVisible(height);
+        }
         bool hasAbove = scrollOffset > 0;
         bool hasBelow = scrollOffset + height < Options.Count;
         for (int row = 0; row < height; ++row)
         {
             int optionIndex = scrollOffset + row;
             string text = optionIndex < Options.Count ? Options[optionIndex] : "";
-            bool selected = optionIndex < Options.Count &&
-                (selectedIndices.Contains(optionIndex) || (Multiple && state.EditMode && optionIndex == SelectedIndex));
+            bool selected = optionIndex < Options.Count && selectedIndices.Contains(optionIndex);
+            bool active = optionIndex < Options.Count && state.EditMode && ActiveItemVisible && optionIndex == ActiveIndex;
             bool disabled = optionIndex < Options.Count && disabledValues.Contains(Options[optionIndex]);
             Style rowStyle = style.Clone();
-            if (selected && SelectedStyle is not null)
+            if (selected)
             {
-                rowStyle.Merge(SelectedStyle);
+                rowStyle = MergeListBoxRowLayer(rowStyle, SelectedStyle);
+            }
+            if (active)
+            {
+                rowStyle = ActiveStyle is not null
+                    ? MergeListBoxRowLayer(rowStyle, ActiveStyle)
+                    : selected ? rowStyle : MergeListBoxRowLayer(rowStyle, SelectedStyle);
             }
             if (disabled)
             {
@@ -3633,16 +3821,21 @@ public sealed class ListBox : Element
         return rows;
     }
 
+    private void EnsureIndexVisible(int index, int height)
+    {
+        if (index < scrollOffset)
+        {
+            scrollOffset = index;
+        }
+        else if (index >= scrollOffset + height)
+        {
+            scrollOffset = index - height + 1;
+        }
+    }
+
     private void EnsureSelectedVisible(int height)
     {
-        if (SelectedIndex < scrollOffset)
-        {
-            scrollOffset = SelectedIndex;
-        }
-        else if (SelectedIndex >= scrollOffset + height)
-        {
-            scrollOffset = SelectedIndex - height + 1;
-        }
+        EnsureIndexVisible(SelectedIndex, height);
     }
 }
 

@@ -5,6 +5,7 @@ internal readonly record struct ActivityItemData(string Timestamp, string EventT
 public sealed class ActivityFeedPanel : ActivityFeedPanelUI
 {
     private readonly List<ActivityItemData> activities = new();
+    private bool autoScrollEnabled;
 
     public ActivityFeedPanel()
     {
@@ -22,11 +23,20 @@ public sealed class ActivityFeedPanel : ActivityFeedPanelUI
     {
         activities.Add(new ActivityItemData(timestamp, eventType, message, showTimestamp));
         InvalidateDynamicChildren();
+        if (autoScrollEnabled)
+        {
+            _ = ScrollToBottom();
+        }
     }
 
-    public void SetAutoScroll(bool enabled)
+    public new void SetAutoScroll(bool enabled)
     {
+        autoScrollEnabled = enabled;
         ScrollView().SetAutoScroll(enabled);
+        if (autoScrollEnabled)
+        {
+            _ = ScrollToBottom();
+        }
     }
 
     public int ActivityCount()

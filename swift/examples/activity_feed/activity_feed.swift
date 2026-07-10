@@ -167,67 +167,26 @@ private func renderActivityItem(_ item: ActivityItemData, width: Int) -> [[Termi
     return rendered
 }
 
-private func stylePaddingTop(_ style: Style) -> Int
-{
-    max(0, style.paddingTop ?? style.padding ?? 0)
-}
-
-private func stylePaddingRight(_ style: Style) -> Int
-{
-    max(0, style.paddingRight ?? style.padding ?? 0)
-}
-
-private func stylePaddingBottom(_ style: Style) -> Int
-{
-    max(0, style.paddingBottom ?? style.padding ?? 0)
-}
-
-private func stylePaddingLeft(_ style: Style) -> Int
-{
-    max(0, style.paddingLeft ?? style.padding ?? 0)
-}
-
-private func constrainedPadding(size: Size, style: Style) -> ConstrainedPadding
-{
-    let width = max(1, size.width)
-    let height = max(1, size.height)
-    var padding = ConstrainedPadding()
-    padding.left = min(stylePaddingLeft(style), width - 1)
-    padding.right = min(stylePaddingRight(style), width - padding.left - 1)
-    padding.top = min(stylePaddingTop(style), height - 1)
-    padding.bottom = min(stylePaddingBottom(style), height - padding.top - 1)
-    return padding
-}
-
-private func blankRow(width: Int, style: Style) -> [TerminalCell]
-{
-    Array(repeating: TerminalCell(" ", foreground: nil, background: style.background), count: max(1, width))
-}
-
-private func fitRow(_ row: [TerminalCell], width: Int, fillCell: TerminalCell) -> [TerminalCell]
-{
-    let safeWidth = max(1, width)
-    if row.count > safeWidth
-    {
-        return Array(row.prefix(safeWidth))
-    }
-    if row.count < safeWidth
-    {
-        return row + Array(repeating: fillCell, count: safeWidth - row.count)
-    }
-    return row
-}
-
 private final class ActivityFeedPanel: ActivityFeedPanelUI
 {
     private var activities: [ActivityItemData] = []
-    private var autoScroll = false
-    private var viewOffset = 0
+    private var autoScrollEnabled = false
+
+    override init()
+    {
+        super.init()
+        setDynamicChildrenRenderer
+        {
+            [weak self] width in
+            self?.renderActivities(width: width) ?? []
+        }
+    }
 
     func clearActivities()
     {
         activities.removeAll()
-        viewOffset = 0
+        clearChildren()
+        invalidateDynamicChildren()
     }
 
     func appendActivity(timestamp: String, eventType: String, message: String, showTimestamp: Bool)
@@ -238,18 +197,20 @@ private final class ActivityFeedPanel: ActivityFeedPanelUI
             message: message,
             showTimestamp: showTimestamp
         ))
-        if autoScroll
+        invalidateDynamicChildren()
+        if autoScrollEnabled
         {
-            viewOffset = 0
+            scrollToBottom()
         }
     }
 
     override func setAutoScroll(_ enabled: Bool)
     {
-        autoScroll = enabled
-        if enabled
+        autoScrollEnabled = enabled
+        scrollView().setAutoScroll(enabled)
+        if autoScrollEnabled
         {
-            viewOffset = 0
+            scrollToBottom()
         }
     }
 
@@ -258,74 +219,9 @@ private final class ActivityFeedPanel: ActivityFeedPanelUI
         activities.count
     }
 
-    override func renderContent(size: Size, focusedName: String?, editMode: Bool) -> [[TerminalCell]]
+    private func renderActivities(width: Int) -> [[[TerminalCell]]]
     {
-        _ = focusedName
-        _ = editMode
-        let width = max(1, size.width)
-        let height = max(1, size.height)
-        let panelStyle = scrollView().style
-        let padding = constrainedPadding(size: Size(width: width, height: height), style: panelStyle)
-        let viewportWidth = max(1, width - padding.left - padding.right)
-        let viewportHeight = max(1, height - padding.top - padding.bottom)
-        let gap = max(0, panelStyle.gap ?? 0)
-        let fill = blankRow(width: viewportWidth, style: panelStyle)
-        let fillCell = fill[0]
-
-        var rows: [[TerminalCell]] = []
-        for index in activities.indices
-        {
-            for row in renderActivityItem(activities[index], width: viewportWidth)
-            {
-                rows.append(fitRow(row, width: viewportWidth, fillCell: fillCell))
-            }
-            if index + 1 < activities.count
-            {
-                rows.append(contentsOf: Array(repeating: fill, count: gap))
-            }
-        }
-
-        let naturalSkip = max(0, rows.count - viewportHeight)
-        if autoScroll
-        {
-            viewOffset = 0
-        }
-        viewOffset = min(viewOffset, naturalSkip)
-        let skip = naturalSkip - viewOffset
-        var visible = Array(rows.dropFirst(skip).prefix(viewportHeight))
-        while visible.count < viewportHeight
-        {
-            visible.append(fill)
-        }
-        if skip > 0 && !visible.isEmpty && !visible[0].isEmpty
-        {
-            visible[0][viewportWidth - 1].text = "^"
-        }
-        if viewOffset > 0 && !visible.isEmpty && !visible[visible.count - 1].isEmpty
-        {
-            visible[visible.count - 1][viewportWidth - 1].text = "v"
-        }
-
-        let fullBlank = blankRow(width: width, style: panelStyle)
-        var padded: [[TerminalCell]] = []
-        while padded.count < padding.top
-        {
-            padded.append(fullBlank)
-        }
-        for row in visible
-        {
-            var paddedRow = fullBlank
-            for col in row.indices where padding.left + col < width
-            {
-                paddedRow[padding.left + col] = row[col]
-            }
-            padded.append(paddedRow)
-        }
-        while padded.count < height
-        {
-            padded.append(fullBlank)
-        }
-        return Array(padded.prefix(height))
+        activities.map { renderActivityItem($0, width: max(1, width)) }
     }
 }
 

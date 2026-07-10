@@ -24,6 +24,7 @@ private:
     [[nodiscard]] std::vector<ui::RenderedContent> renderActivities(int width) const;
 
     std::vector<ActivityItemData> activities_;
+    bool autoScrollEnabled_ = false;
 };
 
 }  // namespace activity_feed_example

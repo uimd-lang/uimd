@@ -455,9 +455,18 @@ private:
                 browser_->selectEntry(browser_->entries->selectedIndex());
             }
         };
-        frame.onTextConfirmed = frame.onTextChanged;
+        frame.onTextConfirmed = [this](std::string_view name, std::string_view)
+        {
+            if (browser_ != nullptr && name == "entries")
+            {
+                browser_->selectEntry(browser_->entries->selectedIndex());
+                acceptBrowserCurrent();
+            }
+        };
         frame.onKeyBeforeFocusedElement = [this](std::string_view key, std::string_view name, bool editMode)
         {
+            (void)name;
+            (void)editMode;
             if (browser_ == nullptr)
             {
                 return false;
@@ -465,11 +474,6 @@ private:
             if (key == "Escape")
             {
                 closeBrowser("");
-                return true;
-            }
-            if (name == "entries" && editMode && key == "Enter")
-            {
-                acceptBrowserCurrent();
                 return true;
             }
             return false;

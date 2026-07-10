@@ -120,6 +120,12 @@ open class CategoriesViewUI: GeneratedWindowBase
                     style.color = Color("#ffffff")
                     return style
                 }())
+        categories.setActiveStyle({
+                    var style = Style()
+                    style.background = Color("#DDDDDD99")
+                    style.color = Color("#FFFFFF")
+                    return style
+                }())
         categories.setDisabledStyle({
                     var style = Style()
                     style.color = Color("#64748b")

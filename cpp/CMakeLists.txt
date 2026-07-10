@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.4.19 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.4.20 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -41,6 +41,11 @@ add_library(ui_cpp_runtime STATIC
     src/elements/ReusableElement.cpp
     src/elements/ScrollView.cpp
     src/generated/GeneratedWindowRuntime.cpp
+    dialogs/message_box.cpp
+    dialogs/message_box_ok_ui.cpp
+    dialogs/message_box_ok_cancel_ui.cpp
+    dialogs/message_box_yes_no_ui.cpp
+    dialogs/message_box_yes_no_cancel_ui.cpp
     src/terminal/Clipboard.cpp
     src/terminal/Input.cpp
     src/terminal/TerminalBackend.cpp
@@ -55,6 +60,8 @@ target_include_directories(ui_cpp_runtime
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/lodepng>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/dialogs>
 )
 
 target_link_libraries(ui_cpp_runtime PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
@@ -73,11 +80,6 @@ message(STATUS "libsixel: runtime-loaded for non-fallback Image rendering")
 add_library(ui_cpp_dialogs STATIC
     dialogs/file_browser.cpp
     dialogs/file_browser_ui.cpp
-    dialogs/message_box.cpp
-    dialogs/message_box_ok_ui.cpp
-    dialogs/message_box_ok_cancel_ui.cpp
-    dialogs/message_box_yes_no_ui.cpp
-    dialogs/message_box_yes_no_cancel_ui.cpp
 )
 
 target_include_directories(ui_cpp_dialogs

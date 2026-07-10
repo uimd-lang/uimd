@@ -16,7 +16,7 @@ from runtime.application import MOUSE_WHEEL_COALESCED_MAX_DELTA, UIApplication
 from runtime.uiwindow import UIWindow
 from runtime.UIScrollView import UIScrollView
 from runtime.UIBase import _strip_ansi
-from runtime.elements import Button, ComboBox, Label, ListBox, NumberInput, TextArea, TextInput
+from runtime.elements import Button, ComboBox, Label, ListBox, NumberInput, TextArea, TextInput, ViewHost
 from runtime.rendering import (
     ANSI_CLEAR_SCREEN,
     ANSI_SYNC_UPDATE_BEGIN,
@@ -30,6 +30,7 @@ from activity_feed_ui import ActivityFeedUI
 from calculator_ui import CalculatorUI
 from cells_ui import CellsUI
 from dialogs import FileBrowser
+from uimd.dialogs import MessageBoxYesNo
 
 
 class RawCellsElement:
@@ -61,6 +62,36 @@ class RawCellsElement:
         ]
         row[0] = TerminalCell(" ", raw="RAW", raw_width=width, raw_height=1)
         return [row]
+
+
+class ClipRecordingRawImage(RawCellsElement):
+    def __init__(self, name):
+        super().__init__(name)
+        self.width = 3
+        self.height = 4
+        self.row = 3
+        self.render_clip_seen = None
+
+    def render_cells(self):
+        self.render_clip_seen = getattr(self, "_render_cell_clip", None)
+        clip_top = 0
+        clip_bottom = self.height
+        if self.render_clip_seen is not None:
+            clip_top = int(self.render_clip_seen.get("top", clip_top))
+            clip_bottom = int(self.render_clip_seen.get("bottom", clip_bottom))
+        visible_rows = max(0, clip_bottom - clip_top)
+        rows = [
+            [TerminalCell(" ") for _ in range(self.width)]
+            for _ in range(self.height)
+        ]
+        if visible_rows > 0:
+            rows[clip_top][0] = TerminalCell(" ", raw="RAW", raw_width=self.width, raw_height=visible_rows)
+            for row in range(clip_top, clip_bottom):
+                for col in range(1, self.width):
+                    rows[row][col] = TerminalCell(" ", raw_skip=True)
+                if row != clip_top:
+                    rows[row][0] = TerminalCell(" ", raw_skip=True)
+        return rows
 
 
 class FixedRenderChild:
@@ -289,6 +320,26 @@ class TestUIApplication(unittest.TestCase):
         self.assertTrue(any("Copied to clipboard" in line for line in lines))
         self.assertIn("Copied to clipboard", lines[1])
 
+    def test_sixel_fallback_warning_opens_standard_message_box(self):
+        """Sixel fallback startup warning should use the standard MessageBox modal."""
+        app = UIApplication(width=72, height=10)
+        w = UIWindow(title="Test")
+        app.open(w)
+        app._running = True
+
+        with patch.object(UIApplication, "_window_needs_sixel_fallback_warning", return_value=True):
+            app._maybe_open_sixel_fallback_warning()
+            app._maybe_open_sixel_fallback_warning()
+
+        self.assertEqual(app.window_count, 2)
+        self.assertIsInstance(app.active_window, MessageBoxYesNo)
+        self.assertIn("fallback image blocks", "\n".join(app.render()))
+
+        app.active_window.elementchanged(app.active_window.no_btn, True)
+
+        self.assertFalse(app._running)
+        self.assertIs(app.active_window, w)
+
     def test_notification_overlay_strips_ansi_cleanly(self):
         """Notification overlay should not leave fragments of ANSI escape codes."""
         app = UIApplication(width=40, height=6)
@@ -433,6 +484,101 @@ class TestUIApplication(unittest.TestCase):
         self.assertTrue(frame.endswith(ANSI_SYNC_UPDATE_END))
         self.assertLess(frame.index(ANSI_SYNC_UPDATE_BEGIN), frame.index("RAW"))
         self.assertLess(frame.index("RAW"), frame.index(ANSI_SYNC_UPDATE_END))
+
+    def test_terminal_buffer_rejects_bottom_clipped_raw_payloads(self):
+        """Raw Sixel must be cropped before terminal diff emission."""
+        buffer = TerminalBuffer(2, 1)
+        buffer.set_cell(0, 0, TerminalCell(" ", raw="RAW", raw_width=2, raw_height=2))
+        buffer.set_cell(0, 1, TerminalCell(" ", raw_skip=True))
+
+        frame = buffer.render_diff()
+
+        self.assertNotIn("RAW", frame)
+        self.assertIn("\x1b[1;1H", frame)
+
+    def test_window_cell_render_clips_raw_image_before_terminal_diff(self):
+        """Window rendering must crop raw image cells before terminal buffers see them."""
+        window = UIWindow(title="Test")
+        window.resize(6, 5)
+        image = ClipRecordingRawImage("photo")
+        image.parent = window
+        window._elements["photo"] = image
+
+        rows = window.render_cells()
+
+        self.assertEqual(image.render_clip_seen, {"top": 0, "bottom": 2})
+        self.assertEqual(rows[3][0].raw, "RAW")
+        self.assertEqual(rows[3][0].raw_height, 2)
+        self.assertTrue(rows[4][0].raw_skip)
+
+    def test_reusable_child_render_propagates_raw_image_clip(self):
+        """Reusable children must pass raw image clipping into their child window."""
+        child = UIWindow(title="Child")
+        child.resize(3, 4)
+        image = ClipRecordingRawImage("photo")
+        image.row = 0
+        image.parent = child
+        child._elements["photo"] = image
+
+        host = ViewHost("host")
+        host.width = 3
+        host.height = 4
+        host.set_view(child)
+        host._render_cell_clip = {"top": 1, "bottom": 3}
+
+        host.render_cells()
+
+        self.assertEqual(image.render_clip_seen, {"top": 1, "bottom": 3})
+
+    def test_terminal_scroll_region_falls_back_when_raw_image_cells_are_present(self):
+        """ANSI scroll-region is unsafe for raw Sixel cells; the diff must reemit them."""
+        def put_raw(buffer, row, raw):
+            for covered_row in range(row, row + 3):
+                for covered_col in range(2, 7):
+                    buffer.set_cell(covered_row, covered_col, TerminalCell(" ", raw_skip=True))
+            buffer.set_cell(row, 2, TerminalCell(" ", raw=raw, raw_width=5, raw_height=3))
+
+        buffer = TerminalBuffer(20, 10)
+        put_raw(buffer, 4, "RAW")
+        self.assertIn("RAW", buffer.render_diff())
+
+        buffer.clear()
+        put_raw(buffer, 3, "RAW")
+
+        self.assertEqual(buffer.render_scroll_region(0, 0, 10, -1), "")
+        frame = buffer.render_diff()
+
+        self.assertIn("RAW", frame)
+
+    def test_direct_terminal_scroll_frame_falls_back_when_current_rows_contain_raw_cells(self):
+        """Direct terminal scroll optimization must not run over current raw Sixel cells."""
+        app = UIApplication()
+        app._get_terminal_size = lambda: (10, 5)
+        initial_rows = [[TerminalCell(" ") for _ in range(10)] for _ in range(5)]
+        app._build_terminal_diff_frame([(initial_rows, 0, 0)])
+        current_rows = [[TerminalCell(" ") for _ in range(10)] for _ in range(5)]
+        for col in range(2, 7):
+            current_rows[2][col] = TerminalCell(" ", raw_skip=True)
+        current_rows[2][2] = TerminalCell(" ", raw="RAW", raw_width=5, raw_height=1)
+        app._pending_terminal_scrolls.append({
+            "row": 0,
+            "col": 0,
+            "height": 5,
+            "width": 10,
+            "delta": -1,
+        })
+
+        frame = app._build_terminal_scroll_frame(
+            [" " * 10 for _ in range(5)],
+            current_rows,
+            0,
+            0,
+            None,
+            "fullscreen",
+        )
+
+        self.assertIsNone(frame)
+        self.assertEqual(len(app._pending_terminal_scrolls), 1)
 
     def test_terminal_cell_pixel_response_is_ignored_as_key(self):
         """Late CSI 16 t responses must not become Escape key events."""

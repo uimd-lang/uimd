@@ -251,6 +251,9 @@ std::string TerminalBuffer::renderScrollRegion(int rowOffset, int startRow, int 
     if (forceFullRedraw_ || regionHeight <= 1 || distance <= 0 || distance >= regionHeight) {
         return "";
     }
+    if (scrollRegionHasRawCells(firstRow, lastRow)) {
+        return "";
+    }
 
     const std::vector<TerminalCell> before = previous_;
     if (delta > 0) {
@@ -294,6 +297,20 @@ std::size_t TerminalBuffer::index(int row, int col) const {
 
 bool TerminalBuffer::inBounds(int row, int col) const {
     return row >= 0 && row < height_ && col >= 0 && col < width_;
+}
+
+bool TerminalBuffer::scrollRegionHasRawCells(int firstRow, int lastRow) const {
+    for (int row = firstRow; row < lastRow; ++row) {
+        for (int col = 0; col < width_; ++col) {
+            const TerminalCell& current = cells_[index(row, col)];
+            const TerminalCell& previous = previous_[index(row, col)];
+            if (!current.raw.empty() || current.rawSkip ||
+                !previous.raw.empty() || previous.rawSkip) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 }  // namespace ui

@@ -517,6 +517,7 @@ checkbox:
     mode_list->setFocusStyle(makeStyle({{"background", "#1d2f4d"}, {"color", "#ffffff"}}));
     mode_list->setEditStyle(makeStyle({{"background", "#243a5c"}, {"color", "#cbd5e1"}}));
     mode_list->setSelectedStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    mode_list->setActiveStyle(makeStyle({{"background", "#DDDDDD99"}, {"color", "#FFFFFF"}}));
     mode_list->setDisabledStyle(makeStyle({{"color", "#64748b"}}));
     apply_btn = &static_cast<ui::Button&>(addElement<ui::Button>("apply_btn", "Apply"));
     apply_btn->setStyle(makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}}));

@@ -590,8 +590,7 @@ public final class ContactsManagerApp: ContactsManagerUI
         contacts.options = labels
         if labels.isEmpty
         {
-            contacts.selectedIndex = -1
-            contacts.selectedValues = []
+            contacts.setSelectedIndex(0)
             refreshDetail()
             return
         }
@@ -601,8 +600,7 @@ public final class ContactsManagerApp: ContactsManagerUI
         {
             selectedIndex = index
         }
-        contacts.selectedIndex = selectedIndex
-        contacts.selectedValues = [labels[selectedIndex]]
+        contacts.setSelectedIndex(selectedIndex)
         refreshDetail()
     }
 
@@ -661,7 +659,7 @@ private func logicTest()
     let app = ContactsManagerApp()
     let initialSize = app.contacts.options.count
     precondition(initialSize > 0)
-    app.contacts.selectedIndex = 0
+    app.contacts.setSelectedIndex(0)
     app.refreshDetail()
     precondition(app.detail.text.contains("Email:"))
     app.addContactForTest(firstName: "New", lastName: "Contact", email: "new@example.com")

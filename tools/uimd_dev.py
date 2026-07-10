@@ -298,6 +298,10 @@ def run_swift_tests() -> None:
     run([require_swift_command(), "test", "--package-path", "swift/src/Uimd"])
 
 
+def run_swift_direct_terminal_smoke(build_dir: Path) -> None:
+    run([sys.executable, "tools/swift_direct_terminal_smoke.py", "--cpp-build-dir", build_dir])
+
+
 def generate_regression_parity_if_available(uimd: Path) -> None:
     regression_root = ROOT / REGRESSION_PARITY_ROOT
     if not regression_root.exists():
@@ -512,10 +516,21 @@ def test_all(args: argparse.Namespace) -> None:
         run_full_test_phase(phases, "CTest", lambda: run(ctest_args(build_dir, config=args.config)))
         if validate_swift:
             run_full_test_phase(phases, "Swift runtime tests", run_swift_tests)
+            run_full_test_phase(
+                phases,
+                "Swift direct terminal smoke",
+                lambda: run_swift_direct_terminal_smoke(build_dir),
+            )
         elif args.no_swift:
             record_skipped_phase(phases, "Swift runtime tests", "--no-swift")
+            record_skipped_phase(phases, "Swift direct terminal smoke", "--no-swift")
         else:
             record_skipped_phase(phases, "Swift runtime tests", "Swift validation is not enabled on Windows")
+            record_skipped_phase(
+                phases,
+                "Swift direct terminal smoke",
+                "Swift validation is not enabled on Windows",
+            )
         run_full_test_phase(
             phases,
             "MCP example compare",

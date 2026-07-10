@@ -20,6 +20,7 @@ class UIElement(UIInstance):
         self.edit_style = None
         self.cursor_style = None
         self.selected_style = None
+        self.active_style = None
         self.checked_style = None
         self.unchecked_style = None
         self.disabled_style = None
