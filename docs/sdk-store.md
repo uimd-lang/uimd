@@ -17,6 +17,7 @@ uimd sdk install 0.x.y --from /path/to/uimd
 uimd sdk install 0.x.y --release-root /path/to/releases
 uimd sdk install-target cpp
 uimd sdk install-target csharp
+uimd sdk install-target go
 uimd sdk use 0.x.y
 uimd sdk list
 uimd sdk list --json
@@ -71,6 +72,7 @@ The intended layout is:
         ├── targets/python/
         ├── targets/cpp/
         ├── targets/csharp/
+        ├── targets/go/
         └── examples/
 ```
 
@@ -93,6 +95,7 @@ file bin/uimd <sha256> payload/uimd
 file targets/python/runtime.txt <sha256> payload/targets/python/runtime.txt
 file targets/cpp/runtime.txt <sha256> payload/targets/cpp/runtime.txt
 file targets/csharp/runtime.txt <sha256> payload/targets/csharp/runtime.txt
+file targets/go/runtime.txt <sha256> payload/targets/go/runtime.txt
 ```
 
 Each `file` entry is copied under `sdk/<version>/...` after SHA-256
@@ -128,6 +131,7 @@ dist/sdk-release/
 │       ├── targets/python/
 │       ├── targets/cpp/
 │       ├── targets/csharp/
+│       ├── targets/go/
 │       └── examples/
 ├── checksums.txt
 ├── checksums.txt.minisig

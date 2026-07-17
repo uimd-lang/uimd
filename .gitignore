@@ -18,6 +18,26 @@ swift/**/.build/
 CMakeFiles/
 CMakeCache.txt
 
+# Go MCP compare binaries are built in place beside their example sources.
+/go/examples/activity_feed/activity_feed
+/go/examples/calculator/calculator
+/go/examples/cells/cells
+/go/examples/contacts_manager/contacts_manager
+/go/examples/expense_tracker/expense_tracker
+/go/examples/formular/formular
+/go/examples/hello/hello
+/go/examples/image_browser/image_browser
+/go/examples/image_gallery/image_gallery
+/go/examples/markdown_viewer/markdown_viewer
+/go/examples/special_elements/special_elements
+/go/examples/task_board/task_board
+/go/examples/text_editor/text_editor
+/go/examples/widget_gallery/widget_gallery
+/go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll
+/go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus
+/go/examples/*/*.exe
+/go/regressions/uimd/parity/*/*.exe
+
 .opencode/node_modules/
 .claude/settings.local.json
 

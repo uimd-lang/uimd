@@ -1,7 +1,9 @@
 # Changelog
 
-## 0.4.21 - Unreleased
+## 0.4.22 - Unreleased
 
+- Add the terminal-only Go target, including native generation, runtime,
+  examples, SDK packaging, direct-terminal smoke coverage, and parity tests.
 - Fix C++ runtime focus and ScrollView scope cleanup after generated callbacks
   replace the visible layout, keeping MCP snapshots in parity with Python.
 - Add a cross-platform `Image` element with Sixel rendering and an ANSI

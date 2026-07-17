@@ -1,0 +1,59 @@
+# Edit Fields Scroll
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: regression
+description: "Scrollable edit form body populated with many text inputs and buttons."
+tags: [regression, issue-5, scrollview]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - edit_field_row
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+@panel:
+  gap: 1
+  padding: 1, 1, 1, 1
+  background: "#030712"
+```
+
+## User Interface
+
+```ui
++-panel-**---------------------------------------------------------------------------------+
+|                                                                                          |
+*                                                                                          |
+*                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
+|                                                                                          |
++------------------------------------------------------------------------------------------+
+```

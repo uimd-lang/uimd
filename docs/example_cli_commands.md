@@ -66,14 +66,15 @@ Windows PowerShell only:
 ## Full Rebuild and Test
 
 This runs the full local gate: regenerate/build all supported sources including
-reported-bug regression corpora, build C# examples, build Swift examples on
-POSIX when SwiftPM is available, compile Python sources, run Python unit tests,
-run C++ `ctest`, run Swift runtime tests on POSIX, run Python/C++, C++/C#, and
-run direct Swift terminal PTY smoke tests against C++, run Python/C++, C++/C#,
-and C++/Swift MCP example compare tests with `--compare-app-size 90x35`, and
-run the UIMD regression parity compare corpus when
-`tests/regressions/uimd/parity` exists. Pass `--no-swift` to the POSIX helper
-only when the local Swift toolchain is intentionally unavailable.
+reported-bug regression corpora, build C# examples, build Go examples, build
+Swift examples on POSIX when SwiftPM is available, compile Python sources, run
+Python unit tests, run C++ `ctest`, run Go runtime tests, run Swift runtime tests
+on POSIX, run direct Swift and Go terminal PTY smoke tests against C++, run
+Python/C++, C++/C#, C++/Swift, and C++/Go MCP example compare tests with
+`--compare-app-size 90x35`, and run the UIMD regression parity compare corpus
+for Python/C++ and C++/Go when `tests/regressions/uimd/parity` exists. Pass
+`--no-swift` to the POSIX helper only when the local Swift toolchain is
+intentionally unavailable.
 
 macOS/Linux (POSIX shell):
 
@@ -87,12 +88,17 @@ Equivalent explicit command sequence:
 ./tools/rebuild_all.sh
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
 swift test --package-path swift/src/Uimd
 python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
+python3 tools/go_direct_terminal_smoke.py --cpp-build-dir cpp/build --go-examples-dir go/examples
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 Windows over SSH / cmd.exe:
@@ -381,6 +387,27 @@ dotnet build csharp\examples\activity_feed\activity_feed.csproj --configuration 
 dotnet csharp\examples\activity_feed\bin\Debug\net10.0\activity_feed.dll
 ```
 
+## Go Examples
+
+Raw macOS/Linux POSIX shell form:
+
+```bash
+./uimd generate go/examples/activity_feed --target go && cd go/examples/activity_feed && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/calculator --target go && cd go/examples/calculator && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/cells --target go && cd go/examples/cells && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/contacts_manager --target go && cd go/examples/contacts_manager && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/expense_tracker --target go && cd go/examples/expense_tracker && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/formular --target go && cd go/examples/formular && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/hello --target go && cd go/examples/hello && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/image_browser --target go && cd go/examples/image_browser && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/image_gallery --target go && cd go/examples/image_gallery && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/markdown_viewer --target go && cd go/examples/markdown_viewer && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/special_elements --target go && cd go/examples/special_elements && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/task_board --target go && cd go/examples/task_board && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/text_editor --target go && cd go/examples/text_editor && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/widget_gallery --target go && cd go/examples/widget_gallery && GOCACHE=/tmp/uimd-go-cache go run .
+```
+
 ## Swift Examples
 
 macOS SwiftPM:
@@ -411,6 +438,8 @@ macOS SwiftPM:
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
 ./uimd generate csharp/examples --target csharp
+./uimd generate go/examples --target go
+./uimd generate go/regressions/uimd/parity --target go
 ./uimd generate swift/examples --target swift
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
@@ -428,12 +457,16 @@ POSIX raw form:
 ./uimd generate cpp/dialogs --target cpp
 ./uimd generate cpp/examples --target cpp
 ./uimd generate csharp/examples --target csharp
+./uimd generate go/examples --target go
+./uimd generate go/regressions/uimd/parity --target go
 ./uimd generate swift/examples --target swift
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
 cmake -S cpp -B cpp/build
 cmake --build cpp/build
 for proj in csharp/examples/*/*.csproj; do dotnet build "$proj" --configuration Debug; done
+for dir in go/examples/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
+for dir in go/regressions/uimd/parity/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
 for package in swift/examples/*/Package.swift; do swift build --package-path "$(dirname "$package")"; done
 python3 -m compileall python src tests tools
 ```
@@ -448,11 +481,15 @@ Windows raw form:
 .\uimd.ps1 generate cpp\dialogs --target cpp
 .\uimd.ps1 generate cpp\examples --target cpp
 .\uimd.ps1 generate csharp\examples --target csharp
+.\uimd.ps1 generate go\examples --target go
+.\uimd.ps1 generate go\regressions\uimd\parity --target go
 .\uimd.ps1 generate tests\regressions\uimd\parity\python --target python
 .\uimd.ps1 generate tests\regressions\uimd\parity\cpp --target cpp
 cmake -S cpp -B cpp\build-windows -G "Visual Studio 17 2022" -A x64
 cmake --build cpp\build-windows --config Release
 Get-ChildItem csharp\examples -Filter *.csproj -Recurse | ForEach-Object { dotnet build $_.FullName --configuration Debug }
+Get-ChildItem go\examples -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
+Get-ChildItem go\regressions\uimd\parity -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
 python -m compileall python src tests tools
 ```
 
@@ -517,10 +554,28 @@ ctest --test-dir cpp\build-windows -C Release --output-on-failure
 swift test --package-path swift/src/Uimd
 ```
 
+## Go Runtime Tests
+
+```bash
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
+```
+
+Windows PowerShell:
+
+```powershell
+go -C go\src\uimd test ./...
+```
+
 ## Swift Direct Terminal Smoke Tests
 
 ```bash
 python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
+```
+
+## Go Direct Terminal Smoke Tests
+
+```bash
+python3 tools/go_direct_terminal_smoke.py --cpp-build-dir cpp/build --go-examples-dir go/examples
 ```
 
 ## Native CLI Smoke Tests
@@ -794,8 +849,11 @@ Raw POSIX form:
 ./uimd mcp-test --headless --compare python/examples csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/calculator/calculator.py cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/cells/cells.py cpp/build/examples/cells/cells tests/mcp/cells.yaml --compare-app-size 90x35 --mcp-fast

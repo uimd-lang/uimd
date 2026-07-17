@@ -31,6 +31,7 @@ SUPPORTED_PLATFORMS = {
 }
 
 IGNORED_DIR_NAMES = {
+    ".build",
     ".git",
     ".mypy_cache",
     ".pytest_cache",
@@ -327,18 +328,37 @@ def ignored_relative_path(path: Path) -> bool:
     return path.name in IGNORED_FILE_NAMES or path.suffix in IGNORED_SUFFIXES
 
 
-def copy_tree(source: Path, destination: Path) -> None:
+def copy_tree(
+    source: Path,
+    destination: Path,
+    *,
+    excluded_relative_paths: set[Path] | None = None,
+) -> None:
     if not source.exists():
         return
+    excluded = excluded_relative_paths or set()
     for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
-        if ignored_relative_path(relative):
+        if relative in excluded or ignored_relative_path(relative):
             continue
         target = destination / relative
         if path.is_dir():
             target.mkdir(parents=True, exist_ok=True)
         elif path.is_file():
             copy_file(path, target)
+
+
+def go_example_binary_paths(source: Path) -> set[Path]:
+    if not source.exists():
+        return set()
+    result: set[Path] = set()
+    for directory in source.iterdir():
+        if not directory.is_dir() or not (directory / f"{directory.name}.go").is_file():
+            continue
+        relative_directory = directory.relative_to(source)
+        result.add(relative_directory / directory.name)
+        result.add(relative_directory / f"{directory.name}.exe")
+    return result
 
 
 def sha256_file(path: Path) -> str:
@@ -716,11 +736,22 @@ def package_release(
     copy_tree(root / "swift" / "src" / "Uimd", swift_target)
     copy_file(root / "LICENSE", swift_target / "LICENSE")
 
+    go_target = payload_dir / "targets" / "go"
+    copy_tree(root / "go" / "src" / "uimd", go_target)
+    copy_tree(root / "cpp" / "third_party" / "stb", go_target / "third_party" / "stb")
+    copy_file(root / "LICENSE", go_target / "LICENSE")
+
     examples_target = payload_dir / "examples"
     copy_tree(root / "python" / "examples", examples_target / "python")
     copy_tree(root / "cpp" / "examples", examples_target / "cpp")
     copy_tree(root / "csharp" / "examples", examples_target / "csharp")
     copy_tree(root / "swift" / "examples", examples_target / "swift")
+    go_examples = root / "go" / "examples"
+    copy_tree(
+        go_examples,
+        examples_target / "go",
+        excluded_relative_paths=go_example_binary_paths(go_examples),
+    )
     copy_tree(root / "shared", examples_target / "shared")
 
     manifest_path = write_manifest(release_dir, version, payload_dir)

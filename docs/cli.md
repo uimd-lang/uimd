@@ -59,6 +59,7 @@ uimd sdk install 0.x.y
 uimd sdk install 0.x.y --release-root /path/to/releases
 uimd sdk install-target cpp
 uimd sdk install-target csharp
+uimd sdk install-target go
 uimd sdk use 0.x.y
 uimd sdk list --json
 uimd sdk remove 0.x.y

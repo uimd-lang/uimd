@@ -1,0 +1,63 @@
+# Hello
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: draft
+description: "Hello world UIMD application."
+```
+
+## Members
+
+```yaml
+headline:
+  type: label
+  text: "Hello from UIMD"
+  description: "Application title."
+
+name:
+  type: textinput
+  value: ""
+  placeholder: "Your name"
+  description: "Name to greet."
+
+hello_button:
+  type: button
+  title: "Say Hello"
+  description: "Create the greeting."
+
+quit_button:
+  type: button
+  title: "Quit"
+  description: "Close the application."
+```
+
+## Style
+
+```yaml
+include: dark
+@title:
+  background: "#1f2937"
+@headline:
+  color: "#ffffff"
+@quit_button:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+```
+
+## User Interface
+
+```ui
++-title-----------------------------------+
+| headline............................... |
++-----------------------------------------+
+|                                         |
+|  "Name"      name....................   |
+|                                         |
+|  hello_button.......  quit_button.....  |
+|                                         |
++-----------------------------------------+
+```

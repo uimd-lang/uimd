@@ -1,0 +1,92 @@
+# Gallery Mosaic
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+description: "3+2 image mosaic that opens the scrollable gallery when clicked."
+tags: [example, image, gallery]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+focusable: true
+```
+
+## Members
+
+```yaml
+gal_1:
+  type: image
+  source: "shared/assets/image_samples/camera.png"
+  alt: "Camera"
+  fit: cover
+  render_mode: auto
+  description: "Gallery mosaic slot 1. Click to open gallery."
+
+gal_2:
+  type: image
+  source: "shared/assets/image_samples/astronaut.png"
+  alt: "Astronaut"
+  fit: cover
+  render_mode: auto
+  description: "Gallery mosaic slot 2. Click to open gallery."
+
+gal_3:
+  type: image
+  source: "shared/assets/image_samples/coffee.png"
+  alt: "Coffee"
+  fit: cover
+  render_mode: auto
+  description: "Gallery mosaic slot 3. Click to open gallery."
+
+gal_4:
+  type: image
+  source: "shared/assets/image_samples/coins.png"
+  alt: "Coins"
+  fit: cover
+  render_mode: auto
+  description: "Gallery mosaic slot 4. Click to open gallery."
+
+gal_5:
+  type: image
+  source: "shared/assets/image_samples/chelsea.png"
+  alt: "Chelsea"
+  fit: cover
+  render_mode: auto
+  description: "Gallery mosaic slot 5. Click to open gallery."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#172033"
+cell:
+  padding: 1, 0, 1, 0
+  background: "#172033"
+image:
+  background: transparent
+  color: "#d1d5db"
+  focus-background: "#25364f"
+```
+
+## User Interface
+
+```ui
++-view-**------------------+
+| gal_1.. gal_2.. gal_3... |
+| ....... ....... ........ |
+| ....... ....... ........ |
+|                          |
+| gal_4.. gal_5..          |
+| ....... .......          |
+| ....... .......          |
++--------------------------+
+```

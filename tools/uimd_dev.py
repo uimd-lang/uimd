@@ -11,6 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POSIX_BUILD_DIR = Path("cpp/build")
 DEFAULT_WINDOWS_BUILD_DIR = Path("cpp/build-windows")
 DEFAULT_WINDOWS_CONFIG = "Release"
+DEFAULT_GO_CACHE_DIR_NAME = "uimd-go-cache"
 GENERATE_TARGETS = (
     ("python/dialogs", "python"),
     ("python/examples", "python"),
@@ -26,6 +28,7 @@ GENERATE_TARGETS = (
     ("cpp/dialogs", "cpp"),
     ("cpp/examples", "cpp"),
     ("csharp/examples", "csharp"),
+    ("go/examples", "go"),
 )
 SWIFT_GENERATE_TARGET = ("swift/examples", "swift")
 DEFAULT_COMPARE_APP_SIZE = "90x35"
@@ -33,9 +36,11 @@ REGRESSION_PARITY_ROOT = Path("tests/regressions/uimd/parity")
 REGRESSION_PARITY_PYTHON_ROOT = REGRESSION_PARITY_ROOT / "python"
 REGRESSION_PARITY_CPP_SOURCE_ROOT = REGRESSION_PARITY_ROOT / "cpp"
 REGRESSION_PARITY_MANIFEST = REGRESSION_PARITY_ROOT / "all.yaml"
+GO_REGRESSION_PARITY_ROOT = Path("go/regressions/uimd/parity")
 REGRESSION_GENERATE_TARGETS = (
     (REGRESSION_PARITY_PYTHON_ROOT, "python"),
     (REGRESSION_PARITY_CPP_SOURCE_ROOT, "cpp"),
+    (GO_REGRESSION_PARITY_ROOT, "go"),
 )
 
 
@@ -84,6 +89,19 @@ def run(command: list[str | Path], *, cwd: Path = ROOT) -> None:
     printable = " ".join(str(part) for part in command)
     print(f"==> {printable}", flush=True)
     subprocess.run([str(part) for part in command], cwd=cwd, check=True)
+
+
+def run_with_env(command: list[str | Path], *, cwd: Path = ROOT, env: dict[str, str]) -> None:
+    printable = " ".join(str(part) for part in command)
+    print(f"==> {printable}", flush=True)
+    merged_env = os.environ.copy()
+    merged_env.update(env)
+    subprocess.run([str(part) for part in command], cwd=cwd, check=True, env=merged_env)
+
+
+def go_build_env() -> dict[str, str]:
+    cache = os.environ.get("GOCACHE") or str(Path(tempfile.gettempdir()) / DEFAULT_GO_CACHE_DIR_NAME)
+    return {"GOCACHE": cache}
 
 
 def failure_detail(exc: BaseException) -> str:
@@ -223,6 +241,27 @@ def example_binary_path(name: str, build_dir: Path, *, config: str | None = None
     )
 
 
+def regression_cpp_binary_path(name: str, build_dir: Path, *, config: str | None = None) -> Path:
+    executable = f"{name}.exe" if is_windows() else name
+    root = ROOT / regression_parity_cpp_build_root(build_dir)
+    config_names = [config or DEFAULT_WINDOWS_CONFIG, "Release", "Debug", "RelWithDebInfo", "MinSizeRel"]
+    candidates = [root / name / executable]
+    for config_name in config_names:
+        candidates.append(root / name / config_name / executable)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"C++ regression binary not found for {name!r} under {root.relative_to(ROOT)}")
+
+
+def go_regression_binary_path(name: str) -> Path:
+    executable = f"{name}.exe" if is_windows() else name
+    candidate = ROOT / GO_REGRESSION_PARITY_ROOT / name / executable
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(f"Go regression binary not found for {name!r} under {GO_REGRESSION_PARITY_ROOT}")
+
+
 def csharp_example_project_path(name: str) -> Path:
     project = ROOT / "csharp/examples" / name / f"{name}.csproj"
     if project.exists():
@@ -244,6 +283,28 @@ def csharp_example_dll_path(name: str, configuration: str = "Debug") -> Path:
 
 def csharp_example_projects() -> list[Path]:
     return sorted((ROOT / "csharp/examples").glob("*/*.csproj"))
+
+
+def go_example_app_dirs() -> list[Path]:
+    root = ROOT / "go/examples"
+    if not root.exists():
+        return []
+    return sorted(
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir() and (directory / f"{directory.name}.go").exists()
+    )
+
+
+def go_regression_app_dirs() -> list[Path]:
+    root = ROOT / GO_REGRESSION_PARITY_ROOT
+    if not root.exists():
+        return []
+    return sorted(
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir() and (directory / f"{directory.name}.go").exists()
+    )
 
 
 def swift_example_packages() -> list[Path]:
@@ -285,6 +346,26 @@ def build_all_csharp_examples(configuration: str = "Debug") -> None:
         run(command)
 
 
+def build_all_go_examples() -> None:
+    app_dirs = go_example_app_dirs()
+    if not app_dirs:
+        raise FileNotFoundError("no Go example apps found under go/examples")
+    go = shutil.which("go")
+    if go is None:
+        raise FileNotFoundError("go executable was not found on PATH")
+    for app_dir in app_dirs:
+        run_with_env([go, "build", "-o", app_dir.name, "."], cwd=app_dir, env=go_build_env())
+    for app_dir in go_regression_app_dirs():
+        run_with_env([go, "build", "-o", app_dir.name, "."], cwd=app_dir, env=go_build_env())
+
+
+def run_go_tests() -> None:
+    go = shutil.which("go")
+    if go is None:
+        raise FileNotFoundError("go executable was not found on PATH")
+    run_with_env([go, "test", "./..."], cwd=ROOT / "go/src/uimd", env=go_build_env())
+
+
 def build_all_swift_examples() -> None:
     packages = swift_example_packages()
     if not packages:
@@ -302,6 +383,19 @@ def run_swift_direct_terminal_smoke(build_dir: Path) -> None:
     run([sys.executable, "tools/swift_direct_terminal_smoke.py", "--cpp-build-dir", build_dir])
 
 
+def run_go_direct_terminal_smoke(build_dir: Path) -> None:
+    run(
+        [
+            sys.executable,
+            "tools/go_direct_terminal_smoke.py",
+            "--cpp-build-dir",
+            build_dir,
+            "--go-examples-dir",
+            "go/examples",
+        ]
+    )
+
+
 def generate_regression_parity_if_available(uimd: Path) -> None:
     regression_root = ROOT / REGRESSION_PARITY_ROOT
     if not regression_root.exists():
@@ -314,6 +408,21 @@ def generate_regression_parity_if_available(uimd: Path) -> None:
         run([uimd, "generate", path, "--target", target])
 
 
+def regression_manifest_scripts() -> list[Path]:
+    manifest = ROOT / REGRESSION_PARITY_MANIFEST
+    scripts: list[Path] = []
+    for raw_line in manifest.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("- include:"):
+            continue
+        script = line.split(":", 1)[1].strip()
+        if script:
+            scripts.append(REGRESSION_PARITY_ROOT / script)
+    if not scripts:
+        raise ValueError(f"regression parity manifest has no include entries: {REGRESSION_PARITY_MANIFEST}")
+    return scripts
+
+
 def rebuild_all(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     validate_swift = should_validate_swift(args)
@@ -322,6 +431,7 @@ def rebuild_all(args: argparse.Namespace) -> None:
     run(cmake_configure_args(build_dir))
     run(cmake_build_args(build_dir, config=args.config))
     build_all_csharp_examples(args.csharp_config)
+    build_all_go_examples()
     if validate_swift:
         build_all_swift_examples()
     elif args.no_swift:
@@ -422,6 +532,30 @@ def run_swift_example_compare(
     run(command)
 
 
+def run_go_example_compare(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+) -> None:
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--backend",
+        "python",
+        "--headless",
+        "--all",
+        "--compare",
+        build_dir / "examples",
+        "go/examples",
+    ]
+    if mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", compare_app_size])
+    run(command)
+
+
 def run_regression_compare_if_available(
     uimd: Path,
     build_dir: Path,
@@ -463,6 +597,50 @@ def run_regression_compare_if_available(
     return None
 
 
+def run_go_regression_compare_if_available(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+    config: str | None = None,
+) -> PhaseSkip | None:
+    cpp_root_path = regression_parity_cpp_build_root(build_dir)
+    cpp_root = ROOT / cpp_root_path
+    go_root = ROOT / GO_REGRESSION_PARITY_ROOT
+    manifest = ROOT / REGRESSION_PARITY_MANIFEST
+    if not cpp_root.exists() and not go_root.exists() and not manifest.exists():
+        print(f"==> skip Go regression parity compare: {GO_REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        return PhaseSkip(f"{GO_REGRESSION_PARITY_ROOT} does not exist")
+    if not cpp_root.exists() or not go_root.exists() or not manifest.exists():
+        if not cpp_root.exists():
+            missing = cpp_root_path
+        elif not go_root.exists():
+            missing = GO_REGRESSION_PARITY_ROOT
+        else:
+            missing = REGRESSION_PARITY_MANIFEST
+        raise FileNotFoundError(f"Go regression parity compare root is missing: {missing}")
+
+    for script in regression_manifest_scripts():
+        app_name = script.stem
+        command: list[str | Path] = [
+            uimd,
+            "mcp-test",
+            "--backend",
+            "python",
+            "--headless",
+            "--compare",
+            regression_cpp_binary_path(app_name, build_dir, config=config),
+            go_regression_binary_path(app_name),
+            script,
+        ]
+        if mcp_fast:
+            command.append("--mcp-fast")
+        command.extend(["--compare-app-size", compare_app_size])
+        run(command)
+    return None
+
+
 def test_all(args: argparse.Namespace) -> None:
     phases: list[FullTestPhase] = []
     build_dir = Path(args.build_dir)
@@ -490,6 +668,7 @@ def test_all(args: argparse.Namespace) -> None:
                 "Build C# runtime and examples",
                 lambda: build_all_csharp_examples(args.csharp_config),
             )
+            run_full_test_phase(phases, "Build Go runtime, examples, regressions", build_all_go_examples)
             if validate_swift:
                 run_full_test_phase(phases, "Build Swift runtime and examples", build_all_swift_examples)
             elif args.no_swift:
@@ -510,10 +689,12 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Configure CMake", "--no-rebuild")
             record_skipped_phase(phases, "Build C++ runtime, tools, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build C# runtime and examples", "--no-rebuild")
+            record_skipped_phase(phases, "Build Go runtime, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build Swift runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
         run_full_test_phase(phases, "Python tests", run_python_tests)
         run_full_test_phase(phases, "CTest", lambda: run(ctest_args(build_dir, config=args.config)))
+        run_full_test_phase(phases, "Go runtime tests", run_go_tests)
         if validate_swift:
             run_full_test_phase(phases, "Swift runtime tests", run_swift_tests)
             run_full_test_phase(
@@ -530,6 +711,14 @@ def test_all(args: argparse.Namespace) -> None:
                 phases,
                 "Swift direct terminal smoke",
                 "Swift validation is not enabled on Windows",
+            )
+        if is_windows():
+            record_skipped_phase(phases, "Go direct terminal smoke", "POSIX PTY is required")
+        else:
+            run_full_test_phase(
+                phases,
+                "Go direct terminal smoke",
+                lambda: run_go_direct_terminal_smoke(build_dir),
             )
         run_full_test_phase(
             phases,
@@ -568,8 +757,28 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "MCP Swift example compare", "Swift validation is not enabled on Windows")
         run_full_test_phase(
             phases,
+            "MCP Go example compare",
+            lambda: run_go_example_compare(
+                uimd,
+                build_dir,
+                compare_app_size=args.compare_app_size,
+                mcp_fast=not args.no_mcp_fast,
+            ),
+        )
+        run_full_test_phase(
+            phases,
             "MCP regression parity compare",
             lambda: run_regression_compare_if_available(
+                uimd,
+                build_dir,
+                compare_app_size=args.compare_app_size,
+                mcp_fast=not args.no_mcp_fast,
+            ),
+        )
+        run_full_test_phase(
+            phases,
+            "MCP Go regression parity compare",
+            lambda: run_go_regression_compare_if_available(
                 uimd,
                 build_dir,
                 compare_app_size=args.compare_app_size,

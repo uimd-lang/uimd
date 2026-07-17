@@ -1,6 +1,7 @@
 #include "NativeModel.hpp"
 #include "NativeCSharpGenerator.hpp"
 #include "NativeCppGenerator.hpp"
+#include "NativeGoGenerator.hpp"
 #include "NativePythonGenerator.hpp"
 #include "NativeSwiftGenerator.hpp"
 #include "IssueReport.hpp"
@@ -51,6 +52,7 @@ const std::filesystem::path SDK_ROOT_DIR{"sdk"};
 const std::filesystem::path SDK_BIN_DIR{"bin"};
 const std::filesystem::path SDK_TARGETS_DIR{"targets"};
 const std::filesystem::path SDK_PYTHON_TARGET_DIR{"python"};
+const std::filesystem::path SDK_GO_TARGET_DIR{"go"};
 const std::filesystem::path SDK_EXAMPLES_DIR{"examples"};
 const std::string SDK_VERSION_METADATA_KEY = "sdk-version";
 const std::string REQUIRE_SDK_VERSION_ENV = "UIMD_REQUIRE_SDK_VERSION";
@@ -59,6 +61,7 @@ const std::string RELEASE_ROOT_ENV = "UIMD_RELEASE_ROOT";
 const std::string RELEASE_BASE_URL_ENV = "UIMD_RELEASE_BASE_URL";
 const std::string SDK_PATH_ENV = "UIMD_SDK_PATH";
 const std::string SDK_PYTHON_TARGET_ENV = "UIMD_SDK_PYTHON_TARGET";
+const std::string SDK_GO_TARGET_ENV = "UIMD_SDK_GO_TARGET";
 const std::string RELEASE_PUBLIC_KEY_ENV = "UIMD_RELEASE_PUBLIC_KEY";
 const std::string LIBSIXEL_PATH_ENV = "UIMD_LIBSIXEL_PATH";
 const std::string LIBSIXEL_DIR_ENV = "UIMD_LIBSIXEL_DIR";
@@ -70,7 +73,7 @@ const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
 const std::string RELEASE_PUBLIC_KEY{"RWR71aDOUx1vHQeAYhBjmL71qWnPzCp3kXGe2HLHPORARHbM2Al77AsD"};
 const std::string RELEASE_MANIFEST_PREFIX = "uimd-sdk-";
 const std::string RELEASE_MANIFEST_SUFFIX = ".manifest";
-const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp", "swift"};
+const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp", "swift", "go"};
 
 struct GlobalOptions
 {
@@ -2771,7 +2774,7 @@ std::string pythonExecutable()
 #endif
 }
 
-std::filesystem::path installedSdkPythonTargetFromExecutable(const std::filesystem::path& executablePath)
+std::filesystem::path installedSdkVersionRootFromExecutable(const std::filesystem::path& executablePath)
 {
     if (executablePath.empty())
     {
@@ -2790,7 +2793,16 @@ std::filesystem::path installedSdkPythonTargetFromExecutable(const std::filesyst
         return {};
     }
 
-    const std::filesystem::path versionRoot = binDirectory.parent_path();
+    return binDirectory.parent_path();
+}
+
+std::filesystem::path installedSdkPythonTargetFromExecutable(const std::filesystem::path& executablePath)
+{
+    const std::filesystem::path versionRoot = installedSdkVersionRootFromExecutable(executablePath);
+    if (versionRoot.empty())
+    {
+        return {};
+    }
     const std::filesystem::path targetRoot = versionRoot / SDK_TARGETS_DIR / SDK_PYTHON_TARGET_DIR;
     if (std::filesystem::is_regular_file(targetRoot / "uimd" / "__init__.py"))
     {
@@ -2805,7 +2817,18 @@ std::filesystem::path installedSdkPythonTargetFromExecutable(const std::filesyst
     return {};
 }
 
-void configurePythonRuntimePath(const std::filesystem::path& executablePath = {})
+std::filesystem::path installedSdkGoTargetFromExecutable(const std::filesystem::path& executablePath)
+{
+    const std::filesystem::path versionRoot = installedSdkVersionRootFromExecutable(executablePath);
+    if (versionRoot.empty())
+    {
+        return {};
+    }
+    const std::filesystem::path targetRoot = versionRoot / SDK_TARGETS_DIR / SDK_GO_TARGET_DIR;
+    return std::filesystem::is_regular_file(targetRoot / "go.mod") ? targetRoot : std::filesystem::path{};
+}
+
+void configureRuntimeEnvironment(const std::filesystem::path& executablePath = {})
 {
     std::vector<std::filesystem::path> pythonPaths;
 
@@ -2814,6 +2837,12 @@ void configurePythonRuntimePath(const std::filesystem::path& executablePath = {}
     {
         pythonPaths.push_back(installedTarget);
         setEnvironment(SDK_PYTHON_TARGET_ENV, pathString(installedTarget));
+    }
+
+    const std::filesystem::path installedGoTarget = installedSdkGoTargetFromExecutable(executablePath);
+    if (!installedGoTarget.empty())
+    {
+        setEnvironment(SDK_GO_TARGET_ENV, pathString(installedGoTarget));
     }
 
     const std::filesystem::path root = sourceRoot();
@@ -3467,7 +3496,7 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         }
         if (!isSdkTargetNameSafe(target) || !isSupportedSdkTarget(target))
         {
-            std::cerr << "error: supported SDK targets are: python, cpp, csharp, swift\n";
+            std::cerr << "error: supported SDK targets are: python, cpp, csharp, swift, go\n";
             return EXIT_USAGE;
         }
         if (version.empty())
@@ -4302,7 +4331,7 @@ int runIssueReport(const std::vector<std::string>& args)
     return EXIT_OK;
 }
 
-int runNew(const std::vector<std::string>& args)
+int runNew(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
     if (args.empty())
     {
@@ -4347,9 +4376,9 @@ int runNew(const std::vector<std::string>& args)
         std::cerr << "error: application name cannot be empty\n";
         return EXIT_ERROR;
     }
-    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go")
     {
-        std::cerr << "error: --target must be python, cpp, csharp, or swift\n";
+        std::cerr << "error: --target must be python, cpp, csharp, swift, or go\n";
         return EXIT_USAGE;
     }
 
@@ -4402,6 +4431,16 @@ int runNew(const std::vector<std::string>& args)
     {
         files.emplace_back(project + ".swift", applyTemplate(swiftAppTemplate(), values));
         files.emplace_back("Package.swift", uimd::tool::swiftPackageManifest(project, "../uimd/swift/src/Uimd"));
+    }
+    else if (target == "go")
+    {
+        configureRuntimeEnvironment(executablePath);
+        const std::string installedTarget = envValue(SDK_GO_TARGET_ENV.c_str());
+        const std::string runtimeReference = installedTarget.empty()
+            ? "../uimd/go/src/uimd"
+            : std::filesystem::path{installedTarget}.generic_string();
+        files.emplace_back(project + ".go", uimd::tool::goAppTemplate(klass + "UI"));
+        files.emplace_back("go.mod", uimd::tool::goModuleFile(project, runtimeReference));
     }
     else
     {
@@ -4507,9 +4546,9 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
         std::cerr << "error: generate path is required\n";
         return EXIT_USAGE;
     }
-    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go")
     {
-        std::cerr << "error: --target must be python, cpp, csharp, or swift\n";
+        std::cerr << "error: --target must be python, cpp, csharp, swift, or go\n";
         return EXIT_USAGE;
     }
 
@@ -4522,7 +4561,7 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
 
     try
     {
-        configurePythonRuntimePath(executablePath);
+        configureRuntimeEnvironment(executablePath);
         std::vector<std::filesystem::path> generated;
         if (target == "cpp")
         {
@@ -4550,6 +4589,15 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
             swiftOptions.generateAppStub = generateAppStub;
             swiftOptions.mcpEnabled = options.mcpEnabled;
             generated = uimd::tool::generateSwiftSources(sourcePath, swiftOptions);
+        }
+        else if (target == "go")
+        {
+            uimd::tool::NativeGoGenerateOptions goOptions;
+            goOptions.outputDir = options.outputDir;
+            goOptions.hasOutputDir = options.hasOutputDir;
+            goOptions.generateAppStub = generateAppStub;
+            goOptions.mcpEnabled = options.mcpEnabled;
+            generated = uimd::tool::generateGoSources(sourcePath, goOptions);
         }
         else
         {
@@ -4639,7 +4687,7 @@ int runRun(const std::vector<std::string>& args, const std::filesystem::path& ex
         uimd::tool::NativeGenerateOptions options;
         options.compileDependencies = compileDependencies;
         options.mcpEnabled = mcpEnabled;
-        configurePythonRuntimePath(executablePath);
+        configureRuntimeEnvironment(executablePath);
         (void)uimd::tool::generatePythonSources(sourcePath, options);
     }
     catch (const std::exception& exc)
@@ -4657,7 +4705,7 @@ int runRun(const std::vector<std::string>& args, const std::filesystem::path& ex
         return EXIT_ERROR;
     }
 
-    configurePythonRuntimePath(executablePath);
+    configureRuntimeEnvironment(executablePath);
     std::vector<std::string> command{pythonExecutable(), pathString(appPath)};
     command.insert(command.end(), appArgs.begin(), appArgs.end());
     return runProcess(std::move(command));
@@ -4811,7 +4859,7 @@ int runCppMcpTester(const std::vector<std::string>& args, const std::filesystem:
         return MCP_CPP_TESTER_MISSING_EXIT_CODE;
     }
 
-    configurePythonRuntimePath(executablePath);
+    configureRuntimeEnvironment(executablePath);
     std::vector<std::string> command{pathString(binary)};
     command.insert(command.end(), args.begin(), args.end());
     return runProcess(std::move(command), root);
@@ -4819,7 +4867,7 @@ int runCppMcpTester(const std::vector<std::string>& args, const std::filesystem:
 
 int runPythonMcpTester(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
-    configurePythonRuntimePath(executablePath);
+    configureRuntimeEnvironment(executablePath);
     std::vector<std::string> command{pythonExecutable(), "-m", "uimd.testing.mcp_tester"};
     command.insert(command.end(), args.begin(), args.end());
     return runProcess(std::move(command));
@@ -4896,7 +4944,7 @@ int main(int argc, char** argv)
     }
     if (command == "new")
     {
-        return runNew(args);
+        return runNew(args, executable);
     }
     if (command == "sdk")
     {

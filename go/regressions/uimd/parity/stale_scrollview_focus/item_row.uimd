@@ -1,0 +1,76 @@
+# Item Row
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: regression
+description: "Interactive row with an Open button inside a ScrollView."
+tags: [regression, issue-5, scrollview]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+name:
+  type: label
+  text: "Item"
+  description: "Item name."
+
+summary:
+  type: label
+  text: "Summary"
+  description: "Item summary."
+
+spacer:
+  type: label
+  text: ""
+  description: "Flexible row spacer."
+  expose: false
+
+open_btn:
+  type: button
+  title: Open
+  description: "Open this item in the edit page."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@card:
+  background: "#172033"
+  padding: 1, 1, 1, 1
+@name:
+  color: "#f8fafc"
+  user-select: text
+@summary:
+  color: "#93c5fd"
+  user-select: text
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@open_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+```
+
+## User Interface
+
+```ui
++-card-**----------------------------------------------------------------------------------+
+| name..**................................................... summary..................... |
+| spacer..**................................................................ open_btn..... |
++------------------------------------------------------------------------------------------+
+```

@@ -142,6 +142,7 @@ The implementation currently supports the local/offline foundation:
 ./uimd sdk install 0.x.y --release-root /path/to/releases
 ./uimd sdk install-target cpp
 ./uimd sdk install-target csharp
+./uimd sdk install-target go
 ./uimd sdk use 0.x.y
 ./uimd sdk list --json
 ./uimd sdk update --json
@@ -153,7 +154,7 @@ UIMD_HOME=/tmp/uimd-home ./uimd self uninstall --json
 These commands are available from the native binary, but public release assets
 and package-manager installation are not available yet. Installed launchers can
 also use `uimd self update`; `uimd sdk update`, missing project SDK versions,
-and missing `python`/`cpp`/`csharp` targets download from release assets by
+and missing `python`/`cpp`/`csharp`/`go` targets download from release assets by
 default before project command delegation. Release downloads verify signed
 `checksums.txt.minisig` files before SHA-256 asset checks. See
 `docs/sdk-store.md` for the current implementation status.

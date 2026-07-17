@@ -1,0 +1,44 @@
+# Source Separator Scroll
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: regression
+description: "ScrollView regression for reusable children whose source rows include design-only separators."
+tags: [regression, issue-3, scrollview]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - source_separator_row
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+@panel:
+  gap: 0
+  padding: 0
+  background: "#030712"
+```
+
+## User Interface
+
+```ui
++-panel-**----+
+|             |
+|             |
+|             |
+|             |
++-------------+
+```

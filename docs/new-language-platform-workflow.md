@@ -238,12 +238,13 @@ ctest --test-dir cpp/build --output-on-failure
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --headless --all --compare cpp/build/examples <new-target>/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --all --compare cpp/build/regressions/uimd/parity <new-target>/regressions/uimd/parity --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/regressions/uimd/parity/<app>/<app> <new-target>/regressions/uimd/parity/<app>/<app> tests/regressions/uimd/parity/<app>.yaml --mcp-fast --compare-app-size 90x35
 git diff --check
 ```
 
 Use the target's normal build command as well, for example `dotnet build` for
-C#. On Windows, use the documented `.cmd` or `.ps1` commands from
+C#. Repeat the new-target regression command for every supported regression
+manifest. On Windows, use the documented `.cmd` or `.ps1` commands from
 `docs/example_cli_commands.md` and keep the same compare viewport.
 
 When a platform or dependency is unavailable, record exactly what was skipped
