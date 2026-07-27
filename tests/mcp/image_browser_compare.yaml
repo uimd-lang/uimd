@@ -17,6 +17,34 @@
       assert:
         value: Normal
     - tool: get_render_snapshot
+    - tool: focus_element
+      arguments:
+        element_id: astro_thumb
+      assert:
+        id: astro_thumb
+    - tool: focus_element
+      arguments:
+        element_id: coffee_thumb
+      assert:
+        id: coffee_thumb
+    - tool: focus_element
+      arguments:
+        element_id: gallery_mosaic
+      assert:
+        id: gallery_mosaic
+    - tool: get_render_snapshot
+    - tool: focus_element
+      arguments:
+        element_id: image_list_btn
+      assert:
+        id: image_list_btn
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: get_focused_element
+      assert:
+        id: gallery_mosaic
     - tool: activate_element
       arguments:
         element_id: astro_thumb
@@ -88,6 +116,96 @@
       assert:
         edit_mode: true
     - tool: get_focused_element
+      assert:
+        id: main.items[0].sel
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: press_key
+      arguments:
+        key: Right
+    - tool: press_key
+      arguments:
+        key: Right
+    - tool: get_focused_element
+      assert:
+        id: main.items[1].browse_btn
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_window
+      assert:
+        title: File Browser
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_window
+      assert:
+        title: File Browser
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: filename
+      assert:
+        value: astronaut.png
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_window
+      assert:
+        title: Image Browser
+    - tool: get_focused_element
+      assert:
+        id: main.items[1].browse_btn
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: focus_element
+      arguments:
+        element_id: main.items[1].show_btn
+      assert:
+        id: main.items[1].show_btn
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: press_key
+      arguments:
+        key: Right
+    - tool: get_focused_element
+      assert:
+        id: main.items[1].browse_btn
+    - tool: press_key
+      arguments:
+        key: Right
+    - tool: get_focused_element
+      assert:
+        id: main.items[1].delete_btn
+    - tool: press_key
+      arguments:
+        key: Left
+    - tool: get_focused_element
+      assert:
+        id: main.items[1].browse_btn
+    - tool: press_key
+      arguments:
+        key: Left
+    - tool: get_focused_element
+      assert:
+        id: main.items[1].show_btn
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_focused_element
+      assert:
+        id: main.items
+    - tool: focus_element
+      arguments:
+        element_id: main.items[0].sel
       assert:
         id: main.items[0].sel
     - tool: press_key
@@ -267,15 +385,78 @@
         element_id: entries
       assert:
         visible: true
+        value: ["astronaut.png"]
+    - tool: get_element
+      arguments:
+        element_id: path_label
+      assert:
+        value:
+          regex: 'shared[\\/]assets[\\/]image_samples$'
+    - tool: ui.select_option
+      arguments:
+        element_id: entries
+        value: ".."
+      assert:
+        value: [".."]
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: path_label
+      assert:
+        value:
+          regex: 'shared[\\/]assets$'
+    - tool: ui.select_option
+      arguments:
+        element_id: entries
+        value: "image_samples/"
+      assert:
+        value: ["image_samples/"]
+    - tool: enter_edit_mode
+      arguments:
+        element_id: entries
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: path_label
+      assert:
+        value:
+          regex: 'shared[\\/]assets[\\/]image_samples$'
+    - tool: ui.select_option
+      arguments:
+        element_id: entries
+        value: "camera.png"
+      assert:
+        value: ["camera.png"]
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_window
+      assert:
+        title: File Browser
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: filename
+      assert:
+        value: camera.png
     - tool: activate_element
       arguments:
-        element_id: close_btn
+        element_id: open_btn
     - tool: get_window
       assert:
         title: Image Browser
     - tool: get_focused_element
       assert:
         id: main.items[1].browse_btn
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
     - tool: activate_element
       arguments:
         element_id: main.items[2].delete_btn

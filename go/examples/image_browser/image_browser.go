@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	uimd "uimd"
@@ -91,11 +92,15 @@ func initialImageRecords() []ImageRecord {
 }
 
 func projectRoot() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "."
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "."
+		}
+		return filepath.Clean(cwd)
 	}
-	return filepath.Clean(cwd)
+	return filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", ".."))
 }
 
 func imageSamplePath() string {

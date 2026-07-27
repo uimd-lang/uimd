@@ -1116,6 +1116,26 @@ class TestUIApplicationWindowStack(unittest.TestCase):
         self.assertIn("\x1b[10;8H", frame)
         self.assertIn("DIALOG", frame)
 
+    def test_modal_image_cell_background_scope_excludes_top_window(self):
+        """Only background windows need compositable image-cell rendering."""
+        import runtime.image as image_module
+
+        render_scopes = []
+
+        class ScopeRecordingWindow(FixedRenderWindow):
+            def render(self):
+                render_scopes.append(image_module._FORCE_CELL_BACKGROUND_RENDERING_DEPTH > 0)
+                return super().render()
+
+        app = UIApplication()
+        app._write_terminal = lambda _frame: None
+        app.open(ScopeRecordingWindow(["BASE"], fullscreen=True))
+        app.open(ScopeRecordingWindow(["DIALOG"], natural_width=10, natural_height=3))
+
+        app._render_dialog_over_background()
+
+        self.assertEqual(render_scopes, [True, False])
+
     def test_render_rect_covers_fullscreen_background_under_dialog(self):
         """Protected rects should cover the visible fullscreen child while a dialog is open."""
         app = UIApplication()
@@ -1237,6 +1257,39 @@ class TestUIApplicationWindowStack(unittest.TestCase):
 
         self.assertEqual(listbox._scroll_offset, 1)
         self.assertIsNone(window._focused_element)
+
+    def test_mouse_wheel_scrolls_textarea_before_containing_scrollview(self):
+        """An overflowing TextArea owns wheel input before its parent ScrollView."""
+        window = UIWindow(title="Test")
+        textarea = TextArea(name="description", value="one\ntwo\nthree\nfour", width=10, height=2)
+        rect = {"top": 0, "left": 0, "width": 10, "height": 2}
+
+        class ParentScrollView:
+            calls = 0
+
+            def handle_key(self, _event):
+                self.calls += 1
+                return True
+
+        parent = ParentScrollView()
+        window._element_at = lambda _row, _col: (textarea, rect)
+        window._scrollview_focus_context_for_element = lambda _element: {
+            "proxy": textarea,
+            "scrollview": parent,
+            "scrollview_rect": rect,
+        }
+
+        handled = window._handle_mouse_wheel_event({
+            "type": "mouse_wheel",
+            "direction": "down",
+            "wheel_delta": -1,
+            "row": 1,
+            "col": 1,
+        })
+
+        self.assertTrue(handled)
+        self.assertEqual(textarea._scroll_offset, 1)
+        self.assertEqual(parent.calls, 0)
 
 
 class TestUIApplicationSizing(unittest.TestCase):
@@ -2241,6 +2294,134 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertFalse(area._edit_mode)
         self.assertEqual(area.value, "new")
 
+    def test_direct_nested_scrollview_focus_preserves_navigation_scope(self):
+        """Direct focus should keep arrow navigation inside the containing ScrollView."""
+        item = UIWindow()
+        show = item.create_element(
+            "show",
+            "button",
+            title="Show",
+            row=0,
+            col=0,
+            width=6,
+        )
+        browse = item.create_element(
+            "browse",
+            "button",
+            title="Browse",
+            row=0,
+            col=7,
+            width=8,
+        )
+        item._window_width = 20
+        item._window_height = 1
+
+        scrollview = PlainScrollView(width=20, height=3, children=[item])
+        window = UIWindow()
+        proxy = window.create_element(
+            "items",
+            "uielement",
+            row=2,
+            col=0,
+            width=20,
+            height=3,
+        )
+        proxy._child_instance = scrollview
+        scrollview.parent = proxy
+
+        window.set_focus(show)
+
+        self.assertIsNotNone(window._active_scrollview_scope)
+        self.assertFalse(window._edit_mode)
+        self.assertIs(window._focused_element, show)
+
+        self.assertTrue(window.handle_key("Right"))
+        self.assertIs(window._focused_element, browse)
+
+        self.assertTrue(window.handle_key("Escape"))
+        self.assertIsNone(window._active_scrollview_scope)
+        self.assertFalse(window._edit_mode)
+        self.assertIs(window._focused_element, proxy)
+
+    def test_modal_close_restores_rebuilt_scrollview_focus_edit_mode_and_offset(self):
+        """Closing a modal must restore the logical descendant after child rebuild."""
+        def build_items(count):
+            items = []
+            for index in range(count):
+                item = UIWindow()
+                item.create_element(
+                    "show",
+                    "button",
+                    title=f"Show {index}",
+                    row=0,
+                    col=0,
+                    width=8,
+                )
+                item.create_element(
+                    "browse",
+                    "button",
+                    title=f"Browse {index}",
+                    row=0,
+                    col=9,
+                    width=10,
+                )
+                item._window_width = 20
+                item._window_height = 1
+                items.append(item)
+            return items
+
+        items = build_items(8)
+        scrollview = PlainScrollView(width=20, height=3, children=items)
+        window = UIWindow()
+        proxy = window.create_element(
+            "items",
+            "uielement",
+            row=2,
+            col=0,
+            width=20,
+            height=3,
+        )
+        proxy._child_instance = scrollview
+        scrollview.parent = proxy
+        window.set_focus(items[5]._elements["browse"])
+        window._edit_mode = True
+        scrollview._view_offset = 3
+
+        class RebuildingDialog(UIWindow):
+            def __init__(self, item_count):
+                super().__init__()
+                self._item_count = item_count
+
+            def handle_key(self, key):
+                if key != "Enter":
+                    return False
+                scrollview.clear_children()
+                for item in build_items(self._item_count):
+                    scrollview.add_child(item)
+                self._app.close_current()
+                return True
+
+        app = UIApplication(width=40, height=12)
+        app.open(window)
+        app.open(RebuildingDialog(8))
+
+        app.handle_key("Enter")
+
+        self.assertIs(app.active_window, window)
+        self.assertTrue(window._edit_mode)
+        self.assertIsNotNone(window._active_scrollview_scope)
+        self.assertIs(window._active_scrollview_scope["scrollview"], scrollview)
+        self.assertEqual(window._focused_element.name, "browse")
+        self.assertIs(window._focused_element, scrollview._children[5]._elements["browse"])
+        self.assertEqual(scrollview._view_offset, 3)
+
+        app.open(RebuildingDialog(2))
+        app.handle_key("Enter")
+
+        self.assertTrue(window._edit_mode)
+        self.assertIs(window._focused_element, scrollview._children[1]._elements["browse"])
+        self.assertEqual(scrollview._view_offset, 0)
+
     def test_label_text_marks_app_dirty(self):
         """Programmatic label text changes should render after dirty rendering is enabled."""
         app = UIApplication()
@@ -2349,6 +2530,75 @@ class TestUIApplicationSizing(unittest.TestCase):
             self.assertIs(app.active_window, browser)
             self.assertIs(browser._focused_element, browser.filename)
             self.assertFalse(browser._edit_mode)
+
+    def test_file_browser_enter_confirms_unchanged_directory_selection(self):
+        """Enter must open the selected directory even when its ListBox selection did not change."""
+        with tempfile.TemporaryDirectory() as root:
+            child = os.path.join(root, "images")
+            os.mkdir(child)
+            browser = FileBrowser(root, child, mode="open")
+            browser.open()
+
+            self.assertEqual(browser.entries.selected_items, [".."])
+            browser.handle_key("Enter")
+
+            self.assertEqual(browser._current_dir, root)
+            self.assertTrue(browser._edit_mode)
+            browser.entries.selected_items = ["images/"]
+            browser._preview_selected()
+            browser.set_focus(browser.entries)
+            browser._enter_edit_mode()
+            browser.handle_key("Enter")
+
+            self.assertEqual(browser._current_dir, child)
+            self.assertTrue(browser._edit_mode)
+
+    def test_file_browser_enter_on_file_commits_listbox_without_closing_dialog(self):
+        """Enter on a file leaves ListBox edit mode but requires Open to close."""
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "photo.png")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("png")
+
+            picked = []
+            app = UIApplication()
+            app.open(UIWindow(title="Main"))
+            browser = FileBrowser(root, root, mode="open", on_close=picked.append)
+            app.open(browser)
+            browser.entries.selected_items = ["photo.png"]
+            browser._preview_selected()
+
+            app.handle_key("Enter")
+
+            self.assertEqual(app.window_count, 2)
+            self.assertIs(app.active_window, browser)
+            self.assertIs(browser._focused_element, browser.entries)
+            self.assertFalse(browser._edit_mode)
+            self.assertEqual(browser.filename.value, "photo.png")
+            self.assertEqual(picked, [])
+
+    def test_file_browser_escape_commits_current_entry_without_closing_dialog(self):
+        """Escape from the entries ListBox commits its active value and stays open."""
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "photo.png")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("png")
+
+            picked = []
+            app = UIApplication()
+            app.open(UIWindow(title="Main"))
+            browser = FileBrowser(root, root, mode="open", on_close=picked.append)
+            app.open(browser)
+            browser.entries.selected_items = ["photo.png"]
+
+            app.handle_key("Escape")
+
+            self.assertEqual(app.window_count, 2)
+            self.assertIs(app.active_window, browser)
+            self.assertIs(browser._focused_element, browser.entries)
+            self.assertFalse(browser._edit_mode)
+            self.assertEqual(browser.filename.value, "photo.png")
+            self.assertEqual(picked, [])
 
     def test_file_browser_extension_filter_disables_and_blocks_unmatched_files(self):
         """Open-mode FileBrowser should dim and reject files outside the extension filter."""

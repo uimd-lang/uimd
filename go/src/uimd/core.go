@@ -17,6 +17,10 @@ const (
 	minimumRenderableSize = 1
 	defaultViewportWidth  = 100
 	defaultViewportHeight = 32
+	ansiTerminalBaseRow   = 1
+	ansiTerminalBaseCol   = 1
+	ansiSyncUpdateBegin   = "\x1b[?2026h"
+	ansiSyncUpdateEnd     = "\x1b[?2026l"
 )
 
 const (
@@ -335,23 +339,31 @@ func (cell TerminalCell) Clone() TerminalCell {
 }
 
 type TerminalBuffer struct {
-	width  int
-	height int
-	cells  [][]TerminalCell
+	width           int
+	height          int
+	cells           [][]TerminalCell
+	previous        [][]TerminalCell
+	forceFullRedraw bool
 }
 
 func NewTerminalBuffer(width int, height int) *TerminalBuffer {
 	width = maxInt(minimumRenderableSize, width)
 	height = maxInt(minimumRenderableSize, height)
 	buffer := &TerminalBuffer{width: width, height: height}
-	buffer.cells = make([][]TerminalCell, height)
+	buffer.cells = newTerminalCellGrid(width, height)
+	buffer.previous = newTerminalCellGrid(width, height)
+	return buffer
+}
+
+func newTerminalCellGrid(width int, height int) [][]TerminalCell {
+	cells := make([][]TerminalCell, height)
 	for row := 0; row < height; row++ {
-		buffer.cells[row] = make([]TerminalCell, width)
+		cells[row] = make([]TerminalCell, width)
 		for col := 0; col < width; col++ {
-			buffer.cells[row][col] = NewTerminalCell()
+			cells[row][col] = NewTerminalCell()
 		}
 	}
-	return buffer
+	return cells
 }
 
 func (buffer *TerminalBuffer) Width() int {
@@ -374,6 +386,28 @@ func (buffer *TerminalBuffer) SetCell(row int, col int, cell TerminalCell) {
 		return
 	}
 	buffer.cells[row][col] = cell.Clone()
+}
+
+func (buffer *TerminalBuffer) ReplaceContent(current *TerminalBuffer) {
+	if buffer == nil || current == nil {
+		return
+	}
+	if buffer.width != current.width || buffer.height != current.height {
+		buffer.width = current.width
+		buffer.height = current.height
+		buffer.cells = newTerminalCellGrid(buffer.width, buffer.height)
+		buffer.previous = newTerminalCellGrid(buffer.width, buffer.height)
+		buffer.forceFullRedraw = true
+	}
+	for row := 0; row < buffer.height; row++ {
+		copy(buffer.cells[row], current.cells[row])
+	}
+}
+
+func (buffer *TerminalBuffer) RequestFullRedraw() {
+	if buffer != nil {
+		buffer.forceFullRedraw = true
+	}
 }
 
 func (buffer *TerminalBuffer) Fill(rect Rect, style Style) {
@@ -496,6 +530,9 @@ func (buffer *TerminalBuffer) PlainText() string {
 }
 
 func (buffer *TerminalBuffer) AnsiFrame() string {
+	if buffer.hasRawCells() {
+		return buffer.ansiFrameWithRawCells()
+	}
 	var builder strings.Builder
 	builder.WriteString("\x1b[H")
 	var foreground Color
@@ -522,6 +559,207 @@ func (buffer *TerminalBuffer) AnsiFrame() string {
 	}
 	builder.WriteString("\x1b[0m")
 	return builder.String()
+}
+
+func (buffer *TerminalBuffer) RenderDiff() string {
+	if buffer == nil {
+		return ""
+	}
+	var builder strings.Builder
+	fullRedraw := buffer.forceFullRedraw
+	synchronizeUpdate := false
+	rawEmitted := false
+	for row := 0; row < buffer.height; row++ {
+		col := 0
+		for col < buffer.width {
+			current := buffer.cells[row][col]
+			if current.RawSkip {
+				buffer.previous[row][col] = current
+				col++
+				continue
+			}
+			if !fullRedraw && sameTerminalCell(current, buffer.previous[row][col]) {
+				col++
+				continue
+			}
+			if current.Raw != "" {
+				synchronizeUpdate = true
+				rawWidth := maxInt(minimumRenderableSize, current.RawWidth)
+				rawHeight := maxInt(minimumRenderableSize, current.RawHeight)
+				clearWidth := minInt(rawWidth, buffer.width-col)
+				clearHeight := minInt(rawHeight, buffer.height-row)
+				for clearRow := row; clearRow < row+clearHeight; clearRow++ {
+					writeAnsiCursorPosition(&builder, clearRow, col)
+					builder.WriteString(sgrForCell(current))
+					builder.WriteString(strings.Repeat(" ", clearWidth))
+				}
+				if clearHeight >= rawHeight {
+					writeAnsiCursorPosition(&builder, row, col)
+					builder.WriteString(current.Raw)
+					rawEmitted = true
+				}
+				for coveredRow := row; coveredRow < row+clearHeight; coveredRow++ {
+					for coveredCol := col; coveredCol < col+clearWidth; coveredCol++ {
+						buffer.previous[coveredRow][coveredCol] = buffer.cells[coveredRow][coveredCol]
+					}
+				}
+				col += clearWidth
+				continue
+			}
+			runCol := col
+			styleCell := current
+			var run strings.Builder
+			for col < buffer.width {
+				current = buffer.cells[row][col]
+				if !fullRedraw && sameTerminalCell(current, buffer.previous[row][col]) {
+					break
+				}
+				if current.RawSkip || current.Raw != "" ||
+					!sameColor(current.Foreground, styleCell.Foreground) ||
+					!sameColor(current.Background, styleCell.Background) {
+					break
+				}
+				text := safeTerminalText(current.Text)
+				if text == "" {
+					text = " "
+				}
+				run.WriteString(text)
+				buffer.previous[row][col] = current
+				col++
+			}
+			writeAnsiCursorPosition(&builder, row, runCol)
+			builder.WriteString(sgrForCell(styleCell))
+			builder.WriteString(run.String())
+		}
+	}
+	if builder.Len() == 0 {
+		buffer.forceFullRedraw = false
+		return ""
+	}
+	if rawEmitted {
+		for row := 0; row < buffer.height; row++ {
+			col := 0
+			for col < buffer.width {
+				cell := buffer.cells[row][col]
+				if cell.RawSkip || cell.Raw != "" {
+					col++
+					continue
+				}
+				runCol := col
+				styleCell := cell
+				var run strings.Builder
+				for col < buffer.width {
+					current := buffer.cells[row][col]
+					if current.RawSkip || current.Raw != "" ||
+						!sameColor(current.Foreground, styleCell.Foreground) ||
+						!sameColor(current.Background, styleCell.Background) {
+						break
+					}
+					text := safeTerminalText(current.Text)
+					if text == "" {
+						text = " "
+					}
+					run.WriteString(text)
+					col++
+				}
+				writeAnsiCursorPosition(&builder, row, runCol)
+				builder.WriteString(sgrForCell(styleCell))
+				builder.WriteString(run.String())
+			}
+		}
+	}
+	builder.WriteString("\x1b[0m")
+	buffer.forceFullRedraw = false
+	if synchronizeUpdate {
+		return ansiSyncUpdateBegin + builder.String() + ansiSyncUpdateEnd
+	}
+	return builder.String()
+}
+
+func sameTerminalCell(left TerminalCell, right TerminalCell) bool {
+	return left.Text == right.Text &&
+		left.Raw == right.Raw &&
+		left.RawWidth == right.RawWidth &&
+		left.RawHeight == right.RawHeight &&
+		left.RawSkip == right.RawSkip &&
+		sameColor(left.Foreground, right.Foreground) &&
+		sameColor(left.Background, right.Background)
+}
+
+func (buffer *TerminalBuffer) hasRawCells() bool {
+	for row := 0; row < buffer.height; row++ {
+		for col := 0; col < buffer.width; col++ {
+			if buffer.cells[row][col].Raw != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (buffer *TerminalBuffer) ansiFrameWithRawCells() string {
+	var builder strings.Builder
+	builder.WriteString(ansiSyncUpdateBegin)
+	builder.WriteString("\x1b[H")
+	for row := 0; row < buffer.height; row++ {
+		for col := 0; col < buffer.width; col++ {
+			cell := buffer.cells[row][col]
+			if cell.Raw == "" {
+				continue
+			}
+			rawWidth := maxInt(minimumRenderableSize, cell.RawWidth)
+			rawHeight := maxInt(minimumRenderableSize, cell.RawHeight)
+			clearWidth := minInt(rawWidth, buffer.width-col)
+			clearHeight := minInt(rawHeight, buffer.height-row)
+			for clearRow := row; clearRow < row+clearHeight; clearRow++ {
+				writeAnsiCursorPosition(&builder, clearRow, col)
+				builder.WriteString(sgrForCell(cell))
+				builder.WriteString(strings.Repeat(" ", clearWidth))
+			}
+			if clearHeight >= rawHeight {
+				writeAnsiCursorPosition(&builder, row, col)
+				builder.WriteString(cell.Raw)
+			}
+		}
+	}
+	for row := 0; row < buffer.height; row++ {
+		col := 0
+		for col < buffer.width {
+			cell := buffer.cells[row][col]
+			if cell.RawSkip || cell.Raw != "" {
+				col++
+				continue
+			}
+			runCol := col
+			foreground := cell.Foreground
+			background := cell.Background
+			var run strings.Builder
+			for col < buffer.width {
+				current := buffer.cells[row][col]
+				if current.RawSkip || current.Raw != "" ||
+					!sameColor(current.Foreground, foreground) ||
+					!sameColor(current.Background, background) {
+					break
+				}
+				text := safeTerminalText(current.Text)
+				if text == "" {
+					text = " "
+				}
+				run.WriteString(text)
+				col++
+			}
+			writeAnsiCursorPosition(&builder, row, runCol)
+			builder.WriteString(sgrForCell(cell))
+			builder.WriteString(run.String())
+		}
+	}
+	builder.WriteString("\x1b[0m")
+	builder.WriteString(ansiSyncUpdateEnd)
+	return builder.String()
+}
+
+func writeAnsiCursorPosition(builder *strings.Builder, row int, col int) {
+	fmt.Fprintf(builder, "\x1b[%d;%dH", row+ansiTerminalBaseRow, col+ansiTerminalBaseCol)
 }
 
 func RenderPlainText(text string, width int, height int, style Style) [][]TerminalCell {

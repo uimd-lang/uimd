@@ -11,7 +11,8 @@ private let kModalBackgroundDimFactor = 0.5
 private let kRenderTimeOverrideThreadKey = "uimd.renderTimeOverrideMs"
 private let kImageCellBackgroundRenderingDepthThreadKey = "uimd.imageCellBackgroundRenderingDepth"
 private let kNoActiveDynamicEditName = "__uimd_no_active_dynamic_edit__"
-private let kTerminalEscapeReadDelayMicros: useconds_t = 10_000
+private let kTerminalEscapeSequenceTimeoutMilliseconds: Int32 = 100
+private let kTerminalUtf8ReadDelayMicros: useconds_t = 10_000
 private let kTerminalInputIdleSleepMicros: useconds_t = 10_000
 private let kCopyNotificationDurationSeconds = 3.0
 private let kCopyNotificationRow = 0
@@ -2207,11 +2208,21 @@ open class NumberInput: TextInput
 
     public func setValue(_ value: Double)
     {
+        let wasEditing = editing
         numberValue = value
         super.setValue(formatNumber(value))
-        editText = ""
-        editCursor = 0
-        editing = false
+        editOriginalValue = value
+        editText = wasEditing ? formatNumber(value) : ""
+        editCursor = wasEditing ? editText.count : 0
+        editing = wasEditing
+        replaceOnFirstTextInput = false
+    }
+
+    public func setEditText(_ text: String)
+    {
+        editText = text
+        editCursor = editText.count
+        editing = true
         replaceOnFirstTextInput = false
     }
 
@@ -2327,9 +2338,20 @@ open class NumberInput: TextInput
         if state.editMode && width > 0
         {
             let cursorEffectiveStyle = base.merged(cursorStyle)
-            let cursorCol = max(0, min(width - 1, editCursor))
-            row[cursorCol].foreground = cursorEffectiveStyle.color
-            row[cursorCol].background = cursorEffectiveStyle.background
+            if replaceOnFirstTextInput
+            {
+                for col in 0..<min(editText.count, row.count)
+                {
+                    row[col].foreground = cursorEffectiveStyle.color
+                    row[col].background = cursorEffectiveStyle.background
+                }
+            }
+            else
+            {
+                let cursorCol = max(0, min(width - 1, editCursor))
+                row[cursorCol].foreground = cursorEffectiveStyle.color
+                row[cursorCol].background = cursorEffectiveStyle.background
+            }
         }
         return [row]
     }
@@ -2903,6 +2925,17 @@ open class ScrollView: UIElement
         viewOffset = max(0, position.viewOffset)
         autoScroll = position.autoScroll
         invalidateHeightCache()
+        let frameViewport = Size(
+            width: max(1, frame.width),
+            height: max(1, frame.height)
+        )
+        let viewport = generatedScrollViewport(size: frameViewport, style: style)
+        let naturalSkip = max(
+            0,
+            contentHeight(width: max(1, viewport.width)) - max(1, viewport.height)
+        )
+        viewOffset = autoScroll ? 0 : min(viewOffset, naturalSkip)
+        lastNaturalSkip = naturalSkip
     }
 
     public func contentHeight(width: Int? = nil) -> Int
@@ -3560,6 +3593,26 @@ open class ViewHost: UIElement
             )
                 ? focusStyle?.background
                 : nil
+        let previousGeneratedWindowStyle = child.generatedWindowStyle
+        let directFocusBackground: Color?
+        if state.focused,
+           child.generatedScrollView() == nil,
+           reusableFocusStyleAppliesToChild(
+               self,
+               child: child,
+               directFocus: true,
+               descendantOnlyFocus: false
+           ),
+           let focusStyle,
+           let background = focusStyle.background
+        {
+            child.generatedWindowStyle = child.generatedWindowStyle.merged(focusStyle)
+            directFocusBackground = background
+        }
+        else
+        {
+            directFocusBackground = nil
+        }
         var rendered = child.renderContentForHost(
             size: size,
             focusedName: activeFocusedName,
@@ -3573,7 +3626,23 @@ open class ViewHost: UIElement
         )
         child.suppressActiveContainerDim = previousSuppressDim
         child.activeEditFocusName = previousActiveEditFocusName
-        if state.focused && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
+        child.generatedWindowStyle = previousGeneratedWindowStyle
+        if let directFocusBackground
+        {
+            var descendantBackgrounds: [Color] = []
+            collectDescendantBaseStyleBackgrounds(child, into: &descendantBackgrounds)
+            applyReusableFocusBackgroundToDescendantBackgrounds(
+                content: &rendered,
+                focusBackground: directFocusBackground,
+                descendantBackgrounds: descendantBackgrounds
+            )
+            applyReusableFocusBackground(
+                content: &rendered,
+                focusBackground: directFocusBackground,
+                baseBackground: style.background ?? state.parentBackground
+            )
+        }
+        else if state.focused && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
            let focusBackground = generatedChildFocusBackground(
             for: self,
             child: child,
@@ -3641,6 +3710,26 @@ open class ReusableElement: UIElement
             )
                 ? focusStyle?.background
                 : nil
+        let previousGeneratedWindowStyle = child.generatedWindowStyle
+        let directFocusBackground: Color?
+        if state.focused,
+           child.generatedScrollView() == nil,
+           reusableFocusStyleAppliesToChild(
+               self,
+               child: child,
+               directFocus: true,
+               descendantOnlyFocus: false
+           ),
+           let focusStyle,
+           let background = focusStyle.background
+        {
+            child.generatedWindowStyle = child.generatedWindowStyle.merged(focusStyle)
+            directFocusBackground = background
+        }
+        else
+        {
+            directFocusBackground = nil
+        }
         var rendered = child.renderContentForHost(
             size: size,
             focusedName: activeFocusedName,
@@ -3652,7 +3741,23 @@ open class ReusableElement: UIElement
             clipBottom: state.clipBottom
         )
         child.activeEditFocusName = previousActiveEditFocusName
-        if state.focused && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
+        child.generatedWindowStyle = previousGeneratedWindowStyle
+        if let directFocusBackground
+        {
+            var descendantBackgrounds: [Color] = []
+            collectDescendantBaseStyleBackgrounds(child, into: &descendantBackgrounds)
+            applyReusableFocusBackgroundToDescendantBackgrounds(
+                content: &rendered,
+                focusBackground: directFocusBackground,
+                descendantBackgrounds: descendantBackgrounds
+            )
+            applyReusableFocusBackground(
+                content: &rendered,
+                focusBackground: directFocusBackground,
+                baseBackground: style.background ?? state.parentBackground
+            )
+        }
+        else if state.focused && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
            let focusBackground = generatedChildFocusBackground(
             for: self,
             child: child,
@@ -3998,7 +4103,6 @@ open class GeneratedWindowBase
     {
         if let element = elements.first(where: { $0.name == name })
         {
-            element.mcpElementId = nil
             return element
         }
         if let element = dynamicElementRegistry[name]
@@ -4554,7 +4658,8 @@ open class GeneratedWindowBase
                  nestedOwnsActiveScrollView ||
                  nestedOwnsActiveScrollViewEditElement) &&
                 (focusedNameIsInActiveEditScope(focusedName) || nestedFocusIsLocalChild || nestedOwnsActiveScrollView)
-            let activeScrollViewFocused = editMode &&
+            let activeScrollViewFocused =
+                !suppressActiveContainerScopeVisuals &&
                 ((activeScrollView != nil && activeScrollView === element) ||
                  ((element as? ScrollView).map
                  {
@@ -4721,8 +4826,21 @@ open class GeneratedWindowBase
                                 ownerWindowForElement(generated, activeScrollView) != nil
                             let childOwnsActiveScrollViewEditElement = activeScrollViewEditElement != nil &&
                                 ownerWindowForElement(generated, activeScrollViewEditElement) != nil
+                            let childHasFocusedElement = focusedElementBeforeRender != nil &&
+                                ownerWindowForElement(generated, focusedElementBeforeRender) != nil
+                            let navigationScopeDescendantFocused =
+                                !suppressActiveContainerScopeVisuals &&
+                                !editMode &&
+                                activeScrollView === scrollView &&
+                                childHasFocusedElement
                             let reusableDescendantFocused = childDirectFocus ||
-                                (editMode && (localFocus != nil || childOwnsActiveScrollView || childOwnsActiveScrollViewEditElement))
+                                navigationScopeDescendantFocused ||
+                                (editMode && (
+                                    localFocus != nil ||
+                                    childHasFocusedElement ||
+                                    childOwnsActiveScrollView ||
+                                    childOwnsActiveScrollViewEditElement
+                                ))
                             let effectiveChildEditMode = editMode &&
                                 (localFocus != nil || childOwnsActiveScrollView || childOwnsActiveScrollViewEditElement) &&
                                 (activeScrollView == nil || childOwnsActiveScrollView || childOwnsActiveScrollViewEditElement)
@@ -5940,13 +6058,17 @@ public final class FileBrowser: GeneratedWindowBase
     public let open_btn: Button
     public let close_btn = Button("close_btn", "Close")
     public var onClose: ((String) -> Void)?
+    public var currentDirectory: String
+    {
+        currentDir.path
+    }
+    public private(set) var result = ""
+    public private(set) var closed = false
     private let rootDir: URL
     private var currentDir: URL
     private let browserMode: String
     private var initialFilename: String
     private let extensionFilter: String
-    private var result = ""
-    private var closed = false
 
     public init(
         root: String = ".",
@@ -5997,6 +6119,7 @@ public final class FileBrowser: GeneratedWindowBase
         addElement(filename)
         addElement(open_btn)
         addElement(close_btn)
+        entries.commitMode = kCommitModeLeave
         entries.setStyle(Self.entriesStyle())
         entries.setFocusStyle(Self.entriesFocusStyle())
         entries.setEditStyle(Self.entriesEditStyle())
@@ -6021,6 +6144,21 @@ public final class FileBrowser: GeneratedWindowBase
         var options = super.runtimeOptions()
         options.initialFocusName = "entries"
         options.startInEditMode = true
+        options.onKeyBeforeFocusedElement = { [weak self] key, name, editMode in
+            guard let self, key == "Enter", name == "entries", editMode else
+            {
+                return false
+            }
+            self.entries.setSelectedIndex(self.entries.activeIndex)
+            self.entries.hideActiveItem()
+            self.previewSelected()
+            if self.selectedEntryIsDirectory()
+            {
+                _ = self.acceptCurrent()
+                return true
+            }
+            return false
+        }
         options.onKey = { [weak self] key in
             guard let self else
             {
@@ -6084,7 +6222,8 @@ public final class FileBrowser: GeneratedWindowBase
     {
         if name == "entries"
         {
-            return acceptCurrent()
+            previewSelected()
+            return true
         }
         if name == "filename", browserMode == "save"
         {
@@ -6199,7 +6338,7 @@ public final class FileBrowser: GeneratedWindowBase
         return true
     }
 
-    private func close(_ path: String)
+    public func close(_ path: String)
     {
         result = path
         closed = true
@@ -6630,6 +6769,7 @@ fileprivate struct EditSnapshot
     var element: UIElement?
     var textValue = ""
     var textCursor = 0
+    var textSelectionAnchor: Int?
     var numberValue = 0.0
     var selectedIndex = -1
     var selectedValues: [String] = []
@@ -6655,7 +6795,6 @@ private final class GeneratedRuntimeController
     private var mousePressActivatedClickControl = false
     private var copyNotificationRequested = false
     private var beforeStandardButtonAction: (() -> Void)?
-    private var mcpSnapshotCellBackgroundModalDepth = 0
 
     init(window: GeneratedWindowBase, options: GeneratedWindowRuntimeOptions, args: [String])
     {
@@ -6816,6 +6955,28 @@ private final class GeneratedRuntimeController
     }
 
     private func handleTerminalInput(_ event: TerminalInputEvent, pendingMouseDown: inout Point?) throws -> Bool
+    {
+        let hadModalStack = hasOpenModalStack()
+        let backgroundFocusCleanupContext = captureBackgroundFocusCleanupContext()
+        cleanupClosedStackFrames()
+        do
+        {
+            let keepRunning = try handleTerminalInputBody(event, pendingMouseDown: &pendingMouseDown)
+            cleanupClosedStackFrames()
+            cleanupBackgroundFocusAfterModalClose(
+                backgroundFocusCleanupContext,
+                wasOpen: hadModalStack
+            )
+            return keepRunning
+        }
+        catch
+        {
+            cleanupClosedStackFrames()
+            throw error
+        }
+    }
+
+    private func handleTerminalInputBody(_ event: TerminalInputEvent, pendingMouseDown: inout Point?) throws -> Bool
     {
         switch event
         {
@@ -7275,17 +7436,13 @@ private final class GeneratedRuntimeController
     private func callTool(_ name: String, _ arguments: [String: Any]) throws -> Any
     {
         let hadModalStack = hasOpenModalStack()
-        let modalClassName = activeFrame?.window.mcpClassName
         let backgroundFocusCleanupContext = captureBackgroundFocusCleanupContext()
         cleanupClosedStackFrames()
         let result = try callToolBody(name, arguments)
         cleanupClosedStackFrames()
         cleanupBackgroundFocusAfterModalClose(
             backgroundFocusCleanupContext,
-            wasOpen: hadModalStack,
-            modalClassName: modalClassName,
-            toolName: name,
-            arguments: arguments
+            wasOpen: hadModalStack
         )
         return result
     }
@@ -7325,10 +7482,7 @@ private final class GeneratedRuntimeController
 
     private func cleanupBackgroundFocusAfterModalClose(
         _ context: BackgroundFocusCleanupContext,
-        wasOpen: Bool,
-        modalClassName: String?,
-        toolName: String,
-        arguments: [String: Any]
+        wasOpen: Bool
     )
     {
         guard context.hadActiveStackFrame && wasOpen && !hasOpenModalStack() else
@@ -7340,26 +7494,35 @@ private final class GeneratedRuntimeController
         {
             if repairRemovedBackgroundScrollViewScope(activeScrollView, context: context)
             {
+                restoreBackgroundScrollPosition(context, activeScrollView: activeScrollView)
                 return
             }
             clearRemovedBackgroundScrollViewScope(activeScrollView)
             return
         }
-        if let activeScrollView = rootActiveScrollView,
-           activeScrollView === context.activeScrollView,
-           let position = context.activeScrollViewPosition
+        let activeScrollView = rootActiveScrollView
+        if exitBackgroundEditModeAfterModalClose()
         {
-            activeScrollView.restoreScrollPosition(position)
-        }
-        let standardEscapeClose = toolName == "press_key"
-            && (arguments["key"] as? String) == "Escape"
-            && isStandardModalClass(modalClassName)
-        let restoreNestedEditMode = !standardEscapeClose
-        if exitBackgroundEditModeAfterModalClose(restoreNestedEditMode: restoreNestedEditMode)
-        {
+            restoreBackgroundScrollPosition(context, activeScrollView: activeScrollView)
             return
         }
         clearFocusIfElementRemoved(context.focused)
+        restoreBackgroundScrollPosition(context, activeScrollView: activeScrollView)
+    }
+
+    private func restoreBackgroundScrollPosition(
+        _ context: BackgroundFocusCleanupContext,
+        activeScrollView: ScrollView?
+    )
+    {
+        guard let activeScrollView,
+              activeScrollView === context.activeScrollView,
+              let position = context.activeScrollViewPosition
+        else
+        {
+            return
+        }
+        activeScrollView.restoreScrollPosition(position)
     }
 
     private func repairRemovedBackgroundScrollViewScope(
@@ -7387,10 +7550,12 @@ private final class GeneratedRuntimeController
             index = min(max(0, focusIndex(in: focusable, matching: rootFocusedName)), focusable.count - 1)
         }
         let nextFocus = focusable[index]
+        rootEditSnapshot = nil
         rootEditMode = true
         rootActiveScrollView = activeScrollView
         rootActiveScrollViewEditElement = nil
         rootActiveDynamicEditName = nil
+        rootWindow.suppressActiveContainerScopeVisuals = false
         setFocusedElement(nextFocus)
         return true
     }
@@ -7398,31 +7563,28 @@ private final class GeneratedRuntimeController
     private func clearRemovedBackgroundScrollViewScope(_ activeScrollView: ScrollView)
     {
         rootScrollViewLastDescendantByScrollId.removeValue(forKey: ObjectIdentifier(activeScrollView))
+        rootEditSnapshot = nil
         rootEditMode = false
         rootActiveScrollView = nil
         rootActiveScrollViewEditElement = nil
         rootActiveDynamicEditName = nil
         rootFocusedName = nil
+        rootWindow.suppressActiveContainerScopeVisuals = false
     }
 
-    private func exitBackgroundEditModeAfterModalClose(restoreNestedEditMode: Bool) -> Bool
+    private func exitBackgroundEditModeAfterModalClose() -> Bool
     {
+        rootEditSnapshot = nil
         rootActiveScrollViewEditElement = nil
         if let activeScrollView = rootActiveScrollView
         {
-            rootEditMode = restoreNestedEditMode
-            if rootEditMode,
-               let focused = rootFocusedName.flatMap({ rootWindow.element(named: $0) })
+            rootEditMode = true
+            rootWindow.suppressActiveContainerScopeVisuals = false
+            if let focused = rootFocusedName.flatMap({ rootWindow.element(named: $0) })
             {
                 rememberScrollViewDescendant(activeScrollView, focused)
             }
             return true
-        }
-        guard restoreNestedEditMode else
-        {
-            rootEditMode = false
-            rootActiveDynamicEditName = nil
-            return false
         }
         guard let focused = rootFocusedName,
               let element = rootWindow.element(named: focused)
@@ -7463,18 +7625,11 @@ private final class GeneratedRuntimeController
             rootActiveScrollView = nil
             rootActiveScrollViewEditElement = nil
         }
+        rootEditSnapshot = nil
         rootFocusedName = nil
         rootEditMode = false
         rootActiveDynamicEditName = nil
-    }
-
-    private func isStandardModalClass(_ className: String?) -> Bool
-    {
-        guard let className, !className.isEmpty else
-        {
-            return false
-        }
-        return className == "FileBrowser" || className.hasPrefix("MessageBox")
+        rootWindow.suppressActiveContainerScopeVisuals = false
     }
 
     private func standardEscapeButtonName(for window: GeneratedWindowBase, className: String?) -> String?
@@ -7604,21 +7759,21 @@ private final class GeneratedRuntimeController
             return ["lines": renderedText(renderMcpSnapshotContent())]
         case "focus_element":
             let element = try requireElement(arguments["element_id"] as? String)
-            let elementId = arguments["element_id"] as? String ?? runtimeElementId(element)
-            focusedName = elementId
-            editMode = false
-            activeDynamicEditName = nil
-            activeScrollView = nil
-            activeScrollViewEditElement = nil
-            rememberParentDynamicFocus(elementId, element)
-            if let scrollView = scrollViewContainingElement(element), element !== scrollView
-            {
-                rememberScrollViewDescendant(scrollView, element)
-            }
+            focusActiveWindowElement(element)
             return snapshotResult(element)
         case "enter_edit_mode":
             if let id = arguments["element_id"] as? String
             {
+                if editMode,
+                   activeScrollView == nil,
+                   let currentFocusedName = focusedName,
+                   let current = window.element(named: currentFocusedName)
+                {
+                    commitEdit(current)
+                    editSnapshot = nil
+                    activeScrollViewEditElement = nil
+                    editMode = false
+                }
                 let element = try requireElement(id)
                 focusActiveWindowElement(element)
             }
@@ -7644,8 +7799,10 @@ private final class GeneratedRuntimeController
             return ["edit_mode": editMode]
         case "get_edit_mode":
             return ["edit_mode": editMode]
-        case "activate_element", "click_element":
-            return try activateElement(arguments["element_id"] as? String, click: name == "click_element")
+        case "activate_element":
+            return try activateElement(arguments["element_id"] as? String)
+        case "click_element":
+            return try clickElement(arguments["element_id"] as? String)
         case "press_key":
             return try pressKey(arguments["key"] as? String ?? "")
         case "set_cursor":
@@ -8083,6 +8240,28 @@ private final class GeneratedRuntimeController
     private func activateElement(_ id: String?, click: Bool = false) throws -> Any
     {
         try toolPayload(for: performActivateElement(id, click: click))
+    }
+
+    private func clickElement(_ id: String?) throws -> Any
+    {
+        _ = renderContent()
+        let element = try requireElement(id)
+        guard element.enabled else
+        {
+            return snapshot(element, refreshLayout: false)
+        }
+        let elementId = id ?? runtimeElementId(element)
+        let frame = element.frame
+        _ = try performMousePressTarget(
+            element,
+            row: frame.row + frame.height / 2,
+            col: frame.col + frame.width / 2
+        )
+        if let activeElement = window.element(named: elementId)
+        {
+            return snapshot(activeElement, refreshLayout: false)
+        }
+        return ["ok": true, "element_id": element.name]
     }
 
     private func performActivateElement(_ id: String?, click: Bool = false) throws -> RuntimeEventResult
@@ -8855,35 +9034,62 @@ private final class GeneratedRuntimeController
     private func focusActiveWindowElement(_ element: UIElement)
     {
         let targetWindow = window
-        if let scrollView = activeScrollView,
-           activeScrollViewRepresentedInCurrentLayout(targetWindow, scrollView)
+        targetWindow.suppressActiveContainerScopeVisuals = false
+        let activeScrollViewBelongsToWindow =
+            activeScrollViewRepresentedInCurrentLayout(targetWindow, activeScrollView)
+        let previousFocusable = focusableElements(
+            in: targetWindow,
+            activeScrollView: activeScrollViewBelongsToWindow ? activeScrollView : nil
+        )
+        let previous = focusedElement(from: previousFocusable)
+        let containingScrollView = scrollViewContainingElement(in: targetWindow, element)
+        if activeScrollViewBelongsToWindow && editMode
         {
-            let proxy = generatedScrollViewProxy(in: targetWindow, for: scrollView)
-            if element === scrollView || (proxy != nil && element === proxy)
+            if let activeScrollViewEditElement
             {
-                activeScrollView = nil
-                activeScrollViewEditElement = nil
-                editMode = false
+                commitEdit(activeScrollViewEditElement)
             }
-            else if scrollViewContainingElement(in: targetWindow, element) !== scrollView
-            {
-                activeScrollView = nil
-                activeScrollViewEditElement = nil
-                editMode = false
-            }
+            editSnapshot = nil
+            activeScrollViewEditElement = nil
+            setEditModePreservingActiveScroll(false)
+        }
+        let activeScrollViewProxy = activeScrollViewBelongsToWindow
+            ? generatedScrollViewProxy(in: targetWindow, for: activeScrollView)
+            : nil
+        if activeScrollViewBelongsToWindow &&
+            (element === activeScrollView || (activeScrollViewProxy != nil && element === activeScrollViewProxy!))
+        {
+            activeScrollView = nil
+            activeScrollViewEditElement = nil
+            setEditModePreservingActiveScroll(false)
+        }
+        if activeScrollViewBelongsToWindow &&
+            element !== activeScrollView &&
+            containingScrollView !== activeScrollView
+        {
+            activeScrollView = nil
+            activeScrollViewEditElement = nil
+            setEditModePreservingActiveScroll(false)
+        }
+        if let containingScrollView
+        {
+            activeScrollView = containingScrollView
+            activeScrollViewEditElement = nil
+            setEditModePreservingActiveScroll(false)
         }
 
-        let scopedActiveScrollView =
+        let targetScrollViewBelongsToWindow =
             activeScrollViewRepresentedInCurrentLayout(targetWindow, activeScrollView)
-                ? activeScrollView
-                : nil
-        let focusable = focusableElements(in: targetWindow, activeScrollView: scopedActiveScrollView)
+        let focusable = focusableElements(
+            in: targetWindow,
+            activeScrollView: targetScrollViewBelongsToWindow ? activeScrollView : nil
+        )
         guard focusable.contains(where: { $0 === element }) else
         {
-            if focusedElement(from: focusable) != nil
+            if previous != nil
             {
-                focusedName = nil
-                editMode = false
+                setFocusedElement(nil)
+                setEditModePreservingActiveScroll(false)
             }
             return
         }
@@ -8896,6 +9102,7 @@ private final class GeneratedRuntimeController
 
     private func focusActiveWindowElementWithScrollViewScope(_ element: UIElement)
     {
+        window.suppressActiveContainerScopeVisuals = false
         if let scrollView = scrollViewContainingElement(element)
         {
             activeScrollView = scrollView
@@ -8907,9 +9114,7 @@ private final class GeneratedRuntimeController
             return
         }
 
-        activeScrollView = nil
-        activeScrollViewEditElement = nil
-        setFocusedElement(element)
+        focusActiveWindowElement(element)
     }
 
     private func generatedScrollViewProxy(in targetWindow: GeneratedWindowBase, for target: ScrollView?) -> UIElement?
@@ -9448,40 +9653,6 @@ private final class GeneratedRuntimeController
         )
     }
 
-    private func updateFocusForMouse(row: Int, col: Int)
-    {
-        if let scrollView = activeScrollView,
-           !rectContains(scrollView.frame, row: row, col: col)
-        {
-            exitActiveScrollViewScope()
-            activeScrollViewEditElement = nil
-        }
-
-        let mouseScrollView = mouseScrollViewForPointer(row: row, col: col)
-        guard let target = mouseTargetElement(
-            from: mouseTargetElements(activeScrollView: mouseScrollView),
-            row: row,
-            col: col
-        ), target.focusable && target.enabled else
-        {
-            focusedName = nil
-            editMode = false
-            return
-        }
-
-        if let mouseScrollView,
-           target !== mouseScrollView
-        {
-            activeScrollView = mouseScrollView
-            activeScrollViewEditElement = nil
-            setEditModePreservingActiveScroll(true)
-            setFocusedElement(target)
-            return
-        }
-
-        focusActiveWindowElement(target)
-    }
-
     private func mousePointerEvent(_ arguments: [String: Any], pressed: Bool) throws -> Any
     {
         try performMousePointerEvent(arguments, pressed: pressed)
@@ -9589,13 +9760,13 @@ private final class GeneratedRuntimeController
         {
             return false
         }
+        let hitFrame = element.frame
 
         let mouseScrollView = mouseScrollViewForPointer(row: row, col: col)
         if let mouseScrollView,
            element !== mouseScrollView
         {
             activeScrollView = mouseScrollView
-            activeScrollViewEditElement = nil
             setEditModePreservingActiveScroll(true)
             setFocusedElement(element)
         }
@@ -9605,8 +9776,8 @@ private final class GeneratedRuntimeController
         }
 
         let elementId = runtimeElementId(element)
-        let localRow = row - element.frame.row
-        let localCol = col - element.frame.col
+        let localRow = row - hitFrame.row
+        let localCol = col - hitFrame.col
 
         if element is Button || element is CheckBox || element is Image || element is ReusableElement
         {
@@ -9683,17 +9854,18 @@ private final class GeneratedRuntimeController
             {
                 let previous = comboBox.valueForSnapshot
                 comboBox.selectedIndex = comboBoxOptionIndex(forLocalRow: localRow, optionCount: comboBox.options.count)
-                notifyValueChange(comboBox, before: previous)
                 commitEdit(comboBox)
                 editSnapshot = nil
                 if activeScrollView != nil
                 {
                     activeScrollViewEditElement = nil
+                    exitActiveScrollViewScope()
                 }
                 else
                 {
                     editMode = false
                 }
+                notifyValueChange(comboBox, before: previous)
                 return true
             }
             if comboEditMode
@@ -9723,164 +9895,13 @@ private final class GeneratedRuntimeController
 
     private func performMouseClick(_ arguments: [String: Any], refreshLayout: Bool = true) throws -> RuntimeEventResult
     {
-        if refreshLayout
-        {
-            _ = renderContent()
-        }
-        let point = contentPoint(arguments)
-        let row = point.row
-        let col = point.col
-        let clickedElement = mouseTargetElementAt(row: row, col: col)
-        if editMode,
-           let focusedName,
-           let element = window.element(named: focusedName)
-        {
-            if let list = element as? ListBox
-            {
-                guard rectContains(list.frame, row: row, col: col) else
-                {
-                    editMode = false
-                    updateFocusForMouse(row: row, col: col)
-                    if let activated = try activateClickControlResult(clickedElement)
-                    {
-                        return activated
-                    }
-                    if let activated = try activateFocusedClickControlResult()
-                    {
-                        return activated
-                    }
-                    enterEditModeForFocusedEditableElement()
-                    return .state
-                }
-                guard !list.options.isEmpty else
-                {
-                    editMode = false
-                    return .snapshot(list)
-                }
-                let index = clamped(list.visibleScrollOffset + row - list.frame.row, lower: 0, upper: list.options.count - 1)
-                let value = list.options[index]
-                if list.multiple
-                {
-                    if list.selectedValues.contains(value)
-                    {
-                        list.selectedValues = list.selectedValues.filter { $0 != value }
-                    }
-                    else
-                    {
-                        list.selectedValues.append(value)
-                    }
-                }
-                else
-                {
-                    list.selectedValues = [value]
-                }
-                list.selectedIndex = index
-                _ = dispatchGeneratedSelectionChanged(list, elementId: runtimeElementId(list), value: list.selectedValues)
-                editMode = true
-                return .snapshot(list)
-            }
-            guard let combo = element as? ComboBox else
-            {
-                commitEdit(element)
-                editSnapshot = nil
-                editMode = false
-                updateFocusForMouse(row: row, col: col)
-                if let activated = try activateClickControlResult(clickedElement)
-                {
-                    return activated
-                }
-                if let activated = try activateFocusedClickControlResult()
-                {
-                    return activated
-                }
-                enterEditModeForFocusedEditableElement()
-                return .state
-            }
-            let dropdown = comboBoxDropdownFrame(combo)
-            guard rectContains(dropdown, row: row, col: col) else
-            {
-                editMode = false
-                updateFocusForMouse(row: row, col: col)
-                if let activated = try activateFocusedClickControlResult()
-                {
-                    return activated
-                }
-                enterEditModeForFocusedEditableElement()
-                return .state
-            }
-            guard !combo.options.isEmpty else
-            {
-                editMode = false
-                return .snapshot(combo)
-            }
-            let localRow = row - combo.frame.row
-            if localRow >= kComboBoxClosedRows
-            {
-                let index = comboBoxOptionIndex(forLocalRow: localRow, optionCount: combo.options.count)
-                let value = combo.options[index]
-                combo.selectedIndex = index
-                _ = dispatchGeneratedSelectionChanged(combo, elementId: runtimeElementId(combo), value: [value])
-            }
-            editMode = false
-            return .snapshot(combo)
-        }
-        editMode = false
-        updateFocusForMouse(row: row, col: col)
-        if let activated = try activateClickControlResult(clickedElement)
-        {
-            return activated
-        }
-        if let activated = try activateFocusedClickControlResult()
-        {
-            return activated
-        }
-        enterEditModeForFocusedEditableElement()
+        try performMousePointerEvent(arguments, pressed: true, refreshLayout: refreshLayout)
+        _ = performTerminalMouseSelection(
+            row: intArg(arguments, "y", 0),
+            col: intArg(arguments, "x", 0),
+            release: true
+        )
         return .state
-    }
-
-    private func performActivateClickControl(_ element: UIElement?) throws -> Bool
-    {
-        guard let result = try activateClickControlResult(element) else
-        {
-            return false
-        }
-        _ = result
-        return true
-    }
-
-    private func activateClickControlResult(_ element: UIElement?) throws -> RuntimeEventResult?
-    {
-        guard let element,
-              element.enabled,
-              element is Button || element is CheckBox || element is Image || element is ReusableElement
-        else
-        {
-            return nil
-        }
-        return try performActivateElement(element, elementId: runtimeElementId(element), click: true)
-    }
-
-    private func activateFocusedClickControlResult() throws -> RuntimeEventResult?
-    {
-        guard let focusedName,
-              let element = window.element(named: focusedName),
-              element.enabled,
-              element is Button || element is CheckBox || element is ReusableElement
-        else
-        {
-            return nil
-        }
-        return try performActivateElement(element, elementId: focusedName, click: true)
-    }
-
-    private func enterEditModeForFocusedEditableElement()
-    {
-        if let focusedName,
-           let element = window.element(named: focusedName),
-           element is TextInput || element is NumberInput || element is ComboBox || element is ListBox
-        {
-            beginElementEdit(element, elementId: focusedName)
-        }
     }
 
     private func captureSnapshot(_ element: UIElement?) -> EditSnapshot?
@@ -9890,15 +9911,19 @@ private final class GeneratedRuntimeController
             return nil
         }
         var snapshot = EditSnapshot(element: element)
-        if let textInput = element as? TextInput
-        {
-            snapshot.textValue = textInput.value
-            snapshot.textCursor = textInput.cursor
-        }
-        else if let numberInput = element as? NumberInput
+        if let numberInput = element as? NumberInput
         {
             snapshot.numberValue = numberInput.numberValue
             numberInput.beginEdit()
+        }
+        else if let textInput = element as? TextInput
+        {
+            snapshot.textValue = textInput.value
+            snapshot.textCursor = textInput.cursor
+            if textInput.hasSelection
+            {
+                snapshot.textSelectionAnchor = textInput.selectionStart
+            }
         }
         else if let comboBox = element as? ComboBox
         {
@@ -9914,14 +9939,14 @@ private final class GeneratedRuntimeController
 
     private func beginElementEdit(_ element: UIElement)
     {
-        if let textInput = element as? TextInput
+        if let numberInput = element as? NumberInput
+        {
+            numberInput.beginEdit()
+        }
+        else if let textInput = element as? TextInput
         {
             textInput.cursor = textInput.value.count
             textInput.clearSelection()
-        }
-        else if let numberInput = element as? NumberInput
-        {
-            numberInput.beginEdit()
         }
         else if let listBox = element as? ListBox
         {
@@ -9935,16 +9960,16 @@ private final class GeneratedRuntimeController
         {
             return
         }
-        if let textInput = element as? TextInput
-        {
-            textInput.setValue(snapshot.textValue)
-            textInput.cursor = max(0, min(snapshot.textCursor, textInput.value.count))
-            textInput.clearSelection()
-        }
-        else if let numberInput = element as? NumberInput
+        if let numberInput = element as? NumberInput
         {
             numberInput.cancelEdit()
             numberInput.setValue(snapshot.numberValue)
+        }
+        else if let textInput = element as? TextInput
+        {
+            textInput.setValue(snapshot.textValue)
+            let cursor = max(0, min(snapshot.textCursor, textInput.value.count))
+            textInput.selectRange(start: snapshot.textSelectionAnchor ?? cursor, end: cursor)
         }
         else if let comboBox = element as? ComboBox
         {
@@ -10001,6 +10026,10 @@ private final class GeneratedRuntimeController
 
     private func pressKey(_ key: String) throws -> Any
     {
+        if key != "Escape"
+        {
+            window.suppressActiveContainerScopeVisuals = false
+        }
         try handleTerminalKeyInput(key)
         return try stateResult()
     }
@@ -10024,15 +10053,15 @@ private final class GeneratedRuntimeController
         {
             return false
         }
+        if let numberInput = element as? NumberInput
+        {
+            let text = formatNumber(numberInput.numberValue)
+            return !text.isEmpty && copyTextToClipboard(text)
+        }
         if let input = element as? TextInput
         {
             let selected = input.selectedText()
             let text = selected.isEmpty ? input.value : selected
-            return !text.isEmpty && copyTextToClipboard(text)
-        }
-        if let numberInput = element as? NumberInput
-        {
-            let text = formatNumber(numberInput.numberValue)
             return !text.isEmpty && copyTextToClipboard(text)
         }
         return false
@@ -10123,6 +10152,11 @@ private final class GeneratedRuntimeController
             escapeElementEdit(element)
             return
         }
+        if !editMode && key == "Escape" && activeScrollView != nil
+        {
+            exitActiveScrollViewScope()
+            return
+        }
         if key == "Escape", handleStandardEscapeButton()
         {
             return
@@ -10140,7 +10174,8 @@ private final class GeneratedRuntimeController
         {
             return
         }
-        if editMode && activeScrollView != nil
+        if activeScrollView != nil &&
+            (editMode || ["Up", "Down", "Left", "Right", "Enter", " "].contains(key))
         {
             if try handleActiveScrollViewKey(key)
             {
@@ -10339,7 +10374,16 @@ private final class GeneratedRuntimeController
         editMode = true
         activeDynamicEditName = element.parentFocusHostId == nil ? nil : elementId
         rememberParentDynamicFocus(elementId, element)
-        element.setText(text)
+        _ = options.onEditStarted?(elementId)
+        if let numberInput = element as? NumberInput
+        {
+            numberInput.setValue(Double(text) ?? 0.0)
+            numberInput.setEditText(text)
+        }
+        else
+        {
+            element.setText(text)
+        }
         _ = dispatchGeneratedTextChanged(element, elementId: elementId, value: text)
         return snapshotResult(element)
     }
@@ -10358,14 +10402,27 @@ private final class GeneratedRuntimeController
         editMode = true
         activeDynamicEditName = element.parentFocusHostId == nil ? nil : elementId
         rememberParentDynamicFocus(elementId, element)
-        if let input = element as? TextInput
+        if let numberInput = element as? NumberInput
+        {
+            numberInput.beginEdit()
+            for character in text
+            {
+                _ = numberInput.handleKey(String(character))
+                _ = dispatchGeneratedTextChanged(
+                    numberInput,
+                    elementId: elementId,
+                    value: formatNumber(numberInput.numberValue)
+                )
+            }
+        }
+        else if let input = element as? TextInput
         {
             input.insertText(text)
             _ = dispatchGeneratedTextChanged(input, elementId: elementId, value: input.value)
         }
         else
         {
-            element.setText(text)
+            throw RuntimeError("Element is not editable text: \(element.name)")
         }
         return element
     }
@@ -10403,7 +10460,23 @@ private final class GeneratedRuntimeController
 
     private func selectText(_ arguments: [String: Any]) throws -> Any
     {
-        let input = try requireTextInput(arguments["element_id"] as? String)
+        let element = try requireElement(arguments["element_id"] as? String)
+        guard let input = element as? TextInput else
+        {
+            throw RuntimeError("Element is not a text input: \(element.name)")
+        }
+        let elementId = arguments["element_id"] as? String ?? runtimeElementId(input)
+        let editingTarget = editMode && focusedName == elementId
+        focusActiveWindowElement(input)
+        if !editingTarget
+        {
+            beginElementEdit(input, elementId: elementId)
+        }
+        else
+        {
+            editMode = true
+            rememberParentDynamicFocus(elementId, input)
+        }
         input.selectRange(start: intArg(arguments, "start", 0), end: intArg(arguments, "end", 0))
         return selectionSnapshot(input)
     }
@@ -10801,6 +10874,7 @@ private final class GeneratedRuntimeController
     {
         editSnapshot = captureSnapshot(element)
         beginElementEdit(element)
+        editMode = true
         activeScrollViewEditElement = element
         activeDynamicEditName = elementId
         _ = options.onEditStarted?(elementId)
@@ -11556,11 +11630,6 @@ private final class GeneratedRuntimeController
 
     private func renderMcpSnapshotContent() -> [[TerminalCell]]
     {
-        mcpSnapshotCellBackgroundModalDepth += 1
-        defer
-        {
-            mcpSnapshotCellBackgroundModalDepth = max(0, mcpSnapshotCellBackgroundModalDepth - 1)
-        }
         return renderContent()
     }
 
@@ -11832,8 +11901,7 @@ private final class GeneratedRuntimeController
         {
             let frame = frames[index]
             let isTopFrame = index == frames.count - 1
-            let renderTopFrameAsCellBackground = isTopFrame && mcpSnapshotCellBackgroundModalDepth > 0
-            var rendered = (renderTopFrameAsCellBackground || !isTopFrame)
+            var rendered = !isTopFrame
                 ? withImageCellBackgroundRendering
                 {
                     renderWindowFrame(
@@ -12384,6 +12452,13 @@ private func readTerminalByte() -> UInt8?
     return count == 1 ? byte : nil
 }
 
+private func terminalInputReady(timeoutMilliseconds: Int32) -> Bool
+{
+    var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+    let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+    return ready > 0 && (descriptor.revents & Int16(POLLIN)) != 0
+}
+
 private func readNonblockingTerminalBytes(limit: Int) -> [UInt8]
 {
     let flags = fcntl(STDIN_FILENO, F_GETFL)
@@ -12433,11 +12508,29 @@ private func readTerminalInputBytes() -> [UInt8]
     {
         return []
     }
-    if first == TerminalInputParser.escapeByte || first >= TerminalInputParser.firstMultibyteUtf8Byte
+    var bytes = [first]
+    if first == TerminalInputParser.escapeByte
     {
-        usleep(kTerminalEscapeReadDelayMicros)
+        while TerminalInputParser.escapeSequenceNeedsMoreBytes(bytes)
+        {
+            guard terminalInputReady(timeoutMilliseconds: kTerminalEscapeSequenceTimeoutMilliseconds) else
+            {
+                break
+            }
+            let continuation = drainTerminalInputBytes()
+            guard !continuation.isEmpty else
+            {
+                break
+            }
+            bytes.append(contentsOf: continuation)
+        }
+        return bytes
     }
-    return [first] + drainTerminalInputBytes()
+    if first >= TerminalInputParser.firstMultibyteUtf8Byte
+    {
+        usleep(kTerminalUtf8ReadDelayMicros)
+    }
+    return bytes + drainTerminalInputBytes()
 }
 
 private func drainTerminalInputBytes() -> [UInt8]
@@ -12516,6 +12609,31 @@ private final class TerminalInputParser
     ]
 
     private var buffer: [UInt8] = []
+
+    static func escapeSequenceNeedsMoreBytes(_ bytes: [UInt8]) -> Bool
+    {
+        guard bytes.first == Self.escapeByte else
+        {
+            return false
+        }
+        guard bytes.count > 1 else
+        {
+            return true
+        }
+        if bytes[1] == Self.ss3Prefix
+        {
+            return bytes.count < 3
+        }
+        guard bytes[1] == UInt8(ascii: "[") else
+        {
+            return false
+        }
+        guard bytes.count > 2 else
+        {
+            return true
+        }
+        return !bytes.dropFirst(2).contains(where: Self.isCsiFinal)
+    }
 
     func feed(_ bytes: [UInt8]) -> [TerminalInputEvent]
     {
@@ -16780,6 +16898,13 @@ private func applyReusableFocusBackground(
         for col in content[row].indices
         {
             let background = content[row][col].background
+            if let focusedBaseBackground,
+               background?.snapshotValue == focusBackground.snapshotValue
+            {
+                content[row][col].background =
+                    focusBackground.blended(over: focusedBaseBackground) ?? focusBackground
+                continue
+            }
             let matchesBase = background == nil ||
                 (baseBackground != nil && background?.snapshotValue == baseBackground?.snapshotValue)
             let matchesFocusedBase = focusedBaseBackground != nil &&

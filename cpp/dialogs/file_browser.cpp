@@ -376,13 +376,20 @@ GeneratedWindowRuntimeOptions FileBrowser::runtimeOptions() {
     };
     options.onTextConfirmed = [this](std::string_view name, std::string_view) {
         if (name == "entries") {
-            (void)acceptCurrent();
+            previewSelected();
         }
     };
     options.onKeyBeforeFocusedElement = [this](std::string_view key, std::string_view name, bool editMode) {
-        (void)key;
-        (void)name;
-        (void)editMode;
+        if (key != "Enter" || name != "entries" || !editMode) {
+            return false;
+        }
+        entries->setSelectedIndex(entries->activeIndex());
+        entries->hideActiveItem();
+        previewSelected();
+        if (selectedEntryIsDirectory()) {
+            (void)acceptCurrent();
+            return true;
+        }
         return false;
     };
     options.onEditStarted = [this](std::string_view name) {

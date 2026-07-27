@@ -61,6 +61,43 @@
         element_id: count_input
       assert:
         value: 3
+    - tool: set_text
+      arguments:
+        element_id: count_input
+        text: 0
+      assert:
+        value: 0
+    - tool: enter_edit_mode
+      arguments:
+        element_id: count_input
+    - tool: press_key
+      arguments:
+        key: "7"
+    - tool: click_element
+      arguments:
+        element_id: enabled_check
+    - tool: get_element
+      arguments:
+        element_id: count_input
+      assert:
+        value: 7
+    - tool: get_element
+      arguments:
+        element_id: enabled_check
+      assert:
+        value: false
+    - tool: click_element
+      arguments:
+        element_id: enabled_check
+    - tool: get_element
+      arguments:
+        element_id: enabled_check
+      assert:
+        value: true
+    - tool: enter_edit_mode
+      arguments:
+        element_id: count_input
+    - tool: exit_edit_mode
     - tool: get_element
       arguments:
         element_id: enabled_check

@@ -345,6 +345,50 @@ class TestMCPController(unittest.TestCase):
         window = self.controller.tool_get_window()
         self.assertEqual(window["description"], "Demo form")
 
+    def test_snapshot_image_cell_background_scope_excludes_top_window(self):
+        import runtime.image as image_module
+
+        render_scopes = []
+
+        class ScopeRecordingWindow:
+            def __init__(self, text):
+                self.text = text
+                self._layout = []
+                self._window_width = 20
+                self._window_height = 4
+                self.mode = "normal"
+                self.parent = None
+                self._app = None
+
+            def get_natural_size(self):
+                return self._window_width, self._window_height
+
+            def resize(self, width, height):
+                self._window_width = width
+                self._window_height = height
+
+            def open(self):
+                pass
+
+            def close(self):
+                pass
+
+            def render(self):
+                render_scopes.append(image_module._FORCE_CELL_BACKGROUND_RENDERING_DEPTH > 0)
+                return [self.text.ljust(self._window_width)] * self._window_height
+
+        app = UIApplication(width=20, height=4)
+        app.open(ScopeRecordingWindow("BASE"))
+        app.open(ScopeRecordingWindow("DIALOG"))
+        controller = MCPController(
+            app,
+            MCPRuntimeConfig(enabled=True, gui=False, action_delay_ms=0, type_delay_ms=0),
+        )
+
+        controller._render_full_viewport_cells()
+
+        self.assertEqual(render_scopes, [True, False])
+
         element = self.controller.tool_get_element("name_input")
         self.assertEqual(element["role"], "input")
         self.assertEqual(element["description"], "Name")

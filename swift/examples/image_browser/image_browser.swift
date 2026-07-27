@@ -694,7 +694,13 @@ final class ImageBrowserApp: ImageBrowserUI
 
     static func projectRoot() -> String
     {
-        FileManager.default.currentDirectoryPath
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .standardizedFileURL
+            .path
     }
 
     static func imageSampleDir() -> String

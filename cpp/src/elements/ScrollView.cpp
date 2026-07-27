@@ -207,11 +207,24 @@ ScrollViewPosition ScrollView::scrollPosition() const {
 }
 
 void ScrollView::restoreScrollPosition(ScrollViewPosition position) {
+    refreshDynamicChildren(std::max(1, frame().width));
     const int total = static_cast<int>(children_.size() + children().size());
     scrollOffset_ = std::clamp(position.scrollOffset, 0, std::max(0, total - 1));
     viewOffset_ = std::max(0, position.viewOffset);
     autoScroll_ = position.autoScroll;
     invalidateHeightCache();
+    const Size frameViewport{
+        .width = std::max(1, frame().width),
+        .height = std::max(1, frame().height),
+    };
+    const Size viewport = paddedViewportSize(
+        frameViewport,
+        constrainedPadding(frameViewport, style()));
+    const int naturalSkip = clampNonNegative(
+        contentHeight(viewportWidth(viewport)) - viewportHeight(viewport));
+    viewOffset_ = autoScroll_ ? 0 : std::min(viewOffset_, naturalSkip);
+    lastNaturalSkip_ = naturalSkip;
+    pendingTerminalScrollDelta_ = 0;
 }
 
 void ScrollView::addChild(RenderedContent child) {
@@ -303,6 +316,8 @@ std::optional<ScrollViewContentWindow> ScrollView::contentWindow(Size viewport) 
 }
 
 bool ScrollView::scrollTo(int index, Size viewport) {
+    viewport = paddedViewportSize(viewport, constrainedPadding(viewport, style()));
+    refreshDynamicChildren(viewport.width);
     const int total = static_cast<int>(children_.size() + children().size());
     if (total == 0) {
         const int previous = scrollOffset_;
@@ -310,7 +325,6 @@ bool ScrollView::scrollTo(int index, Size viewport) {
         return scrollOffset_ != previous;
     }
 
-    viewport = paddedViewportSize(viewport, constrainedPadding(viewport, style()));
     const int previous = scrollOffset_;
     const int maxVisible = maxChildrenInViewport(viewport);
     const int maxOffset = std::max(0, total - maxVisible);
@@ -394,11 +408,12 @@ bool ScrollView::canScrollUp(Size viewport) const {
 }
 
 bool ScrollView::canScrollDown(Size viewport) const {
+    viewport = paddedViewportSize(viewport, constrainedPadding(viewport, style()));
+    refreshDynamicChildren(viewport.width);
     const int total = static_cast<int>(children_.size() + children().size());
     if (total == 0) {
         return false;
     }
-    viewport = paddedViewportSize(viewport, constrainedPadding(viewport, style()));
     const int maxVisible = maxChildrenInViewport(viewport);
     const int visibleFromOffset = total - scrollOffset_;
     return visibleFromOffset > maxVisible;
@@ -468,7 +483,6 @@ std::vector<ScrollViewChildView> ScrollView::childViews(Size size) const {
     const ConstrainedPadding padding = constrainedPadding(size, style());
     const Size viewport = paddedViewportSize(size, padding);
     refreshDynamicChildren(viewport.width);
-    ensureHeightCache(viewport.width);
     ensureHeightCache(viewport.width);
     const int skip = actualSkip(viewport);
 
@@ -542,6 +556,7 @@ bool ScrollView::ensureChildVisible(const Element* child, Size size) {
     const ConstrainedPadding padding = constrainedPadding(size, style());
     const Size viewport = paddedViewportSize(size, padding);
     refreshDynamicChildren(viewport.width);
+    ensureHeightCache(viewport.width);
 
     int globalRow = 0;
     const int totalItems = static_cast<int>(children_.size() + children().size());
@@ -616,7 +631,7 @@ RenderedContent ScrollView::renderWithStyle(Size size, const Style& style, const
     const Size viewport = paddedViewportSize(size, padding);
     const int renderWidth = viewport.width + hOffset;
     refreshDynamicChildren(renderWidth);
-    const int naturalSkip = maxViewOffset(viewport);
+    const int naturalSkip = maxViewOffset(Size{renderWidth, viewport.height});
     ensureHeightCache(renderWidth);
     const int clampedViewOffset = std::min(viewOffset_, naturalSkip);
     const int skip = naturalSkip - clampedViewOffset;
@@ -776,6 +791,7 @@ int ScrollView::actualSkip(Size viewport) const {
 }
 
 int ScrollView::maxChildrenInViewport(Size viewport) const {
+    refreshDynamicChildren(viewportWidth(viewport));
     const int total = static_cast<int>(children_.size() + children().size());
     if (total == 0) {
         return 0;

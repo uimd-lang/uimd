@@ -85,6 +85,18 @@
         id: main.expenses[0].paid
     - tool: press_key
       arguments:
+        key: Down
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[0].category
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: get_focused_element
+      assert:
+        id: main.expenses[0].paid
+    - tool: press_key
+      arguments:
         key: Right
     - tool: get_focused_element
       assert:
@@ -92,6 +104,38 @@
     - tool: press_key
       arguments:
         key: Escape
+    - tool: get_focused_element
+      assert:
+        id: main.expenses
+    - tool: focus_element
+      arguments:
+        element_id: main.expenses[0].category
+      assert:
+        id: main.expenses[0].category
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_focused_element
+      assert:
+        id: main.expenses
     - tool: click_element
       arguments:
         element_id: main.expenses[0].category
@@ -107,6 +151,33 @@
         element_id: main.expenses[0].category
       assert:
         value: Transport
+    - tool: ui.set_value
+      arguments:
+        element_id: main.expenses[0].category
+        value: Food
+      assert:
+        value: Food
+    - tool: click_element
+      arguments:
+        element_id: main.expenses[0].category
+    - tool: mouse_press
+      arguments:
+        x: 35
+        y: 17
+    - tool: mouse_release
+      arguments:
+        x: 35
+        y: 17
+    - tool: get_element
+      arguments:
+        element_id: main.expenses[0].category
+      assert:
+        value: Transport
+    - tool: get_element
+      arguments:
+        element_id: main.expenses[1].paid
+      assert:
+        value: true
     - tool: ui.set_checked
       arguments:
         element_id: main.expenses[0].paid
@@ -325,6 +396,64 @@
     - tool: activate_element
       arguments:
         element_id: settings_btn
+    - tool: click_element
+      arguments:
+        element_id: main.currency
+    - tool: mouse_press
+      arguments:
+        x: 46
+        y: 6
+    - tool: mouse_release
+      arguments:
+        x: 46
+        y: 6
+    - tool: get_element
+      arguments:
+        element_id: main.currency
+      assert:
+        value: USD
+    - tool: get_element
+      arguments:
+        element_id: main.show_paid
+      assert:
+        value: true
+    - tool: click_element
+      arguments:
+        element_id: main.currency
+    - tool: mouse_press
+      arguments:
+        x: 46
+        y: 7
+    - tool: mouse_release
+      arguments:
+        x: 46
+        y: 7
+    - tool: get_element
+      arguments:
+        element_id: main.currency
+      assert:
+        value: CZK
+    - tool: get_element
+      arguments:
+        element_id: main.show_paid
+      assert:
+        value: true
+    - tool: click_element
+      arguments:
+        element_id: main.currency
+    - tool: mouse_press
+      arguments:
+        x: 46
+        y: 5
+    - tool: mouse_release
+      arguments:
+        x: 46
+        y: 5
+    - tool: get_element
+      arguments:
+        element_id: main.currency
+      assert:
+        value: EUR
     - tool: ui.select_option
       arguments:
         element_id: main.currency

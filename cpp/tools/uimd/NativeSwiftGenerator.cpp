@@ -2205,6 +2205,15 @@ std::string generateSource(const std::string& baseName, const std::string& class
         }
         const std::string elemType = typeFor(*member);
         lines.push_back("        " + name + " = addElement(" + swiftElementType(elemType) + "(" + ctorArgs(name, *member) + "))");
+        const YamlValue* commitMode = yamlGet(*member, "commit-mode");
+        if (commitMode == nullptr)
+        {
+            commitMode = yamlGet(*member, "commit_mode");
+        }
+        if (commitMode != nullptr)
+        {
+            lines.push_back("        " + name + ".commitMode = " + swiftString(valueAsString(*commitMode)));
+        }
         if (elemType == "listbox" && truthy(yamlGet(*member, "multiple"), false))
         {
             lines.push_back("        " + name + ".multiple = true");

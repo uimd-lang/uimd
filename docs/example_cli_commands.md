@@ -65,16 +65,22 @@ Windows PowerShell only:
 
 ## Full Rebuild and Test
 
-This runs the full local gate: regenerate/build all supported sources including
-reported-bug regression corpora, build C# examples, build Go examples, build
-Swift examples on POSIX when SwiftPM is available, compile Python sources, run
-Python unit tests, run C++ `ctest`, run Go runtime tests, run Swift runtime tests
+On POSIX, the helper runs the full local gate: regenerate/build all supported
+sources including reported-bug regression corpora, build C# examples, build
+Go examples, build Swift examples on POSIX when SwiftPM is available, compile
+Python sources, run Python unit tests, run C++ `ctest`, run Go runtime tests,
+run Swift runtime tests
 on POSIX, run direct Swift and Go terminal PTY smoke tests against C++, run
 Python/C++, C++/C#, C++/Swift, and C++/Go MCP example compare tests with
 `--compare-app-size 90x35`, and run the UIMD regression parity compare corpus
 for Python/C++ and C++/Go when `tests/regressions/uimd/parity` exists. Pass
 `--no-swift` to the POSIX helper only when the local Swift toolchain is
 intentionally unavailable.
+
+The current Windows wrappers predate Go automation. Their sections below list
+the additional explicit Go generation, build, unit/static, and headless MCP
+commands required for equivalent coverage. Native Go direct-terminal validation
+is POSIX-only until the separately tracked Windows console/ConPTY adapter exists.
 
 macOS/Linux (POSIX shell):
 
@@ -107,14 +113,24 @@ Windows over SSH / cmd.exe:
 .\tools\test_all.cmd
 ```
 
-Equivalent explicit command sequence:
+The Windows wrapper does not yet automate the Go-specific build, runtime, or
+headless MCP gates. Use this complete explicit sequence to include them; native
+Go direct-terminal validation remains POSIX-only:
 
 ```bat
 .\tools\rebuild_all.cmd -Test
+.\uimd.cmd generate go\examples --target go
+.\uimd.cmd generate go\regressions\uimd\parity --target go
+powershell -NoProfile -Command "$env:GOCACHE=Join-Path $env:TEMP 'uimd-go-build-cache'; Get-ChildItem go\examples -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName ($_.Name + '.go'))) { Push-Location $_.FullName; go build -o ($_.Name + '.exe') .; Pop-Location } }; Get-ChildItem go\regressions\uimd\parity -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName ($_.Name + '.go'))) { Push-Location $_.FullName; go build -o ($_.Name + '.exe') .; Pop-Location } }"
+go -C go\src\uimd test ./...
+go -C go\src\uimd vet ./...
 python -m pytest python\tests
 .\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 Windows PowerShell only:
@@ -123,14 +139,26 @@ Windows PowerShell only:
 .\tools\test_all.ps1
 ```
 
-Equivalent explicit command sequence:
+The PowerShell wrapper has the same current Go automation boundary. Use this
+complete explicit sequence for Windows generation, build, unit/static, and
+headless MCP coverage:
 
 ```powershell
 .\tools\rebuild_all.ps1 -Test
+.\uimd.ps1 generate go\examples --target go
+.\uimd.ps1 generate go\regressions\uimd\parity --target go
+$env:GOCACHE = Join-Path $env:TEMP "uimd-go-build-cache"
+Get-ChildItem go\examples -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
+Get-ChildItem go\regressions\uimd\parity -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
+go -C go\src\uimd test ./...
+go -C go\src\uimd vet ./...
 python -m pytest python\tests
 .\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 ## Windows Sixel Install
@@ -389,24 +417,43 @@ dotnet csharp\examples\activity_feed\bin\Debug\net10.0\activity_feed.dll
 
 ## Go Examples
 
-Raw macOS/Linux POSIX shell form:
+The Go direct-terminal runtime is currently implemented and validated on
+macOS/Linux POSIX terminals. Every example below regenerates its generated Go
+source before running.
+
+Raw macOS/Linux POSIX shell form. Each command builds through `go -C`, then
+runs the binary from the repository working directory. The calling shell's
+current directory and the application's working directory therefore stay at
+the directory from which the command was invoked:
 
 ```bash
-./uimd generate go/examples/activity_feed --target go && cd go/examples/activity_feed && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/calculator --target go && cd go/examples/calculator && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/cells --target go && cd go/examples/cells && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/contacts_manager --target go && cd go/examples/contacts_manager && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/expense_tracker --target go && cd go/examples/expense_tracker && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/formular --target go && cd go/examples/formular && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/hello --target go && cd go/examples/hello && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/image_browser --target go && cd go/examples/image_browser && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/image_gallery --target go && cd go/examples/image_gallery && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/markdown_viewer --target go && cd go/examples/markdown_viewer && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/special_elements --target go && cd go/examples/special_elements && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/task_board --target go && cd go/examples/task_board && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/text_editor --target go && cd go/examples/text_editor && GOCACHE=/tmp/uimd-go-cache go run .
-./uimd generate go/examples/widget_gallery --target go && cd go/examples/widget_gallery && GOCACHE=/tmp/uimd-go-cache go run .
+./uimd generate go/examples/activity_feed --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/activity_feed build -o activity_feed . && ./go/examples/activity_feed/activity_feed
+./uimd generate go/examples/calculator --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/calculator build -o calculator . && ./go/examples/calculator/calculator
+./uimd generate go/examples/cells --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/cells build -o cells . && ./go/examples/cells/cells
+./uimd generate go/examples/contacts_manager --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/contacts_manager build -o contacts_manager . && ./go/examples/contacts_manager/contacts_manager
+./uimd generate go/examples/expense_tracker --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/expense_tracker build -o expense_tracker . && ./go/examples/expense_tracker/expense_tracker
+./uimd generate go/examples/formular --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/formular build -o formular . && ./go/examples/formular/formular
+./uimd generate go/examples/hello --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/hello build -o hello . && ./go/examples/hello/hello
+./uimd generate go/examples/image_browser --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/image_browser build -o image_browser . && ./go/examples/image_browser/image_browser
+./uimd generate go/examples/image_gallery --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/image_gallery build -o image_gallery . && ./go/examples/image_gallery/image_gallery
+./uimd generate go/examples/markdown_viewer --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/markdown_viewer build -o markdown_viewer . && ./go/examples/markdown_viewer/markdown_viewer
+./uimd generate go/examples/special_elements --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/special_elements build -o special_elements . && ./go/examples/special_elements/special_elements
+./uimd generate go/examples/task_board --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/task_board build -o task_board . && ./go/examples/task_board/task_board
+./uimd generate go/examples/text_editor --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/text_editor build -o text_editor . && ./go/examples/text_editor/text_editor
+./uimd generate go/examples/widget_gallery --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/widget_gallery build -o widget_gallery . && ./go/examples/widget_gallery/widget_gallery
 ```
+
+Windows PowerShell generation and build form:
+
+```powershell
+.\uimd.ps1 generate go\examples --target go
+$env:GOCACHE = Join-Path $env:TEMP "uimd-go-build-cache"
+Get-ChildItem go\examples -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
+```
+
+This Windows form validates generated source and compilation only. Do not use
+it as an interactive direct-terminal run command until the native Go Windows
+console/ConPTY adapter replaces the current POSIX `stty` terminal setup.
 
 ## Swift Examples
 
@@ -520,6 +567,7 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_image_sixel_mode_falls_back_for_apple_terminal
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_sixel_unavailable_excepthook_prints_actionable_error_without_traceback
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_xterm_term_name_does_not_imply_sixel_support
+PYTHONPATH=python:src python3 -m pytest python/tests/test_example_resource_parity.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_transports.py
@@ -554,16 +602,22 @@ ctest --test-dir cpp\build-windows -C Release --output-on-failure
 swift test --package-path swift/src/Uimd
 ```
 
-## Go Runtime Tests
+## Go Runtime Tests And Static Checks
 
 ```bash
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd vet ./...
 ```
 
 Windows PowerShell:
 
 ```powershell
 go -C go\src\uimd test ./...
+go -C go\src\uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
+go -C go\src\uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
+go -C go\src\uimd vet ./...
 ```
 
 ## Swift Direct Terminal Smoke Tests
@@ -574,9 +628,18 @@ python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
 
 ## Go Direct Terminal Smoke Tests
 
+macOS/Linux POSIX terminals only:
+
 ```bash
 python3 tools/go_direct_terminal_smoke.py --cpp-build-dir cpp/build --go-examples-dir go/examples
 ```
+
+The smoke covers raw keyboard input, root Escape staying inside the app,
+MessageBox Escape exposing its negative-button flash before close, explicit
+Quit, SGR mouse press/drag/release, Ctrl+C, title, alternate-screen setup,
+full-frame writes, and terminal teardown. A native Windows direct-terminal
+smoke remains blocked on the Windows console or ConPTY runtime adapter; Windows
+headless MCP commands are documented below.
 
 ## Native CLI Smoke Tests
 
@@ -779,6 +842,83 @@ Raw macOS POSIX per-app form:
 ./uimd mcp-test --headless --compare cpp/build/examples/widget_gallery/widget_gallery swift/examples/widget_gallery/.build/debug/widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
 ```
 
+## C++/Go MCP Compare Tests
+
+Build the Go example and regression binaries with the commands in the
+`Bulk Rebuild` section before running these comparisons.
+
+Raw macOS/Linux POSIX all-example form:
+
+```bash
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35
+```
+
+Raw macOS/Linux POSIX per-app form:
+
+```bash
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed go/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator go/examples/calculator/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/cells/cells go/examples/cells/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/contacts_manager/contacts_manager go/examples/contacts_manager/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/expense_tracker/expense_tracker go/examples/expense_tracker/expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/formular/formular go/examples/formular/formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_browser/image_browser go/examples/image_browser/image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery go/examples/image_gallery/image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery go/examples/image_gallery/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/markdown_viewer/markdown_viewer go/examples/markdown_viewer/markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/special_elements/special_elements go/examples/special_elements/special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/task_board/task_board go/examples/task_board/task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/text_editor/text_editor go/examples/text_editor/text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/widget_gallery/widget_gallery go/examples/widget_gallery/widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+```
+
+Raw macOS/Linux POSIX regression form:
+
+```bash
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
+```
+
+Windows PowerShell headless all-example form:
+
+```powershell
+.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
+```
+
+Windows PowerShell headless per-app form:
+
+```powershell
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\activity_feed\Release\activity_feed.exe go\examples\activity_feed\activity_feed.exe tests\mcp\activity_feed.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\calculator\Release\calculator.exe go\examples\calculator\calculator.exe tests\mcp\calculator.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\cells\Release\cells.exe go\examples\cells\cells.exe tests\mcp\cells.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\contacts_manager\Release\contacts_manager.exe go\examples\contacts_manager\contacts_manager.exe tests\mcp\contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\expense_tracker\Release\expense_tracker.exe go\examples\expense_tracker\expense_tracker.exe tests\mcp\expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\formular\Release\formular.exe go\examples\formular\formular.exe tests\mcp\formular.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\image_browser\Release\image_browser.exe go\examples\image_browser\image_browser.exe tests\mcp\image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\image_gallery\Release\image_gallery.exe go\examples\image_gallery\image_gallery.exe tests\mcp\image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\image_gallery\Release\image_gallery.exe go\examples\image_gallery\image_gallery.exe tests\mcp\image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\markdown_viewer\Release\markdown_viewer.exe go\examples\markdown_viewer\markdown_viewer.exe tests\mcp\markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\special_elements\Release\special_elements.exe go\examples\special_elements\special_elements.exe tests\mcp\special_elements.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\task_board\Release\task_board.exe go\examples\task_board\task_board.exe tests\mcp\task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\text_editor\Release\text_editor.exe go\examples\text_editor\text_editor.exe tests\mcp\text_editor.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\widget_gallery\Release\widget_gallery.exe go\examples\widget_gallery\widget_gallery.exe tests\mcp\widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+```
+
+Windows PowerShell headless regression form:
+
+```powershell
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
+```
+
+Windows cmd.exe headless all-example and regression form:
+
+```bat
+.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
+```
+
 ## Compare MCP Tests
 
 Recommended cross-platform helper commands:
@@ -876,8 +1016,11 @@ Raw Windows PowerShell form:
 .\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
@@ -887,12 +1030,17 @@ Raw Windows cmd.exe form:
 .\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
 ## Project Scaffold Smoke Test
+
+Python and C++ source-checkout scaffold smoke:
 
 ```bash
 ./uimd new hello --target python
@@ -901,4 +1049,22 @@ Raw Windows cmd.exe form:
 cmake -S . -B build
 cmake --build build
 ./build/hello
+```
+
+Go source-checkout scaffold build smoke on macOS/Linux:
+
+```bash
+repo_root="$PWD"
+work_dir="$(mktemp -d)"
+cd "$work_dir"
+"$repo_root/uimd" new hello --target go
+"$repo_root/uimd" generate hello.uimd --target go
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go build .
+```
+
+Installed-SDK Go scaffold lookup and external-project compilation are also
+covered by:
+
+```bash
+python3 tools/native_uimd_parity.py --compile-examples
 ```

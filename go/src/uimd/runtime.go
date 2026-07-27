@@ -2,6 +2,7 @@ package uimd
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,6 +64,17 @@ type GeneratedWindowStackFrame struct {
 	ClassName string
 	state     *runtimeState
 	stack     *GeneratedWindowStack
+	returnTo  *modalReturnState
+}
+
+type modalReturnState struct {
+	state        *runtimeState
+	scopeHost    Element
+	focused      Element
+	focusedIndex int
+	scrollView   *ScrollView
+	viewOffset   int
+	autoScroll   bool
 }
 
 type GeneratedWindowBase struct {
@@ -336,11 +348,13 @@ func (stack *GeneratedWindowStack) Push(window any, options GeneratedWindowFrame
 		return
 	}
 	base.ownerObject = window
+	returnTo := stack.captureModalReturnState()
 	frame := &GeneratedWindowStackFrame{
 		Window:    base,
 		Options:   options.runtimeOptions(),
 		ClassName: options.ClassName,
 		stack:     stack,
+		returnTo:  returnTo,
 	}
 	stack.frames = append(stack.frames, frame)
 }
@@ -355,11 +369,118 @@ func (stack *GeneratedWindowStack) Remove(window any) {
 	}
 	for index := len(stack.frames) - 1; index >= 0; index-- {
 		if stack.frames[index].Window == base {
+			returnTo := stack.frames[index].returnTo
 			stack.frames = append(stack.frames[:index], stack.frames[index+1:]...)
-			stack.restoreRootScopeAfterOverlayClose()
+			if !stack.restoreModalReturnState(returnTo) {
+				stack.restoreRootScopeAfterOverlayClose()
+			}
 			return
 		}
 	}
+}
+
+func (stack *GeneratedWindowStack) captureModalReturnState() *modalReturnState {
+	if stack == nil || stack.root == nil {
+		return nil
+	}
+	state := stack.root
+	if frame := stack.Top(); frame != nil {
+		state = frame.runtimeState()
+	}
+	if state == nil || state.scopeDimElement == nil {
+		return nil
+	}
+	host := state.scopeDimElement
+	child := childWindowForElement(host)
+	if child == nil {
+		return nil
+	}
+	focused := state.focusedElement()
+	focusable := focusableDescendantsInWindow(child)
+	focusedIndex := -1
+	for index, candidate := range focusable {
+		if candidate == focused {
+			focusedIndex = index
+			break
+		}
+	}
+	if focusedIndex < 0 && state.scopeLastIndex != nil {
+		if rememberedIndex, ok := state.scopeLastIndex[host]; ok {
+			focusedIndex = rememberedIndex
+		}
+	}
+	scrollView := scrollViewContainingElement(child, focused)
+	if scrollView == nil {
+		scrollView = firstScrollViewInWindow(child)
+	}
+	result := &modalReturnState{
+		state:        state,
+		scopeHost:    host,
+		focused:      focused,
+		focusedIndex: focusedIndex,
+		scrollView:   scrollView,
+	}
+	if scrollView != nil {
+		result.viewOffset = scrollView.ViewOffset
+		result.autoScroll = scrollView.AutoScroll
+	}
+	return result
+}
+
+func (stack *GeneratedWindowStack) restoreModalReturnState(saved *modalReturnState) bool {
+	if stack == nil || saved == nil || saved.state == nil || saved.scopeHost == nil {
+		return false
+	}
+	if activeRuntimeState(stack.root) != saved.state ||
+		!elementInWindow(saved.state.window, saved.scopeHost) {
+		return false
+	}
+	child := childWindowForElement(saved.scopeHost)
+	if child == nil {
+		return false
+	}
+	focusable := focusableDescendantsInWindow(child)
+	target := saved.focused
+	targetIndex := -1
+	for index, candidate := range focusable {
+		if candidate == target {
+			targetIndex = index
+			break
+		}
+	}
+	if targetIndex < 0 && len(focusable) > 0 {
+		targetIndex = clampInt(saved.focusedIndex, 0, len(focusable)-1)
+		target = focusable[targetIndex]
+	}
+
+	previous := saved.state.focusedElement()
+	saved.state.focusedIndex = -1
+	saved.state.focusedOverride = target
+	if target == nil {
+		saved.state.focusedOverride = saved.scopeHost
+	}
+	saved.state.scopeDimElement = saved.scopeHost
+	saved.state.scopeEditElement = nil
+	saved.state.editMode = true
+	saved.state.editSnapshot = nil
+	if target != nil {
+		if saved.state.scopeLastFocus == nil {
+			saved.state.scopeLastFocus = map[Element]Element{}
+		}
+		if saved.state.scopeLastIndex == nil {
+			saved.state.scopeLastIndex = map[Element]int{}
+		}
+		saved.state.scopeLastFocus[saved.scopeHost] = target
+		saved.state.scopeLastIndex[saved.scopeHost] = targetIndex
+	}
+	if saved.scrollView != nil {
+		viewportHeight := maxInt(minimumRenderableSize, saved.scrollView.viewportHeight())
+		maxOffset := maxInt(0, saved.scrollView.contentHeight()-viewportHeight)
+		saved.scrollView.ViewOffset = clampInt(saved.viewOffset, 0, maxOffset)
+		saved.scrollView.AutoScroll = saved.autoScroll
+	}
+	saved.state.notifyFocusTransition(previous)
+	return true
 }
 
 func (stack *GeneratedWindowStack) restoreRootScopeAfterOverlayClose() {
@@ -467,20 +588,30 @@ func runGeneratedWindowBase(window *GeneratedWindowBase, options GeneratedWindow
 }
 
 type runtimeState struct {
-	window            *GeneratedWindowBase
-	options           GeneratedWindowRuntimeOptions
-	focusedIndex      int
-	focusedOverride   Element
-	scopeDimElement   Element
-	scopeEditElement  Element
-	scopeLastFocus    map[Element]Element
-	scopeLastIndex    map[Element]int
-	mousePressElement Element
-	editMode          bool
-	root              *runtimeState
-	className         string
-	notification      string
-	notificationUntil time.Time
+	window                   *GeneratedWindowBase
+	options                  GeneratedWindowRuntimeOptions
+	focusedIndex             int
+	focusedOverride          Element
+	scopeDimElement          Element
+	scopeEditElement         Element
+	scopeLastFocus           map[Element]Element
+	scopeLastIndex           map[Element]int
+	mousePressElement        Element
+	editMode                 bool
+	editSnapshot             *runtimeEditSnapshot
+	root                     *runtimeState
+	className                string
+	notification             string
+	notificationUntil        time.Time
+	beforeDialogButtonAction func()
+}
+
+type runtimeEditSnapshot struct {
+	element       Element
+	textValue     string
+	textCursor    int
+	numberValue   float64
+	selectedIndex int
 }
 
 func newRuntimeState(window *GeneratedWindowBase, options GeneratedWindowRuntimeOptions) *runtimeState {
@@ -501,7 +632,136 @@ func newRuntimeState(window *GeneratedWindowBase, options GeneratedWindowRuntime
 		state.focusedIndex = 0
 	}
 	state.editMode = options.StartInEditMode && state.focusedIndex >= 0
+	if state.editMode {
+		focused := state.focusedElement()
+		state.editSnapshot = captureRuntimeEditSnapshot(focused)
+		beginRuntimeElementEdit(focused)
+	}
 	return state
+}
+
+func captureRuntimeEditSnapshot(element Element) *runtimeEditSnapshot {
+	if element == nil {
+		return nil
+	}
+	snapshot := &runtimeEditSnapshot{element: element}
+	if input, ok := asTextInput(element); ok {
+		snapshot.textValue = input.Value
+		snapshot.textCursor = input.Cursor
+		return snapshot
+	}
+	switch control := element.(type) {
+	case *NumberInput:
+		snapshot.numberValue = control.NumberValue
+		control.BeginEdit()
+	case *ComboBox:
+		snapshot.selectedIndex = control.SelectedIndex
+	case *ListBox:
+		snapshot.selectedIndex = control.SelectedIndex
+	}
+	return snapshot
+}
+
+func beginRuntimeElementEdit(element Element) {
+	if input, ok := asTextInput(element); ok {
+		input.SetCursor(len([]rune(input.Value)))
+		return
+	}
+	switch control := element.(type) {
+	case *NumberInput:
+		control.BeginEdit()
+	case *ListBox:
+		control.ActiveItemVisible = false
+	}
+}
+
+func restoreRuntimeEditSnapshot(snapshot *runtimeEditSnapshot) {
+	if snapshot == nil || snapshot.element == nil {
+		return
+	}
+	if input, ok := asTextInput(snapshot.element); ok {
+		input.SetValue(snapshot.textValue)
+		input.SetCursor(snapshot.textCursor)
+		return
+	}
+	switch control := snapshot.element.(type) {
+	case *NumberInput:
+		control.CancelEdit()
+		control.SetValue(snapshot.numberValue)
+	case *ComboBox:
+		control.SetSelectedIndex(snapshot.selectedIndex)
+	case *ListBox:
+		control.SetSelectedIndex(snapshot.selectedIndex)
+	}
+}
+
+func commitRuntimeElementEdit(element Element) {
+	if numberInput, ok := element.(*NumberInput); ok {
+		numberInput.CommitEdit()
+	}
+}
+
+type runtimeCommitModeElement interface {
+	CommitMode() string
+}
+
+func runtimeElementUsesLeaveCommit(element Element) bool {
+	if listBox, ok := element.(*ListBox); ok {
+		if listBox.Multi {
+			return true
+		}
+	}
+	commitModeElement, ok := element.(runtimeCommitModeElement)
+	return ok && commitModeElement.CommitMode() == CommitModeLeave
+}
+
+func (state *runtimeState) beginElementEdit(element Element) {
+	if state == nil || element == nil {
+		return
+	}
+	if state.editSnapshot != nil && state.editSnapshot.element == element {
+		return
+	}
+	state.editSnapshot = captureRuntimeEditSnapshot(element)
+	beginRuntimeElementEdit(element)
+}
+
+func (state *runtimeState) endElementEdit(element Element, commit bool) {
+	if state == nil {
+		return
+	}
+	if element == nil {
+		state.editSnapshot = nil
+		return
+	}
+	leaveCommit := runtimeElementUsesLeaveCommit(element)
+	if commit || leaveCommit {
+		before := valueForElement(element)
+		commitRuntimeElementEdit(element)
+		if commit && !leaveCommit {
+			state.dispatchConfirm(element)
+		}
+		state.dispatchChangeIfNeeded(element, before)
+	} else if state.editSnapshot != nil && state.editSnapshot.element == element {
+		restoreRuntimeEditSnapshot(state.editSnapshot)
+	}
+	state.editSnapshot = nil
+}
+
+func (state *runtimeState) commitEditBeforeFocusChange(target Element) {
+	if state == nil || !state.editMode {
+		return
+	}
+	element := state.scopeEditElement
+	if element == nil {
+		element = state.focusedElement()
+	}
+	if element == nil || element == target || state.editSnapshot == nil {
+		return
+	}
+	state.endElementEdit(element, true)
+	state.scopeEditElement = nil
+	state.editMode = false
 }
 
 func (state *runtimeState) rootState() *runtimeState {
@@ -576,10 +836,6 @@ func (state *runtimeState) handleStandardEscapeButton() bool {
 		return false
 	}
 	root := state.rootState()
-	hadStackFrame := root != nil &&
-		root != state &&
-		root.options.WindowStack != nil &&
-		!root.options.WindowStack.Empty()
 	buttonName := standardEscapeButtonName(state.window, state.className)
 	if buttonName == "" {
 		return false
@@ -592,11 +848,10 @@ func (state *runtimeState) handleStandardEscapeButton() bool {
 	state.editMode = false
 	state.scopeDimElement = nil
 	state.scopeEditElement = nil
-	state.dispatchButton(button)
-	if hadStackFrame && root.options.WindowStack.Empty() {
-		root.editMode = false
-		root.scopeEditElement = nil
+	if root != nil && root.beforeDialogButtonAction != nil {
+		root.beforeDialogButtonAction()
 	}
+	state.dispatchButton(button)
 	return true
 }
 
@@ -647,18 +902,23 @@ func (state *runtimeState) handleKey(key string) bool {
 		if state.scopeDimElement != nil {
 			return state.handleReusableScrollScopeKey(key, focused)
 		}
-		before := valueForElement(focused)
-		handled := focused.HandleKey(key)
 		if key == "Escape" {
-			state.editMode = state.options.KeepEditModeAfterEscape
+			state.endElementEdit(focused, runtimeElementUsesLeaveCommit(focused))
+			state.editMode = false
+			if state.options.KeepEditModeAfterEscape {
+				state.beginElementEdit(focused)
+				state.editMode = true
+			}
 			return true
 		}
+		before := valueForElement(focused)
+		handled := focused.HandleKey(key)
 		if key == "Enter" && !handled {
-			state.dispatchConfirm(focused)
-			state.editMode = state.options.KeepEditModeAfterConfirm
-			if numberInput, ok := focused.(*NumberInput); ok {
-				numberInput.CommitEdit()
-				state.dispatchChangeIfNeeded(focused, before)
+			state.endElementEdit(focused, true)
+			state.editMode = false
+			if state.options.KeepEditModeAfterConfirm {
+				state.beginElementEdit(focused)
+				state.editMode = true
 			}
 			return true
 		}
@@ -666,18 +926,35 @@ func (state *runtimeState) handleKey(key string) bool {
 			state.dispatchChangeIfNeeded(focused, before)
 			if key == "Enter" {
 				if listBox, ok := focused.(*ListBox); ok && !listBox.Multi {
-					state.dispatchConfirm(focused)
-					state.editMode = state.options.KeepEditModeAfterConfirm
+					state.endElementEdit(focused, true)
+					state.editMode = false
+					if state.options.KeepEditModeAfterConfirm {
+						state.beginElementEdit(focused)
+						state.editMode = true
+					}
 				}
 			}
 		}
 		return handled
+	}
+	if key == "Escape" && state.scopeDimElement != nil && focused != nil {
+		return state.handleReusableScrollScopeKey(key, focused)
 	}
 	if key == "Escape" && state.handleStandardEscapeButton() {
 		return true
 	}
 	if state.options.OnKey != nil && state.options.OnKey(key) {
 		return true
+	}
+	if state.scopeDimElement != nil && focused != nil {
+		switch key {
+		case "Up", "Down", "Left", "Right":
+			state.moveReusableScrollScopeFocus(key)
+			return true
+		case "Enter", " ":
+			state.activateReusableScrollScopeFocused(focused, key)
+			return true
+		}
 	}
 	switch key {
 	case "Tab":
@@ -693,7 +970,6 @@ func (state *runtimeState) handleKey(key string) bool {
 		state.activateFocused()
 		return true
 	case "Escape":
-		state.window.RequestClose()
 		return true
 	default:
 		return false
@@ -887,17 +1163,19 @@ func (state *runtimeState) activateFocused() {
 			state.dispatchChangeIfNeeded(element, before)
 		}
 	case *NumberInput:
-		element.BeginEdit()
+		state.beginElementEdit(element)
 		state.editMode = true
 	case *TextInput:
+		state.beginElementEdit(element)
 		state.editMode = true
 	case *TextArea:
+		state.beginElementEdit(element)
 		state.editMode = true
 	case *ComboBox:
+		state.beginElementEdit(element)
 		state.editMode = true
-		element.HandleKey("Enter")
 	case *ListBox:
-		element.ActiveItemVisible = false
+		state.beginElementEdit(element)
 		state.editMode = true
 	case *ReusableElement:
 		if activateReusableControl(element) {
@@ -921,6 +1199,7 @@ func (state *runtimeState) activateFocused() {
 func (state *runtimeState) handleReusableScrollScopeKey(key string, focused Element) bool {
 	if key == "Escape" {
 		if state.scopeEditElement != nil {
+			state.endElementEdit(state.scopeEditElement, runtimeElementUsesLeaveCommit(state.scopeEditElement))
 			state.scopeEditElement = nil
 			return true
 		}
@@ -941,19 +1220,15 @@ func (state *runtimeState) handleReusableScrollScopeKey(key string, focused Elem
 	before := valueForElement(focused)
 	handled := focused.HandleKey(key)
 	if key == "Enter" && !handled {
-		state.dispatchConfirm(focused)
+		state.endElementEdit(focused, true)
 		state.scopeEditElement = nil
-		if numberInput, ok := focused.(*NumberInput); ok {
-			numberInput.CommitEdit()
-			state.dispatchChangeIfNeeded(focused, before)
-		}
 		return true
 	}
 	if handled {
 		state.dispatchChangeIfNeeded(focused, before)
 		if key == "Enter" {
 			if listBox, ok := focused.(*ListBox); ok && !listBox.Multi {
-				state.dispatchConfirm(focused)
+				state.endElementEdit(focused, true)
 				state.scopeEditElement = nil
 			}
 		}
@@ -977,23 +1252,10 @@ func (state *runtimeState) activateReusableScrollScopeFocused(focused Element, k
 		}
 		state.repairInvalidRootScopeFocusAfterAction()
 		return true
-	case *NumberInput:
-		element.BeginEdit()
+	case *NumberInput, *TextInput, *TextArea, *ComboBox, *ListBox:
+		state.beginElementEdit(element)
 		state.scopeEditElement = element
-		return true
-	case *TextInput:
-		state.scopeEditElement = element
-		return true
-	case *TextArea:
-		state.scopeEditElement = element
-		return true
-	case *ComboBox:
-		state.scopeEditElement = element
-		element.HandleKey("Enter")
-		return true
-	case *ListBox:
-		element.ActiveItemVisible = false
-		state.scopeEditElement = element
+		state.editMode = true
 		return true
 	case *ReusableElement:
 		if state.enterReusableScrollScope(element) {
@@ -1013,6 +1275,19 @@ func (state *runtimeState) repairInvalidRootScopeFocusAfterAction() {
 		return
 	}
 	if root.options.WindowStack != nil && !root.options.WindowStack.Empty() {
+		return
+	}
+	if !elementInWindow(root.window, root.scopeDimElement) {
+		previous := root.focusedElement()
+		delete(root.scopeLastFocus, root.scopeDimElement)
+		delete(root.scopeLastIndex, root.scopeDimElement)
+		root.focusedIndex = -1
+		root.focusedOverride = nil
+		root.scopeDimElement = nil
+		root.scopeEditElement = nil
+		root.editMode = false
+		root.editSnapshot = nil
+		root.notifyFocusTransition(previous)
 		return
 	}
 	focused := root.focusedElement()
@@ -1143,18 +1418,37 @@ func (state *runtimeState) moveReusableScrollScopeFocus(key string) bool {
 			return true
 		}
 	}
-	targetIndex := currentIndex
-	switch key {
-	case "Down":
-		targetIndex = reusableScrollScopeVerticalTarget(focusable, currentIndex, 1)
-	case "Up":
-		targetIndex = reusableScrollScopeVerticalTarget(focusable, currentIndex, -1)
-	case "Right", "Left":
-		if spatialIndex := spatialFocusTargetIndex(focusable, currentIndex, key); spatialIndex >= 0 {
-			targetIndex = spatialIndex
-		}
-	default:
+	if key != "Up" && key != "Down" && key != "Left" && key != "Right" {
 		return false
+	}
+	targetIndex := spatialFocusTargetIndex(focusable, currentIndex, key)
+	if targetIndex < 0 {
+		if key != "Up" && key != "Down" {
+			return false
+		}
+		delta := 1
+		if key == "Up" {
+			delta = -1
+		}
+		if !scrollReusableScopeBy(child, focusable[currentIndex], delta) {
+			return false
+		}
+		syncReusableChildFrames(state.scopeDimElement, state.scopeDimElement.ElementFrame())
+		focusable = focusableDescendantsInWindow(child)
+		currentIndex = -1
+		for index, element := range focusable {
+			if element == current {
+				currentIndex = index
+				break
+			}
+		}
+		if currentIndex < 0 {
+			return true
+		}
+		targetIndex = spatialFocusTargetIndex(focusable, currentIndex, key)
+		if targetIndex < 0 {
+			return true
+		}
 	}
 	previous := state.focusedElement()
 	state.focusedIndex = -1
@@ -1162,14 +1456,6 @@ func (state *runtimeState) moveReusableScrollScopeFocus(key string) bool {
 	state.scopeEditElement = nil
 	state.rememberReusableScrollScopeFocus()
 	state.notifyFocusTransition(previous)
-	if targetIndex == currentIndex && (key == "Down" || key == "Up") {
-		delta := 1
-		if key == "Up" {
-			delta = -1
-		}
-		scrollReusableScopeBy(child, focusable[targetIndex], delta)
-		return true
-	}
 	ensureElementVisibleInScrollViews(child, focusable[targetIndex])
 	return true
 }
@@ -1192,19 +1478,6 @@ func scrollReusableScopeBy(window *GeneratedWindowBase, target Element, delta in
 		}
 	}
 	return false
-}
-
-func reusableScrollScopeVerticalTarget(focusable []Element, currentIndex int, delta int) int {
-	if currentIndex < 0 || currentIndex >= len(focusable) {
-		return maxInt(0, minInt(len(focusable)-1, currentIndex))
-	}
-	name := focusable[currentIndex].ElementName()
-	for index := currentIndex + delta; index >= 0 && index < len(focusable); index += delta {
-		if focusable[index].ElementName() == name {
-			return index
-		}
-	}
-	return currentIndex
 }
 
 func ensureElementVisibleInScrollViews(window *GeneratedWindowBase, target Element) bool {
@@ -1544,6 +1817,23 @@ func renderGeneratedWindowContentWithEditElement(window *GeneratedWindowBase, si
 }
 
 func renderGeneratedWindowContentWithEditElementOptions(window *GeneratedWindowBase, size Size, focusedIndex int, focusedElement Element, editMode bool, forceFullscreenLayout bool, suppressScopeFocus bool, editElement Element, explicitEditElement bool, useHostViewportForRootScrollViewIndicators bool) *TerminalBuffer {
+	return renderGeneratedWindowContentWithEditElementClipOptions(
+		window,
+		size,
+		focusedIndex,
+		focusedElement,
+		editMode,
+		forceFullscreenLayout,
+		suppressScopeFocus,
+		editElement,
+		explicitEditElement,
+		nil,
+		nil,
+		useHostViewportForRootScrollViewIndicators,
+		editMode)
+}
+
+func renderGeneratedWindowContentWithEditElementClipOptions(window *GeneratedWindowBase, size Size, focusedIndex int, focusedElement Element, editMode bool, forceFullscreenLayout bool, suppressScopeFocus bool, editElement Element, explicitEditElement bool, clipTop *int, clipBottom *int, useHostViewportForRootScrollViewIndicators bool, scopeFocusActive bool) *TerminalBuffer {
 	width := maxInt(minimumRenderableSize, size.Width)
 	height := maxInt(minimumRenderableSize, size.Height)
 	buffer := NewTerminalBuffer(width, height)
@@ -1591,14 +1881,17 @@ func renderGeneratedWindowContentWithEditElementOptions(window *GeneratedWindowB
 		suppressScopeFocus,
 		editElement,
 		explicitEditElement,
-		useHostViewportForRootScrollViewIndicators)
+		clipTop,
+		clipBottom,
+		useHostViewportForRootScrollViewIndicators,
+		scopeFocusActive)
 	if useHostViewportForRootScrollViewIndicators {
 		applyRootScrollViewHostViewportIndicators(buffer, window, Size{Width: width, Height: height})
 	}
 	return buffer
 }
 
-func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindowBase, contentSize Size, contentRowOffset int, contentColOffset int, mode string, focusedIndex int, focusedElement Element, editMode bool, suppressScopeFocus bool, editElement Element, explicitEditElement bool, useHostViewportForRootScrollViewIndicators bool) {
+func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindowBase, contentSize Size, contentRowOffset int, contentColOffset int, mode string, focusedIndex int, focusedElement Element, editMode bool, suppressScopeFocus bool, editElement Element, explicitEditElement bool, renderClipTop *int, renderClipBottom *int, useHostViewportForRootScrollViewIndicators bool, scopeFocusActive bool) {
 	horizontalBorder := borderWidthHorizontal(window.windowStyle)
 	verticalBorder := borderWidthVertical(window.windowStyle)
 	cellRects := resolvedRuntimeCellRects(window.layout, contentSize, horizontalBorder, verticalBorder, mode, window)
@@ -1623,7 +1916,7 @@ func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindow
 		editElement = focused
 	}
 	var scopeElement Element
-	if editMode {
+	if scopeFocusActive {
 		scopeElement = scopeDimElementForTarget(window, focused)
 	}
 	if suppressScopeFocus {
@@ -1631,6 +1924,8 @@ func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindow
 	}
 	var deferredComboBox Element
 	var deferredComboBoxFrame Rect
+	var deferredComboBoxClipTop *int
+	var deferredComboBoxClipBottom *int
 	for _, item := range window.layout {
 		frame, ok := frames[item]
 		if !ok {
@@ -1658,6 +1953,27 @@ func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindow
 			buffer.Blit(rendered, frame.Row, frame.Col, clip)
 			continue
 		}
+		baseClipTop := maxInt(0, clip.Row)
+		baseClipBottom := maxInt(baseClipTop, minInt(buffer.Height(), clip.Row+clip.Height))
+		absoluteClipTop := baseClipTop
+		if renderClipTop != nil {
+			absoluteClipTop = maxInt(absoluteClipTop, *renderClipTop)
+		}
+		absoluteClipBottom := baseClipBottom
+		if renderClipBottom != nil {
+			absoluteClipBottom = minInt(absoluteClipBottom, *renderClipBottom)
+		}
+		absoluteClipBottom = maxInt(absoluteClipTop, absoluteClipBottom)
+		visibleTop := maxInt(frame.Row, absoluteClipTop)
+		visibleBottom := minInt(frame.Row+frame.Height, absoluteClipBottom)
+		elementClipTopValue := maxInt(0, visibleTop-frame.Row)
+		elementClipBottomValue := maxInt(0, visibleBottom-frame.Row)
+		var elementClipTop *int
+		var elementClipBottom *int
+		if elementClipTopValue != 0 || elementClipBottomValue != frame.Height {
+			elementClipTop = &elementClipTopValue
+			elementClipBottom = &elementClipBottomValue
+		}
 		element.SetFrame(frame)
 		elementFocused := element == focused || (scopeElement != nil && element == scopeElement)
 		elementEditMode := element == editElement && editMode
@@ -1665,6 +1981,8 @@ func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindow
 			if _, ok := element.(*ComboBox); ok {
 				deferredComboBox = element
 				deferredComboBoxFrame = frame
+				deferredComboBoxClipTop = elementClipTop
+				deferredComboBoxClipBottom = elementClipBottom
 				continue
 			}
 		}
@@ -1701,9 +2019,14 @@ func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindow
 			}
 			return element.Render(
 				Size{Width: frame.Width, Height: frame.Height},
-				ElementRenderState{Focused: elementFocused, EditMode: elementEditMode, ChildEditMode: childEditMode, SuppressFocusVisuals: suppressScopeFocus, SuppressScrollIndicators: suppressScrollIndicators, FocusedElement: focused, EditElement: editElement})
+				ElementRenderState{Focused: elementFocused, EditMode: elementEditMode, ChildEditMode: childEditMode, SuppressFocusVisuals: suppressScopeFocus, SuppressScrollIndicators: suppressScrollIndicators, FocusedElement: focused, EditElement: editElement, ScopeFocusActive: scopeFocusActive, ClipTop: elementClipTop, ClipBottom: elementClipBottom})
 		})
 		buffer.Blit(rendered, frame.Row, frame.Col, clip)
+		if child := childWindowForElement(element); child != nil {
+			offsetWindowElementFrames(child, frame)
+		} else if scrollView, ok := element.(*ScrollView); ok {
+			syncScrollViewChildFrames(scrollView, frame)
+		}
 	}
 	if deferredComboBox != nil {
 		parentBackground := Color{}
@@ -1716,7 +2039,7 @@ func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindow
 		rendered := withElementParentBackground(parentBackground, parentBackgroundSet, func() [][]TerminalCell {
 			return deferredComboBox.Render(
 				Size{Width: deferredComboBoxFrame.Width, Height: deferredComboBoxFrame.Height},
-				ElementRenderState{Focused: true, EditMode: true, SuppressFocusVisuals: suppressScopeFocus, FocusedElement: focused, EditElement: editElement})
+				ElementRenderState{Focused: true, EditMode: true, SuppressFocusVisuals: suppressScopeFocus, FocusedElement: focused, EditElement: editElement, ClipTop: deferredComboBoxClipTop, ClipBottom: deferredComboBoxClipBottom})
 		})
 		buffer.Blit(rendered, deferredComboBoxFrame.Row, deferredComboBoxFrame.Col, Rect{Row: 0, Col: 0, Width: buffer.Width(), Height: buffer.Height()})
 	}
@@ -1742,15 +2065,16 @@ func RenderGeneratedRuntimeContent(state *runtimeState, size Size) *TerminalBuff
 	var buffer *TerminalBuffer
 	if stackActive {
 		endImageCellBackgroundRendering := beginImageCellBackgroundRendering()
-		defer endImageCellBackgroundRendering()
-		buffer = renderGeneratedWindowContentWithEditElement(root.window, size, focusedIndex, focusedElement, editMode, false, false, editElement, true)
+		buffer = renderGeneratedWindowContentWithEditElementClipOptions(root.window, size, focusedIndex, focusedElement, editMode, false, false, editElement, true, nil, nil, false, false)
+		endImageCellBackgroundRendering()
 	} else {
-		buffer = renderGeneratedWindowContentWithEditElement(root.window, size, focusedIndex, focusedElement, editMode, false, stackActive, editElement, true)
+		buffer = renderGeneratedWindowContentWithEditElementClipOptions(root.window, size, focusedIndex, focusedElement, editMode, false, false, editElement, true, nil, nil, false, root.scopeDimElement != nil)
 	}
 	if editMode && root.scopeDimElement != nil && !stackActive {
 		dimOutsideElement(buffer, root.window, root.scopeDimElement)
 	}
 	if !stackActive {
+		overlayFocusedComboBox(buffer, root.window, focusedElement, editMode && editElement == focusedElement, 0, 0, false)
 		root.renderNotification(buffer)
 		return buffer
 	}
@@ -1855,7 +2179,10 @@ func renderGeneratedWindowStackFrame(buffer *TerminalBuffer, frame *GeneratedWin
 			false,
 			editElement,
 			editMode,
-			false)
+			nil,
+			nil,
+			false,
+			frameState.scopeDimElement != nil)
 	} else {
 		endImageCellBackgroundRendering := beginImageCellBackgroundRendering()
 		renderGeneratedWindowLayout(
@@ -1871,16 +2198,19 @@ func renderGeneratedWindowStackFrame(buffer *TerminalBuffer, frame *GeneratedWin
 			false,
 			nil,
 			false,
+			nil,
+			nil,
+			false,
 			false)
 		endImageCellBackgroundRendering()
 	}
 	buffer.Blit(frameBuffer.cells, bounds.Row, bounds.Col, Rect{Row: 0, Col: 0, Width: buffer.Width(), Height: buffer.Height()})
 	if topFrame {
-		overlayFocusedComboBox(buffer, focusedElement, editMode, bounds.Row, bounds.Col, false)
+		overlayFocusedComboBox(buffer, frame.Window, focusedElement, editMode && editElement == focusedElement, bounds.Row, bounds.Col, false)
 	}
 }
 
-func overlayFocusedComboBox(buffer *TerminalBuffer, focusedElement Element, editMode bool, rowOffset int, colOffset int, suppressFocusVisuals bool) {
+func overlayFocusedComboBox(buffer *TerminalBuffer, window *GeneratedWindowBase, focusedElement Element, editMode bool, rowOffset int, colOffset int, suppressFocusVisuals bool) {
 	if buffer == nil || !editMode {
 		return
 	}
@@ -3264,6 +3594,28 @@ func syncReusableChildFrames(element Element, frame Rect) {
 	syncWindowElementFramesTo(child, frame, true)
 }
 
+func offsetWindowElementFrames(window *GeneratedWindowBase, origin Rect) {
+	if window == nil {
+		return
+	}
+	for _, element := range window.elements {
+		if element == nil {
+			continue
+		}
+		frame := element.ElementFrame()
+		frame.Row += origin.Row
+		frame.Col += origin.Col
+		element.SetFrame(frame)
+		if child := childWindowForElement(element); child != nil {
+			offsetWindowElementFrames(child, origin)
+			continue
+		}
+		if scrollView, ok := element.(*ScrollView); ok {
+			syncScrollViewChildFrames(scrollView, frame)
+		}
+	}
+}
+
 func syncWindowElementFramesTo(window *GeneratedWindowBase, frame Rect, forceFullscreenLayout bool) {
 	if window == nil {
 		return
@@ -3558,16 +3910,67 @@ func runInteractiveTerminal(window *GeneratedWindowBase, options GeneratedWindow
 	state := newRuntimeState(window, options)
 	terminalMode := enterTerminalMode(window.Title())
 	defer terminalMode.Close()
+	inputReader := directTerminalInputReader{}
+	var presented *TerminalBuffer
+	renderFrame := func(forceFullRedraw bool) {
+		width, height := terminalSize()
+		current := RenderGeneratedRuntimeContent(state, Size{Width: width, Height: height})
+		if presented == nil {
+			presented = NewTerminalBuffer(width, height)
+		}
+		presented.ReplaceContent(current)
+		if forceFullRedraw {
+			presented.RequestFullRedraw()
+		}
+		if output := presented.RenderDiff(); output != "" {
+			_, _ = os.Stdout.WriteString(output)
+		}
+	}
+	state.beforeDialogButtonAction = func() {
+		renderFrame(false)
+		time.Sleep(dialogButtonCloseDelay)
+	}
+	dirty := true
+	forceFullRedraw := false
+	previousSize := Size{}
+	previousWindowStackSize := 0
+	if options.WindowStack != nil {
+		previousWindowStackSize = len(options.WindowStack.frames)
+	}
 	for {
 		width, height := terminalSize()
-		buffer := RenderGeneratedRuntimeContent(state, Size{Width: width, Height: height})
-		_, _ = os.Stdout.WriteString(buffer.AnsiFrame())
+		currentSize := Size{Width: width, Height: height}
+		if currentSize != previousSize {
+			previousSize = currentSize
+			dirty = true
+			forceFullRedraw = true
+		}
+		currentWindowStackSize := 0
+		if options.WindowStack != nil {
+			currentWindowStackSize = len(options.WindowStack.frames)
+		}
+		if currentWindowStackSize != previousWindowStackSize {
+			previousWindowStackSize = currentWindowStackSize
+			dirty = true
+			forceFullRedraw = true
+		}
+		root := state.rootState()
+		if root.notification != "" &&
+			!root.notificationUntil.IsZero() &&
+			!time.Now().Before(root.notificationUntil) {
+			dirty = true
+		}
+		if dirty {
+			renderFrame(forceFullRedraw)
+			dirty = false
+			forceFullRedraw = false
+		}
 		if window.ShouldClose() || (options.ShouldClose != nil && options.ShouldClose()) {
 			break
 		}
-		inputs := readTerminalInputs(os.Stdin)
+		inputs := inputReader.Read(os.Stdin, time.Now())
 		if len(inputs) == 0 {
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(terminalInputIdleSleep)
 			continue
 		}
 		for _, input := range inputs {
@@ -3576,9 +3979,9 @@ func runInteractiveTerminal(window *GeneratedWindowBase, options GeneratedWindow
 			}
 			active := activeRuntimeState(state)
 			if input.Mouse != nil {
-				active.handleDirectMouse(*input.Mouse, Size{Width: width, Height: height})
+				dirty = active.handleDirectMouse(*input.Mouse, currentSize) || dirty
 			} else {
-				active.handleKey(input.Key)
+				dirty = active.handleKey(input.Key) || dirty
 			}
 			if window.ShouldClose() || (options.ShouldClose != nil && options.ShouldClose()) {
 				break
@@ -3594,7 +3997,14 @@ type terminalModeScope struct {
 
 func enterTerminalMode(title string) terminalModeScope {
 	saved := captureTerminalMode()
-	runStty("raw", "-echo", "min", "0", "time", "1")
+	runStty(
+		"raw",
+		"-echo",
+		"min",
+		terminalRawInputMinBytes,
+		"time",
+		terminalRawInputTimeoutDeciseconds,
+	)
 	_, _ = os.Stdout.WriteString("\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?7l\x1b[?25l\x1b[H\x1b[2J")
 	_, _ = os.Stdout.WriteString("\x1b]0;" + title + " [go]\x07")
 	return terminalModeScope{saved: saved}
@@ -3651,20 +4061,26 @@ func isTerminal(file *os.File) bool {
 }
 
 const (
-	terminalInputBufferSize      = 4096
-	mouseCoordinateOffset        = 1
-	mouseDragFlag                = 32
-	mouseWheelFlag               = 64
-	mouseButtonMask              = 3
-	bracketedPasteStart          = "\x1b[200~"
-	bracketedPasteEnd            = "\x1b[201~"
-	copyNotificationText         = "Copied to clipboard"
-	copyNotificationDuration     = 3 * time.Second
-	notificationForeground       = "#ffffff"
-	notificationBackground       = "#2255bb"
-	notificationPaddingCells     = 2
-	notificationRightMarginCells = 1
-	notificationRow              = 0
+	terminalInputBufferSize            = 4096
+	mouseCoordinateOffset              = 1
+	mouseDragFlag                      = 32
+	mouseWheelFlag                     = 64
+	mouseButtonMask                    = 3
+	bracketedPasteStart                = "\x1b[200~"
+	bracketedPasteEnd                  = "\x1b[201~"
+	copyNotificationText               = "Copied to clipboard"
+	copyNotificationDuration           = 3 * time.Second
+	textInputWheelScrollRows           = 1
+	dialogButtonCloseDelay             = 180 * time.Millisecond
+	terminalEscapeSequenceTimeout      = 50 * time.Millisecond
+	terminalInputIdleSleep             = 10 * time.Millisecond
+	terminalRawInputMinBytes           = "0"
+	terminalRawInputTimeoutDeciseconds = "0"
+	notificationForeground             = "#ffffff"
+	notificationBackground             = "#2255bb"
+	notificationPaddingCells           = 2
+	notificationRightMarginCells       = 1
+	notificationRow                    = 0
 )
 
 type terminalInput struct {
@@ -3694,15 +4110,28 @@ func (state *runtimeState) handleDirectMouse(event directMouseEvent, size Size) 
 	if event.Name == "scroll" {
 		renderForMcp(state.window, state, config)
 		point := mcpMousePoint(state, config, event.X, event.Y)
-		target := elementAtPoint(state.window, point)
+		target := mouseTargetAtPoint(state, state.window, point)
 		if target == nil {
 			return false
 		}
-		scrollView := scrollViewForElement(target)
-		if scrollView == nil {
-			return false
+		if listBox, ok := target.(*ListBox); ok {
+			before := listBox.ScrollOffset
+			listBox.ScrollBy(-event.Delta, maxInt(minimumRenderableSize, listBox.ElementFrame().Height))
+			return listBox.ScrollOffset != before
 		}
-		return scrollView.ScrollBy(-event.Delta)
+		if textInput, ok := asTextInput(target); ok {
+			if textInput.ScrollByRows(-event.Delta*textInputWheelScrollRows, textInput.ElementFrame().Height) {
+				return true
+			}
+		}
+		scrollView := scrollViewContainingElement(state.window, target)
+		if scrollView == nil {
+			scrollView = scrollViewForElement(target)
+		}
+		if scrollView != nil {
+			return scrollView.ScrollBy(-event.Delta)
+		}
+		return false
 	}
 	selectedTextBeforeRelease := ""
 	if event.Name == "mouse_release" {
@@ -3725,13 +4154,82 @@ func (state *runtimeState) handleDirectMouse(event directMouseEvent, size Size) 
 	return err == nil
 }
 
-func readTerminalInputs(input *os.File) []terminalInput {
-	buffer := make([]byte, terminalInputBufferSize)
-	count, err := input.Read(buffer)
-	if err != nil || count == 0 {
+type directTerminalInputReader struct {
+	pending      []byte
+	pendingSince time.Time
+}
+
+func (reader *directTerminalInputReader) Read(input *os.File, now time.Time) []terminalInput {
+	if reader == nil || input == nil {
 		return nil
 	}
-	return parseTerminalInputs(string(buffer[:count]))
+	data := make([]byte, 0, terminalInputBufferSize)
+	for len(data) < cap(data) {
+		buffer := make([]byte, cap(data)-len(data))
+		count, err := input.Read(buffer)
+		if err != nil || count == 0 {
+			break
+		}
+		data = append(data, buffer[:count]...)
+	}
+	return reader.Feed(data, now)
+}
+
+func (reader *directTerminalInputReader) Feed(data []byte, now time.Time) []terminalInput {
+	if reader == nil {
+		return nil
+	}
+	if len(data) > 0 {
+		if len(reader.pending) == 0 {
+			reader.pendingSince = now
+		}
+		reader.pending = append(reader.pending, data...)
+	}
+	if len(reader.pending) == 0 {
+		return nil
+	}
+	if terminalInputBytesNeedMore(reader.pending) &&
+		now.Sub(reader.pendingSince) < terminalEscapeSequenceTimeout {
+		return nil
+	}
+	inputs := parseTerminalInputs(string(reader.pending))
+	reader.pending = reader.pending[:0]
+	reader.pendingSince = time.Time{}
+	return inputs
+}
+
+func terminalInputBytesNeedMore(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	if start := bytes.LastIndex(data, []byte(bracketedPasteStart)); start >= 0 &&
+		bytes.Index(data[start+len(bracketedPasteStart):], []byte(bracketedPasteEnd)) < 0 {
+		return true
+	}
+	escape := bytes.LastIndexByte(data, '\x1b')
+	if escape < 0 {
+		return !utf8.Valid(data)
+	}
+	sequence := data[escape:]
+	if len(sequence) == 1 {
+		return true
+	}
+	switch sequence[1] {
+	case '[':
+		if len(sequence) == 2 {
+			return true
+		}
+		for index, value := range sequence[2:] {
+			if value >= '@' && value <= '~' {
+				return !utf8.Valid(sequence[index+3:])
+			}
+		}
+		return true
+	case 'O':
+		return len(sequence) < 3 || !utf8.Valid(sequence[3:])
+	default:
+		return !utf8.Valid(sequence[2:])
+	}
 }
 
 func parseTerminalInputs(data string) []terminalInput {
@@ -3803,6 +4301,10 @@ func parseKeyPrefix(data string) (string, int) {
 		{text: "\x1b[D", key: "Left"},
 		{text: "\x1b[H", key: "Home"},
 		{text: "\x1b[F", key: "End"},
+		{text: "\x1bOA", key: "Up"},
+		{text: "\x1bOB", key: "Down"},
+		{text: "\x1bOC", key: "Right"},
+		{text: "\x1bOD", key: "Left"},
 		{text: "\x1b", key: "Escape"},
 	} {
 		if strings.HasPrefix(data, sequence.text) {
@@ -4067,13 +4569,6 @@ func handleMcpRequest(window *GeneratedWindowBase, state *runtimeState, method s
 
 func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, arguments map[string]any, config *mcpRuntimeConfig) (any, error) {
 	name = resolveMcpToolName(name)
-	if window.mcpToolProvider != nil {
-		stackDepthBefore := windowStackDepth(state)
-		if result, ok := window.mcpToolProvider.HandleMCPTool(name, arguments); ok {
-			applyProviderFocusState(window, state, name, arguments, stackDepthBefore)
-			return result, nil
-		}
-	}
 	switch name {
 	case "get_window":
 		className := window.mcpClassName
@@ -4256,37 +4751,76 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 			if err != nil {
 				return nil, err
 			}
+			if state.editMode && state.scopeDimElement == nil {
+				commitRuntimeElementEdit(state.focusedElement())
+				state.editSnapshot = nil
+				state.scopeEditElement = nil
+				state.editMode = false
+			}
 			focusElementForMcp(state, window, element, false)
 		}
 		if childWindowForElement(state.focusedElement()) != nil {
 			state.enterReusableScrollScope(state.focusedElement())
 		}
+		if state.scopeDimElement == nil || state.scopeEditElement != nil {
+			state.beginElementEdit(state.focusedElement())
+		}
 		state.editMode = true
-		if numberInput, ok := state.focusedElement().(*NumberInput); ok {
-			numberInput.BeginEdit()
-		}
-		if listBox, ok := state.focusedElement().(*ListBox); ok {
-			listBox.ActiveItemVisible = false
-		}
 		return map[string]any{"edit_mode": state.editMode}, nil
 	case "exit_edit_mode":
+		if state.editSnapshot != nil {
+			state.endElementEdit(state.editSnapshot.element, true)
+		}
+		state.scopeEditElement = nil
 		state.editMode = false
 		return map[string]any{"edit_mode": state.editMode}, nil
-	case "activate_element", "click_element":
+	case "activate_element":
 		element, err := requireElement(window, stringArgument(arguments, "element_id"))
 		if err != nil {
 			return nil, err
+		}
+		if !element.IsEnabled() {
+			return snapshotElement(element, state), nil
 		}
 		stackDepthBefore := windowStackDepth(state)
 		focusElementForMcp(state, window, element, true)
 		immediateActivation := immediateMcpActivationElement(element) || immediateMcpActivationElement(state.focusedElement())
 		state.activateFocused()
-		if name == "activate_element" && immediateActivation && windowStackDepth(state) == stackDepthBefore {
+		if immediateActivation && windowStackDepth(state) == stackDepthBefore {
 			state.editMode = false
 			state.scopeEditElement = nil
 		}
 		renderForMcp(window, state, config)
 		return snapshotElement(element, state), nil
+	case "click_element":
+		elementID := stringArgument(arguments, "element_id")
+		element, err := requireElement(window, elementID)
+		if err != nil {
+			return nil, err
+		}
+		if !element.IsEnabled() {
+			return snapshotElement(element, state), nil
+		}
+		renderForMcp(window, state, config)
+		frame := element.ElementFrame()
+		if absolute, ok := absoluteFrameForElement(window, element); ok {
+			frame = absolute
+		}
+		performMcpMousePress(state, window, Point{
+			Row: frame.Row + frame.Height/2,
+			Col: frame.Col + frame.Width/2,
+		})
+		active := activeRuntimeState(state)
+		if active != nil && active.window != nil {
+			renderForMcp(active.window, active, config)
+			if refreshed := findElement(active.window, elementID); refreshed != nil {
+				return snapshotElement(refreshed, active), nil
+			}
+		}
+		if elementInWindow(window, element) {
+			return snapshotElement(element, state), nil
+		}
+		return map[string]any{"ok": true, "element_id": elementID}, nil
 	case "press_key":
 		key, _ := arguments["key"].(string)
 		if key == "cmd_c" {
@@ -4316,7 +4850,18 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 			return nil, err
 		}
 		if element != nil {
-			focusElement(state, element)
+			if state.focusedElement() != element {
+				focusElementForMcp(state, window, element, false)
+			}
+			if !state.editMode || (state.scopeDimElement != nil && state.scopeEditElement != element) {
+				state.beginElementEdit(element)
+				state.editMode = true
+				if state.scopeDimElement != nil {
+					state.scopeEditElement = element
+				}
+			}
+		} else if focused := state.focusedElement(); focused != nil && !state.editMode {
+			state.beginElementEdit(focused)
 			state.editMode = true
 		}
 		text := stringArgument(arguments, "text")
@@ -4347,7 +4892,7 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 			input.SetCursor(len([]rune(input.Value)))
 		} else if numberInput, ok := element.(*NumberInput); ok {
 			state.editMode = true
-			numberInput.BeginEdit()
+			numberInput.SetEditText(anyToString(value))
 		}
 		state.dispatchChangeIfNeeded(element, before)
 		return snapshotElement(element, state), nil
@@ -4440,6 +4985,16 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 		start, _ := intArgument(arguments, "start")
 		end, _ := intArgument(arguments, "end")
 		if input, ok := asTextInput(element); ok {
+			if state.focusedElement() != element {
+				focusElementForMcp(state, window, element, false)
+			}
+			if !state.editMode {
+				state.beginElementEdit(element)
+				state.editMode = true
+				if state.scopeDimElement != nil {
+					state.scopeEditElement = element
+				}
+			}
 			input.SetSelection(start, end)
 			selectionStart, selectionEnd := input.selectionRange()
 			return map[string]any{
@@ -4464,7 +5019,10 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 		if err != nil {
 			return nil, err
 		}
-		cursor, _ := intArgument(arguments, "cursor")
+		cursor, ok := intArgument(arguments, "offset")
+		if !ok {
+			cursor, _ = intArgument(arguments, "cursor")
+		}
 		if input, ok := asTextInput(element); ok {
 			input.SetCursor(cursor)
 			return snapshotElement(element, state), nil
@@ -4474,54 +5032,20 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 		x, _ := intArgument(arguments, "x")
 		y, _ := intArgument(arguments, "y")
 		renderForMcp(window, state, config)
-		return handleMcpMouseClick(state, config, mcpMousePoint(state, config, x, y)), nil
+		point := mcpMousePoint(state, config, x, y)
+		performMcpMousePress(state, window, point)
+		return performMcpMouseRelease(state, window, config, point), nil
 	case "mouse_press":
 		x, _ := intArgument(arguments, "x")
 		y, _ := intArgument(arguments, "y")
 		renderForMcp(window, state, config)
-		point := mcpMousePoint(state, config, x, y)
-		target := elementAtPoint(window, point)
-		state.mousePressElement = target
-		if target == nil {
-			previous := state.focusedElement()
-			state.focusedIndex = -1
-			state.focusedOverride = nil
-			state.scopeDimElement = nil
-			state.scopeEditElement = nil
-			state.editMode = false
-			state.notifyFocusTransition(previous)
-			return map[string]any{"ok": true}, nil
-		}
-		if target != state.focusedElement() {
-			focusElementForMcp(state, window, target, false)
-		}
-		if beginMouseTextSelection(window, target, point) {
-			state.editMode = true
-			if state.scopeDimElement != nil {
-				state.scopeEditElement = target
-			}
-		}
-		if activateElementOnMousePress(state, target) {
-			state.mousePressElement = nil
-		}
+		performMcpMousePress(state, window, mcpMousePoint(state, config, x, y))
 		return map[string]any{"ok": true}, nil
 	case "mouse_release":
 		x, _ := intArgument(arguments, "x")
 		y, _ := intArgument(arguments, "y")
 		renderForMcp(window, state, config)
-		point := mcpMousePoint(state, config, x, y)
-		target := elementAtPoint(window, point)
-		pressed := state.mousePressElement
-		state.mousePressElement = nil
-		if selected := selectedText(pressed); selected != "" {
-			runtimeClipboardText = selected
-			state.showNotification(copyNotificationText)
-			return map[string]any{"ok": true}, nil
-		}
-		if target != nil && pressed == target {
-			return handleMcpMouseClick(state, config, point), nil
-		}
-		return map[string]any{"ok": true}, nil
+		return performMcpMouseRelease(state, window, config, mcpMousePoint(state, config, x, y)), nil
 	case "mouse_drag":
 		renderForMcp(window, state, config)
 		x, hasX := intArgument(arguments, "x")
@@ -4535,7 +5059,7 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 		if fromX, ok := intArgument(arguments, "from_x"); ok {
 			if fromY, fromYOk := intArgument(arguments, "from_y"); fromYOk {
 				fromPoint := mcpMousePoint(state, config, fromX, fromY)
-				state.mousePressElement = elementAtPoint(window, fromPoint)
+				state.mousePressElement = mouseTargetAtPoint(state, window, fromPoint)
 				if state.mousePressElement != nil {
 					beginMouseTextSelection(window, state.mousePressElement, fromPoint)
 				}
@@ -4575,70 +5099,6 @@ func callMcpTool(window *GeneratedWindowBase, state *runtimeState, name string, 
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
 }
-
-func applyProviderFocusState(window *GeneratedWindowBase, state *runtimeState, name string, arguments map[string]any, stackDepthBefore int) {
-	if state == nil {
-		return
-	}
-	switch name {
-	case "focus_element":
-		elementID := stringArgument(arguments, "element_id")
-		if elementID == "" {
-			return
-		}
-		if element := findElement(window, elementID); element != nil {
-			focusElementForMcp(state, window, element, false)
-			state.editMode = false
-		}
-	case "activate_element":
-		elementID := stringArgument(arguments, "element_id")
-		if elementID == "" {
-			return
-		}
-		if element := findElement(window, elementID); element != nil {
-			focusElementForMcp(state, window, element, true)
-			if immediateMcpActivationElement(element) || immediateMcpActivationElement(state.focusedElement()) {
-				if windowStackDepth(state) == stackDepthBefore {
-					state.editMode = false
-					state.scopeEditElement = nil
-				}
-			}
-		}
-	case "click_element":
-		elementID := stringArgument(arguments, "element_id")
-		if elementID == "" {
-			return
-		}
-		if element := findElement(window, elementID); element != nil {
-			focusElementForMcp(state, window, element, true)
-		}
-	case "press_key":
-		key := stringArgument(arguments, "key")
-		if key == "Escape" {
-			if state.scopeDimElement != nil {
-				state.rememberReusableScrollScopeFocus()
-				focusElement(state, state.scopeDimElement)
-			} else {
-				state.editMode = false
-			}
-			return
-		}
-		if key == "Enter" {
-			if childWindowForElement(state.focusedElement()) != nil && state.enterReusableScrollScope(state.focusedElement()) {
-				return
-			}
-		}
-		if key == "Up" || key == "Down" || key == "Left" || key == "Right" {
-			if state.moveReusableScrollScopeFocus(key) {
-				return
-			}
-		}
-		if key == "Enter" && state.scopeDimElement != nil {
-			state.editMode = true
-		}
-	}
-}
-
 func toolJSONResult(value any) map[string]any {
 	payload, _ := json.Marshal(value)
 	return map[string]any{
@@ -4768,75 +5228,119 @@ func mcpMousePoint(state *runtimeState, config *mcpRuntimeConfig, x int, y int) 
 	return Point{Row: point.Row - bounds.Row, Col: point.Col - bounds.Col}
 }
 
+func performMcpMousePress(state *runtimeState, window *GeneratedWindowBase, point Point) {
+	target := mouseTargetAtPoint(state, window, point)
+	if handleOpenComboBoxMousePress(state, window, target, point) {
+		state.mousePressElement = nil
+		return
+	}
+	state.mousePressElement = target
+	if target == nil {
+		state.commitEditBeforeFocusChange(nil)
+		previous := state.focusedElement()
+		state.focusedIndex = -1
+		state.focusedOverride = nil
+		state.scopeDimElement = nil
+		state.scopeEditElement = nil
+		state.editMode = false
+		state.notifyFocusTransition(previous)
+		return
+	}
+	if target != state.focusedElement() {
+		focusElementForMcp(state, window, target, true)
+	}
+	if _, ok := asTextInput(target); ok {
+		state.beginElementEdit(target)
+		state.editMode = true
+		if state.scopeDimElement != nil {
+			state.scopeEditElement = target
+		}
+		beginMouseTextSelection(window, target, point)
+		return
+	}
+	switch control := target.(type) {
+	case *NumberInput:
+		state.beginElementEdit(control)
+		state.editMode = true
+		if state.scopeDimElement != nil {
+			state.scopeEditElement = control
+		}
+		frame, hasFrame := absoluteFrameForElement(window, control)
+		if !hasFrame {
+			frame = control.ElementFrame()
+		}
+		if control.NumberValue != 0 {
+			control.editCursor = clampInt(point.Col-frame.Col, 0, len([]rune(control.editText)))
+			control.replaceOnFirstTextInput = false
+		}
+		state.mousePressElement = nil
+		return
+	case *ComboBox:
+		state.beginElementEdit(control)
+		state.editMode = true
+		if state.scopeDimElement != nil {
+			state.scopeEditElement = control
+		}
+		state.mousePressElement = nil
+		return
+	case *ListBox:
+		frame, hasFrame := absoluteFrameForElement(window, control)
+		if !hasFrame {
+			frame = control.ElementFrame()
+		}
+		optionIndex := control.ScrollOffset + point.Row - frame.Row
+		if optionIndex >= 0 && optionIndex < len(control.Options) {
+			before := valueForElement(control)
+			if control.Multi {
+				control.Selected[optionIndex] = !control.Selected[optionIndex]
+			} else {
+				control.SetSelectedIndex(optionIndex)
+			}
+			control.setActiveIndex(optionIndex)
+			control.ActiveItemVisible = false
+			state.beginElementEdit(control)
+			state.editMode = true
+			if state.scopeDimElement != nil {
+				state.scopeEditElement = control
+			}
+			state.dispatchChangeIfNeeded(control, before)
+		}
+		state.mousePressElement = nil
+		return
+	}
+	if activateElementOnMousePress(state, target) {
+		state.mousePressElement = nil
+	}
+}
+
+func performMcpMouseRelease(state *runtimeState, window *GeneratedWindowBase, config *mcpRuntimeConfig, point Point) map[string]any {
+	target := mouseTargetAtPoint(state, window, point)
+	pressed := state.mousePressElement
+	state.mousePressElement = nil
+	if selected := selectedText(pressed); selected != "" {
+		runtimeClipboardText = selected
+		state.showNotification(copyNotificationText)
+		return map[string]any{"ok": true}
+	}
+	if _, ok := asTextInput(pressed); ok {
+		return map[string]any{"ok": true}
+	}
+	if target != nil && pressed == target {
+		return handleMcpMouseClick(state, config, point)
+	}
+	return map[string]any{"ok": true}
+}
+
 func handleMcpMouseClick(state *runtimeState, config *mcpRuntimeConfig, point Point) map[string]any {
 	_ = config
-	if focused := state.focusedElement(); focused != nil && state.editMode {
-		if comboBox, ok := focused.(*ComboBox); ok {
-			frame, ok := absoluteFrameForElement(state.window, comboBox)
-			if !ok {
-				frame = comboBox.ElementFrame()
-			}
-			dropdown := frame
-			dropdown.Height = maxInt(frame.Height, len(comboBox.Options)+1)
-			if dropdown.Contains(point) {
-				before := valueForElement(comboBox)
-				localRow := point.Row - frame.Row
-				if localRow > 0 {
-					comboBox.SetSelectedIndex(localRow - 1)
-				}
-				state.editMode = false
-				state.dispatchChangeIfNeeded(comboBox, before)
-				return snapshotElement(comboBox, state)
-			}
-		}
+	element := elementAtPoint(state.window, point)
+	image, ok := element.(*Image)
+	if !ok {
+		return map[string]any{"ok": true}
 	}
-	if element := elementAtPoint(state.window, point); element != nil {
-		focusElementForMcp(state, state.window, element, true)
-		before := valueForElement(element)
-		switch control := element.(type) {
-		case *Button:
-			state.dispatchButton(control)
-		case *Image:
-			state.dispatchButton(control)
-		case *CheckBox:
-			control.SetChecked(!control.Checked)
-			state.dispatchChangeIfNeeded(control, before)
-		case *ComboBox:
-			state.editMode = true
-			if state.scopeDimElement != nil {
-				state.scopeEditElement = control
-			}
-		case *ListBox:
-			localRow := point.Row - control.ElementFrame().Row
-			optionIndex := control.ScrollOffset + localRow
-			if optionIndex >= 0 && optionIndex < len(control.Options) {
-				if control.Multi {
-					control.Selected[optionIndex] = !control.Selected[optionIndex]
-				} else {
-					control.SetSelectedIndex(optionIndex)
-				}
-				control.setActiveIndex(optionIndex)
-				control.ActiveItemVisible = false
-				state.dispatchChangeIfNeeded(control, before)
-			}
-		case *TextInput, *TextArea, *NumberInput:
-			state.editMode = true
-			if state.scopeDimElement != nil {
-				state.scopeEditElement = control
-			}
-		default:
-			state.editMode = false
-		}
-		return snapshotElement(element, state)
-	}
-	previous := state.focusedElement()
-	state.focusedIndex = -1
-	state.focusedOverride = nil
-	state.scopeDimElement = nil
-	state.scopeEditElement = nil
-	state.editMode = false
-	state.notifyFocusTransition(previous)
-	return map[string]any{"ok": true}
+	focusElementForMcp(state, state.window, image, true)
+	state.dispatchButton(image)
+	return snapshotElement(image, state)
 }
 
 func beginMouseTextSelection(window *GeneratedWindowBase, element Element, point Point) bool {
@@ -4882,18 +5386,13 @@ func textInputCursorAtPoint(input *TextInput, point Point, frame Rect) int {
 	if !input.Multiline {
 		return clampInt(localCol+input.colScrollOffset, 0, len([]rune(input.Value)))
 	}
-	lines := strings.Split(input.Value, "\n")
-	if len(lines) == 0 {
+	rows := buildWrappedTextRows(input.Value, maxInt(minimumRenderableSize, frame.Width))
+	if len(rows) == 0 {
 		return 0
 	}
 	localRow := clampInt(point.Row-frame.Row, 0, maxInt(0, frame.Height-1))
-	lineIndex := clampInt(localRow+input.rowScrollOffset, 0, len(lines)-1)
-	cursor := 0
-	for index := 0; index < lineIndex; index++ {
-		cursor += len([]rune(lines[index])) + 1
-	}
-	cursor += clampInt(localCol+input.colScrollOffset, 0, len([]rune(lines[lineIndex])))
-	return clampInt(cursor, 0, len([]rune(input.Value)))
+	rowIndex := clampInt(localRow+input.rowScrollOffset, 0, len(rows)-1)
+	return clampInt(rawIndexForVisualColumn(rows[rowIndex], localCol), 0, len([]rune(input.Value)))
 }
 
 func activateElementOnMousePress(state *runtimeState, element Element) bool {
@@ -4918,6 +5417,63 @@ func activateElementOnMousePress(state *runtimeState, element Element) bool {
 
 func elementAtPoint(window *GeneratedWindowBase, point Point) Element {
 	return elementAtPointInWindow(window, point, 0, 0)
+}
+
+func activeComboBox(state *runtimeState) *ComboBox {
+	if state == nil || !state.editMode {
+		return nil
+	}
+	var dropdownElement Element
+	if state.scopeDimElement != nil {
+		dropdownElement = state.scopeEditElement
+	} else {
+		dropdownElement = state.focusedElement()
+	}
+	comboBox, _ := dropdownElement.(*ComboBox)
+	return comboBox
+}
+
+func comboBoxMouseFrame(window *GeneratedWindowBase, comboBox *ComboBox) Rect {
+	frame, hasFrame := absoluteFrameForElement(window, comboBox)
+	if !hasFrame {
+		frame = comboBox.ElementFrame()
+	}
+	frame.Height = maxInt(frame.Height, len(comboBox.Options)+1)
+	return frame
+}
+
+func mouseTargetAtPoint(state *runtimeState, window *GeneratedWindowBase, point Point) Element {
+	if comboBox := activeComboBox(state); comboBox != nil {
+		if comboBoxMouseFrame(window, comboBox).Contains(point) {
+			return comboBox
+		}
+	}
+	return elementAtPoint(window, point)
+}
+
+func handleOpenComboBoxMousePress(state *runtimeState, window *GeneratedWindowBase, target Element, point Point) bool {
+	comboBox := activeComboBox(state)
+	if comboBox == nil || target != comboBox {
+		return false
+	}
+	frame := comboBoxMouseFrame(window, comboBox)
+	localRow := point.Row - frame.Row
+	if localRow <= 0 {
+		return true
+	}
+	before := valueForElement(comboBox)
+	comboBox.SetSelectedIndex(localRow - 1)
+	state.editSnapshot = nil
+	state.dispatchConfirm(comboBox)
+	if host := state.scopeDimElement; host != nil {
+		state.rememberReusableScrollScopeFocus()
+		focusElement(state, host)
+	} else {
+		state.scopeEditElement = nil
+		state.editMode = false
+	}
+	state.dispatchChangeIfNeeded(comboBox, before)
+	return true
 }
 
 func elementAtPointInWindow(window *GeneratedWindowBase, point Point, rowOffset int, colOffset int) Element {
@@ -4978,58 +5534,10 @@ func elementAtPointInScrollView(scrollView *ScrollView, point Point, frame Rect)
 }
 
 func absoluteFrameForElement(window *GeneratedWindowBase, target Element) (Rect, bool) {
-	return absoluteFrameForElementInWindow(window, target, 0, 0)
-}
-
-func absoluteFrameForElementInWindow(window *GeneratedWindowBase, target Element, rowOffset int, colOffset int) (Rect, bool) {
-	if window == nil || target == nil {
+	if window == nil || target == nil || !elementInWindow(window, target) {
 		return Rect{}, false
 	}
-	for _, element := range window.elements {
-		frame := element.ElementFrame()
-		absolute := Rect{Row: frame.Row + rowOffset, Col: frame.Col + colOffset, Width: frame.Width, Height: frame.Height}
-		if element == target {
-			return absolute, true
-		}
-		if scrollView, ok := element.(*ScrollView); ok {
-			if childFrame, ok := absoluteFrameForElementInScrollView(scrollView, target, absolute); ok {
-				return childFrame, true
-			}
-		}
-		if childWindow := childWindowForElement(element); childWindow != nil {
-			if childFrame, ok := absoluteFrameForElementInWindow(childWindow, target, absolute.Row, absolute.Col); ok {
-				return childFrame, true
-			}
-		}
-	}
-	return Rect{}, false
-}
-
-func absoluteFrameForElementInScrollView(scrollView *ScrollView, target Element, frame Rect) (Rect, bool) {
-	if scrollView == nil || target == nil {
-		return Rect{}, false
-	}
-	cursor := -scrollView.ViewOffset
-	for _, child := range scrollView.Children {
-		childFrame := child.ElementFrame()
-		childHeight := maxInt(minimumRenderableSize, childFrame.Height)
-		absolute := Rect{Row: frame.Row + cursor, Col: frame.Col, Width: frame.Width, Height: childHeight}
-		if child == target {
-			return absolute, true
-		}
-		if nested, ok := child.(*ScrollView); ok {
-			if nestedFrame, ok := absoluteFrameForElementInScrollView(nested, target, absolute); ok {
-				return nestedFrame, true
-			}
-		}
-		if childWindow := childWindowForElement(child); childWindow != nil {
-			if nestedFrame, ok := absoluteFrameForElementInWindow(childWindow, target, absolute.Row, absolute.Col); ok {
-				return nestedFrame, true
-			}
-		}
-		cursor += childHeight + scrollView.Gap
-	}
-	return Rect{}, false
+	return target.ElementFrame(), true
 }
 
 func requireElement(window *GeneratedWindowBase, id string) (Element, error) {
@@ -5180,6 +5688,7 @@ func focusElementForMcp(state *runtimeState, window *GeneratedWindowBase, elemen
 	if state == nil || element == nil {
 		return
 	}
+	state.commitEditBeforeFocusChange(element)
 	state.rememberReusableScrollScopeFocus()
 	focusElement(state, element)
 	ensureElementVisibleInScrollViews(window, element)
@@ -5301,6 +5810,38 @@ func scrollViewForElement(element Element) *ScrollView {
 	}
 	if child := childWindowForElement(element); child != nil {
 		return firstScrollViewInWindow(child)
+	}
+	return nil
+}
+
+func scrollViewContainingElement(window *GeneratedWindowBase, target Element) *ScrollView {
+	if window == nil || target == nil {
+		return nil
+	}
+	for _, element := range window.elements {
+		if child := childWindowForElement(element); child != nil {
+			if scrollView := scrollViewContainingElement(child, target); scrollView != nil {
+				return scrollView
+			}
+		}
+		scrollView, ok := element.(*ScrollView)
+		if !ok {
+			continue
+		}
+		for _, child := range scrollView.Children {
+			if child == nil {
+				continue
+			}
+			if child == target {
+				return scrollView
+			}
+			if childWindow := childWindowForElement(child); childWindow != nil && elementInWindow(childWindow, target) {
+				return scrollView
+			}
+			if nested, ok := child.(*ScrollView); ok && scrollViewContainsElement(nested, target) {
+				return nested
+			}
+		}
 	}
 	return nil
 }

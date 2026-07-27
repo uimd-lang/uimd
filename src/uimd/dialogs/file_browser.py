@@ -47,11 +47,25 @@ class FileBrowser(FileBrowserUI):
         self._enter_edit_mode()
 
     def handle_key(self, key):
+        if (
+            key == "Enter"
+            and getattr(self, "_edit_mode", False)
+            and getattr(self, "_focused_element", None) is self.entries
+        ):
+            self.entries.handle_key(key)
+            self._preview_selected()
+            if self._selected_entry_is_directory():
+                self._accept_current()
+            else:
+                self._exit_edit_mode(commit=True, notify=False)
+            return True
         if key == "Escape":
             if getattr(self, "_edit_mode", False):
                 focused = getattr(self, "_focused_element", None)
                 commit = focused is self.entries or self._uses_leave_commit(focused)
                 notify = focused is not self.entries
+                if focused is self.entries:
+                    self._preview_selected()
                 self._exit_edit_mode(commit=commit, notify=notify)
                 return True
             self._flash_close_button()
@@ -68,7 +82,7 @@ class FileBrowser(FileBrowserUI):
         elif element == self.close_btn:
             self._close(None)
         elif element == self.entries:
-            self._accept_current()
+            self._preview_selected()
         elif element == self.filename:
             self._update_open_enabled()
 
@@ -78,7 +92,7 @@ class FileBrowser(FileBrowserUI):
 
     def confirmed(self, element, value):
         if element == self.entries:
-            self._accept_current()
+            self._preview_selected()
 
     def _refresh_entries(self):
         entries = [PARENT_ENTRY]
@@ -108,6 +122,10 @@ class FileBrowser(FileBrowserUI):
         elif self._browser_mode == "open":
             self.filename.value = ""
         self._update_open_enabled()
+
+    def _selected_entry_is_directory(self):
+        path = self._selected_path_for_open_state()
+        return bool(path) and os.path.isdir(path)
 
     def _accept_current(self):
         selected = self.entries.selected_item or ""

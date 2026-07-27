@@ -161,41 +161,6 @@ public sealed class TextEditor : TextEditorUI
                 CloseBrowser("");
             }
         };
-        options.OnTextChanged = (name, _) =>
-        {
-            if (browser is not null && name == "entries")
-            {
-                browser.SelectEntry(browser.entries.SelectedIndex);
-            }
-        };
-        options.OnSelectionChanged = (name, _) =>
-        {
-            if (browser is not null && name == "entries")
-            {
-                browser.SelectEntry(browser.entries.SelectedIndex);
-            }
-        };
-        options.OnTextConfirmed = (name, _) =>
-        {
-            if (browser is not null && name == "entries")
-            {
-                browser.SelectEntry(browser.entries.SelectedIndex);
-                AcceptBrowserCurrent();
-            }
-        };
-        options.OnKeyBeforeFocusedElement = (key, name, editMode) =>
-        {
-            if (browser is null)
-            {
-                return false;
-            }
-            if (key == "Escape")
-            {
-                CloseBrowser("");
-                return true;
-            }
-            return false;
-        };
         options.OnKey = key =>
         {
             if (key == "Escape")

@@ -43,6 +43,10 @@ public:
         return activeItemVisible_;
     }
 
+    [[nodiscard]] int activeIndex() const {
+        return activeIndex_;
+    }
+
     void setOptions(std::vector<std::string> options);
     void setDisabledValues(std::vector<std::string> disabledValues);
     void setMultiple(bool multiple);

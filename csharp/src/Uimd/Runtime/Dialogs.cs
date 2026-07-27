@@ -396,6 +396,7 @@ public sealed class FileBrowser : GeneratedWindowBase
         path_label = AddElement(new Label("path_label", currentDir));
         ApplyDialogLabelStyle(path_label);
         entries = AddElement(new ListBox("entries", Array.Empty<string>()));
+        entries.SetCommitMode(Element.CommitModeLeave);
         entries.SetStyle(new Style { Background = new Color("#0d1524"), Color = new Color("#cbd5e1") });
         entries.SetFocusStyle(new Style { Background = new Color("#1d2f4d"), Color = new Color("#ffffff") });
         entries.SetEditStyle(new Style { Background = new Color("#243a5c"), Color = new Color("#cbd5e1") });
@@ -467,11 +468,22 @@ public sealed class FileBrowser : GeneratedWindowBase
         {
             if (name == "entries")
             {
-                AcceptCurrent();
+                PreviewSelected();
             }
         };
         options.OnKeyBeforeFocusedElement = (key, name, editMode) =>
         {
+            if (key == "Enter" && name == "entries" && editMode)
+            {
+                entries.SetSelectedIndex(entries.ActiveIndex);
+                entries.HideActiveItem();
+                PreviewSelected();
+                if (SelectedEntryIsDirectory())
+                {
+                    AcceptCurrent();
+                    return true;
+                }
+            }
             return false;
         };
         options.OnEditStarted = name =>

@@ -833,6 +833,15 @@ std::string generateSource(
         }
         const std::string field = goIdentifier(name);
         lines.push_back("    ui." + field + " = " + ctorCode(name, *member));
+        const YamlValue* commitMode = member->get("commit-mode");
+        if (commitMode == nullptr)
+        {
+            commitMode = member->get("commit_mode");
+        }
+        if (commitMode != nullptr)
+        {
+            lines.push_back("    ui." + field + ".SetCommitMode(" + goString(valueAsString(*commitMode)) + ")");
+        }
         lines.push_back("    ui.AddElement(ui." + field + ")");
         const std::string elemType = typeFor(*member);
         if (elemType == "combobox")

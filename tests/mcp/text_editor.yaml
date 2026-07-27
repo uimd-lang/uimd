@@ -209,6 +209,18 @@
         key: Enter
     - tool: get_window
       assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: get_element
+      arguments:
+        element_id: filename
+      assert:
+        value: nested_example.txt
+    - tool: activate_element
+      arguments:
+        element_id: open_btn
+    - tool: get_window
+      assert:
         class: TextEditor
         title: Text Editor
     - tool: get_element

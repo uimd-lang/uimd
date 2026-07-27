@@ -301,6 +301,7 @@ func NewFileBrowser(rootDir string, startPath string, mode string, onClose func(
 	browser.DialogHeader = newDialogHeaderLabel("Open File")
 	browser.PathLabel = newDialogTextLabel("path_label", ".")
 	browser.Entries = NewListBox("entries", nil, false)
+	browser.Entries.SetCommitMode(CommitModeLeave)
 	browser.Entries.SetStyle(Style{Background: NewColor("#0d1524"), Color: NewColor("#cbd5e1")})
 	browser.Entries.SetFocusStyle(Style{Background: NewColor("#1d2f4d"), Color: NewColor("#ffffff")})
 	browser.Entries.SetEditStyle(Style{Background: NewColor("#243a5c"), Color: NewColor("#cbd5e1")})
@@ -362,8 +363,20 @@ func (browser *FileBrowser) RuntimeOptions() GeneratedWindowRuntimeOptions {
 		},
 		OnTextConfirmed: func(name string, _ string) {
 			if name == "entries" {
-				browser.AcceptCurrent()
+				browser.PreviewSelected()
 			}
+		},
+		OnKeyBeforeFocusedElement: func(key string, name string, editMode bool) bool {
+			if key != "Enter" || name != "entries" || !editMode {
+				return false
+			}
+			browser.SelectEntry(browser.Entries.ActiveIndex)
+			browser.Entries.HideActiveItem()
+			if browser.SelectedEntryIsDirectory() {
+				browser.AcceptCurrent()
+				return true
+			}
+			return false
 		},
 		OnKey: func(key string) bool {
 			if key == "Escape" {
@@ -530,6 +543,15 @@ func (browser *FileBrowser) SelectedPath() string {
 		return browser.clampDir(filepath.Dir(browser.currentDir))
 	}
 	return filepath.Join(browser.currentDir, strings.TrimSuffix(selected, "/"))
+}
+
+func (browser *FileBrowser) SelectedEntryIsDirectory() bool {
+	path := browser.SelectedPath()
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func (browser *FileBrowser) UpdateOpenEnabled() {

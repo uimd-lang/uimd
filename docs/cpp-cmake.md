@@ -37,7 +37,7 @@ include(FetchContent)
 FetchContent_Declare(
     uimd
     GIT_REPOSITORY https://github.com/uimd-lang/uimd.git
-    GIT_TAG v0.4.22
+    GIT_TAG v0.4.23
 )
 
 FetchContent_MakeAvailable(uimd)

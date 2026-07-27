@@ -136,6 +136,68 @@ final class UimdRuntimeSmokeTests: XCTestCase
         XCTAssertEqual((visible.last?.frame.row ?? 0) + (visible.last?.frame.height ?? 0), 5)
     }
 
+    func testScrollViewRestorePreservesOffsetAcrossRebuildAndClampsAfterShrink()
+    {
+        let frameSize = Size(width: 4, height: 2)
+        let originalContentHeight = 5
+        let shrunkContentHeight = 3
+
+        func content(height: Int) -> [[TerminalCell]]
+        {
+            Array(repeating: [TerminalCell("A")], count: height)
+        }
+
+        let scroll = ScrollView("items")
+        scroll.frame = Rect(
+            row: 0,
+            col: 0,
+            width: frameSize.width,
+            height: frameSize.height
+        )
+        scroll.addChild(content(height: originalContentHeight))
+        _ = scroll.render(size: frameSize)
+        XCTAssertTrue(scroll.scrollLines(-1, viewport: frameSize))
+        let saved = scroll.scrollPosition()
+
+        scroll.clearChildren()
+        scroll.addChild(content(height: originalContentHeight))
+        scroll.restoreScrollPosition(saved)
+        XCTAssertEqual(scroll.viewOffsetValue(), saved.viewOffset)
+
+        scroll.clearChildren()
+        scroll.addChild(content(height: shrunkContentHeight))
+        scroll.restoreScrollPosition(saved)
+        XCTAssertEqual(scroll.viewOffsetValue(), shrunkContentHeight - frameSize.height)
+    }
+
+    func testFileBrowserDirectoryEnterCommitsAndHidesActiveRow() throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uimd-swift-file-browser-state-\(UUID().uuidString)")
+        let child = root.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        defer
+        {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let browser = FileBrowser(root: root.path, start: root.path)
+        guard let childIndex = browser.entries.options.firstIndex(of: "child/") else
+        {
+            XCTFail("FileBrowser did not expose the child directory")
+            return
+        }
+        browser.entries.setActiveIndex(childIndex)
+        browser.entries.showActiveItem()
+
+        let handled = browser.runtimeOptions().onKeyBeforeFocusedElement?("Enter", "entries", true)
+
+        XCTAssertEqual(handled, true)
+        XCTAssertFalse(browser.entries.activeItemVisible)
+        XCTAssertEqual(browser.currentDirectory, child.path)
+        XCTAssertEqual(browser.entries.selectedValues, [".."])
+    }
+
     func testImageFallbackHalfBlockKeepsTopPixelInForeground() throws
     {
         let directory = FileManager.default.temporaryDirectory

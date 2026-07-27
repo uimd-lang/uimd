@@ -58,6 +58,7 @@ title:
 name:
   type: textinput
   value: ""
+  commit-mode: leave
   description: "Name."
 
 greet:
@@ -349,6 +350,8 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
             content = (target_dir / "hello_ui.py").read_text(encoding="utf-8")
             if "class HelloUI" not in content or "_mcp_enabled = True" not in content:
                 failures.append("generate --target python: hello_ui.py does not contain the expected UI class")
+            if "self.name.commit_mode = 'leave'" not in content:
+                failures.append("generate --target python: hello_ui.py does not preserve member commit-mode")
         elif target == "cpp":
             header = (target_dir / "hello_ui.hpp").read_text(encoding="utf-8")
             source = (target_dir / "hello_ui.cpp").read_text(encoding="utf-8")
@@ -358,6 +361,8 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
                 failures.append("generate --target cpp: hello_ui.hpp does not contain the expected UI class")
             if "HelloUI::HelloUI()" not in source:
                 failures.append("generate --target cpp: hello_ui.cpp does not contain the expected constructor")
+            if 'name->setCommitMode("leave");' not in source:
+                failures.append("generate --target cpp: hello_ui.cpp does not preserve member commit-mode")
             if "runGeneratedWindow" not in app:
                 failures.append("generate --target cpp: hello.cpp does not contain the runtime launcher")
             if "GIT_TAG v" not in cmake:
@@ -368,6 +373,8 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
             project = (target_dir / "hello.csproj").read_text(encoding="utf-8")
             if "class HelloUI" not in source:
                 failures.append("generate --target csharp: hello_ui.cs does not contain the expected UI class")
+            if 'name.SetCommitMode("leave");' not in source:
+                failures.append("generate --target csharp: hello_ui.cs does not preserve member commit-mode")
             if "RunGeneratedWindow" not in app:
                 failures.append("generate --target csharp: hello.cs does not contain the runtime launcher")
             if "targets', 'csharp', 'Uimd.csproj'" not in project:
@@ -378,6 +385,8 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
             package = (target_dir / "Package.swift").read_text(encoding="utf-8")
             if "open class HelloUI" not in source:
                 failures.append("generate --target swift: hello_ui.swift does not contain the expected UI class")
+            if 'name.commitMode = "leave"' not in source:
+                failures.append("generate --target swift: hello_ui.swift does not preserve member commit-mode")
             if "runGeneratedWindow" not in app:
                 failures.append("generate --target swift: hello.swift does not contain the runtime launcher")
             if "/targets/swift" not in package:
@@ -388,6 +397,8 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
             module = (target_dir / "go.mod").read_text(encoding="utf-8")
             if "type HelloUI struct" not in source:
                 failures.append("generate --target go: hello_ui.go does not contain the expected UI struct")
+            if 'ui.Name.SetCommitMode("leave")' not in source:
+                failures.append("generate --target go: hello_ui.go does not preserve member commit-mode")
             if "RunGeneratedWindow" not in app:
                 failures.append("generate --target go: hello.go does not contain the runtime launcher")
             if "replace uimd =>" not in module:

@@ -703,7 +703,22 @@ class UIApplication:
         return False
 
     def handle_key(self, key):
-        """Handle a keyboard event."""
+        """Handle one complete input event and repair modal return state."""
+        modal_parent = self._window_stack[-2] if len(self._window_stack) > 1 else None
+        stack_size_before = len(self._window_stack)
+        return_state = self._capture_modal_return_state(modal_parent)
+        try:
+            return self._handle_key_impl(key)
+        finally:
+            if (
+                return_state is not None
+                and len(self._window_stack) < stack_size_before
+                and self.active_window is modal_parent
+            ):
+                self._restore_modal_return_state(return_state)
+
+    def _handle_key_impl(self, key):
+        """Dispatch one translated keyboard or mouse event."""
         if not self._window_stack:
             return
 
@@ -752,6 +767,197 @@ class UIApplication:
 
         if self.active_window.handle_key(key):
             self._dirty = True
+
+    @staticmethod
+    def _capture_modal_return_state(window):
+        if window is None:
+            return None
+        scopes = []
+        seen = set()
+        seen_scrollviews = set()
+
+        def visit(owner):
+            if owner is None or id(owner) in seen:
+                return
+            seen.add(id(owner))
+            scope = getattr(owner, "_active_scrollview_scope", None)
+            if isinstance(scope, dict):
+                proxy = scope.get("proxy")
+                scrollview = scope.get("scrollview")
+                scrollview_identity = id(scrollview) if scrollview is not None else None
+                if scrollview_identity in seen_scrollviews:
+                    scope = None
+                elif scrollview_identity is not None:
+                    seen_scrollviews.add(scrollview_identity)
+            if isinstance(scope, dict):
+                proxy = scope.get("proxy")
+                scrollview = scope.get("scrollview")
+                focused = getattr(owner, "_focused_element", None)
+                if focused is proxy and scrollview is not None:
+                    remembered = getattr(owner, "_scrollview_last_descendant", {})
+                    focused = remembered.get(id(scrollview), focused)
+                contexts = []
+                origin_rect = scope.get("scrollview_rect")
+                if (
+                    proxy is not None
+                    and scrollview is not None
+                    and hasattr(owner, "_scrollview_child_focus_contexts")
+                ):
+                    if origin_rect is None and hasattr(owner, "_scrollview_proxy_rect"):
+                        origin_rect = owner._scrollview_proxy_rect(proxy)
+                    if origin_rect is not None:
+                        contexts = owner._scrollview_child_focus_contexts(
+                            proxy,
+                            scrollview,
+                            origin_rect,
+                            visible_only=False,
+                        )
+                focused_index = next(
+                    (
+                        index
+                        for index, context in enumerate(contexts)
+                        if context.get("element") is focused
+                    ),
+                    -1,
+                )
+                position = (
+                    scrollview.scroll_position()
+                    if scrollview is not None and hasattr(scrollview, "scroll_position")
+                    else None
+                )
+                scopes.append({
+                    "owner": owner,
+                    "proxy": proxy,
+                    "scrollview": scrollview,
+                    "scrollview_rect": origin_rect,
+                    "focused": focused,
+                    "focused_index": focused_index,
+                    "scroll_position": position,
+                })
+            for element in getattr(owner, "_elements", {}).values():
+                current_view = element.current_view() if hasattr(element, "current_view") else None
+                visit(current_view)
+                visit(getattr(element, "_child_instance", None))
+
+        visit(window)
+        return {"window": window, "scopes": scopes}
+
+    def _restore_modal_return_state(self, state):
+        window = state.get("window")
+        if window is None or self.active_window is not window:
+            return
+        for scope in state.get("scopes", []):
+            self._clear_duplicate_modal_scrollview_scopes(
+                window,
+                scope.get("owner"),
+                scope.get("scrollview"),
+            )
+            self._restore_modal_scrollview_scope(scope)
+
+    @staticmethod
+    def _clear_duplicate_modal_scrollview_scopes(window, keep_owner, scrollview):
+        if window is None or scrollview is None:
+            return
+        seen = set()
+
+        def visit(owner):
+            if owner is None or id(owner) in seen:
+                return
+            seen.add(id(owner))
+            scope = getattr(owner, "_active_scrollview_scope", None)
+            if (
+                owner is not keep_owner
+                and isinstance(scope, dict)
+                and scope.get("scrollview") is scrollview
+            ):
+                owner._active_scrollview_scope = None
+                if hasattr(owner, "_edit_mode"):
+                    owner._edit_mode = False
+                if hasattr(owner, "_edit_snapshot"):
+                    owner._edit_snapshot = None
+            for element in getattr(owner, "_elements", {}).values():
+                current_view = element.current_view() if hasattr(element, "current_view") else None
+                visit(current_view)
+                visit(getattr(element, "_child_instance", None))
+
+        visit(window)
+
+    @staticmethod
+    def _restore_modal_scrollview_scope(scope):
+        owner = scope.get("owner")
+        proxy = scope.get("proxy")
+        scrollview = scope.get("scrollview")
+        if owner is None or proxy is None or scrollview is None:
+            return False
+        if getattr(proxy, "_child_instance", None) is not scrollview:
+            return False
+        if not hasattr(owner, "_scrollview_child_focus_contexts"):
+            return False
+
+        origin_rect = scope.get("scrollview_rect")
+        if origin_rect is None and hasattr(owner, "_scrollview_proxy_rect"):
+            origin_rect = owner._scrollview_proxy_rect(proxy)
+        if origin_rect is None:
+            return False
+        contexts = owner._scrollview_child_focus_contexts(
+            proxy,
+            scrollview,
+            origin_rect,
+            visible_only=False,
+        )
+
+        previous = scope.get("focused")
+        target_context = next(
+            (context for context in contexts if context.get("element") is previous),
+            None,
+        )
+        if target_context is None and contexts:
+            focused_index = scope.get("focused_index", -1)
+            if not isinstance(focused_index, int) or focused_index < 0:
+                focused_index = 0
+            target_context = contexts[min(focused_index, len(contexts) - 1)]
+
+        if hasattr(owner, "_clear_descendant_focus_state"):
+            owner._clear_descendant_focus_state(scrollview)
+        owner._active_scrollview_scope = {
+            "proxy": proxy,
+            "scrollview": scrollview,
+            "scrollview_rect": origin_rect,
+        }
+        owner._edit_mode = True
+        owner._edit_snapshot = None
+        if hasattr(owner, "_set_element_focus_state"):
+            owner._set_element_focus_state(proxy, True)
+        if hasattr(scrollview, "_focused"):
+            scrollview._focused = True
+
+        if target_context is None:
+            owner._focused_element = proxy
+            if hasattr(owner, "_scrollview_last_descendant"):
+                owner._scrollview_last_descendant.pop(id(scrollview), None)
+        else:
+            target = target_context.get("element")
+            owner._focused_element = target
+            if hasattr(target, "focused"):
+                target.focused = True
+            target_owner = target_context.get("owner")
+            if target_owner is not None and hasattr(target_owner, "_focused_element"):
+                target_owner._focused_element = target
+            mark_selected = getattr(scrollview, "_mark_selected_focus_child", None)
+            if callable(mark_selected):
+                mark_selected(target_context.get("child") or target_owner)
+            if hasattr(owner, "_scrollview_last_descendant"):
+                owner._scrollview_last_descendant[id(scrollview)] = target
+            parent_owner = getattr(proxy, "parent", None)
+            while parent_owner is not None:
+                if hasattr(parent_owner, "_focused_element"):
+                    parent_owner._focused_element = target
+                parent_owner = getattr(parent_owner, "parent", None)
+
+        position = scope.get("scroll_position")
+        if position is not None and hasattr(scrollview, "restore_scroll_position"):
+            scrollview.restore_scroll_position(position)
+        return True
 
     def _translate_mouse_event(self, event):
         """Translate terminal coordinates into active-window coordinates."""
@@ -1906,34 +2112,35 @@ class UIApplication:
         frame = ""
         layers = []
         last_index = len(self._window_stack) - 1
-        render_context = nullcontext()
-        if len(self._window_stack) > 1:
-            from uimd.runtime.image import force_image_cell_background_rendering
-            render_context = force_image_cell_background_rendering()
+        from uimd.runtime.image import force_image_cell_background_rendering
 
-        with render_context:
-            for index, window in enumerate(self._window_stack):
-                mode = self._resolved_window_mode(window)
-                saved_mode = window.mode
-                window.mode = mode
-                self._resize_window(window)
-                window_render_context = (
-                    suppress_active_scrollview_scope_visuals(window)
-                    if index < last_index
-                    else nullcontext()
-                )
-                with window_render_context:
-                    cell_rows = self._render_window_cells(window)
-                window.mode = saved_mode
+        for index, window in enumerate(self._window_stack):
+            mode = self._resolved_window_mode(window)
+            saved_mode = window.mode
+            window.mode = mode
+            self._resize_window(window)
+            image_render_context = (
+                force_image_cell_background_rendering()
+                if index < last_index
+                else nullcontext()
+            )
+            window_render_context = (
+                suppress_active_scrollview_scope_visuals(window)
+                if index < last_index
+                else nullcontext()
+            )
+            with image_render_context, window_render_context:
+                cell_rows = self._render_window_cells(window)
+            window.mode = saved_mode
 
-                if index == last_index:
-                    cell_rows = self._render_notifications_cells(cell_rows)
-                else:
-                    cell_rows = self._dim_cell_rows(cell_rows)
+            if index == last_index:
+                cell_rows = self._render_notifications_cells(cell_rows)
+            else:
+                cell_rows = self._dim_cell_rows(cell_rows)
 
-                col_offset, row_offset = self._window_offsets(window, mode)
+            col_offset, row_offset = self._window_offsets(window, mode)
 
-                layers.append((cell_rows, col_offset, row_offset))
+            layers.append((cell_rows, col_offset, row_offset))
 
         popup_layer = self._popup_overlay_layer()
         if popup_layer is not None:

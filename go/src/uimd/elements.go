@@ -11,8 +11,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -26,8 +28,14 @@ const (
 	testFallbackColorQuantum      = 32
 	imageInfoSampleGridSize       = 3
 	imageInfoColorQuantum         = 64
+	imageSixelBitsPerGlyph        = 6
+	imageSixelColorComponentScale = 100
+	imageSixelColorLevels         = 6
+	imageSixelRunLengthThreshold  = 4
 	imageFallbackUpperHalfBlock   = "▀"
 	imageFallbackFullBlock        = "█"
+	imageSixelIntroducer          = "\x1bPq"
+	imageSixelTerminator          = "\x1b\\"
 	imageMinimumSampleArea        = 0.000001
 	colorOpaqueAlpha              = 255
 	defaultImageFit               = "contain"
@@ -35,9 +43,33 @@ const (
 	defaultImageVerticalAlign     = "middle"
 	scrollIndicatorUp             = "^"
 	scrollIndicatorDown           = "v"
+	CommitModeStandard            = "standard"
+	CommitModeLeave               = "leave"
 )
 
 var imageCellBackgroundRenderingDepth int
+
+var imageRasterCache = struct {
+	sync.RWMutex
+	values map[string]imageRaster
+}{values: map[string]imageRaster{}}
+
+type imageRenderCacheKey struct {
+	source        string
+	width         int
+	height        int
+	fit           string
+	align         string
+	verticalAlign string
+	background    imageRgb
+	sourceHeight  int
+	cropTop       int
+}
+
+var imageSixelCache = struct {
+	sync.RWMutex
+	values map[imageRenderCacheKey]string
+}{values: map[imageRenderCacheKey]string{}}
 
 type ElementRenderState struct {
 	Focused                  bool
@@ -47,6 +79,9 @@ type ElementRenderState struct {
 	SuppressScrollIndicators bool
 	FocusedElement           Element
 	EditElement              Element
+	ScopeFocusActive         bool
+	ClipTop                  *int
+	ClipBottom               *int
 }
 
 type Element interface {
@@ -81,16 +116,18 @@ type elementBase struct {
 	checkedStyle   *Style
 	uncheckedStyle *Style
 	disabledStyle  *Style
+	commitMode     string
 }
 
 func newElementBase(name string, text string, focusable bool) elementBase {
 	return elementBase{
-		Name:      name,
-		Text:      text,
-		Value:     text,
-		Focusable: focusable,
-		Enabled:   true,
-		style:     NewStyle(),
+		Name:       name,
+		Text:       text,
+		Value:      text,
+		Focusable:  focusable,
+		Enabled:    true,
+		commitMode: CommitModeStandard,
+		style:      NewStyle(),
 	}
 }
 
@@ -129,6 +166,14 @@ func (element *elementBase) SetEnabled(enabled bool) {
 func (element *elementBase) SetText(text string) {
 	element.Text = text
 	element.Value = text
+}
+
+func (element *elementBase) SetCommitMode(mode string) {
+	element.commitMode = mode
+}
+
+func (element *elementBase) CommitMode() string {
+	return element.commitMode
 }
 
 func (element *elementBase) SetStyle(style Style) {
@@ -184,6 +229,12 @@ func mergedStateStyle(base Style, state Style) Style {
 		effectiveStyleParentBackground.rgba != nil {
 		base.Background = baseBackground.BlendOver(effectiveStyleParentBackground)
 		baseBackground = base.Background
+	}
+	if hasPartialAlpha(stateBackground) &&
+		baseBackground.Empty() &&
+		effectiveStyleParentBackgroundSet &&
+		effectiveStyleParentBackground.rgba != nil {
+		baseBackground = effectiveStyleParentBackground
 	}
 	base.Merge(state)
 	if hasPartialAlpha(stateBackground) &&
@@ -693,6 +744,10 @@ func (element *Image) Render(size Size, state ElementRenderState) [][]TerminalCe
 	width := maxInt(minimumRenderableSize, size.Width)
 	height := maxInt(minimumRenderableSize, size.Height)
 	style := element.EffectiveStyle(state.Focused, state.EditMode)
+	fit := normalizedImageValue(element.Fit, defaultImageFit)
+	renderMode := normalizedImageValue(element.RenderMode, "auto")
+	align := normalizedImageValue(element.Align, defaultImageAlign)
+	verticalAlign := normalizedImageValue(element.VerticalAlign, defaultImageVerticalAlign)
 	raster, ok := loadImageRaster(element.Source)
 	if !ok || raster.width == 0 || raster.height == 0 {
 		text := element.Alt
@@ -707,22 +762,87 @@ func (element *Image) Render(size Size, state ElementRenderState) [][]TerminalCe
 			raster,
 			width,
 			height,
-			normalizedImageValue(element.Fit, defaultImageFit),
-			normalizedImageValue(element.Align, defaultImageAlign),
-			normalizedImageValue(element.VerticalAlign, defaultImageVerticalAlign),
+			fit,
+			align,
+			verticalAlign,
 			style,
 			background)
+	}
+	if deterministicImageFallbackEnabled() {
+		return deterministicImageFallbackContent(
+			raster,
+			width,
+			height,
+			fit,
+			align,
+			verticalAlign,
+			style,
+			background,
+			renderMode != "fallback")
+	}
+	if shouldRenderSixelForMode(renderMode) {
+		region := imageRegion(width, height, raster.width, raster.height, fit, align, verticalAlign)
+		visibleTop := region.rowOffset
+		visibleBottom := region.rowOffset + region.rows
+		if state.ClipTop != nil {
+			visibleTop = maxInt(visibleTop, maxInt(0, *state.ClipTop))
+		}
+		if state.ClipBottom != nil {
+			visibleBottom = minInt(visibleBottom, minInt(height, *state.ClipBottom))
+		}
+		visibleRows := maxInt(0, visibleBottom-visibleTop)
+		regionFit := fit
+		if regionFit == "contain" {
+			regionFit = "cover"
+		}
+		raw := ""
+		if visibleRows > 0 {
+			raw = cachedSixelImagePayload(
+				resolveImagePath(element.Source),
+				raster,
+				region.cols,
+				visibleRows,
+				regionFit,
+				align,
+				verticalAlign,
+				background,
+				region.rows,
+				visibleTop-region.rowOffset)
+		}
+		if raw != "" {
+			content := RenderPlainText("", width, height, style)
+			for row := visibleTop; row < visibleBottom; row++ {
+				if row < 0 || row >= len(content) {
+					continue
+				}
+				for col := region.colOffset; col < region.colOffset+region.cols; col++ {
+					if col < 0 || col >= len(content[row]) {
+						continue
+					}
+					content[row][col].RawSkip = true
+				}
+			}
+			if visibleTop >= 0 && visibleTop < len(content) &&
+				region.colOffset >= 0 && region.colOffset < len(content[visibleTop]) {
+				anchor := &content[visibleTop][region.colOffset]
+				anchor.Raw = raw
+				anchor.RawWidth = region.cols
+				anchor.RawHeight = visibleRows
+				anchor.RawSkip = false
+				return content
+			}
+		}
 	}
 	return deterministicImageFallbackContent(
 		raster,
 		width,
 		height,
-		normalizedImageValue(element.Fit, defaultImageFit),
-		normalizedImageValue(element.Align, defaultImageAlign),
-		normalizedImageValue(element.VerticalAlign, defaultImageVerticalAlign),
+		fit,
+		align,
+		verticalAlign,
 		style,
 		background,
-		strings.ToLower(strings.TrimSpace(element.RenderMode)) != "fallback")
+		false)
 }
 
 func (element *Image) RenderInfo(size Size, state ElementRenderState) map[string]any {
@@ -769,7 +889,14 @@ func (element *Image) RenderInfo(size Size, state ElementRenderState) map[string
 	}
 	region := imageRegion(width, height, raster.width, raster.height, fit, align, verticalAlign)
 	visibleTop := region.rowOffset
-	visibleHeight := maxInt(0, region.rows)
+	visibleBottom := region.rowOffset + region.rows
+	if state.ClipTop != nil {
+		visibleTop = maxInt(visibleTop, maxInt(0, *state.ClipTop))
+	}
+	if state.ClipBottom != nil {
+		visibleBottom = minInt(visibleBottom, minInt(height, *state.ClipBottom))
+	}
+	visibleHeight := maxInt(0, visibleBottom-visibleTop)
 	visibleWidth := 0
 	if visibleHeight > 0 {
 		visibleWidth = region.cols
@@ -797,7 +924,7 @@ func (element *Image) RenderInfo(size Size, state ElementRenderState) map[string
 	info["visible_width"] = visibleWidth
 	info["visible_height"] = visibleHeight
 	info["visible_right"] = region.colOffset + visibleWidth
-	info["visible_bottom"] = visibleTop + visibleHeight
+	info["visible_bottom"] = visibleBottom
 	info["raw_expected"] = resolvedRenderMode == "sixel" && visibleHeight > 0
 	info["raw_present"] = info["raw_expected"]
 	info["sample_signature"] = imageInfoSampleSignature(raster, region.cols, maxInt(1, signatureRows), regionFit, align, verticalAlign, background)
@@ -828,7 +955,35 @@ func terminalSupportsSixel() bool {
 	if truthyEnvironment("UIMD_DISABLE_SIXEL") {
 		return false
 	}
+	termProgram := normalizedEnvironment("TERM_PROGRAM")
+	term := normalizedEnvironment("TERM")
+	colorTerm := normalizedEnvironment("COLORTERM")
+	itermSession := normalizedEnvironment("ITERM_SESSION_ID")
+	lcTerminal := normalizedEnvironment("LC_TERMINAL")
+	if strings.Contains(termProgram, "apple_terminal") {
+		return false
+	}
+	if itermSession != "" || strings.Contains(lcTerminal, "iterm") {
+		return true
+	}
+	for _, token := range []string{"iterm", "wezterm", "mlterm", "foot", "contour"} {
+		if strings.Contains(termProgram, token) {
+			return true
+		}
+	}
+	if strings.Contains(term, "sixel") || strings.Contains(colorTerm, "sixel") {
+		return true
+	}
+	for _, token := range []string{"mlterm", "foot", "contour"} {
+		if strings.Contains(term, token) {
+			return true
+		}
+	}
 	return false
+}
+
+func normalizedEnvironment(name string) string {
+	return strings.ToLower(strings.TrimSpace(os.Getenv(name)))
 }
 
 func deterministicImageFallbackEnabled() bool {
@@ -836,7 +991,7 @@ func deterministicImageFallbackEnabled() bool {
 }
 
 func truthyEnvironment(name string) bool {
-	text := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	text := normalizedEnvironment(name)
 	return text == "1" || text == "true" || text == "yes" || text == "on"
 }
 
@@ -862,23 +1017,34 @@ type imageCellRegion struct {
 
 func loadImageRaster(path string) (imageRaster, bool) {
 	resolvedPath := resolveImagePath(path)
-	if raster, ok := loadDecodedImageRaster(resolvedPath); ok {
-		return raster, true
+	imageRasterCache.RLock()
+	cached, found := imageRasterCache.values[resolvedPath]
+	imageRasterCache.RUnlock()
+	if found {
+		return cached, cached.width > 0 && cached.height > 0
 	}
-	data, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		return imageRaster{}, false
+	raster, ok := loadDecodedImageRaster(resolvedPath)
+	if !ok {
+		data, err := os.ReadFile(resolvedPath)
+		if err == nil {
+			if decoded, _, err := image.Decode(bytes.NewReader(data)); err == nil {
+				raster, ok = rasterFromDecodedImage(decoded)
+			}
+			if !ok {
+				raster, ok = loadBmpRaster(data)
+			}
+			if !ok {
+				raster, ok = loadTgaRaster(data)
+			}
+		}
 	}
-	if decoded, _, err := image.Decode(bytes.NewReader(data)); err == nil {
-		return rasterFromDecodedImage(decoded)
+	if !ok {
+		raster = imageRaster{}
 	}
-	if raster, ok := loadBmpRaster(data); ok {
-		return raster, true
-	}
-	if raster, ok := loadTgaRaster(data); ok {
-		return raster, true
-	}
-	return imageRaster{}, false
+	imageRasterCache.Lock()
+	imageRasterCache.values[resolvedPath] = raster
+	imageRasterCache.Unlock()
+	return raster, ok
 }
 
 func rasterFromDecodedImage(decoded image.Image) (imageRaster, bool) {
@@ -1183,6 +1349,195 @@ func imageRgbHex(color imageRgb) string {
 	return fmt.Sprintf("#%02x%02x%02x", clampInt(color.red, 0, 255), clampInt(color.green, 0, 255), clampInt(color.blue, 0, 255))
 }
 
+func cachedSixelImagePayload(sourcePath string, source imageRaster, width int, height int, fit string, align string, verticalAlign string, background imageRgb, sourceHeight int, cropTop int) string {
+	width = maxInt(minimumRenderableSize, width)
+	height = maxInt(minimumRenderableSize, height)
+	if sourceHeight <= 0 {
+		sourceHeight = height
+	}
+	cropTop = maxInt(0, cropTop)
+	key := imageRenderCacheKey{
+		source:        sourcePath,
+		width:         width,
+		height:        height,
+		fit:           fit,
+		align:         align,
+		verticalAlign: verticalAlign,
+		background:    background,
+		sourceHeight:  sourceHeight,
+		cropTop:       cropTop,
+	}
+	imageSixelCache.RLock()
+	cached, found := imageSixelCache.values[key]
+	imageSixelCache.RUnlock()
+	if found {
+		return cached
+	}
+	raw := sixelImagePayload(source, width, height, fit, align, verticalAlign, background, sourceHeight, cropTop)
+	imageSixelCache.Lock()
+	imageSixelCache.values[key] = raw
+	imageSixelCache.Unlock()
+	return raw
+}
+
+func sixelImagePayload(source imageRaster, width int, height int, fit string, align string, verticalAlign string, background imageRgb, sourceHeight int, cropTop int) string {
+	width = maxInt(minimumRenderableSize, width)
+	height = maxInt(minimumRenderableSize, height)
+	if sourceHeight <= 0 {
+		sourceHeight = height
+	}
+	cropTop = maxInt(0, cropTop)
+	fitted := resizeImageRaster(
+		source,
+		width*imageCellPixelWidth,
+		sourceHeight*imageCellPixelHeight,
+		fit,
+		align,
+		verticalAlign,
+		background)
+	payload := cropImageRasterRows(
+		fitted,
+		cropTop*imageCellPixelHeight,
+		height*imageCellPixelHeight)
+	return sixelPayload(quantizeImageRaster(payload))
+}
+
+func cropImageRasterRows(source imageRaster, top int, height int) imageRaster {
+	if source.width <= 0 || source.height <= 0 || height <= 0 || len(source.pixels) == 0 {
+		return imageRaster{}
+	}
+	top = clampInt(top, 0, source.height)
+	bottom := clampInt(top+height, top, source.height)
+	if bottom <= top {
+		return imageRaster{}
+	}
+	result := imageRaster{
+		width:  source.width,
+		height: bottom - top,
+		pixels: append([]imageRgb(nil), source.pixels[top*source.width:bottom*source.width]...),
+	}
+	if len(source.alpha) >= source.width*source.height {
+		result.alpha = append([]int(nil), source.alpha[top*source.width:bottom*source.width]...)
+	}
+	return result
+}
+
+func quantizeImageRaster(raster imageRaster) imageRaster {
+	for index, color := range raster.pixels {
+		raster.pixels[index] = imageRgb{
+			red:   quantizeSixelChannel(color.red),
+			green: quantizeSixelChannel(color.green),
+			blue:  quantizeSixelChannel(color.blue),
+		}
+	}
+	return raster
+}
+
+func quantizeSixelChannel(value int) int {
+	index := int(math.Round(float64(clampInt(value, 0, 255)*(imageSixelColorLevels-1)) / 255.0))
+	return clampInt(index*255/(imageSixelColorLevels-1), 0, 255)
+}
+
+func sixelPayload(raster imageRaster) string {
+	if raster.width <= 0 || raster.height <= 0 || len(raster.pixels) < raster.width*raster.height {
+		return ""
+	}
+	colorSet := make(map[imageRgb]struct{})
+	for index, color := range raster.pixels {
+		if len(raster.alpha) > index && raster.alpha[index] <= 0 {
+			continue
+		}
+		colorSet[color] = struct{}{}
+	}
+	colors := make([]imageRgb, 0, len(colorSet))
+	for color := range colorSet {
+		colors = append(colors, color)
+	}
+	sort.Slice(colors, func(left int, right int) bool {
+		if colors[left].red != colors[right].red {
+			return colors[left].red < colors[right].red
+		}
+		if colors[left].green != colors[right].green {
+			return colors[left].green < colors[right].green
+		}
+		return colors[left].blue < colors[right].blue
+	})
+
+	var output strings.Builder
+	output.WriteString(imageSixelIntroducer)
+	for index, color := range colors {
+		fmt.Fprintf(
+			&output,
+			"#%d;2;%d;%d;%d",
+			index,
+			sixelColorComponent(color.red),
+			sixelColorComponent(color.green),
+			sixelColorComponent(color.blue))
+	}
+	for y := 0; y < raster.height; y += imageSixelBitsPerGlyph {
+		for colorIndex, color := range colors {
+			var run strings.Builder
+			var previous byte
+			count := 0
+			hasPixels := false
+			for x := 0; x < raster.width; x++ {
+				bits := 0
+				for bit := 0; bit < imageSixelBitsPerGlyph; bit++ {
+					pixelY := y + bit
+					if pixelY >= raster.height {
+						continue
+					}
+					pixelIndex := pixelY*raster.width + x
+					if len(raster.alpha) > pixelIndex && raster.alpha[pixelIndex] <= 0 {
+						continue
+					}
+					if raster.pixels[pixelIndex] == color {
+						bits |= 1 << bit
+					}
+				}
+				if bits != 0 {
+					hasPixels = true
+				}
+				character := byte(63 + bits)
+				if count > 0 && character == previous {
+					count++
+					continue
+				}
+				appendSixelRun(&run, previous, count)
+				previous = character
+				count = 1
+			}
+			if !hasPixels {
+				continue
+			}
+			appendSixelRun(&run, previous, count)
+			fmt.Fprintf(&output, "#%d", colorIndex)
+			output.WriteString(run.String())
+			output.WriteByte('$')
+		}
+		output.WriteByte('-')
+	}
+	output.WriteString(imageSixelTerminator)
+	return output.String()
+}
+
+func sixelColorComponent(value int) int {
+	return clampInt(int(math.Round(float64(clampInt(value, 0, 255)*imageSixelColorComponentScale)/255.0)), 0, imageSixelColorComponentScale)
+}
+
+func appendSixelRun(output *strings.Builder, character byte, count int) {
+	if character == 0 || count <= 0 {
+		return
+	}
+	if count >= imageSixelRunLengthThreshold {
+		fmt.Fprintf(output, "!%d%c", count, character)
+		return
+	}
+	for index := 0; index < count; index++ {
+		output.WriteByte(character)
+	}
+}
+
 func resizeImageRaster(source imageRaster, targetWidth int, targetHeight int, fit string, align string, verticalAlign string, background imageRgb) imageRaster {
 	targetWidth = maxInt(minimumRenderableSize, targetWidth)
 	targetHeight = maxInt(minimumRenderableSize, targetHeight)
@@ -1452,6 +1807,7 @@ type TextInput struct {
 	SelectionEnd    *int
 	colScrollOffset int
 	rowScrollOffset int
+	manualRowScroll bool
 }
 
 func NewTextInput(name string, value string, maxLength int) *TextInput {
@@ -1472,6 +1828,7 @@ func NewTextArea(name string, value string) *TextArea {
 		Cursor:      len([]rune(normalized)),
 	}}
 	input.Multiline = true
+	input.SetCommitMode(CommitModeLeave)
 	return &input
 }
 
@@ -1484,6 +1841,7 @@ func (element *TextInput) SetText(text string) {
 }
 
 func (element *TextInput) SetValue(value string) {
+	element.manualRowScroll = false
 	value = normalizeTextValue(value, element.Multiline)
 	runes := []rune(value)
 	if element.MaxLength > 0 && len(runes) > element.MaxLength {
@@ -1497,6 +1855,7 @@ func (element *TextInput) SetValue(value string) {
 }
 
 func (element *TextInput) SetCursor(cursor int) {
+	element.manualRowScroll = false
 	element.Cursor = clampInt(cursor, 0, len([]rune(element.Value)))
 	element.ClearSelection()
 }
@@ -1507,6 +1866,7 @@ func (element *TextInput) ClearSelection() {
 }
 
 func (element *TextInput) SetSelection(start int, end int) {
+	element.manualRowScroll = false
 	valueLength := len([]rune(element.Value))
 	start = clampInt(start, 0, valueLength)
 	end = clampInt(end, 0, valueLength)
@@ -1541,6 +1901,7 @@ func (element *TextInput) selectionRange() (int, int) {
 }
 
 func (element *TextInput) InsertText(text string) {
+	element.manualRowScroll = false
 	text = normalizeTextValue(text, element.Multiline)
 	valueRunes := []rune(element.Value)
 	start, end := element.selectionRange()
@@ -1561,6 +1922,7 @@ func (element *TextInput) InsertText(text string) {
 }
 
 func (element *TextInput) HandleKey(key string) bool {
+	element.manualRowScroll = false
 	valueRunes := []rune(element.Value)
 	switch key {
 	case "Left":
@@ -1594,6 +1956,32 @@ func (element *TextInput) HandleKey(key string) bool {
 			element.SelectionStart = &start
 		}
 		element.Cursor = clampInt(element.Cursor+1, 0, len(valueRunes))
+		end := element.Cursor
+		element.SelectionEnd = &end
+		return true
+	case "Up", "Down":
+		if !element.Multiline {
+			return false
+		}
+		delta := -1
+		if key == "Down" {
+			delta = 1
+		}
+		element.SetCursor(element.verticalCursor(delta))
+		return true
+	case "Shift+Up", "Shift+Down":
+		if !element.Multiline {
+			return false
+		}
+		if element.SelectionStart == nil {
+			start := element.Cursor
+			element.SelectionStart = &start
+		}
+		delta := -1
+		if key == "Shift+Down" {
+			delta = 1
+		}
+		element.Cursor = element.verticalCursor(delta)
 		end := element.Cursor
 		element.SelectionEnd = &end
 		return true
@@ -1635,6 +2023,62 @@ func (element *TextInput) HandleKey(key string) bool {
 		}
 		return false
 	}
+}
+
+func (element *TextInput) ScrollByRows(delta int, viewportHeight int, manual ...bool) bool {
+	if !element.Multiline {
+		return false
+	}
+	height := maxInt(minimumRenderableSize, viewportHeight)
+	if height <= 1 {
+		return false
+	}
+	width := maxInt(minimumRenderableSize, element.ElementFrame().Width)
+	visualRows := buildWrappedTextRows(element.Value, width)
+	maxOffset := maxInt(0, len(visualRows)-height)
+	nextOffset := clampInt(element.rowScrollOffset+delta, 0, maxOffset)
+	if nextOffset == element.rowScrollOffset {
+		return false
+	}
+	element.rowScrollOffset = nextOffset
+	element.manualRowScroll = len(manual) == 0 || manual[0]
+	return true
+}
+
+func (element *TextInput) verticalCursor(delta int) int {
+	if !element.Multiline || delta == 0 {
+		return element.Cursor
+	}
+	width := element.ElementFrame().Width
+	if width > 0 {
+		rows := buildWrappedTextRows(element.Value, width)
+		currentRow := visualRowForCursor(rows, width, element.Cursor)
+		targetRow := currentRow + delta
+		if targetRow < 0 || targetRow >= len(rows) {
+			return element.Cursor
+		}
+		column := visualColumnForCursor(rows[currentRow], element.Cursor, width)
+		return rawIndexForVisualColumn(rows[targetRow], column)
+	}
+
+	currentStart := lineStartForCursor(element.Value, element.Cursor)
+	currentColumn := element.Cursor - currentStart
+	runes := []rune(element.Value)
+	targetStart := currentStart
+	if delta < 0 {
+		if currentStart == 0 {
+			return element.Cursor
+		}
+		targetStart = lineStartForCursor(element.Value, currentStart-1)
+	} else {
+		currentEnd := lineEndForCursor(element.Value, element.Cursor)
+		if currentEnd >= len(runes) {
+			return element.Cursor
+		}
+		targetStart = currentEnd + 1
+	}
+	targetEnd := lineEndForCursor(element.Value, targetStart)
+	return minInt(targetStart+currentColumn, targetEnd)
 }
 
 func (element *TextInput) deleteSelection() {
@@ -1698,7 +2142,7 @@ func (element *TextInput) Render(size Size, state ElementRenderState) [][]Termin
 	visualRows := buildWrappedTextRows(element.Value, width)
 	cursorRow := visualRowForCursor(visualRows, width, element.Cursor)
 	element.rowScrollOffset = clampInt(element.rowScrollOffset, 0, maxInt(0, len(visualRows)-height))
-	if state.EditMode {
+	if state.EditMode && !element.manualRowScroll {
 		if cursorRow < element.rowScrollOffset {
 			element.rowScrollOffset = cursorRow
 		} else if cursorRow >= element.rowScrollOffset+height {
@@ -1752,11 +2196,13 @@ func (element *TextArea) ElementType() string {
 
 type NumberInput struct {
 	elementBase
-	NumberValue float64
-	StepSize    float64
-	editText    string
-	editCursor  int
-	editing     bool
+	NumberValue             float64
+	StepSize                float64
+	editText                string
+	editCursor              int
+	editing                 bool
+	editOriginalValue       float64
+	replaceOnFirstTextInput bool
 }
 
 func NewNumberInput(name string, value float64) *NumberInput {
@@ -1772,15 +2218,31 @@ func (element *NumberInput) ElementType() string {
 }
 
 func (element *NumberInput) SetValue(value float64) {
+	wasEditing := element.editing
 	element.NumberValue = value
 	element.Value = fmt.Sprintf("%g", value)
 	element.Text = element.Value
-	element.editText = ""
-	element.editing = false
+	element.editOriginalValue = value
+	if wasEditing {
+		element.editText = element.Value
+		element.editCursor = len([]rune(element.editText))
+	} else {
+		element.editText = ""
+		element.editCursor = 0
+	}
+	element.editing = wasEditing
+	element.replaceOnFirstTextInput = false
 }
 
 func (element *NumberInput) SetNumberValue(value float64) {
 	element.SetValue(value)
+}
+
+func (element *NumberInput) SetEditText(text string) {
+	element.editText = text
+	element.editCursor = len([]rune(text))
+	element.editing = true
+	element.replaceOnFirstTextInput = false
 }
 
 func (element *NumberInput) BeginEdit() {
@@ -1790,18 +2252,36 @@ func (element *NumberInput) BeginEdit() {
 	element.editText = fmt.Sprintf("%g", element.NumberValue)
 	element.editCursor = len([]rune(element.editText))
 	element.editing = true
+	element.editOriginalValue = element.NumberValue
+	element.replaceOnFirstTextInput = element.NumberValue == 0
+}
+
+func (element *NumberInput) CancelEdit() {
+	if !element.editing {
+		return
+	}
+	element.NumberValue = element.editOriginalValue
+	element.Value = fmt.Sprintf("%g", element.NumberValue)
+	element.Text = element.Value
+	element.editText = ""
+	element.editCursor = 0
+	element.editing = false
+	element.replaceOnFirstTextInput = false
 }
 
 func (element *NumberInput) CommitEdit() {
 	element.BeginEdit()
 	if parsed, err := strconv.ParseFloat(element.editText, 64); err == nil {
 		element.NumberValue = parsed
+	} else {
+		element.NumberValue = element.editOriginalValue
 	}
 	element.Value = fmt.Sprintf("%g", element.NumberValue)
 	element.Text = element.Value
 	element.editText = ""
 	element.editCursor = 0
 	element.editing = false
+	element.replaceOnFirstTextInput = false
 }
 
 func (element *NumberInput) HandleKey(key string) bool {
@@ -1812,19 +2292,32 @@ func (element *NumberInput) HandleKey(key string) bool {
 		element.NumberValue += element.StepSize
 		element.editText = fmt.Sprintf("%g", element.NumberValue)
 		element.editCursor = len([]rune(element.editText))
+		element.replaceOnFirstTextInput = false
 		return true
 	case "Down":
 		element.NumberValue -= element.StepSize
 		element.editText = fmt.Sprintf("%g", element.NumberValue)
 		element.editCursor = len([]rune(element.editText))
+		element.replaceOnFirstTextInput = false
 		return true
 	case "Left":
 		element.editCursor = clampInt(element.editCursor-1, 0, len(runes))
+		element.replaceOnFirstTextInput = false
 		return true
 	case "Right":
 		element.editCursor = clampInt(element.editCursor+1, 0, len(runes))
+		element.replaceOnFirstTextInput = false
+		return true
+	case "Home":
+		element.editCursor = 0
+		element.replaceOnFirstTextInput = false
+		return true
+	case "End":
+		element.editCursor = len(runes)
+		element.replaceOnFirstTextInput = false
 		return true
 	case "Backspace":
+		element.replaceOnFirstTextInput = false
 		if element.editCursor > 0 {
 			runes = append(runes[:element.editCursor-1], runes[element.editCursor:]...)
 			element.editCursor--
@@ -1832,6 +2325,7 @@ func (element *NumberInput) HandleKey(key string) bool {
 		}
 		return true
 	case "Delete":
+		element.replaceOnFirstTextInput = false
 		if element.editCursor < len(runes) {
 			runes = append(runes[:element.editCursor], runes[element.editCursor+1:]...)
 			element.editText = string(runes)
@@ -1841,6 +2335,12 @@ func (element *NumberInput) HandleKey(key string) bool {
 		return false
 	default:
 		if len([]rune(key)) == 1 && strings.Contains("0123456789.-+", key) {
+			if element.replaceOnFirstTextInput {
+				runes = nil
+				element.editText = ""
+				element.editCursor = 0
+				element.replaceOnFirstTextInput = false
+			}
 			runes = append(runes[:element.editCursor], append([]rune(key), runes[element.editCursor:]...)...)
 			element.editCursor++
 			element.editText = string(runes)
@@ -1863,9 +2363,16 @@ func (element *NumberInput) Render(size Size, state ElementRenderState) [][]Term
 		if element.cursorStyle != nil {
 			cursorStyle.Merge(*element.cursorStyle)
 		}
-		col := clampInt(element.editCursor, 0, maxInt(0, size.Width-1))
-		rows[0][col].Foreground = cursorStyle.Color
-		rows[0][col].Background = cursorStyle.Background
+		if element.replaceOnFirstTextInput && len([]rune(text)) > 0 {
+			for col := 0; col < minInt(len(rows[0]), len([]rune(text))); col++ {
+				rows[0][col].Foreground = cursorStyle.Color
+				rows[0][col].Background = cursorStyle.Background
+			}
+		} else {
+			col := clampInt(element.editCursor, 0, maxInt(0, size.Width-1))
+			rows[0][col].Foreground = cursorStyle.Color
+			rows[0][col].Background = cursorStyle.Background
+		}
 	}
 	return rows
 }
@@ -2158,6 +2665,14 @@ func (element *ListBox) SetSelectedIndex(index int) {
 	}
 }
 
+func (element *ListBox) ShowActiveItem() {
+	element.ActiveItemVisible = true
+}
+
+func (element *ListBox) HideActiveItem() {
+	element.ActiveItemVisible = false
+}
+
 func (element *ListBox) SetMultiple(multiple bool) {
 	element.Multi = multiple
 	if !element.Multi && len(element.Selected) > 1 {
@@ -2191,11 +2706,11 @@ func (element *ListBox) HandleKey(key string) bool {
 	switch key {
 	case "Up":
 		element.setActiveIndex(element.ActiveIndex - 1)
-		element.ActiveItemVisible = true
+		element.ShowActiveItem()
 		return true
 	case "Down":
 		element.setActiveIndex(element.ActiveIndex + 1)
-		element.ActiveItemVisible = true
+		element.ShowActiveItem()
 		return true
 	case "Enter":
 		if element.Multi {
@@ -2203,7 +2718,7 @@ func (element *ListBox) HandleKey(key string) bool {
 			return true
 		}
 		element.SetSelectedIndex(element.ActiveIndex)
-		element.ActiveItemVisible = false
+		element.HideActiveItem()
 		return true
 	default:
 		return false
@@ -2457,6 +2972,14 @@ func (element *ScrollView) Render(size Size, state ElementRenderState) [][]Termi
 	rows := RenderPlainText("", size.Width, size.Height, style)
 	contentHeight := element.contentHeight()
 	viewportHeight := maxInt(minimumRenderableSize, element.viewportHeight())
+	visibleViewportTop := 0
+	visibleViewportBottom := viewportHeight
+	if state.ClipTop != nil {
+		visibleViewportTop = maxInt(visibleViewportTop, maxInt(0, *state.ClipTop))
+	}
+	if state.ClipBottom != nil {
+		visibleViewportBottom = minInt(visibleViewportBottom, minInt(viewportHeight, *state.ClipBottom))
+	}
 	element.ViewOffset = clampInt(element.ViewOffset, 0, maxInt(0, contentHeight-viewportHeight))
 	cursor := 0
 	var deferredOverflow []scrollViewOverflowRender
@@ -2473,6 +2996,12 @@ func (element *ScrollView) Render(size Size, state ElementRenderState) [][]Termi
 		} else if childHasFocusedDescendant(child, state.FocusedElement) {
 			childState.Focused = true
 			childState.ChildEditMode = state.EditMode || state.ChildEditMode
+		}
+		childVisibleTop := maxInt(0, element.ViewOffset+visibleViewportTop-cursor)
+		childVisibleBottom := minInt(childHeight, element.ViewOffset+visibleViewportBottom-cursor)
+		if childVisibleTop > 0 || childVisibleBottom < childHeight {
+			childState.ClipTop = &childVisibleTop
+			childState.ClipBottom = &childVisibleBottom
 		}
 		rendered := child.Render(Size{Width: size.Width, Height: childHeight}, childState)
 		visibleRows := minInt(childHeight, len(rendered))
@@ -2661,17 +3190,11 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 	if state.EditElement != nil && elementInWindow(element.Child, state.EditElement) {
 		childEditElement = state.EditElement
 	}
-	renderHeight := size.Height
-	if childEditMode {
-		if comboBox, ok := childEditElement.(*ComboBox); ok && childEditElement == childFocused && directElementInWindow(element.Child, childFocused) {
-			renderHeight += len(comboBox.Options)
-		}
-	}
 	var childScrollView *ScrollView
 	if !state.SuppressFocusVisuals {
 		childScrollView = generatedScrollViewForReusableChild(element.Child)
 	}
-	childFocusActive := !state.SuppressFocusVisuals && (state.Focused || childEditMode || childEditElement != nil || (childScrollView != nil && childFocused == childScrollView))
+	childFocusActive := !state.SuppressFocusVisuals && (state.Focused || state.ScopeFocusActive || childEditMode || childEditElement != nil || (childScrollView != nil && childFocused == childScrollView))
 	suppressChildFocusVisuals := state.SuppressFocusVisuals
 	if childScrollView != nil && (childFocused == childScrollView || scrollViewContainsElement(childScrollView, childFocused)) {
 		suppressChildFocusVisuals = true
@@ -2688,8 +3211,20 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 		element.Child.windowStyle = childWindowStyle
 		childWindowFocusStyleApplied = true
 	}
-	renderSize := Size{Width: size.Width, Height: renderHeight}
-	childRows := renderGeneratedWindowContentWithEditElementOptions(element.Child, renderSize, -1, childFocused, childEditMode, true, suppressChildFocusVisuals, childEditElement, true, true).cells
+	childRows := renderGeneratedWindowContentWithEditElementClipOptions(
+		element.Child,
+		size,
+		-1,
+		childFocused,
+		childEditMode,
+		true,
+		suppressChildFocusVisuals,
+		childEditElement,
+		true,
+		state.ClipTop,
+		state.ClipBottom,
+		true,
+		state.ScopeFocusActive).cells
 	if childWindowFocusStyleApplied {
 		element.Child.windowStyle = previousChildWindowStyle
 	}
@@ -2725,7 +3260,7 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 					protectedBackgrounds,
 					true,
 					true)
-			} else if !childWindowFocusStyleApplied {
+			} else {
 				applyReusableFocusBackgroundToDescendantBackgrounds(
 					rows,
 					element.focusStyle.Background,
@@ -3022,6 +3557,9 @@ func sameRenderedColor(lhs Color, rhs Color) bool {
 	if lhs.Empty() || rhs.Empty() {
 		return lhs.Empty() && rhs.Empty()
 	}
+	if lhs.rgba != nil && rhs.rgba != nil {
+		return *lhs.rgba == *rhs.rgba
+	}
 	return lhs.String() == rhs.String()
 }
 
@@ -3136,6 +3674,10 @@ func visualColumnForCursor(row wrappedTextRow, cursor int, width int) int {
 		}
 	}
 	return minInt(len(textRunes), maxInt(0, width-1))
+}
+
+func rawIndexForVisualColumn(row wrappedTextRow, column int) int {
+	return clampInt(row.Start+column, row.Start, row.End)
 }
 
 func lineStartForCursor(text string, cursor int) int {

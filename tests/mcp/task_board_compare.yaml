@@ -10,6 +10,35 @@
       assert:
         value: "14 visible / 14 total"
     - tool: get_render_snapshot
+    - tool: get_element
+      arguments:
+        element_id: filters.search
+      assert:
+        visible: true
+    - tool: click_element
+      arguments:
+        element_id: filters.status_filter
+    - tool: get_edit_mode
+      assert:
+        edit_mode: true
+    - tool: get_element
+      arguments:
+        element_id: filters.search
+      assert:
+        visible: true
+    - tool: get_render_snapshot
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_edit_mode
+      assert:
+        edit_mode: false
+    - tool: get_element
+      arguments:
+        element_id: filters.search
+      assert:
+        visible: true
+    - tool: get_render_snapshot
     - tool: click_element
       arguments:
         element_id: board[0].done
@@ -101,6 +130,24 @@
         element_id: cancel_btn
       assert:
         visible: true
+    - tool: set_text
+      arguments:
+        element_id: note
+        text: "abc\ndef"
+      assert:
+        value: "abc\ndef"
+    - tool: enter_edit_mode
+      arguments:
+        element_id: note
+    - tool: mouse_click
+      arguments:
+        x: 37
+        y: 18
+    - tool: get_element
+      arguments:
+        element_id: note
+      assert:
+        cursor: 5
     - tool: activate_element
       arguments:
         element_id: cancel_btn

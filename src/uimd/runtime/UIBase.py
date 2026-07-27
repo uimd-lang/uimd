@@ -1380,6 +1380,14 @@ class UIBase(UIInstance):
             context = self._scrollview_focus_context_for_element(element)
             if context is not None:
                 scrollview = context["scrollview"]
+                self._active_scrollview_scope = {
+                    "proxy": context["proxy"],
+                    "scrollview": scrollview,
+                    "scrollview_rect": context.get("scrollview_rect"),
+                }
+                self._edit_mode = False
+                self._edit_snapshot = None
+                self._set_element_focus_state(context["proxy"], True)
                 self._scrollview_last_descendant[id(scrollview)] = element
                 if hasattr(scrollview, "_focused"):
                     scrollview._focused = True
@@ -2526,6 +2534,10 @@ class UIBase(UIInstance):
         row = event.get("row", 0)
         col = event.get("col", 0)
         elem, rect = self._element_at(row, col)
+        if elem is not None and elem.ELEMENT_TYPE in ("listbox", "textinput", "textarea", "uielement"):
+            handled = elem.handle_key(self._mouse_event_for_rect(event, rect))
+            if handled:
+                return True
         context = self._scrollview_focus_context_for_element(elem)
         if context is not None:
             proxy_rect = context.get("scrollview_rect") or self._element_mouse_rect(context["proxy"])
@@ -2539,8 +2551,6 @@ class UIBase(UIInstance):
             if handled:
                 self._queue_scrollview_terminal_scroll(context["scrollview"], context["scrollview_rect"])
             return handled
-        if elem is not None and elem.ELEMENT_TYPE in ("listbox", "textinput", "textarea", "uielement"):
-            return elem.handle_key(self._mouse_event_for_rect(event, rect))
         return False
 
     def _delay_dialog_button_action(self):
@@ -2614,10 +2624,20 @@ class UIBase(UIInstance):
                 return True
             if key == "Enter":
                 if self._focused_element and self._focused_element.ELEMENT_TYPE == "listbox":
+                    confirmed_element = self._focused_element
                     handled = self._handle_focused_element_key(key)
-                    if getattr(self._focused_element, "multiple", False):
+                    if getattr(confirmed_element, "multiple", False):
                         return handled or True
-                    self._exit_edit_mode(commit=True)
+                    # A single-select ListBox confirms on explicit Enter even
+                    # when commit-mode is "leave" and the selection itself did
+                    # not change. Selection changes were already dispatched by
+                    # _handle_focused_element_key, so avoid a second generic
+                    # element-changed notification while leaving edit mode.
+                    self._exit_edit_mode(commit=True, notify=False)
+                    self._dispatch_confirmed_for(
+                        confirmed_element,
+                        getattr(confirmed_element, "value", None),
+                    )
                     return handled or True
                 if self._focused_element and self._uses_leave_commit(self._focused_element):
                     handled = self._handle_focused_element_key(key)
@@ -2637,6 +2657,9 @@ class UIBase(UIInstance):
             return False
 
         # Navigation mode
+        if key == "Escape" and self._active_scrollview_scope is not None:
+            self._handle_scrollview_scope_key(key)
+            return True
         if key == "Tab":
             self.next_focus()
             return True
@@ -2644,6 +2667,9 @@ class UIBase(UIInstance):
             self.prev_focus()
             return True
         if key in ("Up", "Down", "Left", "Right"):
+            if self._active_scrollview_scope is not None:
+                self._handle_scrollview_scope_key(key)
+                return True
             self.move_focus_direction(key)
             return True
 

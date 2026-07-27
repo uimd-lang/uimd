@@ -434,37 +434,38 @@ class MCPController:
                         cells[tr][tc] = cell
 
         last = len(self.app._window_stack) - 1
-        render_context = nullcontext()
-        if len(self.app._window_stack) > 1:
-            from uimd.runtime.image import force_image_cell_background_rendering
-            render_context = force_image_cell_background_rendering()
+        from uimd.runtime.image import force_image_cell_background_rendering
 
-        with render_context:
-            for index, window in enumerate(self.app._window_stack):
-                mode = self.app._resolved_window_mode(window)
-                saved_mode = window.mode
-                window.mode = mode
-                self.app._resize_window(window)
-                window_render_context = (
-                    suppress_active_scrollview_scope_visuals(window)
-                    if index < last
-                    else nullcontext()
-                )
-                with window_render_context:
-                    cell_rows = self.app._render_window_cells(window)
-                window.mode = saved_mode
+        for index, window in enumerate(self.app._window_stack):
+            mode = self.app._resolved_window_mode(window)
+            saved_mode = window.mode
+            window.mode = mode
+            self.app._resize_window(window)
+            image_render_context = (
+                force_image_cell_background_rendering()
+                if index < last
+                else nullcontext()
+            )
+            window_render_context = (
+                suppress_active_scrollview_scope_visuals(window)
+                if index < last
+                else nullcontext()
+            )
+            with image_render_context, window_render_context:
+                cell_rows = self.app._render_window_cells(window)
+            window.mode = saved_mode
 
-                if index < last:
-                    cell_rows = self.app._dim_cell_rows(cell_rows)
+            if index < last:
+                cell_rows = self.app._dim_cell_rows(cell_rows)
 
-                col_off, row_off = self.app._window_offsets(window, mode)
-                col_off -= vp_col
-                row_off -= vp_row
+            col_off, row_off = self.app._window_offsets(window, mode)
+            col_off -= vp_col
+            row_off -= vp_row
 
-                blit_rows(cell_rows, window, col_off, row_off)
+            blit_rows(cell_rows, window, col_off, row_off)
 
-                if index == last:
-                    self._overlay_open_combobox_cells(cells, col_off, row_off)
+            if index == last:
+                self._overlay_open_combobox_cells(cells, col_off, row_off)
 
         return cells
 
@@ -1222,6 +1223,11 @@ class MCPController:
                     "scrollview_rect": scope.get("scrollview_rect"),
                     "focused": focused,
                     "focused_index": focused_index,
+                    "scroll_position": (
+                        scrollview.scroll_position()
+                        if scrollview is not None and hasattr(scrollview, "scroll_position")
+                        else None
+                    ),
                 })
             for element in getattr(view, "_elements", {}).values():
                 current_view = element.current_view() if hasattr(element, "current_view") else None
@@ -1274,8 +1280,10 @@ class MCPController:
                     clear_pending = getattr(scrollview, "_clear_pending_proxy_focus_restore", None)
                     if callable(clear_pending):
                         clear_pending()
+                    self._restore_modal_scroll_position(scope, scrollview)
                     continue
                 if self._repair_removed_scrollview_scope(owner, proxy, scrollview, scope):
+                    self._restore_modal_scroll_position(scope, scrollview)
                     continue
                 self._clear_removed_scrollview_scope(owner, proxy, scrollview)
                 continue
@@ -1296,6 +1304,13 @@ class MCPController:
                 owner._focused_element = previous
                 if hasattr(previous, "focused"):
                     previous.focused = True
+                target_owner = (
+                    owner._event_owner_for_element(previous)
+                    if hasattr(owner, "_event_owner_for_element")
+                    else None
+                )
+                if target_owner is not None and target_owner is not owner and hasattr(target_owner, "_focused_element"):
+                    target_owner._focused_element = previous
                 if hasattr(scrollview, "_focused"):
                     scrollview._focused = True
                 parent_owner = getattr(proxy, "parent", None)
@@ -1307,6 +1322,7 @@ class MCPController:
                 if callable(ensure_visible):
                     ensure_visible(previous)
                 owner._scrollview_last_descendant[id(scrollview)] = previous
+                self._restore_modal_scroll_position(scope, scrollview)
                 continue
             focused = getattr(owner, "_focused_element", None)
             if focused is not None and focused is not proxy and hasattr(focused, "focused"):
@@ -1324,6 +1340,13 @@ class MCPController:
             key = id(scrollview)
             if previous is not None and previous is not proxy:
                 owner._scrollview_last_descendant[key] = previous
+            self._restore_modal_scroll_position(scope, scrollview)
+
+    @staticmethod
+    def _restore_modal_scroll_position(scope, scrollview):
+        position = scope.get("scroll_position")
+        if position is not None and hasattr(scrollview, "restore_scroll_position"):
+            scrollview.restore_scroll_position(position)
 
     def _scrollview_scope_focused_element_present(self, owner, scope):
         focused = scope.get("focused")
@@ -1398,6 +1421,9 @@ class MCPController:
         owner._focused_element = target
         if hasattr(target, "focused"):
             target.focused = True
+        target_owner = context.get("owner")
+        if target_owner is not None and target_owner is not owner and hasattr(target_owner, "_focused_element"):
+            target_owner._focused_element = target
         if hasattr(scrollview, "_focused"):
             scrollview._focused = True
         mark_selected = getattr(scrollview, "_mark_selected_focus_child", None)

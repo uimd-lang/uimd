@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -342,7 +343,11 @@ func dataPath() string {
 	if value := os.Getenv(contactsDataPathEnv); value != "" {
 		return value
 	}
-	return filepath.Join("data", "contacts.csv")
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return filepath.Join("data", "contacts.csv")
+	}
+	return filepath.Join(filepath.Dir(sourceFile), "data", "contacts.csv")
 }
 
 func loadContacts() []Contact {

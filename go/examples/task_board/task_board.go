@@ -74,19 +74,13 @@ type TaskBoardApp struct {
 	pendingDeleteTaskID string
 	pendingBulkAction   bulkAction
 	quitRequested       bool
-	boardFocusIndex     int
-	boardFocusControl   string
-	boardEditMode       bool
-	boardNestedFocus    bool
-	boardHasFocus       bool
 }
 
 func NewTaskBoardApp() *TaskBoardApp {
 	app := &TaskBoardApp{
-		TaskBoardUI:       NewTaskBoardUI(),
-		filters:           taskfilters.NewTaskFilters(),
-		board:             tasklist.NewTaskList(),
-		boardFocusControl: "done",
+		TaskBoardUI: NewTaskBoardUI(),
+		filters:     taskfilters.NewTaskFilters(),
+		board:       tasklist.NewTaskList(),
 	}
 	app.SetEventHandler(app)
 	app.Filters.SetChild(app.filters)
@@ -191,9 +185,6 @@ func (app *TaskBoardApp) MatchingTasks() []*Task {
 func (app *TaskBoardApp) RefreshBoard() {
 	app.board.RefreshRows()
 	app.Status.SetText(fmt.Sprintf("%d visible / %d total", app.VisibleCount(), len(app.tasks)))
-	if app.boardFocusIndex >= app.VisibleCount() && app.VisibleCount() > 0 {
-		app.boardFocusIndex = app.VisibleCount() - 1
-	}
 }
 
 func (app *TaskBoardApp) ResetFilters() {
@@ -454,35 +445,6 @@ func (app *TaskBoardApp) HandleMCPTool(name string, arguments map[string]any) (a
 		return app.handleUpdateTask(arguments), true
 	case "delete_task":
 		return map[string]any{"deleted": app.deleteTaskByID(stringMapValue(arguments, "id"))}, true
-	case "activate_element", "click_element":
-		if id := stringMapValue(arguments, "element_id"); app.activateNestedElement(id) {
-			return app.snapshotNestedElement(id), true
-		}
-	case "focus_element":
-		if id := stringMapValue(arguments, "element_id"); id == "board" {
-			app.boardHasFocus = true
-			app.boardEditMode = false
-			app.boardNestedFocus = false
-			return map[string]any{"id": "board", "name": "board", "value": nil, "visible": true}, true
-		}
-	case "get_focused_element":
-		if app.boardHasFocus && app.stack.Empty() {
-			return map[string]any{"id": app.focusedBoardID(), "name": app.focusedBoardID(), "visible": true}, true
-		}
-	case "get_edit_mode":
-		if app.boardHasFocus && app.stack.Empty() {
-			return map[string]any{"edit_mode": app.boardEditMode}, true
-		}
-	case "press_key":
-		if app.boardHasFocus && app.stack.Empty() && app.handleBoardKey(stringMapValue(arguments, "key")) {
-			return map[string]any{"ok": true}, true
-		}
-	case "scroll":
-		if id := stringMapValue(arguments, "element_id"); id == "board" {
-			delta := intMapValue(arguments, "delta")
-			app.board.Panel.ScrollBy(-delta)
-			return map[string]any{"ok": true}, true
-		}
 	}
 	return nil, false
 }
@@ -562,128 +524,12 @@ func (app *TaskBoardApp) deleteTaskByID(id string) bool {
 	return deleted
 }
 
-func (app *TaskBoardApp) activateNestedElement(id string) bool {
-	if id == "filters.apply_filters_btn" {
-		app.RefreshBoard()
-		return true
-	}
-	if id == "filters.reset_filters_btn" {
-		app.ResetFilters()
-		app.RefreshBoard()
-		return true
-	}
-	index, control, ok := parseBoardElementID(id)
-	if !ok {
-		return false
-	}
-	app.boardHasFocus = true
-	app.boardEditMode = false
-	app.boardNestedFocus = true
-	app.boardFocusIndex = index
-	app.boardFocusControl = control
-	task := app.visibleTaskAt(index)
-	if task == nil {
-		return true
-	}
-	switch control {
-	case "done":
-		app.SetTaskDone(task.ID, !task.Done)
-	case "open_btn":
-		app.OpenTaskDialog(task)
-	case "delete_btn":
-		app.ConfirmDeleteTask(task.ID)
-	}
-	return true
-}
-
-func (app *TaskBoardApp) snapshotNestedElement(id string) map[string]any {
-	if strings.HasPrefix(id, "board[") {
-		index, control, ok := parseBoardElementID(id)
-		if !ok {
-			return map[string]any{"id": id, "visible": false}
-		}
-		task := app.visibleTaskAt(index)
-		value := any(nil)
-		if task != nil {
-			switch control {
-			case "done":
-				value = task.Done
-			case "open_btn":
-				value = "Open"
-			case "delete_btn":
-				value = "Delete"
-			}
-		}
-		return map[string]any{"id": id, "name": id, "value": value, "visible": task != nil}
-	}
-	return map[string]any{"id": id, "name": id, "visible": true}
-}
-
-func (app *TaskBoardApp) handleBoardKey(key string) bool {
-	if key == "Enter" {
-		app.boardEditMode = true
-		app.boardNestedFocus = true
-		return true
-	}
-	if key == "Escape" {
-		app.boardEditMode = false
-		app.boardNestedFocus = false
-		return true
-	}
-	if !app.boardEditMode {
-		return false
-	}
-	switch key {
-	case "Down":
-		if app.boardFocusIndex+1 < app.VisibleCount() {
-			app.boardFocusIndex++
-		}
-		return true
-	case "Up":
-		if app.boardFocusIndex > 0 {
-			app.boardFocusIndex--
-		}
-		return true
-	}
-	return false
-}
-
-func (app *TaskBoardApp) focusedBoardID() string {
-	if app.boardEditMode || app.boardNestedFocus {
-		return fmt.Sprintf("board[%d].%s", app.boardFocusIndex, app.boardFocusControl)
-	}
-	return "board"
-}
-
-func (app *TaskBoardApp) visibleTaskAt(index int) *Task {
-	rows := app.MatchingTasks()
-	if index < 0 || index >= len(rows) {
-		return nil
-	}
-	return rows[index]
-}
-
 func (app *TaskBoardApp) taskMaps(tasks []*Task) []map[string]any {
 	result := []map[string]any{}
 	for _, task := range tasks {
 		result = append(result, taskMap(*task))
 	}
 	return result
-}
-
-func parseBoardElementID(id string) (int, string, bool) {
-	if !strings.HasPrefix(id, "board[") {
-		return 0, "", false
-	}
-	end := strings.Index(id, "]")
-	if end < 0 || end+2 >= len(id) || id[end+1] != '.' {
-		return 0, "", false
-	}
-	index, err := strconv.Atoi(id[len("board["):end])
-	if err != nil {
-		return 0, "", false
-	}
-	return index, id[end+2:], true
 }
 
 func taskMap(task Task) map[string]any {
@@ -752,20 +598,6 @@ func stringMapValue(values map[string]any, key string) string {
 	}
 	value, _ := values[key].(string)
 	return value
-}
-
-func intMapValue(values map[string]any, key string) int {
-	if values == nil {
-		return 0
-	}
-	switch value := values[key].(type) {
-	case int:
-		return value
-	case float64:
-		return int(value)
-	default:
-		return 0
-	}
 }
 
 func boolMapValue(values map[string]any, key string) (bool, bool) {

@@ -39,6 +39,7 @@ struct EditSnapshot {
     Element* element = nullptr;
     std::string textValue;
     int textCursor = 0;
+    std::optional<int> textSelectionAnchor;
     double numberValue = 0.0;
     int selectedIndex = 0;
 };
@@ -59,6 +60,7 @@ struct GeneratedWindowStackFrame {
     bool editMode = false;
     Element* activeScrollView = nullptr;
     Element* activeScrollViewEditElement = nullptr;
+    bool suppressActiveScrollViewScopeVisuals = false;
     std::optional<EditSnapshot> editSnapshot;
     ScrollViewLastDescendantMap scrollViewLastDescendant;
 };
@@ -130,7 +132,8 @@ void renderGeneratedWindow(GeneratedWindowBase& window, TerminalBuffer& buffer, 
                                                            std::optional<int> clipBottom = std::nullopt,
                                                            bool applyActiveScrollViewDim = true,
                                                            bool forceFullscreenLayout = false,
-                                                           bool useHostViewportForRootScrollViewIndicators = false);
+                                                           bool useHostViewportForRootScrollViewIndicators = false,
+                                                           bool suppressActiveScrollViewScopeVisuals = false);
 void dimGeneratedWindowModalBackground(TerminalBuffer& buffer);
 int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOptions options = {});
 int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOptions options, int argc, char** argv);

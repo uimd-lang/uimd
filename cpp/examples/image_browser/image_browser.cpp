@@ -150,7 +150,7 @@ std::string imageNameFromPath(const std::string& path)
 
 std::filesystem::path projectRoot()
 {
-    return std::filesystem::current_path().lexically_normal();
+    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path().lexically_normal();
 }
 
 std::filesystem::path imageSampleDir()

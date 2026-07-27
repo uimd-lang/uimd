@@ -1144,10 +1144,12 @@ NumberInput::NumberInput(std::string name, double value, double step)
     : Element(std::move(name)), value_(value), step_(step) {}
 
 void NumberInput::setValue(double value) {
+    const bool wasEditing = editing_;
     value_ = value;
-    editText_.clear();
-    editCursor_ = 0;
-    editing_ = false;
+    editOriginalValue_ = value_;
+    editText_ = wasEditing ? displayValue() : std::string{};
+    editCursor_ = wasEditing ? static_cast<int>(editText_.size()) : 0;
+    editing_ = wasEditing;
     replaceOnFirstTextInput_ = false;
 }
 
@@ -1251,9 +1253,16 @@ RenderedContent NumberInput::render(Size size, ElementRenderState state) const {
     RenderedContent rendered = renderPlainText(text, safeWidth(size, text), 1, effectiveStyle(state.focused, state.editMode));
     if (state.editMode) {
         const Style cursorStyleValue = mergedOptional(effectiveStyle(state.focused, state.editMode), cursorStyle());
-        const int cursorCol = clampIndex(editCursor_, 0, rendered[0].empty() ? 0 : static_cast<int>(rendered[0].size()) - 1);
-        rendered[0][static_cast<std::size_t>(cursorCol)].foreground = cursorStyleValue.color;
-        rendered[0][static_cast<std::size_t>(cursorCol)].background = cursorStyleValue.background;
+        if (replaceOnFirstTextInput_) {
+            for (int col = 0; col < std::min(static_cast<int>(editText_.size()), static_cast<int>(rendered[0].size())); ++col) {
+                rendered[0][static_cast<std::size_t>(col)].foreground = cursorStyleValue.color;
+                rendered[0][static_cast<std::size_t>(col)].background = cursorStyleValue.background;
+            }
+        } else {
+            const int cursorCol = clampIndex(editCursor_, 0, rendered[0].empty() ? 0 : static_cast<int>(rendered[0].size()) - 1);
+            rendered[0][static_cast<std::size_t>(cursorCol)].foreground = cursorStyleValue.color;
+            rendered[0][static_cast<std::size_t>(cursorCol)].background = cursorStyleValue.background;
+        }
     }
     return rendered;
 }

@@ -3230,11 +3230,12 @@ public sealed class NumberInput : Element
 
     public void SetValue(double value)
     {
+        bool wasEditing = editing;
         Value = value;
-        editText = "";
-        editCursor = 0;
-        editing = false;
         editOriginalValue = value;
+        editText = wasEditing ? DisplayValue() : "";
+        editCursor = wasEditing ? editText.Length : 0;
+        editing = wasEditing;
         replaceOnFirstTextInput = false;
     }
 
@@ -3302,6 +3303,14 @@ public sealed class NumberInput : Element
         {
             replaceOnFirstTextInput = false;
         }
+    }
+
+    public void SetEditText(string text)
+    {
+        editText = text;
+        editCursor = editText.Length;
+        editing = true;
+        replaceOnFirstTextInput = false;
     }
 
     public override bool HandleKey(string key)
@@ -3391,9 +3400,20 @@ public sealed class NumberInput : Element
             {
                 cursorStyle.Merge(CursorStyle);
             }
-            int cursorCol = Math.Clamp(editCursor, 0, Math.Max(0, rendered[0].Count - 1));
-            rendered[0][cursorCol].Foreground = cursorStyle.Color;
-            rendered[0][cursorCol].Background = cursorStyle.Background;
+            if (replaceOnFirstTextInput)
+            {
+                for (int col = 0; col < Math.Min(editText.Length, rendered[0].Count); ++col)
+                {
+                    rendered[0][col].Foreground = cursorStyle.Color;
+                    rendered[0][col].Background = cursorStyle.Background;
+                }
+            }
+            else
+            {
+                int cursorCol = Math.Clamp(editCursor, 0, Math.Max(0, rendered[0].Count - 1));
+                rendered[0][cursorCol].Foreground = cursorStyle.Color;
+                rendered[0][cursorCol].Background = cursorStyle.Background;
+            }
         }
         return rendered;
     }
@@ -3905,6 +3925,16 @@ public class ScrollView : Element
         ViewOffset = Math.Max(0, position.ViewOffset);
         AutoScroll = position.AutoScroll;
         InvalidateHeightCache();
+        Size frameViewport = new(
+            Math.Max(1, Frame.Width),
+            Math.Max(1, Frame.Height));
+        Size viewport = PaddedViewportSize(frameViewport, Style);
+        int naturalSkip = Math.Max(
+            0,
+            ContentHeight(Math.Max(1, viewport.Width)) - Math.Max(1, viewport.Height));
+        ViewOffset = AutoScroll ? 0 : Math.Min(ViewOffset, naturalSkip);
+        lastNaturalSkip = naturalSkip;
+        pendingTerminalScrollDelta = 0;
     }
 
     public void ClearChildren()

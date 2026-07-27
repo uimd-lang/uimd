@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	uimd "uimd"
@@ -230,25 +231,6 @@ func (app *TextEditorApp) pushBrowserFrame() {
 			app.closeBrowser("")
 		}
 	}
-	frame.OnTextChanged = func(name string, _ string) {
-		if app.browser != nil && name == "entries" {
-			app.browser.SelectEntry(app.browser.Entries.SelectedIndex)
-		}
-		if app.browser != nil && name == "filename" {
-			app.browser.UpdateOpenEnabled()
-		}
-	}
-	frame.OnSelectionChanged = func(name string, _ []string) {
-		if app.browser != nil && name == "entries" {
-			app.browser.SelectEntry(app.browser.Entries.SelectedIndex)
-		}
-	}
-	frame.OnTextConfirmed = func(name string, _ string) {
-		if app.browser != nil && name == "entries" {
-			app.browser.SelectEntry(app.browser.Entries.SelectedIndex)
-			app.acceptBrowserCurrent()
-		}
-	}
 	frame.OnKey = func(key string) bool {
 		if key == "Escape" {
 			app.closeBrowser("")
@@ -373,7 +355,11 @@ func notesDir() string {
 	if value := os.Getenv(textEditorNotesDirEnv); value != "" {
 		return absolutePath(value)
 	}
-	return filepath.Join(currentDir(), "notes")
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return filepath.Join(currentDir(), "notes")
+	}
+	return filepath.Join(filepath.Dir(sourceFile), "notes")
 }
 
 func defaultNoteName() string {

@@ -44,6 +44,30 @@ void testFileBrowser() {
     ui::dialogs::FileBrowser browser(root, root, "open");
     assert(browser.path_label->text().find("ui_cpp_dialog_test") != std::string::npos);
     assert(!browser.entries->options().empty());
+    const auto directory = std::find(browser.entries->options().begin(), browser.entries->options().end(), "subdir/");
+    assert(directory != browser.entries->options().end());
+    browser.entries->setActiveIndex(static_cast<int>(directory - browser.entries->options().begin()));
+    browser.entries->showActiveItem();
+    assert(browser.entries->activeItemVisible());
+    ui::GeneratedWindowFrameOptions browserOptions = browser.stackFrameOptions();
+    assert(browserOptions.onKeyBeforeFocusedElement);
+    assert(browserOptions.onKeyBeforeFocusedElement("Enter", "entries", true));
+    assert(browser.currentDir() == std::filesystem::weakly_canonical(root / "subdir"));
+    assert(!browser.entries->activeItemVisible());
+    assert(!browser.closed());
+
+    browser.selectEntry(0);
+    assert(browserOptions.onKeyBeforeFocusedElement("Enter", "entries", true));
+    assert(browser.currentDir() == std::filesystem::weakly_canonical(root));
+    const auto file = std::find(browser.entries->options().begin(), browser.entries->options().end(), "sample.txt");
+    assert(file != browser.entries->options().end());
+    browser.entries->setActiveIndex(static_cast<int>(file - browser.entries->options().begin()));
+    assert(!browserOptions.onKeyBeforeFocusedElement("Enter", "entries", true));
+    assert(browserOptions.onTextConfirmed);
+    browserOptions.onTextConfirmed("entries", "sample.txt");
+    assert(!browser.closed());
+    assert(browser.filename->value() == "sample.txt");
+
     browser.close((root / "sample.txt").string());
     assert(browser.closed());
     assert(browser.result().find("sample.txt") != std::string::npos);

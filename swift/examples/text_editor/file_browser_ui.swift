@@ -55,6 +55,7 @@ open class FileBrowserUI: GeneratedWindowBase
                     return style
                 }())
         entries = addElement(ListBox("entries", [], selectedValues: []))
+        entries.commitMode = "leave"
         entries.setStyle({
                     var style = Style()
                     style.background = Color("#0d1524")

@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -50,6 +51,10 @@ constexpr int kStaleScopeProxyCol = 2;
 constexpr int kStaleScopeProxyWidth = 8;
 constexpr int kStaleScopeProxyHeight = 3;
 constexpr int kStaleScopeTabWidth = 6;
+constexpr int kReusableFocusCellSize = 1;
+
+const ui::Color kReusableFocusParentBackground{"#172033"};
+const ui::Color kReusableFocusBackground{"#ffffff14"};
 
 [[nodiscard]] ui::GeneratedLayoutEntry fixedEntry(std::string name, std::string type, ui::Rect rect)
 {
@@ -160,6 +165,80 @@ public:
     ui::Label* plain = nullptr;
 };
 
+class ReusableFocusChildWindow : public ui::GeneratedWindowBase
+{
+public:
+    explicit ReusableFocusChildWindow(ui::Color cellBackground)
+        : ui::GeneratedWindowBase("ReusableFocusChildWindow")
+    {
+        ui::Style windowStyle;
+        windowStyle.background = kReusableFocusParentBackground;
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+        setGeneratedFocusable(true);
+
+        content = &addElement<ui::Label>("content", " ");
+        ui::Style contentStyle;
+        contentStyle.background = ui::Color::transparent();
+        content->setStyle(contentStyle);
+
+        ui::GeneratedLayoutEntry entry = fixedEntry(
+            "content",
+            "label",
+            ui::Rect{0, 0, kReusableFocusCellSize, kReusableFocusCellSize});
+        entry.cellName = "child";
+        entry.cellStyle.background = std::move(cellBackground);
+        setGeneratedLayout({std::move(entry)});
+    }
+
+    ui::Label* content = nullptr;
+};
+
+class ReusableFocusHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    explicit ReusableFocusHostWindow(ui::Color childCellBackground)
+        : ui::GeneratedWindowBase("ReusableFocusHostWindow")
+    {
+        ui::Style windowStyle;
+        windowStyle.background = kReusableFocusParentBackground;
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+
+        card = &addElement<ui::ReusableElement>(
+            "card",
+            std::make_unique<ReusableFocusChildWindow>(std::move(childCellBackground)));
+        ui::Style focusStyle;
+        focusStyle.background = kReusableFocusBackground;
+        card->setFocusStyle(focusStyle);
+
+        ui::GeneratedLayoutEntry entry = fixedEntry(
+            "card",
+            "uielement",
+            ui::Rect{0, 0, kReusableFocusCellSize, kReusableFocusCellSize});
+        entry.cellName = "parent";
+        entry.cellStyle.background = kReusableFocusParentBackground;
+        setGeneratedLayout({std::move(entry)});
+    }
+
+    ui::ReusableElement* card = nullptr;
+};
+
+[[nodiscard]] ui::Color renderedReusableFocusBackground(const ui::Color& childCellBackground)
+{
+    ReusableFocusHostWindow window{childCellBackground};
+    const ui::RenderedContent rendered = ui::renderGeneratedWindowContent(
+        window,
+        ui::Size{kReusableFocusCellSize, kReusableFocusCellSize},
+        0);
+    assert(!rendered.empty());
+    assert(!rendered.front().empty());
+    assert(rendered.front().front().background.has_value());
+    return *rendered.front().front().background;
+}
+
 [[nodiscard]] bool renderedContentHasBackground(const ui::RenderedContent& content, const ui::Color& color)
 {
     for (const ui::RenderedRow& row : content)
@@ -229,6 +308,11 @@ private:
 }  // namespace
 
 int main() {
+    const auto failCheck = [](std::string_view message) {
+        std::cerr << "ui_cpp_tests failed: " << message << '\n';
+        return EXIT_FAILURE;
+    };
+
     constexpr int kResizeWidth = 80;
     constexpr int kResizeHeight = 24;
     constexpr int kLayoutWidth = 30;
@@ -277,6 +361,124 @@ int main() {
     constexpr std::string_view kAnsiSyncUpdateEnd = "\x1b[?2026l";
 
     assert(ui::runtimeVersion() == std::string_view(UIMD_EXPECTED_VERSION));
+
+    constexpr int kDynamicScrollInitialCount = 5;
+    constexpr int kDynamicScrollShrunkCount = 2;
+    constexpr int kDynamicScrollViewportWidth = 4;
+    constexpr int kDynamicScrollViewportHeight = 2;
+    int dynamicScrollChildCount = kDynamicScrollInitialCount;
+    ui::ScrollView dynamicScroll{"dynamic-scroll"};
+    dynamicScroll.setDynamicChildrenRenderer([&](int width) {
+        std::vector<ui::RenderedContent> children;
+        children.reserve(static_cast<std::size_t>(dynamicScrollChildCount));
+        for (int index = 0; index < dynamicScrollChildCount; ++index) {
+            children.push_back(ui::renderPlainText("item", width, 1, ui::Style{}));
+        }
+        return children;
+    });
+    if (!dynamicScroll.scrollBy(
+            kDynamicScrollInitialCount,
+            ui::Size{kDynamicScrollViewportWidth, kDynamicScrollViewportHeight}))
+    {
+        return failCheck("dynamic ScrollView did not scroll after refreshing generated children");
+    }
+    const ui::ScrollViewPosition dynamicScrollPosition = dynamicScroll.scrollPosition();
+    if (dynamicScrollPosition.scrollOffset != kDynamicScrollInitialCount - kDynamicScrollViewportHeight)
+    {
+        return failCheck("dynamic ScrollView saved an incorrect child offset");
+    }
+
+    dynamicScrollChildCount = kDynamicScrollShrunkCount;
+    dynamicScroll.invalidateDynamicChildren();
+    dynamicScroll.restoreScrollPosition(dynamicScrollPosition);
+    if (dynamicScroll.scrollPosition().scrollOffset != kDynamicScrollShrunkCount - 1)
+    {
+        return failCheck("dynamic ScrollView did not clamp the child offset after shrink");
+    }
+
+    constexpr int kHorizontalScrollViewportWidth = 4;
+    constexpr int kHorizontalScrollViewportHeight = 2;
+    constexpr int kHorizontalScrollOffset = 2;
+    constexpr int kHorizontalScrollExpandedHeight = 4;
+    ui::ScrollView horizontalDynamicScroll{"horizontal-dynamic-scroll"};
+    horizontalDynamicScroll.setDynamicChildrenRenderer([](int width) {
+        const int height = width == kHorizontalScrollViewportWidth + kHorizontalScrollOffset
+            ? kHorizontalScrollExpandedHeight
+            : 1;
+        return std::vector<ui::RenderedContent>{
+            ui::renderPlainText("item", width, height, ui::Style{}),
+        };
+    });
+    if (!horizontalDynamicScroll.scrollHorizontal(kHorizontalScrollOffset))
+    {
+        return failCheck("horizontal ScrollView did not accept a nonzero offset");
+    }
+    (void)horizontalDynamicScroll.render(
+        ui::Size{kHorizontalScrollViewportWidth, kHorizontalScrollViewportHeight});
+    if (horizontalDynamicScroll.scrollPosition().viewOffset !=
+        kHorizontalScrollExpandedHeight - kHorizontalScrollViewportHeight)
+    {
+        return failCheck("horizontal ScrollView measured vertical range at the wrong content width");
+    }
+
+    constexpr int kRestoredScrollContentHeight = 5;
+    constexpr int kRestoredScrollShrunkContentHeight = 3;
+    constexpr int kRestoredScrollFrameWidth = 6;
+    constexpr int kRestoredScrollFrameHeight = 4;
+    constexpr int kRestoredScrollPadding = 1;
+    constexpr int kRestoredScrollViewportHeight = 2;
+    constexpr int kRestoredScrollLineDelta = -1;
+    ui::ScrollView restoredScroll{"restored-scroll"};
+    ui::Style restoredScrollStyle;
+    restoredScrollStyle.padding = kRestoredScrollPadding;
+    restoredScroll.setStyle(restoredScrollStyle);
+    restoredScroll.setFrame(ui::Rect{
+        0,
+        0,
+        kRestoredScrollFrameWidth,
+        kRestoredScrollFrameHeight,
+    });
+    restoredScroll.addChild(ui::renderPlainText(
+        "content",
+        kDynamicScrollViewportWidth,
+        kRestoredScrollContentHeight,
+        ui::Style{}));
+    (void)restoredScroll.render(
+        ui::Size{kRestoredScrollFrameWidth, kRestoredScrollFrameHeight});
+    if (!restoredScroll.scrollLines(
+            kRestoredScrollLineDelta,
+            ui::Size{kRestoredScrollFrameWidth, kRestoredScrollFrameHeight}))
+    {
+        return failCheck("ScrollView restoration fixture did not move away from the top");
+    }
+    const ui::ScrollViewPosition restoredPosition = restoredScroll.scrollPosition();
+    restoredScroll.clearChildren();
+    restoredScroll.addChild(ui::renderPlainText(
+        "content",
+        kDynamicScrollViewportWidth,
+        kRestoredScrollContentHeight,
+        ui::Style{}));
+    restoredScroll.restoreScrollPosition(restoredPosition);
+    if (restoredScroll.scrollPosition().viewOffset != restoredPosition.viewOffset)
+    {
+        return failCheck("ScrollView did not preserve the saved offset after a same-size rebuild");
+    }
+    restoredScroll.clearChildren();
+    restoredScroll.addChild(ui::renderPlainText(
+        "content",
+        kDynamicScrollViewportWidth,
+        kRestoredScrollShrunkContentHeight,
+        ui::Style{}));
+    restoredScroll.restoreScrollPosition(restoredPosition);
+    if (restoredScroll.scrollPosition().viewOffset !=
+        kRestoredScrollShrunkContentHeight - kRestoredScrollViewportHeight)
+    {
+        return failCheck("ScrollView did not clamp the saved offset after a smaller rebuild");
+    }
+    if (restoredScroll.consumeTerminalScrollDelta() != 0)
+    {
+        return failCheck("ScrollView restoration retained a stale terminal-scroll delta");
+    }
 
     const ui::Rect rect{1, 2, 3, 4};
     assert(rect.contains(ui::Point{1, 2}));
@@ -430,6 +632,19 @@ int main() {
     assert(viewHostRenderedChild);
     viewHost.clearView();
     assert(viewHost.currentView() == nullptr);
+
+    const ui::Color oneReusableFocusLayer =
+        kReusableFocusBackground.blendOver(kReusableFocusParentBackground);
+    const ui::Color twoReusableFocusLayers =
+        kReusableFocusBackground.blendOver(oneReusableFocusLayer);
+    const ui::Color transparentChildFocus = renderedReusableFocusBackground(ui::Color::transparent());
+    const ui::Color opaqueChildFocus = renderedReusableFocusBackground(kReusableFocusParentBackground);
+    if (transparentChildFocus != twoReusableFocusLayers || opaqueChildFocus != oneReusableFocusLayer)
+    {
+        return failCheck("reusable focus background blending produced an unexpected layer count");
+    }
+    assert(transparentChildFocus == twoReusableFocusLayers);
+    assert(opaqueChildFocus == oneReusableFocusLayer);
 
     StaleScopeHostWindow staleScopeWindow;
     (void)ui::renderGeneratedWindowContent(
@@ -1037,11 +1252,28 @@ int main() {
     number.commitEdit();
     assert(number.value() == 34.0);
     ui::NumberInput zeroNumber{"zero", 0.0};
+    zeroNumber.setCursorStyle(cursorStyle);
     zeroNumber.beginEdit();
+    const ui::RenderedContent zeroEditNumber =
+        zeroNumber.render(ui::Size{4, 1}, ui::ElementRenderState{.editMode = true});
+    assert(zeroEditNumber[0][0].background == cursorStyle.background);
     zeroNumber.setEditCursor(1);
     assert(zeroNumber.handleKey("5"));
     assert(zeroNumber.handleKey("Enter"));
     assert(zeroNumber.value() == 5.0);
+    ui::NumberInput programmaticZeroNumber{"programmatic_zero", 1.0};
+    programmaticZeroNumber.setEditStyle(widgetStyle);
+    programmaticZeroNumber.setCursorStyle(cursorStyle);
+    programmaticZeroNumber.beginEdit();
+    programmaticZeroNumber.setValue(0.0);
+    const ui::RenderedContent programmaticZeroEdit =
+        programmaticZeroNumber.render(ui::Size{4, 1}, ui::ElementRenderState{.editMode = true});
+    assert(programmaticZeroEdit[0][0].background != cursorStyle.background);
+    programmaticZeroNumber.commitEdit();
+    programmaticZeroNumber.beginEdit();
+    const ui::RenderedContent freshProgrammaticZeroEdit =
+        programmaticZeroNumber.render(ui::Size{4, 1}, ui::ElementRenderState{.editMode = true});
+    assert(freshProgrammaticZeroEdit[0][0].background == cursorStyle.background);
     ui::NumberInput insertedNumber{"inserted", 500.0};
     insertedNumber.beginEdit();
     insertedNumber.setEditCursor(0);

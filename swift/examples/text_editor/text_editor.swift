@@ -7,7 +7,6 @@ private let kBrowserRootDirEnv = "UI_TEXT_EDITOR_BROWSER_ROOT_DIR"
 private let kDefaultBrowserDirEnv = "UI_TEXT_EDITOR_BROWSER_DIR"
 private let kDefaultFileName = "welcome.txt"
 private let kUntitledName = "untitled.txt"
-private let kFileBrowserDoubleClickIntervalSeconds = 0.4
 
 private func envString(_ name: String) -> String?
 {
@@ -113,16 +112,6 @@ private func readTextFile(_ path: String) -> String
 private func writeTextFile(_ path: String, _ text: String)
 {
     try? text.write(toFile: path, atomically: true, encoding: .utf8)
-}
-
-private func trimmed(_ text: String) -> String
-{
-    text.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-private func clamp(_ value: Int, lower: Int, upper: Int) -> Int
-{
-    min(max(value, lower), upper)
 }
 
 private final class MessageBoxBehavior
@@ -258,405 +247,6 @@ private final class MessageBoxYesNoCancel: MessageBoxYesNoCancelUI
     }
 }
 
-private final class FileBrowser: FileBrowserUI
-{
-    private let rootDir: String
-    private let browserMode: String
-    private let onClose: ((String) -> Void)?
-    private let extensionFilter: String
-    private var initialFilename: String
-    private var lastClickedEntry = -1
-    private var lastEntryClickTime = Date.distantPast
-    private(set) var currentDir: String
-    private(set) var result = ""
-    private(set) var closed = false
-
-    init(
-        rootDir: String,
-        startPath: String,
-        mode: String,
-        onClose: ((String) -> Void)?,
-        initialFilename: String = "",
-        extensionFilter: String = ""
-    )
-    {
-        self.rootDir = absolutePath(rootDir)
-        self.browserMode = mode
-        self.onClose = onClose
-        self.extensionFilter = trimmed(extensionFilter)
-        self.initialFilename = initialFilename
-        let requestedStart = startPath.isEmpty ? self.rootDir : absolutePath(startPath)
-        if isRegularFile(requestedStart)
-        {
-            self.currentDir = self.rootDir
-        }
-        else
-        {
-            self.currentDir = self.rootDir
-        }
-        super.init()
-        if isRegularFile(requestedStart)
-        {
-            currentDir = clampDir(parentPath(requestedStart))
-            if self.initialFilename.isEmpty
-            {
-                self.initialFilename = displayFileName(requestedStart)
-            }
-        }
-        else
-        {
-            currentDir = clampDir(requestedStart)
-        }
-        dialog_header.setText(mode == "save" ? "Save As" : "Open File")
-        open_btn.setTitle(mode == "save" ? "Save" : "Open")
-        if browserMode == "save"
-        {
-            filename.setValue(self.initialFilename)
-            moveFilenameCursorToEnd()
-        }
-        refreshEntries()
-    }
-
-    func refreshEntries()
-    {
-        var rows = [".."]
-        var dirs: [String] = []
-        var files: [String] = []
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: currentDir)) ?? []
-        for name in names
-        {
-            let path = pathByAppending(currentDir, name)
-            if isDirectory(path)
-            {
-                dirs.append(name + "/")
-            }
-            else if isRegularFile(path)
-            {
-                files.append(name)
-            }
-        }
-        rows.append(contentsOf: dirs.sorted())
-        rows.append(contentsOf: files.sorted())
-        path_label.setText(currentDir)
-        entries.options = rows
-        if let selected = rows.firstIndex(of: initialFilename)
-        {
-            entries.setSelectedIndex(selected)
-        }
-        else
-        {
-            entries.setSelectedIndex(0)
-        }
-        lastClickedEntry = -1
-        previewSelected()
-    }
-
-    @discardableResult
-    func acceptCurrent() -> Bool
-    {
-        let path = selectedPath()
-        if path.isEmpty
-        {
-            return false
-        }
-        if isDirectory(path)
-        {
-            currentDir = clampDir(path)
-            refreshEntries()
-            return true
-        }
-        let selectedName = displayFileName(path)
-        let name = trimmed(filename.value.isEmpty ? selectedName : filename.value)
-        if name.isEmpty
-        {
-            return false
-        }
-        let namedPath = pathByAppending(currentDir, name)
-        if browserMode == "open" && isRegularFile(namedPath) && clampDir(parentPath(namedPath)) == currentDir
-        {
-            if !pathMatchesFilter(namedPath)
-            {
-                return false
-            }
-            close(namedPath)
-            return true
-        }
-        if browserMode == "save"
-        {
-            return acceptFilename()
-        }
-        return false
-    }
-
-    @discardableResult
-    func acceptFilename() -> Bool
-    {
-        let name = trimmed(filename.value)
-        if name.isEmpty
-        {
-            return false
-        }
-        let path = pathByAppending(currentDir, name)
-        if isDirectory(path) || clampDir(parentPath(path)) != currentDir
-        {
-            return false
-        }
-        close(path)
-        return true
-    }
-
-    func selectEntry(_ index: Int)
-    {
-        if entries.options.isEmpty
-        {
-            entries.setSelectedIndex(0)
-        }
-        else
-        {
-            entries.setSelectedIndex(clamp(index, lower: 0, upper: entries.options.count - 1))
-        }
-        previewSelected()
-    }
-
-    func selectedEntryIsDirectory() -> Bool
-    {
-        entryIndexIsDirectory(entries.selectedIndex)
-    }
-
-    func entryIndexIsDirectory(_ index: Int) -> Bool
-    {
-        if index < 0 || index >= entries.options.count
-        {
-            return false
-        }
-        let selected = entries.options[index]
-        return selected == ".." || selected.hasSuffix("/")
-    }
-
-    func handleEntryMousePress(_ point: Point) -> Bool
-    {
-        let frame = entries.frame
-        if point.row < frame.row || point.row >= frame.row + frame.height || point.col < frame.col || point.col >= frame.col + frame.width
-        {
-            return false
-        }
-        let index = entries.scrollOffsetValue() + point.row - frame.row
-        let now = Date()
-        let doubleClick = index == lastClickedEntry && now.timeIntervalSince(lastEntryClickTime) <= kFileBrowserDoubleClickIntervalSeconds
-        selectEntry(index)
-        lastClickedEntry = index
-        lastEntryClickTime = now
-        if doubleClick && (entryIndexIsDirectory(index) || browserMode == "open")
-        {
-            let accepted = acceptCurrent()
-            lastClickedEntry = -1
-            return accepted
-        }
-        return false
-    }
-
-    func moveFilenameCursorToEnd()
-    {
-        filename.cursor = filename.value.count
-    }
-
-    func close(_ path: String)
-    {
-        result = path
-        closed = true
-        onClose?(result)
-    }
-
-    override func runtimeOptions() -> GeneratedWindowRuntimeOptions
-    {
-        var options = GeneratedWindowRuntimeOptions()
-        options.initialFocusName = "entries"
-        options.startInEditMode = true
-        options.onButton = { [weak self] name in
-            guard let self else
-            {
-                return false
-            }
-            if name == "open_btn"
-            {
-                if self.browserMode == "save"
-                {
-                    _ = self.acceptFilename()
-                }
-                else
-                {
-                    _ = self.acceptCurrent()
-                }
-                return true
-            }
-            if name == "close_btn"
-            {
-                self.close("")
-                return true
-            }
-            return false
-        }
-        options.onTextChanged = { [weak self] name, _ in
-            if name == "entries"
-            {
-                self?.previewSelected()
-                return true
-            }
-            if name == "filename"
-            {
-                self?.updateOpenEnabled()
-                return true
-            }
-            return false
-        }
-        options.onSelectionChanged = { [weak self] name, _ in
-            if name == "entries"
-            {
-                self?.previewSelected()
-                return true
-            }
-            return false
-        }
-        options.onTextConfirmed = { [weak self] name, _ in
-            if name == "entries"
-            {
-                _ = self?.acceptCurrent()
-                return true
-            }
-            return false
-        }
-        options.onMousePressBeforeFocused = { [weak self] point in
-            self?.handleEntryMousePress(point) ?? false
-        }
-        options.onEditStarted = { [weak self] name in
-            if name == "filename"
-            {
-                self?.moveFilenameCursorToEnd()
-                return true
-            }
-            return false
-        }
-        options.onKey = { [weak self] key in
-            if key == "Escape"
-            {
-                self?.close("")
-                return true
-            }
-            return false
-        }
-        options.shouldClose = { [weak self] in self?.closed ?? false }
-        return options
-    }
-
-    private func clampDir(_ path: String) -> String
-    {
-        let candidate = absolutePath(path)
-        if !isDirectory(candidate)
-        {
-            return rootDir
-        }
-        if !pathStartsWith(candidate, root: rootDir)
-        {
-            return rootDir
-        }
-        return candidate
-    }
-
-    private func pathMatchesFilter(_ path: String) -> Bool
-    {
-        if extensionFilter.isEmpty
-        {
-            return true
-        }
-        let ext = URL(fileURLWithPath: path).pathExtension
-        if ext.isEmpty
-        {
-            return false
-        }
-        if let regex = try? NSRegularExpression(pattern: "^\(extensionFilter)$", options: [.caseInsensitive])
-        {
-            let range = NSRange(ext.startIndex..<ext.endIndex, in: ext)
-            return regex.firstMatch(in: ext, options: [], range: range) != nil
-        }
-        for part in extensionFilter.split(separator: "|")
-        {
-            let cleaned = trimmed(String(part)).trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
-            if ext.lowercased() == cleaned
-            {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func selectedPath() -> String
-    {
-        if entries.options.isEmpty || entries.selectedIndex < 0 || entries.selectedIndex >= entries.options.count
-        {
-            return ""
-        }
-        let selected = entries.options[entries.selectedIndex]
-        if selected == ".."
-        {
-            return parentPath(currentDir)
-        }
-        if selected.hasSuffix("/")
-        {
-            return pathByAppending(currentDir, String(selected.dropLast()))
-        }
-        return pathByAppending(currentDir, selected)
-    }
-
-    private func selectedPathForOpenState() -> String
-    {
-        let name = trimmed(filename.value)
-        if !name.isEmpty
-        {
-            return pathByAppending(currentDir, name)
-        }
-        return selectedPath()
-    }
-
-    private func previewSelected()
-    {
-        if entries.options.isEmpty || entries.selectedIndex < 0 || entries.selectedIndex >= entries.options.count
-        {
-            return
-        }
-        let selected = entries.options[entries.selectedIndex]
-        if selected != ".."
-        {
-            filename.setValue(selected.hasSuffix("/") ? String(selected.dropLast()) : selected)
-        }
-        else if browserMode == "open"
-        {
-            filename.setValue("")
-        }
-        moveFilenameCursorToEnd()
-        updateOpenEnabled()
-    }
-
-    private func updateOpenEnabled()
-    {
-        if browserMode == "save"
-        {
-            open_btn.enabled = !trimmed(filename.value).isEmpty
-            return
-        }
-        let path = selectedPathForOpenState()
-        if path.isEmpty
-        {
-            open_btn.enabled = false
-            return
-        }
-        if isDirectory(path)
-        {
-            open_btn.enabled = true
-            return
-        }
-        open_btn.enabled = isRegularFile(path) && pathMatchesFilter(path)
-    }
-}
 
 private final class TextEditorApp: TextEditorUI
 {
@@ -717,8 +307,8 @@ private final class TextEditorApp: TextEditorUI
     func openBrowser()
     {
         browser = FileBrowser(
-            rootDir: browserRootDir(),
-            startPath: defaultBrowserDir(),
+            root: browserRootDir(),
+            start: defaultBrowserDir(),
             mode: "open",
             onClose: { [weak self] path in self?.onOpenSelected(path) }
         )
@@ -734,8 +324,8 @@ private final class TextEditorApp: TextEditorUI
         }
         let initialFilename = currentPath.map(displayFileName) ?? kUntitledName
         browser = FileBrowser(
-            rootDir: browserRootDir(),
-            startPath: start,
+            root: browserRootDir(),
+            start: start,
             mode: "save",
             onClose: { [weak self] path in self?.onSaveSelected(path) },
             initialFilename: initialFilename
@@ -869,7 +459,7 @@ private final class TextEditorApp: TextEditorUI
             {
                 return
             }
-            let path = pathByAppending(browser.currentDir, name)
+            let path = pathByAppending(browser.currentDirectory, name)
             if isRegularFile(path)
             {
                 overwritePath = path
@@ -883,7 +473,7 @@ private final class TextEditorApp: TextEditorUI
         let name = browser.filename.value
         if !name.isEmpty
         {
-            let path = pathByAppending(browser.currentDir, name)
+            let path = pathByAppending(browser.currentDirectory, name)
             if isRegularFile(path)
             {
                 closeBrowser(path)
@@ -964,42 +554,10 @@ private final class TextEditorApp: TextEditorUI
             }
             return false
         }
-        frame.onTextChanged = { [weak self] name, _ in
-            if let browser = self?.browser, name == "entries"
-            {
-                browser.selectEntry(browser.entries.selectedIndex)
-                return true
-            }
-            return false
-        }
-        frame.onSelectionChanged = { [weak self] name, _ in
-            if let browser = self?.browser, name == "entries"
-            {
-                browser.selectEntry(browser.entries.selectedIndex)
-                return true
-            }
-            return false
-        }
-        frame.onTextConfirmed = { [weak self] name, _ in
-            if let browser = self?.browser, name == "entries"
-            {
-                browser.selectEntry(browser.entries.selectedIndex)
-                self?.acceptBrowserCurrent()
-                return true
-            }
-            return false
-        }
-        frame.onMousePressBeforeFocused = { [weak self] point in
-            self?.browser?.handleEntryMousePress(point) ?? false
-        }
-        frame.onKeyBeforeFocusedElement = { [weak self] key, name, editMode in
-            guard let self, self.browser != nil else
-            {
-                return false
-            }
+        frame.onKey = { [weak self] key in
             if key == "Escape"
             {
-                self.closeBrowser("")
+                self?.closeBrowser("")
                 return true
             }
             return false

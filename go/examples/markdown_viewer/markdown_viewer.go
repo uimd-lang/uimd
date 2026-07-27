@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode"
@@ -128,7 +129,11 @@ func docsDir() string {
 			return candidate
 		}
 	}
-	return "docs"
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return "docs"
+	}
+	return filepath.Join(filepath.Dir(sourceFile), "docs")
 }
 
 func loadDocuments() map[string]string {

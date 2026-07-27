@@ -2324,6 +2324,15 @@ std::string generateSource(
         const std::string elemType = typeFor(*member);
         const std::string csType = csElementType(elemType);
         lines.push_back("        " + name + " = AddElement(new " + csType + "(" + ctorArgs(name, *member, scrollviewGap) + "));");
+        const YamlValue* commitMode = yamlGet(*member, "commit-mode");
+        if (commitMode == nullptr)
+        {
+            commitMode = yamlGet(*member, "commit_mode");
+        }
+        if (commitMode != nullptr)
+        {
+            lines.push_back("        " + name + ".SetCommitMode(" + csString(valueAsString(*commitMode)) + ");");
+        }
         if (elemType == "combobox")
         {
             const int index = selectedIndex(*member, "selected_item");

@@ -30,6 +30,7 @@ DEFAULT_ANIMATION_SECONDS = 0.5
 DEFAULT_INPUT_DELAY_SECONDS = 0.12
 DEFAULT_STOP_SECONDS = 1.0
 SPLIT_ESCAPE_SEQUENCE_DELAY_SECONDS = 0.003
+SPLIT_ARROW_SEQUENCE_DELAY_SECONDS = 0.03
 TERMINAL_COORDINATE_BASE = 1
 ACTIVITY_FEED_WHEEL_X = 20
 ACTIVITY_FEED_WHEEL_Y = 4
@@ -388,13 +389,17 @@ def sgr_click(x: int, y: int, button: int = 0) -> bytes:
     return sgr_press(button, x, y) + sgr_release(button, x, y)
 
 
-def send_split_escape_sequence(app: PtyApp, sequence: bytes) -> None:
+def send_split_escape_sequence(
+    app: PtyApp,
+    sequence: bytes,
+    delay_seconds: float = SPLIT_ESCAPE_SEQUENCE_DELAY_SECONDS,
+) -> None:
     if app.master_fd is None:
         raise RuntimeError("PTY app is not running")
     if not sequence.startswith(b"\x1b"):
         raise ValueError("split escape sequence must start with ESC")
     os.write(app.master_fd, sequence[:1])
-    time.sleep(SPLIT_ESCAPE_SEQUENCE_DELAY_SECONDS)
+    time.sleep(delay_seconds)
     os.write(app.master_fd, sequence[1:])
     time.sleep(DEFAULT_INPUT_DELAY_SECONDS)
     app.drain()
@@ -862,6 +867,10 @@ def main() -> int:
     enter = b"\r"
     up = b"\x1b[A"
     down = b"\x1b[B"
+    left = b"\x1b[D"
+    right = b"\x1b[C"
+    shift_up = b"\x1b[1;2A"
+    shift_down = b"\x1b[1;2B"
     shift_left = b"\x1b[1;2D"
     escape = b"\x1b"
     legacy_cmd_c = b"\x1b[27;9;99~"
@@ -873,6 +882,40 @@ def main() -> int:
         "activity_feed terminal title uses swift suffix",
         specs,
         "activity_feed",
+        args.rows,
+        args.cols,
+    )
+
+    def exercise_formular_split_navigation_arrow(app: PtyApp) -> None:
+        app.send(tab)
+        send_split_escape_sequence(app, down, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, up, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, down, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        app.send(enter + b"navigation target")
+
+    run_swift_dynamic_presence_case(
+        "formular split arrow navigates between elements",
+        specs,
+        "formular",
+        exercise_formular_split_navigation_arrow,
+        ["Email            navigation target"],
+        args.rows,
+        args.cols,
+    )
+
+    def exercise_formular_split_horizontal_navigation_arrows(app: PtyApp) -> None:
+        app.send(tab * 9)
+        send_split_escape_sequence(app, right, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, left, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, right, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        app.send(enter)
+
+    run_swift_dynamic_presence_case(
+        "formular split horizontal arrows navigate between buttons",
+        specs,
+        "formular",
+        exercise_formular_split_horizontal_navigation_arrows,
+        ["action: cancel"],
         args.rows,
         args.cols,
     )
@@ -964,6 +1007,43 @@ def main() -> int:
         "formular",
         tab * 4 + enter + b"a" + enter + b"b" + up + b"X",
         ["Description      aX", "                  b"],
+        args.rows,
+        args.cols,
+    )
+
+    def exercise_formular_textarea_split_arrow(app: PtyApp) -> None:
+        app.send(tab * 4 + enter + b"ab" + enter + b"cd")
+        send_split_escape_sequence(app, up, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, left, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, right, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, down, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, up, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        app.send(b"X")
+
+    run_swift_dynamic_presence_case(
+        "formular textarea split arrow stays in edit mode",
+        specs,
+        "formular",
+        exercise_formular_textarea_split_arrow,
+        ["Description      abX", "                  cd"],
+        args.rows,
+        args.cols,
+    )
+
+    def exercise_formular_textarea_split_shift_arrows(app: PtyApp) -> None:
+        app.send(tab * 4 + enter + b"ab" + enter + b"cd")
+        send_split_escape_sequence(app, shift_up, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        app.send(b"X" + enter + b"cd")
+        send_split_escape_sequence(app, up, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        send_split_escape_sequence(app, shift_down, SPLIT_ARROW_SEQUENCE_DELAY_SECONDS)
+        app.send(b"Y")
+
+    run_swift_dynamic_presence_case(
+        "formular textarea split shifted arrows preserve selection editing",
+        specs,
+        "formular",
+        exercise_formular_textarea_split_shift_arrows,
+        ["Description      abY"],
         args.rows,
         args.cols,
     )
@@ -1225,6 +1305,7 @@ def main() -> int:
         args.rows,
         args.cols,
     )
+    print("PASS Swift direct terminal smoke: 31/31 checks passed", flush=True)
     return 0
 
 

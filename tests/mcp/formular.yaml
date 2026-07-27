@@ -46,6 +46,52 @@
         element_id: email_input
       assert:
         value: Test
+    - tool: set_text
+      arguments:
+        element_id: name_input
+        text: Rollback base
+      assert:
+        value: Rollback base
+    - tool: enter_edit_mode
+      arguments:
+        element_id: name_input
+    - tool: type_text
+      arguments:
+        element_id: name_input
+        text: " changed"
+      assert:
+        value: Rollback base changed
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: get_element
+      arguments:
+        element_id: name_input
+      assert:
+        value: Rollback base
+    - tool: select_text
+      arguments:
+        element_id: name_input
+        start: 0
+        end: 8
+      assert:
+        text: Rollback
+    - tool: enter_edit_mode
+      arguments:
+        element_id: name_input
+    - tool: get_element
+      arguments:
+        element_id: name_input
+      assert:
+        cursor: 13
+    - tool: copy_selection
+      arguments:
+        element_id: name_input
+      assert:
+        text: ""
+    - tool: press_key
+      arguments:
+        key: Escape
     - tool: get_render_cell
       arguments:
         x: 0
@@ -62,6 +108,27 @@
         text: 34
       assert:
         value: 34
+    - tool: ui.set_value
+      arguments:
+        element_id: age_input
+        value: 0
+      assert:
+        value: 0
+    - tool: enter_edit_mode
+      arguments:
+        element_id: age_input
+    - tool: type_text
+      arguments:
+        element_id: age_input
+        text: "7"
+    - tool: press_key
+      arguments:
+        key: Enter
+    - tool: get_element
+      arguments:
+        element_id: age_input
+      assert:
+        value: 7
     - tool: enter_edit_mode
       arguments:
         element_id: country_combo
@@ -88,6 +155,60 @@
         element_id: country_combo
       assert:
         value: Hungary
+    - tool: ui.set_value
+      arguments:
+        element_id: country_combo
+        value: Austria
+      assert:
+        value: Austria
+    - tool: click_element
+      arguments:
+        element_id: country_combo
+    - tool: mouse_press
+      arguments:
+        x: 43
+        y: 17
+    - tool: mouse_release
+      arguments:
+        x: 43
+        y: 17
+    - tool: get_element
+      arguments:
+        element_id: country_combo
+      assert:
+        value: Hungary
+    - tool: set_text
+      arguments:
+        element_id: description_input
+        text: "abc\ndef"
+      assert:
+        value: "abc\ndef"
+    - tool: enter_edit_mode
+      arguments:
+        element_id: description_input
+    - tool: set_cursor
+      arguments:
+        element_id: description_input
+        offset: 6
+    - tool: press_key
+      arguments:
+        key: Up
+    - tool: get_element
+      arguments:
+        element_id: description_input
+      assert:
+        cursor: 2
+    - tool: press_key
+      arguments:
+        key: Down
+    - tool: get_element
+      arguments:
+        element_id: description_input
+      assert:
+        cursor: 6
+    - tool: press_key
+      arguments:
+        key: Escape
     - tool: set_text
       arguments:
         element_id: description_input

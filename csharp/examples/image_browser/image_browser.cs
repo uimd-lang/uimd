@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Uimd;
 
 public sealed class ImageRecord
@@ -783,9 +784,10 @@ public sealed class ImageBrowser : ImageBrowserUI
 
     public const string ImageExtensionFilter = "(png|jpg|jpeg|gif|bmp|tga|ppm|pgm)";
 
-    public static string ProjectRoot()
+    public static string ProjectRoot([CallerFilePath] string sourceFile = "")
     {
-        return Directory.GetCurrentDirectory();
+        string sourceDirectory = Path.GetDirectoryName(sourceFile) ?? Directory.GetCurrentDirectory();
+        return Path.GetFullPath(Path.Combine(sourceDirectory, "..", "..", ".."));
     }
 
     public static string ImageSampleDir()

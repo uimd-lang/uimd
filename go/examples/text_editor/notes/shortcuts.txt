@@ -1,0 +1,7 @@
+Shortcuts and controls
+
+Tab / Shift+Tab: move focus
+Enter: enter edit mode or press a button
+Escape: leave edit mode
+Alt+Enter: insert a newline in the editor
+Arrow keys: navigate inside multiline text while editing
