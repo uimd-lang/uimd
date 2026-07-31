@@ -1,0 +1,12 @@
+[package]
+name = "calculator"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "calculator"
+path = "calculator.rs"
+
+[dependencies]
+serde_json = "1"
+uimd = { path = "../../src/uimd" }

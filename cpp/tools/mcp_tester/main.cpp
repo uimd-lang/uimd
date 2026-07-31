@@ -297,6 +297,12 @@ std::string appPathFromExamplesRoot(const std::string& examplesRoot, const std::
         root / name / (name + ".py"),
         root / name / (name + ".exe"),
         root / name / name,
+        root / name / ".build" / "release" / name,
+        root / name / ".build" / "debug" / name,
+        root / name / "target" / "release" / (name + ".exe"),
+        root / name / "target" / "release" / name,
+        root / name / "target" / "debug" / (name + ".exe"),
+        root / name / "target" / "debug" / name,
         root / (name + ".py"),
         root / (name + ".exe"),
     };

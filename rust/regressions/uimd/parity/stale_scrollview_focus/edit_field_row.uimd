@@ -1,0 +1,68 @@
+# Edit Field Row
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: regression
+description: "One editable field row with an action button inside the edit ScrollView."
+tags: [regression, issue-5, scrollview]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+field_input:
+  type: textinput
+  value: ""
+  maxlength: 120
+  description: "Editable regression field."
+
+field_btn:
+  type: button
+  title: Action
+  description: "Action button beside the editable field."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@row:
+  background: "#111827"
+  padding: 1, 1, 1, 1
+textinput:
+  background: "#0f172a"
+  color: "#e5e7eb"
+  focus-background: "#1e293b"
+  edit-background: "#111827"
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@field_btn:
+  background: "#14532d"
+  focus-background: "#16a34a"
+```
+
+## User Interface
+
+```ui
++-row-**-----------------------------------------------------------------------------------+
+| field_input..**......................................................................... |
+|                                                                                          |
+| field_btn.......... .................................................................... |
++------------------------------------------------------------------------------------------+
+```

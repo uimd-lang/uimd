@@ -3,6 +3,7 @@
 #include "NativeCppGenerator.hpp"
 #include "NativeGoGenerator.hpp"
 #include "NativePythonGenerator.hpp"
+#include "NativeRustGenerator.hpp"
 #include "NativeSwiftGenerator.hpp"
 #include "IssueReport.hpp"
 
@@ -53,6 +54,7 @@ const std::filesystem::path SDK_BIN_DIR{"bin"};
 const std::filesystem::path SDK_TARGETS_DIR{"targets"};
 const std::filesystem::path SDK_PYTHON_TARGET_DIR{"python"};
 const std::filesystem::path SDK_GO_TARGET_DIR{"go"};
+const std::filesystem::path SDK_RUST_TARGET_DIR{"rust"};
 const std::filesystem::path SDK_EXAMPLES_DIR{"examples"};
 const std::string SDK_VERSION_METADATA_KEY = "sdk-version";
 const std::string REQUIRE_SDK_VERSION_ENV = "UIMD_REQUIRE_SDK_VERSION";
@@ -62,6 +64,7 @@ const std::string RELEASE_BASE_URL_ENV = "UIMD_RELEASE_BASE_URL";
 const std::string SDK_PATH_ENV = "UIMD_SDK_PATH";
 const std::string SDK_PYTHON_TARGET_ENV = "UIMD_SDK_PYTHON_TARGET";
 const std::string SDK_GO_TARGET_ENV = "UIMD_SDK_GO_TARGET";
+const std::string SDK_RUST_TARGET_ENV = "UIMD_SDK_RUST_TARGET";
 const std::string RELEASE_PUBLIC_KEY_ENV = "UIMD_RELEASE_PUBLIC_KEY";
 const std::string LIBSIXEL_PATH_ENV = "UIMD_LIBSIXEL_PATH";
 const std::string LIBSIXEL_DIR_ENV = "UIMD_LIBSIXEL_DIR";
@@ -73,7 +76,7 @@ const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
 const std::string RELEASE_PUBLIC_KEY{"RWR71aDOUx1vHQeAYhBjmL71qWnPzCp3kXGe2HLHPORARHbM2Al77AsD"};
 const std::string RELEASE_MANIFEST_PREFIX = "uimd-sdk-";
 const std::string RELEASE_MANIFEST_SUFFIX = ".manifest";
-const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp", "swift", "go"};
+const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp", "swift", "go", "rust"};
 
 struct GlobalOptions
 {
@@ -2828,6 +2831,17 @@ std::filesystem::path installedSdkGoTargetFromExecutable(const std::filesystem::
     return std::filesystem::is_regular_file(targetRoot / "go.mod") ? targetRoot : std::filesystem::path{};
 }
 
+std::filesystem::path installedSdkRustTargetFromExecutable(const std::filesystem::path& executablePath)
+{
+    const std::filesystem::path versionRoot = installedSdkVersionRootFromExecutable(executablePath);
+    if (versionRoot.empty())
+    {
+        return {};
+    }
+    const std::filesystem::path targetRoot = versionRoot / SDK_TARGETS_DIR / SDK_RUST_TARGET_DIR;
+    return std::filesystem::is_regular_file(targetRoot / "Cargo.toml") ? targetRoot : std::filesystem::path{};
+}
+
 void configureRuntimeEnvironment(const std::filesystem::path& executablePath = {})
 {
     std::vector<std::filesystem::path> pythonPaths;
@@ -2843,6 +2857,11 @@ void configureRuntimeEnvironment(const std::filesystem::path& executablePath = {
     if (!installedGoTarget.empty())
     {
         setEnvironment(SDK_GO_TARGET_ENV, pathString(installedGoTarget));
+    }
+    const std::filesystem::path installedRustTarget = installedSdkRustTargetFromExecutable(executablePath);
+    if (!installedRustTarget.empty())
+    {
+        setEnvironment(SDK_RUST_TARGET_ENV, pathString(installedRustTarget));
     }
 
     const std::filesystem::path root = sourceRoot();
@@ -3496,7 +3515,7 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         }
         if (!isSdkTargetNameSafe(target) || !isSupportedSdkTarget(target))
         {
-            std::cerr << "error: supported SDK targets are: python, cpp, csharp, swift, go\n";
+            std::cerr << "error: supported SDK targets are: python, cpp, csharp, swift, go, rust\n";
             return EXIT_USAGE;
         }
         if (version.empty())
@@ -4376,9 +4395,9 @@ int runNew(const std::vector<std::string>& args, const std::filesystem::path& ex
         std::cerr << "error: application name cannot be empty\n";
         return EXIT_ERROR;
     }
-    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go" && target != "rust")
     {
-        std::cerr << "error: --target must be python, cpp, csharp, swift, or go\n";
+        std::cerr << "error: --target must be python, cpp, csharp, swift, go, or rust\n";
         return EXIT_USAGE;
     }
 
@@ -4441,6 +4460,16 @@ int runNew(const std::vector<std::string>& args, const std::filesystem::path& ex
             : std::filesystem::path{installedTarget}.generic_string();
         files.emplace_back(project + ".go", uimd::tool::goAppTemplate(klass + "UI"));
         files.emplace_back("go.mod", uimd::tool::goModuleFile(project, runtimeReference));
+    }
+    else if (target == "rust")
+    {
+        configureRuntimeEnvironment(executablePath);
+        const std::string installedTarget = envValue(SDK_RUST_TARGET_ENV.c_str());
+        const std::string runtimeReference = installedTarget.empty()
+            ? "../uimd/rust/src/uimd"
+            : std::filesystem::path{installedTarget}.generic_string();
+        files.emplace_back(project + ".rs", uimd::tool::rustAppTemplate(klass + "UI"));
+        files.emplace_back("Cargo.toml", uimd::tool::rustCargoManifest(project, runtimeReference));
     }
     else
     {
@@ -4546,9 +4575,9 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
         std::cerr << "error: generate path is required\n";
         return EXIT_USAGE;
     }
-    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go" && target != "rust")
     {
-        std::cerr << "error: --target must be python, cpp, csharp, swift, or go\n";
+        std::cerr << "error: --target must be python, cpp, csharp, swift, go, or rust\n";
         return EXIT_USAGE;
     }
 
@@ -4598,6 +4627,15 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
             goOptions.generateAppStub = generateAppStub;
             goOptions.mcpEnabled = options.mcpEnabled;
             generated = uimd::tool::generateGoSources(sourcePath, goOptions);
+        }
+        else if (target == "rust")
+        {
+            uimd::tool::NativeRustGenerateOptions rustOptions;
+            rustOptions.outputDir = options.outputDir;
+            rustOptions.hasOutputDir = options.hasOutputDir;
+            rustOptions.generateAppStub = generateAppStub;
+            rustOptions.mcpEnabled = options.mcpEnabled;
+            generated = uimd::tool::generateRustSources(sourcePath, rustOptions);
         }
         else
         {

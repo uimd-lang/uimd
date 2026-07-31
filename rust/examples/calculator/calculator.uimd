@@ -1,0 +1,145 @@
+# Calculator
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "Calculator for entering numbers, applying arithmetic operators, clearing input, deleting digits, and evaluating the current expression."
+tags: [example]
+```
+
+## Members
+
+```yaml
+display:
+  type: label
+  text: ""
+  description: "Shows the current number, operator result, or calculation state."
+
+n0:
+  type: button
+  title: 0
+  description: "Enter digit 0."
+
+n1:
+  type: button
+  title: 1
+  description: "Enter digit 1."
+
+n2:
+  type: button
+  title: 2
+  description: "Enter digit 2."
+
+n3:
+  type: button
+  title: 3
+  description: "Enter digit 3."
+
+n4:
+  type: button
+  title: 4
+  description: "Enter digit 4."
+
+n5:
+  type: button
+  title: 5
+  description: "Enter digit 5."
+
+n6:
+  type: button
+  title: 6
+  description: "Enter digit 6."
+
+n7:
+  type: button
+  title: 7
+  description: "Enter digit 7."
+
+n8:
+  type: button
+  title: 8
+  description: "Enter digit 8."
+
+n9:
+  type: button
+  title: 9
+  description: "Enter digit 9."
+
+sb:
+  type: button
+  title: "="
+  description: "Evaluate the pending calculation."
+
+dt:
+  type: button
+  title: .
+  description: "Insert a decimal point into the current number."
+
+ac:
+  type: button
+  title: AC
+  description: "Clear the current calculator state."
+
+dl:
+  type: button
+  title: DEL
+  description: "Delete the last entered character."
+
+pr:
+  type: button
+  title: "%"
+  description: "Convert or apply percentage behavior for the current value."
+
+dv:
+  type: button
+  title: /
+  description: "Choose division as the pending operator."
+
+ml:
+  type: button
+  title: "*"
+  description: "Choose multiplication as the pending operator."
+
+mn:
+  type: button
+  title: -
+  description: "Choose subtraction as the pending operator."
+
+ad:
+  type: button
+  title: "+"
+  description: "Choose addition as the pending operator."
+```
+
+## Style
+
+```yaml
+@display:
+  background: #32446d
+  color: #c8e0ff
+  text-align: right
+```
+
+## User Interface
+
+```ui
++----------------------+
+|                      |
+|  display...........  |
+|                      |
+|  ac.  dl.  pr.  dv.  |
+|                      |
+|  n7.  n8.  n9.  ml.  |
+|                      |
+|  n4.  n5.  n6.  mn.  |
+|                      |
+|  n1.  n2.  n3.  sb.  |
+|                      |
+|  n0......  dt.  ad.  |
+|                      |
++----------------------+
+```

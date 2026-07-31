@@ -40,6 +40,12 @@ def _replacement_plan(version: str) -> list[Replacement]:
             f"project(ui_cpp_runtime VERSION {version} LANGUAGES CXX)",
         ),
         Replacement(
+            "rust/src/uimd/Cargo.toml",
+            r'(?m)^version\s*=\s*"[^"]+"',
+            f'version = "{version}"',
+            count=1,
+        ),
+        Replacement(
             "CHANGELOG.md",
             r"(?m)^## \d+\.\d+\.\d+ - Unreleased",
             f"## {version} - Unreleased",

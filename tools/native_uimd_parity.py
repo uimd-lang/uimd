@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_BINARY = ROOT / "cpp" / "build" / "tools" / "uimd" / "uimd"
 NATIVE_INIT_BINARY = ROOT / "cpp" / "build" / "tools" / "uimd_init" / "uimd-init"
-GENERATED_PATTERNS = ("*_ui.py", "*_ui.hpp", "*_ui.cpp", "*_ui.cs", "*_ui.swift", "*_ui.go")
+GENERATED_PATTERNS = ("*_ui.py", "*_ui.hpp", "*_ui.cpp", "*_ui.cs", "*_ui.swift", "*_ui.go", "*_ui.rs")
 GENERATED_ROOTS = (
     ROOT / "python" / "examples",
     ROOT / "python" / "dialogs",
@@ -32,6 +32,8 @@ GENERATED_ROOTS = (
     ROOT / "swift" / "examples",
     ROOT / "go" / "examples",
     ROOT / "go" / "regressions" / "uimd" / "parity",
+    ROOT / "rust" / "examples",
+    ROOT / "rust" / "regressions" / "uimd" / "parity",
 )
 EXECUTABLE_FILE_MODE = 0o755
 
@@ -72,6 +74,18 @@ output:
   description: "Output."
 ```
 
+## Tools
+
+```yaml
+lookup:
+  description: "Look up a greeting by name."
+  input:
+    name: string
+    required: [name]
+  output:
+    greeting: string
+```
+
 ## User Interface
 
 ```ui
@@ -83,6 +97,116 @@ output:
 +-----------------------------+
 | output..................... |
 +-----------------------------+
+```
+"""
+
+CANONICAL_RUST_MODEL_UIMD = """# Canonical Rust Model
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+description: "Canonical compiler model fixture."
+```
+
+## Definition
+
+```yaml
+uses:
+  - child/child
+```
+
+## Members
+
+```yaml
+short_text:
+  type: textinput
+  value: "abc"
+  maxlength: 7
+  commit-mode: leave
+  description: "Short input."
+  expose: false
+
+notes:
+  type: textarea
+  value: "line"
+  maxlength: 11
+
+amount:
+  type: numberinput
+  value: 2.5
+  step_size: 0.25
+
+enabled:
+  type: checkbox
+  title: Enabled
+  checked: true
+
+choice:
+  type: combobox
+  options: [First, Second]
+  selected_item: Second
+
+tags:
+  type: listbox
+  options: [A, B, C]
+  selected_items: [C, A]
+  multiple: true
+
+preview:
+  type: image
+  source: "preview.png"
+  alt: "Preview"
+  fit: cover
+  render-mode: sixel
+  align: right
+  vertical_align: bottom
+
+child:
+  type: child
+```
+
+## User Interface
+
+```ui
++-----------------------------+
+| short_text................. |
+| notes...................... |
+| amount...... enabled....... |
+| choice..................... |
+| tags....................... |
+| preview.................... |
+| child...................... |
++-----------------------------+
+```
+"""
+
+CANONICAL_RUST_MODEL_CHILD_UIMD = """# Child
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: control
+```
+
+## Members
+
+```yaml
+label:
+  type: label
+  text: "Child"
+```
+
+## User Interface
+
+```ui
++-----------+
+| label.... |
++-----------+
 ```
 """
 
@@ -120,6 +244,7 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
     (release_dir / "payload" / "targets" / "csharp").mkdir(parents=True)
     (release_dir / "payload" / "targets" / "swift").mkdir(parents=True)
     (release_dir / "payload" / "targets" / "go").mkdir(parents=True)
+    (release_dir / "payload" / "targets" / "rust").mkdir(parents=True)
 
     binary_name = "uimd.exe" if os.name == "nt" else "uimd"
     binary = release_dir / "payload" / binary_name
@@ -130,11 +255,13 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
     csharp_marker = release_dir / "payload" / "targets" / "csharp" / "runtime.txt"
     swift_marker = release_dir / "payload" / "targets" / "swift" / "runtime.txt"
     go_marker = release_dir / "payload" / "targets" / "go" / "runtime.txt"
+    rust_marker = release_dir / "payload" / "targets" / "rust" / "runtime.txt"
     python_marker.write_text("python target\n", encoding="utf-8")
     cpp_marker.write_text("cpp target\n", encoding="utf-8")
     csharp_marker.write_text("csharp target\n", encoding="utf-8")
     swift_marker.write_text("swift target\n", encoding="utf-8")
     go_marker.write_text("go target\n", encoding="utf-8")
+    rust_marker.write_text("rust target\n", encoding="utf-8")
 
     binary_checksum = file_sha256(binary)
     if corrupt_checksum:
@@ -151,6 +278,7 @@ def write_release_fixture(root: Path, version: str, *, corrupt_checksum: bool = 
                 f"file targets/csharp/runtime.txt {file_sha256(csharp_marker)} payload/targets/csharp/runtime.txt",
                 f"file targets/swift/runtime.txt {file_sha256(swift_marker)} payload/targets/swift/runtime.txt",
                 f"file targets/go/runtime.txt {file_sha256(go_marker)} payload/targets/go/runtime.txt",
+                f"file targets/rust/runtime.txt {file_sha256(rust_marker)} payload/targets/rust/runtime.txt",
                 "",
             ]
         ),
@@ -226,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--compile-examples",
         action="store_true",
-        help="Regenerate all Python and C++ example UI sources after backing up generated outputs",
+        help="Regenerate all supported-language example UI sources after backing up generated outputs",
     )
     args = parser.parse_args(argv)
 
@@ -250,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         workspace = Path(tmp)
         failures.extend(check_new(native_binary, workspace))
         failures.extend(check_generate(native_binary, workspace))
+        failures.extend(check_canonical_rust_model(native_binary, workspace))
         failures.extend(check_installed_sdk_target_lookup(native_binary, workspace, compile_go=args.compile_examples))
         failures.extend(check_run(native_binary, workspace))
         failures.extend(check_mcp_test(native_binary))
@@ -313,6 +442,7 @@ def check_new(native_binary: Path, workspace: Path) -> list[str]:
         ("csharp", ("hello.uimd", "hello.cs", "hello.csproj"), ("hello_ui.cs",)),
         ("swift", ("hello.uimd", "hello.swift", "Package.swift"), ("hello_ui.swift",)),
         ("go", ("hello.uimd", "hello.go", "go.mod"), ("hello_ui.go",)),
+        ("rust", ("hello.uimd", "hello.rs", "Cargo.toml"), ("hello_ui.rs",)),
     )
     for target, expected_files, absent_files in cases:
         target_dir = workspace / f"new_{target}"
@@ -336,6 +466,7 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
         ("csharp", ("--app-stub",), ("hello_ui.cs", "hello.cs", "hello.csproj")),
         ("swift", ("--app-stub",), ("hello_ui.swift", "hello.swift", "Package.swift")),
         ("go", ("--app-stub",), ("hello_ui.go", "hello.go", "go.mod")),
+        ("rust", ("--app-stub",), ("hello_ui.rs", "hello.rs", "Cargo.toml")),
     )
     for target, extra_args, expected_files in cases:
         target_dir = workspace / f"generate_{target}"
@@ -391,7 +522,7 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
                 failures.append("generate --target swift: hello.swift does not contain the runtime launcher")
             if "/targets/swift" not in package:
                 failures.append("generate --target swift: Package.swift does not contain installed SDK runtime fallback")
-        else:
+        elif target == "go":
             source = (target_dir / "hello_ui.go").read_text(encoding="utf-8")
             app = (target_dir / "hello.go").read_text(encoding="utf-8")
             module = (target_dir / "go.mod").read_text(encoding="utf-8")
@@ -403,7 +534,116 @@ def check_generate(native_binary: Path, workspace: Path) -> list[str]:
                 failures.append("generate --target go: hello.go does not contain the runtime launcher")
             if "replace uimd =>" not in module:
                 failures.append("generate --target go: go.mod does not contain the local runtime replacement")
+        else:
+            source = (target_dir / "hello_ui.rs").read_text(encoding="utf-8")
+            app = (target_dir / "hello.rs").read_text(encoding="utf-8")
+            manifest = (target_dir / "Cargo.toml").read_text(encoding="utf-8")
+            if "pub struct HelloUI" not in source:
+                failures.append("generate --target rust: hello_ui.rs does not contain the expected UI struct")
+            if 'set_commit_mode("leave")' not in source:
+                failures.append("generate --target rust: hello_ui.rs does not preserve member commit-mode")
+            if 'base.set_mcp_metadata(true, "Hello"' not in source or '"Hello native smoke app."' not in source:
+                failures.append("generate --target rust: hello_ui.rs does not preserve MCP window metadata")
+            if 'GeneratedElementMetadata::new("greet", "Greet button.", true)' not in source:
+                failures.append("generate --target rust: hello_ui.rs does not preserve MCP element metadata")
+            if (
+                'GeneratedAppToolMetadata::from_json("lookup", "Look up a greeting by name."' not in source
+                or r'\"required\":[\"name\"]' not in source
+                or r'\"greeting\":{\"type\":\"string\"}' not in source
+            ):
+                failures.append("generate --target rust: hello_ui.rs does not preserve MCP app-tool schemas")
+            if "fn on_greet_click(&mut self, _ui: &mut HelloUI)" not in source:
+                failures.append("generate --target rust: hello_ui.rs does not emit the button event hook")
+            if "run_generated_window" not in app and ".run(" not in app:
+                failures.append("generate --target rust: hello.rs does not contain the runtime launcher")
+            if 'uimd = { path = ' not in manifest:
+                failures.append("generate --target rust: Cargo.toml does not contain the runtime path dependency")
 
+    return failures
+
+
+def check_canonical_rust_model(native_binary: Path, workspace: Path) -> list[str]:
+    failures: list[str] = []
+    generated: dict[str, str] = {}
+    for target in ("cpp", "rust"):
+        target_dir = workspace / f"canonical_model_{target}"
+        (target_dir / "child").mkdir(parents=True)
+        (target_dir / "root.uimd").write_text(CANONICAL_RUST_MODEL_UIMD, encoding="utf-8")
+        (target_dir / "child" / "child.uimd").write_text(
+            CANONICAL_RUST_MODEL_CHILD_UIMD,
+            encoding="utf-8",
+        )
+        extra_args = ("--app-stub",) if target == "rust" else ()
+        result = run_command(
+            native_cli(
+                native_binary,
+                "generate",
+                "root.uimd",
+                "--target",
+                target,
+                *extra_args,
+            ),
+            target_dir,
+        )
+        failures.extend(expect_success(f"canonical compiler model {target}", result))
+        suffix = "cpp" if target == "cpp" else "rs"
+        source_path = target_dir / f"root_ui.{suffix}"
+        failures.extend(expect_file(f"canonical compiler model {target}", source_path))
+        if source_path.exists():
+            generated[target] = source_path.read_text(encoding="utf-8")
+
+    cpp = generated.get("cpp", "")
+    rust = generated.get("rust", "")
+    cpp_expected = (
+        '"short_text", "abc", 7',
+        'short_text->setCommitMode("leave");',
+        'GeneratedElementMetadata{"short_text", "Short input.", false}',
+        '"notes", "line", 11',
+        '"amount", 2.5, 0.25',
+        '"enabled", "Enabled", true',
+        'choice->setSelectedIndex(1);',
+        'tags->setMultiple(true);',
+        'tags->setSelectedValues(std::vector<std::string>{"A", "C"});',
+        '"preview.png", "Preview", "cover", "sixel", "right", "bottom"',
+        "requireSixelForImageRendering();",
+        "child->setChild(std::make_unique<ChildUI>());",
+    )
+    rust_expected = (
+        'new_text_input("short_text", "abc", 7)',
+        'short_text.borrow_mut().set_commit_mode("leave");',
+        'GeneratedElementMetadata::new("short_text", "Short input.", false)',
+        'new_text_area_with_max_length("notes", "line", 11)',
+        'new_number_input_with_step("amount", 2.500000, 0.250000)',
+        'new_checkbox("enabled", "Enabled", true)',
+        'choice.borrow_mut().set_selected_index(1);',
+        'new_list_box("tags", vec!["A".to_string(), "B".to_string(), "C".to_string()], true)',
+        'tags.borrow_mut().set_selected_items(&vec!["A".to_string(), "C".to_string()]);',
+        'new_image("preview", "preview.png", "Preview", "cover", "sixel", "right", "bottom")',
+        "uimd::require_sixel_for_image_rendering();",
+        '#[path = "child/child_ui.rs"]',
+        "child.borrow_mut().set_child_window(uimd_dependency_child::ChildUI::new().base);",
+    )
+    for expected in cpp_expected:
+        if expected not in cpp:
+            failures.append(
+                f"canonical compiler model cpp: missing normalized output {expected!r}"
+            )
+    for expected in rust_expected:
+        if expected not in rust:
+            failures.append(
+                f"canonical compiler model rust: missing normalized output {expected!r}"
+            )
+
+    rust_dir = workspace / "canonical_model_rust"
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        failures.append("canonical compiler model rust: cargo executable was not found on PATH")
+    elif not failures:
+        env = runtime_env()
+        env["CARGO_TARGET_DIR"] = str(workspace / "canonical-rust-target")
+        env["CARGO_NET_OFFLINE"] = "true"
+        build = run_command([cargo, "check", "--offline"], rust_dir, env=env)
+        failures.extend(expect_success("canonical compiler model rust build", build))
     return failures
 
 
@@ -428,11 +668,20 @@ def check_installed_sdk_target_lookup(
     go_target = version_root / "targets" / "go"
     shutil.copytree(ROOT / "go" / "src" / "uimd", go_target)
     shutil.copytree(ROOT / "cpp" / "third_party" / "stb", go_target / "third_party" / "stb")
+    rust_target = version_root / "targets" / "rust"
+    shutil.copytree(ROOT / "rust" / "src" / "uimd", rust_target)
+    rust_stb_target = rust_target / "vendor" / "stb"
+    rust_stb_target.mkdir(parents=True)
+    shutil.copy2(
+        ROOT / "cpp" / "third_party" / "stb" / "stb_image.h",
+        rust_stb_target / "stb_image.h",
+    )
 
     env = os.environ.copy()
     env["UIMD_SOURCE_ROOT"] = str(workspace / "missing_source_checkout")
     env.pop("UIMD_SDK_PYTHON_TARGET", None)
     env.pop("UIMD_SDK_GO_TARGET", None)
+    env.pop("UIMD_SDK_RUST_TARGET", None)
 
     cases = (
         ("python", "hello_ui.py"),
@@ -440,6 +689,7 @@ def check_installed_sdk_target_lookup(
         ("csharp", "hello_ui.cs"),
         ("swift", "hello_ui.swift"),
         ("go", "hello_ui.go"),
+        ("rust", "hello_ui.rs"),
     )
     for target, generated_file in cases:
         target_dir = workspace / f"installed_theme_{target}"
@@ -461,6 +711,14 @@ def check_installed_sdk_target_lookup(
                 and go_target.resolve().as_posix() not in module_path.read_text(encoding="utf-8")
             ):
                 failures.append("installed SDK Go runtime lookup generate: go.mod does not reference targets/go")
+        if target == "rust":
+            manifest_path = target_dir / "Cargo.toml"
+            failures.extend(expect_file("installed SDK Rust runtime lookup generate", manifest_path))
+            if (
+                manifest_path.exists()
+                and rust_target.resolve().as_posix() not in manifest_path.read_text(encoding="utf-8")
+            ):
+                failures.append("installed SDK Rust runtime lookup generate: Cargo.toml does not reference targets/rust")
 
     new_dir = workspace / "installed_go_new"
     new_dir.mkdir()
@@ -489,6 +747,30 @@ def check_installed_sdk_target_lookup(
             go_env["GOCACHE"] = str(workspace / "go-cache")
             build_result = run_command([go, "build", "."], new_dir, env=go_env)
             failures.extend(expect_success("installed SDK Go runtime lookup build new", build_result))
+
+        rust_new_dir = workspace / "installed_rust_new"
+        rust_new_dir.mkdir()
+        rust_new_result = run_command(
+            native_cli(installed_binary, "new", "hello", "--target", "rust"),
+            rust_new_dir,
+            env=env,
+        )
+        failures.extend(expect_success("installed SDK Rust runtime lookup new", rust_new_result))
+        rust_generate_result = run_command(
+            native_cli(installed_binary, "generate", "hello.uimd", "--target", "rust"),
+            rust_new_dir,
+            env=env,
+        )
+        failures.extend(expect_success("installed SDK Rust runtime lookup new generate", rust_generate_result))
+        cargo = shutil.which("cargo")
+        if cargo is None:
+            failures.append("installed SDK Rust runtime lookup build: cargo executable was not found on PATH")
+        else:
+            rust_env = env.copy()
+            rust_env["CARGO_TARGET_DIR"] = str(workspace / "rust-target")
+            rust_env["CARGO_NET_OFFLINE"] = "true"
+            rust_build = run_command([cargo, "build", "--offline"], rust_new_dir, env=rust_env)
+            failures.extend(expect_success("installed SDK Rust runtime lookup build new", rust_build))
 
     return failures
 
@@ -600,6 +882,10 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_success("sdk install-target go", install_go_target))
     failures.extend(expect_file("sdk install-target go", sdk_home / "sdk" / "0.3.0" / "targets" / "go"))
 
+    install_rust_target = run_command(native_cli(native_binary, "sdk", "install-target", "rust"), workspace, env=env)
+    failures.extend(expect_success("sdk install-target rust", install_rust_target))
+    failures.extend(expect_file("sdk install-target rust", sdk_home / "sdk" / "0.3.0" / "targets" / "rust"))
+
     unsupported_target = run_command(native_cli(native_binary, "sdk", "install-target", "unknown"), workspace, env=env)
     if unsupported_target.returncode == 0:
         failures.append("sdk install-target unknown: expected failure for unsupported target")
@@ -614,6 +900,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
         or "cpp" not in list_result.stdout
         or "swift" not in list_result.stdout
         or "go" not in list_result.stdout
+        or "rust" not in list_result.stdout
     ):
         failures.append("sdk list: output does not include installed SDK versions")
 
@@ -631,8 +918,8 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
             failures.append("sdk list --json: current version was not set by sdk use")
         targets = payload.get("targets", {})
         current_targets = set(targets.get("0.3.0", []))
-        if not {"python", "cpp", "swift", "go"}.issubset(current_targets):
-            failures.append("sdk list --json: target map does not include python, cpp, swift, and go for current SDK")
+        if not {"python", "cpp", "swift", "go", "rust"}.issubset(current_targets):
+            failures.append("sdk list --json: target map does not include python, cpp, swift, go, and rust for current SDK")
 
     doctor_result = run_command(native_cli(native_binary, "doctor", "--json"), workspace, env=env)
     failures.extend(expect_success("doctor --json after sdk install", doctor_result))
@@ -646,8 +933,8 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
             failures.append("doctor --json after sdk install: expected ok SDK status")
         if sdk_payload.get("current_version") != "0.3.0":
             failures.append("doctor --json after sdk install: expected current_version 0.3.0")
-        if not {"python", "cpp", "swift", "go"}.issubset(set(sdk_payload.get("current_targets", []))):
-            failures.append("doctor --json after sdk install: expected current_targets to include python, cpp, swift, and go")
+        if not {"python", "cpp", "swift", "go", "rust"}.issubset(set(sdk_payload.get("current_targets", []))):
+            failures.append("doctor --json after sdk install: expected current_targets to include python, cpp, swift, go, and rust")
 
     if os.name != "nt":
         fake_binary = workspace / "fake-uimd"
@@ -724,6 +1011,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "cpp" / "runtime.txt"))
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "csharp" / "runtime.txt"))
     failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "go" / "runtime.txt"))
+    failures.extend(expect_file("sdk install --release-root", sdk_home / "sdk" / "0.7.0" / "targets" / "rust" / "runtime.txt"))
 
     bad_release_root = workspace / "bad_release_root"
     write_release_fixture(bad_release_root, "0.8.0", corrupt_checksum=True)
@@ -761,6 +1049,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "targets" / "cpp" / "runtime.txt"))
     failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "targets" / "csharp" / "runtime.txt"))
     failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "targets" / "go" / "runtime.txt"))
+    failures.extend(expect_file("sdk update --release-root", update_home / "sdk" / "3.4.2" / "targets" / "rust" / "runtime.txt"))
 
     network_update_home = workspace / "network_update_home"
     network_update_env = runtime_env()
@@ -790,6 +1079,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "targets" / "cpp" / "runtime.txt"))
     failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "targets" / "csharp" / "runtime.txt"))
     failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "targets" / "go" / "runtime.txt"))
+    failures.extend(expect_file("sdk update network", network_update_home / "sdk" / "7.4.1" / "targets" / "rust" / "runtime.txt"))
 
     update_install_newer = run_command(native_cli(native_binary, "sdk", "install", "3.4.3"), workspace, env=update_env)
     failures.extend(expect_success("sdk update installed-newer fixture", update_install_newer))
@@ -861,6 +1151,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_file("target auto-install generate cpp", auto_target_home / "sdk" / "6.1.0" / "targets" / "cpp" / "runtime.txt"))
     failures.extend(expect_file("target auto-install generate cpp", auto_target_home / "sdk" / "6.1.0" / "targets" / "csharp" / "runtime.txt"))
     failures.extend(expect_file("target auto-install generate cpp", auto_target_home / "sdk" / "6.1.0" / "targets" / "go" / "runtime.txt"))
+    failures.extend(expect_file("target auto-install generate cpp", auto_target_home / "sdk" / "6.1.0" / "targets" / "rust" / "runtime.txt"))
 
     auto_sdk_home = workspace / "auto_sdk_home"
     auto_sdk_env = runtime_env()
@@ -887,6 +1178,7 @@ def check_sdk(native_binary: Path, workspace: Path) -> list[str]:
     failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "targets" / "cpp" / "runtime.txt"))
     failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "targets" / "csharp" / "runtime.txt"))
     failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "targets" / "go" / "runtime.txt"))
+    failures.extend(expect_file("SDK auto-install generate cpp", auto_sdk_home / "sdk" / "8.3.1" / "targets" / "rust" / "runtime.txt"))
 
     offline_target_home = workspace / "offline_target_home"
     offline_target_env = runtime_env()
@@ -1203,6 +1495,7 @@ def compile_examples(native_binary: Path) -> list[str]:
         native_cli(native_binary, "generate", "cpp/examples", "--target", "cpp"),
         native_cli(native_binary, "generate", "csharp/examples", "--target", "csharp"),
         native_cli(native_binary, "generate", "go/examples", "--target", "go"),
+        native_cli(native_binary, "generate", "rust/examples", "--target", "rust"),
     ]
     failures: list[str] = []
     for command in commands:

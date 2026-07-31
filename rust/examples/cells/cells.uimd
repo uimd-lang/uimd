@@ -1,0 +1,241 @@
+# Cells
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "Layout stress test that demonstrates nested cells, colored cell backgrounds, varying button widths, and expanded layout behavior."
+tags: [example]
+```
+
+## Members
+
+```yaml
+a1:
+  type: button
+  title: A1
+  description: "Button in the first red cell."
+
+a2:
+  type: button
+  title: A2
+  description: "Second button in the first red cell."
+
+b1:
+  type: button
+  title: BBB
+  description: "Wide button in the green cell."
+
+c1:
+  type: button
+  title: C1
+  description: "Button in the yellow cell group."
+
+c2:
+  type: button
+  title: C2
+  description: "Button in the yellow cell group."
+
+c3:
+  type: button
+  title: C3
+  description: "Button in the yellow cell group."
+
+c4:
+  type: button
+  title: C4
+  description: "Button in the yellow cell group."
+
+c5:
+  type: button
+  title: C5
+  description: "Button in the yellow cell group."
+
+c6:
+  type: button
+  title: C6
+  description: "Button in the yellow cell group."
+
+c7:
+  type: button
+  title: C7
+  description: "Button in the yellow cell group."
+
+c8:
+  type: button
+  title: C8
+  description: "Button in the yellow cell group."
+
+c9:
+  type: button
+  title: C9
+  description: "Button in the yellow cell group."
+
+c10:
+  type: button
+  title: C10
+  description: "Button in the yellow cell group."
+
+d1:
+  type: button
+  title: D1
+  description: "Top button in the right column."
+
+d2:
+  type: button
+  title: D2
+  description: "Button in the right column."
+
+d3:
+  type: button
+  title: D3
+  description: "Button in the right column."
+
+d4:
+  type: button
+  title: D4
+  description: "Button in the right column."
+
+d5:
+  type: button
+  title: D5
+  description: "Button in the right column."
+
+d6:
+  type: button
+  title: D6
+  description: "Bottom button in the right column."
+
+e1:
+  type: button
+  title: E
+  description: "Single-character E button in the lower left cell."
+
+e2:
+  type: button
+  title: EE
+  description: "Two-character E button in the lower left cell."
+
+e3:
+  type: button
+  title: EEE
+  description: "Three-character E button in the lower left cell."
+
+e4:
+  type: button
+  title: EEEE
+  description: "Four-character E button in the lower left cell."
+
+e5:
+  type: button
+  title: EEEEE
+  description: "Five-character E button in the lower left cell."
+
+e6:
+  type: button
+  title: EEEEEE
+  description: "Six-character E button in the lower left cell."
+
+e7:
+  type: button
+  title: EEEEEEE
+  description: "Seven-character E button in the lower left cell."
+
+e8:
+  type: button
+  title: EEEEEEEE
+  description: "Eight-character E button in the lower left cell."
+
+f1:
+  type: button
+  title: F1
+  description: "Top button in the cyan cell."
+
+f2:
+  type: button
+  title: F2
+  description: "Middle button in the cyan cell with a local style override."
+
+f3:
+  type: button
+  title: F3
+  description: "Bottom button in the cyan cell."
+```
+
+## Style
+
+```yaml
+this:
+  background: "#1f2946"
+  border-color: transparent
+  border-width: 1
+  border-width-vertical: 2
+button:
+  background: "#526173"
+  color: "#eef2f7"
+  focus-background: "#6b7c91"
+@d1:
+  color: "#d7fbe8"
+cell1:
+  background: "#3b1f2d"
+  button:
+    background: "#7a3f59"
+    focus-background: "#96536d"
+cell2:
+  background: "#1f463f"
+  button:
+    background: "#3d7b6d"
+    focus-background: "#4f9484"
+cl3:
+  background: "#26345f"
+  button:
+    background: "#5267a3"
+    focus-background: "#657abd"
+cell4:
+  background: "#4a4422"
+  button:
+    background: "#81753b"
+    color: "#ecfdf5"
+    focus-background: "#9a8d4a"
+cell5:
+  background: "#482456"
+  button:
+    background: "#805196"
+    focus-background: "#9a65b0"
+cl6:
+  background: "#174f55"
+  button:
+    background: "#3a8890"
+    focus-background: "#4aa1aa"
+  @f2:
+    background: "#31565f"
+cl7:
+  background: "#2f3745"
+  button:
+    background: "#64748b"
+    focus-background: "#7b8ba0"
+```
+
+## User Interface
+
+```ui
++-cell1-----------+-cell2---+-cl3+
+| a1..... a2..... |  b1...  | d1 |
++-cell4-----------+---------+    |
+| c1.. c2.. c3.. c4.. c5..  | d2 |
+| c6.. c7.. c8.. c9.. c10.  |    |
++-cell5---------------+-cl6-+ d3 |
+|                     | f1. |    |
+| e1....... e5....... |     | d4 |
+|                     |     |    |
+| e2....... e6....... | f2. | d5 |
+|                     |     |    |
+| e3....... e7....... |     | d6 |
+|                     | f3. +-cl7+
+| e4....... e8....... |     |    |
+|                     |     |    |
++---------------------+-----+----+
+```

@@ -1,0 +1,12 @@
+[package]
+name = "text_editor"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "text_editor"
+path = "text_editor.rs"
+
+[dependencies]
+serde_json = "1"
+uimd = { path = "../../src/uimd" }

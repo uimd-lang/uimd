@@ -15,6 +15,7 @@ cpp/build-*/
 csharp/**/bin/
 csharp/**/obj/
 swift/**/.build/
+rust/**/target/
 CMakeFiles/
 CMakeCache.txt
 

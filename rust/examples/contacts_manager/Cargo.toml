@@ -1,0 +1,12 @@
+[package]
+name = "contacts_manager"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "contacts_manager"
+path = "contacts_manager.rs"
+
+[dependencies]
+serde_json = "1"
+uimd = { path = "../../src/uimd" }

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.23 - Unreleased
+## 0.4.24 - Unreleased
 
 - Add the terminal-only Go target, including native generation, runtime,
   examples, SDK packaging, direct-terminal smoke coverage, and parity tests.

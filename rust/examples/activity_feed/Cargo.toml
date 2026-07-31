@@ -1,0 +1,12 @@
+[package]
+name = "activity_feed"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "activity_feed"
+path = "activity_feed.rs"
+
+[dependencies]
+serde_json = "1"
+uimd = { path = "../../src/uimd" }

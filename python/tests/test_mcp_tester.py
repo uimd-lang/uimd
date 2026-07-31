@@ -26,6 +26,7 @@ from uimd.testing.mcp_tester import (
     TestScript as McpTestScript,
     McpTester,
     TargetApp,
+    TARGET_STDERR_TAIL_BYTES,
     _compact_result,
     _assertion_matches,
     _format_target_value,
@@ -521,6 +522,48 @@ class TestMcpTesterConfig(unittest.TestCase):
             },
         )
 
+    def test_all_compare_resolves_rust_release_apps(self):
+        os.makedirs(PARITY_TMP_ROOT, exist_ok=True)
+        temp_dir = tempfile.TemporaryDirectory(prefix="compare_rust_", dir=PARITY_TMP_ROOT)
+        self.addCleanup(temp_dir.cleanup)
+        cpp_root = os.path.join(temp_dir.name, "cpp", "build", "examples")
+        rust_root = os.path.join(temp_dir.name, "rust", "examples")
+        scripts = _load_yaml_test_scripts(
+            PROJECT_ROOT,
+            os.path.join(PROJECT_ROOT, "tests", "mcp", "all_examples.yaml"),
+        )
+        for script in scripts:
+            name = next(iter(script.apps))
+            cpp_app_dir = os.path.join(cpp_root, name)
+            rust_app_dir = os.path.join(rust_root, name, "target", "release")
+            os.makedirs(cpp_app_dir, exist_ok=True)
+            os.makedirs(rust_app_dir, exist_ok=True)
+            with open(os.path.join(cpp_app_dir, name), "w", encoding="utf-8") as handle:
+                handle.write("# test fixture\n")
+            with open(os.path.join(rust_app_dir, name), "w", encoding="utf-8") as handle:
+                handle.write("# test fixture\n")
+
+        config = parse_args([
+            "--all",
+            "--compare",
+            cpp_root,
+            rust_root,
+        ])
+
+        self.assertEqual(
+            config.scripts[0].apps,
+            {
+                "cpp": os.path.join(cpp_root, "calculator", "calculator"),
+                "rust": os.path.join(
+                    rust_root,
+                    "calculator",
+                    "target",
+                    "release",
+                    "calculator",
+                ),
+            },
+        )
+
     def test_target_timeout_scales_with_text_length(self):
         target = TargetApp("calculator", "python/examples/calculator/calculator.py", os.getcwd())
         target.action_delay_ms = 120
@@ -551,6 +594,27 @@ class TestMcpTesterConfig(unittest.TestCase):
         )
         self.assertIsNone(
             target._request_timeout("tools/call", {"name": "get_window"}, timeout_ms=0)
+        )
+
+    def test_target_request_failure_diagnostics_include_exit_code_and_bounded_stderr(self):
+        class ExitedProcess:
+            def poll(self):
+                return 101
+
+        target = TargetApp("rust", "rust-app", os.getcwd())
+        target.process = ExitedProcess()
+        target._append_stderr(b"discarded\n")
+        target._append_stderr(b"x" * TARGET_STDERR_TAIL_BYTES)
+        target._append_stderr(b"\npanic: render failed\n")
+
+        diagnostics = target._request_failure_diagnostics()
+
+        self.assertIn("exit code 101", diagnostics)
+        self.assertNotIn("discarded", diagnostics)
+        self.assertIn("panic: render failed", diagnostics)
+        self.assertLessEqual(
+            len(target.stderr_tail),
+            TARGET_STDERR_TAIL_BYTES,
         )
 
     def test_parallel_target_calls_suppress_intermediate_output_for_plain_tools(self):

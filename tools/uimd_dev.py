@@ -31,12 +31,14 @@ GENERATE_TARGETS = (
     ("go/examples", "go"),
 )
 SWIFT_GENERATE_TARGET = ("swift/examples", "swift")
+RUST_GENERATE_TARGET = ("rust/examples", "rust")
 DEFAULT_COMPARE_APP_SIZE = "90x35"
 REGRESSION_PARITY_ROOT = Path("tests/regressions/uimd/parity")
 REGRESSION_PARITY_PYTHON_ROOT = REGRESSION_PARITY_ROOT / "python"
 REGRESSION_PARITY_CPP_SOURCE_ROOT = REGRESSION_PARITY_ROOT / "cpp"
 REGRESSION_PARITY_MANIFEST = REGRESSION_PARITY_ROOT / "all.yaml"
 GO_REGRESSION_PARITY_ROOT = Path("go/regressions/uimd/parity")
+RUST_REGRESSION_PARITY_ROOT = Path("rust/regressions/uimd/parity")
 REGRESSION_GENERATE_TARGETS = (
     (REGRESSION_PARITY_PYTHON_ROOT, "python"),
     (REGRESSION_PARITY_CPP_SOURCE_ROOT, "cpp"),
@@ -200,8 +202,41 @@ def require_swift_command() -> str:
     raise FileNotFoundError("swift command not found; install SwiftPM or pass --no-swift")
 
 
+def cargo_command() -> str:
+    if os.environ.get("CARGO"):
+        return os.environ["CARGO"]
+    found = shutil.which("cargo")
+    if found:
+        return found
+    home_candidate = Path.home() / ".cargo" / "bin" / "cargo"
+    if home_candidate.is_file():
+        return str(home_candidate)
+    return "cargo"
+
+
+def require_cargo_command() -> str:
+    command = cargo_command()
+    if Path(command).exists() or shutil.which(command) is not None:
+        return command
+    raise FileNotFoundError("cargo command not found; install Rust or pass --no-rust")
+
+
+def cargo_with_progress_command(*args: str) -> list[str | Path]:
+    return [
+        sys.executable,
+        ROOT / "tools/cargo_with_progress.py",
+        "--cargo",
+        require_cargo_command(),
+        *args,
+    ]
+
+
 def should_validate_swift(args: argparse.Namespace) -> bool:
     return not args.no_swift and not is_windows()
+
+
+def should_validate_rust(args: argparse.Namespace) -> bool:
+    return not args.no_rust and not is_windows()
 
 
 def ensure_configured(build_dir: Path) -> None:
@@ -262,6 +297,15 @@ def go_regression_binary_path(name: str) -> Path:
     raise FileNotFoundError(f"Go regression binary not found for {name!r} under {GO_REGRESSION_PARITY_ROOT}")
 
 
+def rust_regression_binary_path(name: str) -> Path:
+    candidate = ROOT / RUST_REGRESSION_PARITY_ROOT / name / "target" / "release" / name
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(
+        f"Rust regression binary not found for {name!r} under {RUST_REGRESSION_PARITY_ROOT}"
+    )
+
+
 def csharp_example_project_path(name: str) -> Path:
     project = ROOT / "csharp/examples" / name / f"{name}.csproj"
     if project.exists():
@@ -307,6 +351,28 @@ def go_regression_app_dirs() -> list[Path]:
     )
 
 
+def rust_example_app_dirs() -> list[Path]:
+    root = ROOT / "rust/examples"
+    if not root.exists():
+        return []
+    return sorted(
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir() and (directory / "Cargo.toml").exists()
+    )
+
+
+def rust_regression_app_dirs() -> list[Path]:
+    root = ROOT / RUST_REGRESSION_PARITY_ROOT
+    if not root.exists():
+        return []
+    return sorted(
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir() and (directory / "Cargo.toml").exists()
+    )
+
+
 def swift_example_packages() -> list[Path]:
     return sorted((ROOT / "swift/examples").glob("*/Package.swift"))
 
@@ -317,13 +383,16 @@ def ensure_native_uimd(build_dir: Path, *, config: str | None = None) -> Path:
     return native_uimd_path(build_dir, config=config)
 
 
-def generate_all(uimd: Path, *, include_swift: bool) -> None:
+def generate_all(uimd: Path, *, include_swift: bool, include_rust: bool) -> None:
     for path, target in GENERATE_TARGETS:
         run([uimd, "generate", path, "--target", target])
     if include_swift:
         path, target = SWIFT_GENERATE_TARGET
         run([uimd, "generate", path, "--target", target])
-    generate_regression_parity_if_available(uimd)
+    if include_rust:
+        path, target = RUST_GENERATE_TARGET
+        run([uimd, "generate", path, "--target", target])
+    generate_regression_parity_if_available(uimd, include_rust=include_rust)
 
 
 def build_csharp_example(name: str, configuration: str = "Debug") -> Path:
@@ -366,6 +435,31 @@ def run_go_tests() -> None:
     run_with_env([go, "test", "./..."], cwd=ROOT / "go/src/uimd", env=go_build_env())
 
 
+def build_all_rust_examples() -> None:
+    app_dirs = rust_example_app_dirs()
+    if not app_dirs:
+        raise FileNotFoundError("no Rust example apps found under rust/examples")
+    for app_dir in [*app_dirs, *rust_regression_app_dirs()]:
+        run(cargo_with_progress_command("build", "--release"), cwd=app_dir)
+
+
+def run_rust_tests() -> None:
+    run(cargo_with_progress_command("test"), cwd=ROOT / "rust/src/uimd")
+
+
+def run_rust_clippy() -> None:
+    run(
+        cargo_with_progress_command(
+            "clippy",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ),
+        cwd=ROOT / "rust/src/uimd",
+    )
+
+
 def build_all_swift_examples() -> None:
     packages = swift_example_packages()
     if not packages:
@@ -396,7 +490,24 @@ def run_go_direct_terminal_smoke(build_dir: Path) -> None:
     )
 
 
-def generate_regression_parity_if_available(uimd: Path) -> None:
+def run_rust_direct_terminal_smoke(build_dir: Path) -> None:
+    run(
+        [
+            sys.executable,
+            "tools/rust_direct_terminal_smoke.py",
+            "--cpp-build-dir",
+            build_dir,
+            "--rust-examples-dir",
+            "rust/examples",
+        ]
+    )
+
+
+def run_rust_mcp_transport_smoke() -> None:
+    run([sys.executable, "tools/rust_mcp_transport_smoke.py"])
+
+
+def generate_regression_parity_if_available(uimd: Path, *, include_rust: bool) -> None:
     regression_root = ROOT / REGRESSION_PARITY_ROOT
     if not regression_root.exists():
         print(f"==> skip regression parity generation: {REGRESSION_PARITY_ROOT} does not exist", flush=True)
@@ -406,6 +517,12 @@ def generate_regression_parity_if_available(uimd: Path) -> None:
             raise FileNotFoundError(f"regression parity generation root is missing: {path}")
     for path, target in REGRESSION_GENERATE_TARGETS:
         run([uimd, "generate", path, "--target", target])
+    if include_rust:
+        if not (ROOT / RUST_REGRESSION_PARITY_ROOT).exists():
+            raise FileNotFoundError(
+                f"regression parity generation root is missing: {RUST_REGRESSION_PARITY_ROOT}"
+            )
+        run([uimd, "generate", RUST_REGRESSION_PARITY_ROOT, "--target", "rust"])
 
 
 def regression_manifest_scripts() -> list[Path]:
@@ -426,12 +543,19 @@ def regression_manifest_scripts() -> list[Path]:
 def rebuild_all(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     validate_swift = should_validate_swift(args)
+    validate_rust = should_validate_rust(args)
     uimd = ensure_native_uimd(build_dir, config=args.config)
-    generate_all(uimd, include_swift=validate_swift)
+    generate_all(uimd, include_swift=validate_swift, include_rust=validate_rust)
     run(cmake_configure_args(build_dir))
     run(cmake_build_args(build_dir, config=args.config))
     build_all_csharp_examples(args.csharp_config)
     build_all_go_examples()
+    if validate_rust:
+        build_all_rust_examples()
+    elif args.no_rust:
+        print("==> skip Rust examples: --no-rust", flush=True)
+    else:
+        print("==> skip Rust examples: Rust validation is not enabled on Windows", flush=True)
     if validate_swift:
         build_all_swift_examples()
     elif args.no_swift:
@@ -556,6 +680,30 @@ def run_go_example_compare(
     run(command)
 
 
+def run_rust_example_compare(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+) -> None:
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--backend",
+        "python",
+        "--headless",
+        "--all",
+        "--compare",
+        build_dir / "examples",
+        "rust/examples",
+    ]
+    if mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", compare_app_size])
+    run(command)
+
+
 def run_regression_compare_if_available(
     uimd: Path,
     build_dir: Path,
@@ -641,10 +789,55 @@ def run_go_regression_compare_if_available(
     return None
 
 
+def run_rust_regression_compare_if_available(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+    config: str | None = None,
+) -> PhaseSkip | None:
+    cpp_root_path = regression_parity_cpp_build_root(build_dir)
+    cpp_root = ROOT / cpp_root_path
+    rust_root = ROOT / RUST_REGRESSION_PARITY_ROOT
+    manifest = ROOT / REGRESSION_PARITY_MANIFEST
+    if not cpp_root.exists() and not rust_root.exists() and not manifest.exists():
+        print(f"==> skip Rust regression parity compare: {RUST_REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        return PhaseSkip(f"{RUST_REGRESSION_PARITY_ROOT} does not exist")
+    if not cpp_root.exists() or not rust_root.exists() or not manifest.exists():
+        if not cpp_root.exists():
+            missing = cpp_root_path
+        elif not rust_root.exists():
+            missing = RUST_REGRESSION_PARITY_ROOT
+        else:
+            missing = REGRESSION_PARITY_MANIFEST
+        raise FileNotFoundError(f"Rust regression parity compare root is missing: {missing}")
+
+    for script in regression_manifest_scripts():
+        app_name = script.stem
+        command: list[str | Path] = [
+            uimd,
+            "mcp-test",
+            "--backend",
+            "python",
+            "--headless",
+            "--compare",
+            regression_cpp_binary_path(app_name, build_dir, config=config),
+            rust_regression_binary_path(app_name),
+            script,
+        ]
+        if mcp_fast:
+            command.append("--mcp-fast")
+        command.extend(["--compare-app-size", compare_app_size])
+        run(command)
+    return None
+
+
 def test_all(args: argparse.Namespace) -> None:
     phases: list[FullTestPhase] = []
     build_dir = Path(args.build_dir)
     validate_swift = should_validate_swift(args)
+    validate_rust = should_validate_rust(args)
     try:
         uimd = run_full_test_phase(
             phases,
@@ -655,7 +848,11 @@ def test_all(args: argparse.Namespace) -> None:
             run_full_test_phase(
                 phases,
                 "Generate UIMD sources",
-                lambda: generate_all(uimd, include_swift=validate_swift),
+                lambda: generate_all(
+                    uimd,
+                    include_swift=validate_swift,
+                    include_rust=validate_rust,
+                ),
             )
             run_full_test_phase(phases, "Configure CMake", lambda: run(cmake_configure_args(build_dir)))
             run_full_test_phase(
@@ -669,6 +866,20 @@ def test_all(args: argparse.Namespace) -> None:
                 lambda: build_all_csharp_examples(args.csharp_config),
             )
             run_full_test_phase(phases, "Build Go runtime, examples, regressions", build_all_go_examples)
+            if validate_rust:
+                run_full_test_phase(
+                    phases,
+                    "Build Rust runtime, examples, regressions",
+                    build_all_rust_examples,
+                )
+            elif args.no_rust:
+                record_skipped_phase(phases, "Build Rust runtime, examples, regressions", "--no-rust")
+            else:
+                record_skipped_phase(
+                    phases,
+                    "Build Rust runtime, examples, regressions",
+                    "Rust validation is not enabled on Windows",
+                )
             if validate_swift:
                 run_full_test_phase(phases, "Build Swift runtime and examples", build_all_swift_examples)
             elif args.no_swift:
@@ -690,11 +901,21 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Build C++ runtime, tools, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build C# runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Build Go runtime, examples, regressions", "--no-rebuild")
+            record_skipped_phase(phases, "Build Rust runtime, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build Swift runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
         run_full_test_phase(phases, "Python tests", run_python_tests)
         run_full_test_phase(phases, "CTest", lambda: run(ctest_args(build_dir, config=args.config)))
         run_full_test_phase(phases, "Go runtime tests", run_go_tests)
+        if validate_rust:
+            run_full_test_phase(phases, "Rust runtime tests", run_rust_tests)
+            run_full_test_phase(phases, "Rust clippy", run_rust_clippy)
+        elif args.no_rust:
+            record_skipped_phase(phases, "Rust runtime tests", "--no-rust")
+            record_skipped_phase(phases, "Rust clippy", "--no-rust")
+        else:
+            record_skipped_phase(phases, "Rust runtime tests", "Rust validation is not enabled on Windows")
+            record_skipped_phase(phases, "Rust clippy", "Rust validation is not enabled on Windows")
         if validate_swift:
             run_full_test_phase(phases, "Swift runtime tests", run_swift_tests)
             run_full_test_phase(
@@ -720,6 +941,19 @@ def test_all(args: argparse.Namespace) -> None:
                 "Go direct terminal smoke",
                 lambda: run_go_direct_terminal_smoke(build_dir),
             )
+        if validate_rust:
+            run_full_test_phase(
+                phases,
+                "Rust direct terminal smoke",
+                lambda: run_rust_direct_terminal_smoke(build_dir),
+            )
+            run_full_test_phase(phases, "Rust MCP transport smoke", run_rust_mcp_transport_smoke)
+        elif args.no_rust:
+            record_skipped_phase(phases, "Rust direct terminal smoke", "--no-rust")
+            record_skipped_phase(phases, "Rust MCP transport smoke", "--no-rust")
+        else:
+            record_skipped_phase(phases, "Rust direct terminal smoke", "Rust validation is not enabled on Windows")
+            record_skipped_phase(phases, "Rust MCP transport smoke", "Rust validation is not enabled on Windows")
         run_full_test_phase(
             phases,
             "MCP example compare",
@@ -765,6 +999,21 @@ def test_all(args: argparse.Namespace) -> None:
                 mcp_fast=not args.no_mcp_fast,
             ),
         )
+        if validate_rust:
+            run_full_test_phase(
+                phases,
+                "MCP Rust example compare",
+                lambda: run_rust_example_compare(
+                    uimd,
+                    build_dir,
+                    compare_app_size=args.compare_app_size,
+                    mcp_fast=not args.no_mcp_fast,
+                ),
+            )
+        elif args.no_rust:
+            record_skipped_phase(phases, "MCP Rust example compare", "--no-rust")
+        else:
+            record_skipped_phase(phases, "MCP Rust example compare", "Rust validation is not enabled on Windows")
         run_full_test_phase(
             phases,
             "MCP regression parity compare",
@@ -785,6 +1034,26 @@ def test_all(args: argparse.Namespace) -> None:
                 mcp_fast=not args.no_mcp_fast,
             ),
         )
+        if validate_rust:
+            run_full_test_phase(
+                phases,
+                "MCP Rust regression parity compare",
+                lambda: run_rust_regression_compare_if_available(
+                    uimd,
+                    build_dir,
+                    compare_app_size=args.compare_app_size,
+                    mcp_fast=not args.no_mcp_fast,
+                    config=args.config,
+                ),
+            )
+        elif args.no_rust:
+            record_skipped_phase(phases, "MCP Rust regression parity compare", "--no-rust")
+        else:
+            record_skipped_phase(
+                phases,
+                "MCP Rust regression parity compare",
+                "Rust validation is not enabled on Windows",
+            )
     finally:
         print_full_test_summary(phases)
 
@@ -898,6 +1167,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     rebuild = subparsers.add_parser("rebuild-all")
     rebuild.add_argument("--csharp-config", default="Debug")
     rebuild.add_argument("--no-swift", action="store_true")
+    rebuild.add_argument("--no-rust", action="store_true")
     rebuild.add_argument("--test", action="store_true")
     rebuild.set_defaults(func=rebuild_all)
 
@@ -907,6 +1177,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     all_tests.add_argument("--no-rebuild", action="store_true")
     all_tests.add_argument("--csharp-config", default="Debug")
     all_tests.add_argument("--no-swift", action="store_true")
+    all_tests.add_argument("--no-rust", action="store_true")
     all_tests.set_defaults(func=test_all)
 
     run_example = subparsers.add_parser("run-cpp-example")

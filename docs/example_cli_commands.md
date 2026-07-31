@@ -67,14 +67,17 @@ Windows PowerShell only:
 
 On POSIX, the helper runs the full local gate: regenerate/build all supported
 sources including reported-bug regression corpora, build C# examples, build
-Go examples, build Swift examples on POSIX when SwiftPM is available, compile
-Python sources, run Python unit tests, run C++ `ctest`, run Go runtime tests,
-run Swift runtime tests
-on POSIX, run direct Swift and Go terminal PTY smoke tests against C++, run
-Python/C++, C++/C#, C++/Swift, and C++/Go MCP example compare tests with
+Go examples, build Rust examples, build Swift examples on POSIX when SwiftPM
+is available, compile Python sources, run Python unit tests, run C++ `ctest`,
+run Go and Rust runtime tests plus Rust Clippy, run Swift runtime tests on
+POSIX, run direct Swift, Go, and Rust terminal PTY smoke tests against C++, run
+the Rust MCP transport smoke, run Python/C++, C++/C#, C++/Swift, C++/Go, and
+C++/Rust MCP example compare tests with
 `--compare-app-size 90x35`, and run the UIMD regression parity compare corpus
-for Python/C++ and C++/Go when `tests/regressions/uimd/parity` exists. Pass
+for Python/C++, C++/Go, and C++/Rust when
+`tests/regressions/uimd/parity` exists. Pass
 `--no-swift` to the POSIX helper only when the local Swift toolchain is
+intentionally unavailable, or `--no-rust` only when the local Rust toolchain is
 intentionally unavailable.
 
 The current Windows wrappers predate Go automation. Their sections below list
@@ -95,16 +98,23 @@ Equivalent explicit command sequence:
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml
+python3 tools/cargo_with_progress.py clippy --manifest-path rust/src/uimd/Cargo.toml --all-targets -- -D warnings
 swift test --package-path swift/src/Uimd
 python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
 python3 tools/go_direct_terminal_smoke.py --cpp-build-dir cpp/build --go-examples-dir go/examples
+python3 tools/rust_direct_terminal_smoke.py --cpp-build-dir cpp/build --rust-examples-dir rust/examples
+python3 tools/rust_mcp_transport_smoke.py
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples rust/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll rust/regressions/uimd/parity/source_separator_scroll/target/release/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus rust/regressions/uimd/parity/stale_scrollview_focus/target/release/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 Windows over SSH / cmd.exe:
@@ -115,7 +125,10 @@ Windows over SSH / cmd.exe:
 
 The Windows wrapper does not yet automate the Go-specific build, runtime, or
 headless MCP gates. Use this complete explicit sequence to include them; native
-Go direct-terminal validation remains POSIX-only:
+Go direct-terminal validation remains POSIX-only. Rust generation is available
+on Windows, but the Rust direct-terminal/runtime validation documented in this
+file is POSIX-only until a Windows console/ConPTY adapter is implemented and
+validated.
 
 ```bat
 .\tools\rebuild_all.cmd -Test
@@ -455,6 +468,73 @@ This Windows form validates generated source and compilation only. Do not use
 it as an interactive direct-terminal run command until the native Go Windows
 console/ConPTY adapter replaces the current POSIX `stty` terminal setup.
 
+## Rust Toolchain Prerequisite
+
+Rust commands require the official Rust toolchain. `cargo` is Rust's build,
+test, and package-management program; it is not bundled with UIMD. Check the
+toolchain before running any Rust command:
+
+```bash
+command -v cargo
+cargo --version
+rustc --version
+```
+
+On macOS/Linux, install the stable toolchain with the official `rustup`
+installer when `cargo` is missing:
+
+```bash
+curl https://sh.rustup.rs -sSf | sh
+source "$HOME/.cargo/env"
+rustup default stable
+rustup component add clippy
+cargo --version
+```
+
+Open a new terminal instead of running `source` if preferred. The normal
+installation places `cargo`, `rustc`, and `rustup` under `$HOME/.cargo/bin` and
+adds that directory to `PATH`. Repository commands must not depend on an
+agent-created toolchain under `/private/tmp`; such isolated toolchains are
+temporary and require their own explicit `CARGO_HOME`, `RUSTUP_HOME`, and
+executable path.
+
+All repository Rust commands below use `tools/cargo_with_progress.py`. The
+launcher resolves Cargo from `CARGO`, `PATH`, or `$HOME/.cargo/bin`, streams
+Cargo output immediately, and prints a timestamped heartbeat after every ten
+seconds without output. Therefore the documented commands work in an already
+open shell immediately after installation, even before that shell reloads its
+`PATH`. Use `--heartbeat-seconds N` before the Cargo subcommand to select a
+different interval. For `run`, the launcher first builds while monitoring Cargo,
+then starts the reported executable directly with the original terminal
+attached. Interactive Rust applications therefore keep keyboard, mouse, raw
+mode, and terminal teardown behavior instead of receiving a piped output stream.
+
+```bash
+python3 tools/cargo_with_progress.py --version
+```
+
+## Rust Examples
+
+The Rust direct-terminal runtime is implemented and validated on macOS/Linux
+POSIX terminals. Every command regenerates from the shared `.uimd` sources,
+builds a release binary, and runs it from the repository working directory.
+
+```bash
+./uimd generate rust/examples/activity_feed --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/activity_feed/Cargo.toml
+./uimd generate rust/examples/calculator --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/calculator/Cargo.toml
+./uimd generate rust/examples/cells --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/cells/Cargo.toml
+./uimd generate rust/examples/contacts_manager --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/contacts_manager/Cargo.toml
+./uimd generate rust/examples/expense_tracker --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/expense_tracker/Cargo.toml
+./uimd generate rust/examples/formular --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/formular/Cargo.toml
+./uimd generate rust/examples/image_browser --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/image_browser/Cargo.toml
+./uimd generate rust/examples/image_gallery --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/image_gallery/Cargo.toml
+./uimd generate rust/examples/markdown_viewer --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/markdown_viewer/Cargo.toml
+./uimd generate rust/examples/special_elements --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/special_elements/Cargo.toml
+./uimd generate rust/examples/task_board --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/task_board/Cargo.toml
+./uimd generate rust/examples/text_editor --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/text_editor/Cargo.toml
+./uimd generate rust/examples/widget_gallery --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/widget_gallery/Cargo.toml
+```
+
 ## Swift Examples
 
 macOS SwiftPM:
@@ -487,6 +567,8 @@ macOS SwiftPM:
 ./uimd generate csharp/examples --target csharp
 ./uimd generate go/examples --target go
 ./uimd generate go/regressions/uimd/parity --target go
+./uimd generate rust/examples --target rust
+./uimd generate rust/regressions/uimd/parity --target rust
 ./uimd generate swift/examples --target swift
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
@@ -506,6 +588,8 @@ POSIX raw form:
 ./uimd generate csharp/examples --target csharp
 ./uimd generate go/examples --target go
 ./uimd generate go/regressions/uimd/parity --target go
+./uimd generate rust/examples --target rust
+./uimd generate rust/regressions/uimd/parity --target rust
 ./uimd generate swift/examples --target swift
 ./uimd generate tests/regressions/uimd/parity/python --target python
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
@@ -514,6 +598,7 @@ cmake --build cpp/build
 for proj in csharp/examples/*/*.csproj; do dotnet build "$proj" --configuration Debug; done
 for dir in go/examples/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
 for dir in go/regressions/uimd/parity/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
+for manifest in rust/examples/*/Cargo.toml rust/regressions/uimd/parity/*/Cargo.toml; do python3 tools/cargo_with_progress.py build --release --manifest-path "$manifest"; done
 for package in swift/examples/*/Package.swift; do swift build --package-path "$(dirname "$package")"; done
 python3 -m compileall python src tests tools
 ```
@@ -547,6 +632,7 @@ python -m compileall python src tests tools
 cmake --build cpp/build --target uimd_mcp_tester
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k python_and_cpp_tester_backends_have_small_script_parity
+PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k target_request_failure_diagnostics_include_exit_code_and_bounded_stderr
 ```
 
 `./uimd mcp-test` defaults to the C++ tester. Use `--backend python` only when
@@ -620,6 +706,31 @@ go -C go\src\uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandal
 go -C go\src\uimd vet ./...
 ```
 
+## Rust Runtime Tests And Static Checks
+
+```bash
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::activate_button_after_text_tool_dispatches_before_render_like_cpp -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::click_element_refreshes_nested_scroll_row_frames_before_reading_the_centre -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::gui_tcp_server_keeps_accepted_stream_blocking_until_request_arrives -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::headless_http_accepts_a_later_client_while_the_first_request_is_delayed -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::headless_tcp_accepts_a_later_client_while_the_first_request_is_delayed -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::modal_button_uses_the_app_owned_frame_hook_before_dialog_behavior -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::generated_scroll_view_is_the_single_canonical_element_and_child_owner -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::modal_close_reactivates_a_live_invoking_scroll_scope_like_cpp -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_modal_opening_uses_one_flat_root_window_stack -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_scroll_combo_box_overlay_has_no_ancestor_local_ghost -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml terminal::tests::non_tty_input_keeps_the_terminal_lifecycle_available_for_gui_mcp -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml tests::public_runtime_version_is_the_cargo_package_version -- --exact
+python3 tools/cargo_with_progress.py clippy --manifest-path rust/src/uimd/Cargo.toml --all-targets -- -D warnings
+python3 -m pytest python/tests/test_cargo_with_progress.py
+```
+
+The repository uses Allman braces for new brace-language code. `cargo fmt
+--check` is therefore not a gate while standard `rustfmt` rewrites those braces
+to K&R style; do not apply that rewrite to generated or hand-written Rust UIMD
+sources.
+
 ## Swift Direct Terminal Smoke Tests
 
 ```bash
@@ -640,6 +751,22 @@ Quit, SGR mouse press/drag/release, Ctrl+C, title, alternate-screen setup,
 full-frame writes, and terminal teardown. A native Windows direct-terminal
 smoke remains blocked on the Windows console or ConPTY runtime adapter; Windows
 headless MCP commands are documented below.
+
+## Rust Direct Terminal And MCP Transport Smoke Tests
+
+macOS/Linux POSIX terminals:
+
+```bash
+python3 tools/rust_direct_terminal_smoke.py --cpp-build-dir cpp/build --rust-examples-dir rust/examples
+python3 tools/rust_mcp_transport_smoke.py
+```
+
+The direct-terminal smoke covers title and alternate-screen setup, normal and
+signal teardown, direct key framing and modifiers, paste, mouse selection and
+copy notification, standard-dialog Escape flash, bounded image redraw/Sixel
+output, and explicit Quit. The MCP smoke covers stdio, TCP, HTTP,
+batch/notification behavior, generated metadata/app-tool schemas, and clear
+failure for unsupported transports.
 
 ## Native CLI Smoke Tests
 
@@ -919,6 +1046,31 @@ Windows cmd.exe headless all-example and regression form:
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
+## C++/Rust MCP Compare Tests
+
+Build the Rust examples and regressions in release mode before running these
+POSIX comparisons.
+
+```bash
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples rust/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed rust/examples/activity_feed/target/release/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator rust/examples/calculator/target/release/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/cells/cells rust/examples/cells/target/release/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/contacts_manager/contacts_manager rust/examples/contacts_manager/target/release/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/expense_tracker/expense_tracker rust/examples/expense_tracker/target/release/expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/formular/formular rust/examples/formular/target/release/formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_browser/image_browser rust/examples/image_browser/target/release/image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery rust/examples/image_gallery/target/release/image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery rust/examples/image_gallery/target/release/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/markdown_viewer/markdown_viewer rust/examples/markdown_viewer/target/release/markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/special_elements/special_elements rust/examples/special_elements/target/release/special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/task_board/task_board rust/examples/task_board/target/release/task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/text_editor/text_editor rust/examples/text_editor/target/release/text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/widget_gallery/widget_gallery rust/examples/widget_gallery/target/release/widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll rust/regressions/uimd/parity/source_separator_scroll/target/release/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus rust/regressions/uimd/parity/stale_scrollview_focus/target/release/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
+```
+
 ## Compare MCP Tests
 
 Recommended cross-platform helper commands:
@@ -1068,3 +1220,17 @@ covered by:
 ```bash
 python3 tools/native_uimd_parity.py --compile-examples
 ```
+
+Rust source-checkout scaffold build smoke on macOS/Linux:
+
+```bash
+repo_root="$PWD"
+work_dir="$(mktemp -d)"
+cd "$work_dir"
+"$repo_root/uimd" new hello --target rust
+"$repo_root/uimd" generate hello.uimd --target rust
+python3 "$repo_root/tools/cargo_with_progress.py" build --release
+```
+
+Installed-SDK Rust target lookup and external-project compilation are also
+covered by `python3 tools/native_uimd_parity.py --compile-examples`.

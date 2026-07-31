@@ -1,0 +1,12 @@
+[package]
+name = "task_board"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "task_board"
+path = "task_board.rs"
+
+[dependencies]
+serde_json = "1"
+uimd = { path = "../../src/uimd" }

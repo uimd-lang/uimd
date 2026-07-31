@@ -55,6 +55,7 @@ DEFAULT_COMPARE_VIEWPORT_HEIGHT = 40  # fallback only; compare mode defaults to 
 REQUEST_RETRY_COUNT = 3
 REQUEST_RETRY_DELAY_SECONDS = 0.05
 OUTPUT_READ_BYTES = 4096
+TARGET_STDERR_TAIL_BYTES = 16384
 OUTPUT_WRITE_LOCK = threading.Lock()
 OUTPUT_IDLE_SECONDS = 0.03
 OUTPUT_IDLE_TIMEOUT_SECONDS = 0.5
@@ -558,6 +559,9 @@ class TargetApp:
         self.output_master_fd = None
         self.output_pipe = None
         self.output_thread = None
+        self.stderr_thread = None
+        self.stderr_tail = bytearray()
+        self.stderr_tail_lock = threading.Lock()
         self.pseudo_console = None
         self.next_request_id = 1
         self.request_id_lock = threading.Lock()
@@ -612,6 +616,8 @@ class TargetApp:
         os.close(slave_fd)
         self.output_thread = threading.Thread(target=self._drain_output, daemon=True)
         self.output_thread.start()
+        self.stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self.stderr_thread.start()
 
     def _start_with_conpty(self, command, process_env):
         self.pseudo_console = _WindowsPseudoConsole(self.viewport)
@@ -648,6 +654,12 @@ class TargetApp:
         if self.output_thread is not None:
             self.output_thread.join(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
             self.output_thread = None
+        if self.stderr_thread is not None:
+            self.stderr_thread.join(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+            self.stderr_thread = None
+        stderr = getattr(self.process, "stderr", None)
+        if stderr is not None:
+            stderr.close()
         close_process = getattr(self.process, "close", None)
         if callable(close_process):
             close_process()
@@ -683,6 +695,39 @@ class TargetApp:
                 else:
                     sys.stdout.write(data.decode("utf-8", errors="replace"))
                     sys.stdout.flush()
+
+    def _drain_stderr(self):
+        stream = getattr(self.process, "stderr", None) if self.process is not None else None
+        if stream is None:
+            return
+        while True:
+            try:
+                data = stream.buffer.read(OUTPUT_READ_BYTES) if hasattr(stream, "buffer") else stream.read(OUTPUT_READ_BYTES)
+            except (OSError, ValueError):
+                return
+            if not data:
+                return
+            if isinstance(data, str):
+                data = data.encode("utf-8", errors="replace")
+            self._append_stderr(data)
+
+    def _append_stderr(self, data):
+        with self.stderr_tail_lock:
+            self.stderr_tail.extend(data)
+            excess = len(self.stderr_tail) - TARGET_STDERR_TAIL_BYTES
+            if excess > 0:
+                del self.stderr_tail[:excess]
+
+    def _request_failure_diagnostics(self):
+        exit_code = self.process.poll() if self.process is not None else None
+        if exit_code is not None and self.stderr_thread is not None:
+            self.stderr_thread.join(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
+        with self.stderr_tail_lock:
+            stderr = bytes(self.stderr_tail).decode("utf-8", errors="replace").strip()
+        status = "running" if exit_code is None else f"exit code {exit_code}"
+        if stderr:
+            return f"{status}; stderr: {stderr}"
+        return f"{status}; stderr was empty"
 
     def _close_output(self):
         if self.pseudo_console is not None:
@@ -771,6 +816,13 @@ class TargetApp:
                     sock.settimeout(timeout)
                     sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
                     return _read_json_line(sock)
+            except RuntimeError as exc:
+                if str(exc) == "empty MCP response":
+                    raise RuntimeError(
+                        f"{self.name}: empty MCP response "
+                        f"({self._request_failure_diagnostics()})"
+                    ) from exc
+                raise
             except OSError as exc:
                 last_error = exc
                 if attempt >= REQUEST_RETRY_COUNT or self._process_exited():
@@ -811,8 +863,9 @@ class TargetApp:
         last_error = None
         while time.monotonic() < deadline:
             if self.process is not None and self.process.poll() is not None:
-                stderr = self.process.stderr.read() if self.process.stderr else ""
-                raise RuntimeError(f"{self.name} exited early: {stderr.strip()}")
+                raise RuntimeError(
+                    f"{self.name} exited early: {self._request_failure_diagnostics()}"
+                )
             try:
                 self.call_tool("get_window")
                 return
@@ -2662,6 +2715,8 @@ def _compare_target_name(path, index):
         return "csharp"
     if "swift" in parts:
         return "swift"
+    if "rust" in parts:
+        return "rust"
     base = _target_name_from_path(str(path))
     return base or f"app_{index + 1}"
 
@@ -2688,8 +2743,12 @@ def _app_path_from_examples_root(examples_root, name):
         os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.dll"),
         os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.exe"),
         os.path.join(examples_root, name, "bin", "Release", "net*", name),
-        os.path.join(examples_root, name, ".build", "debug", name),
         os.path.join(examples_root, name, ".build", "release", name),
+        os.path.join(examples_root, name, ".build", "debug", name),
+        os.path.join(examples_root, name, "target", "release", f"{name}.exe"),
+        os.path.join(examples_root, name, "target", "release", name),
+        os.path.join(examples_root, name, "target", "debug", f"{name}.exe"),
+        os.path.join(examples_root, name, "target", "debug", name),
         os.path.join(examples_root, f"{name}.py"),
         os.path.join(examples_root, f"{name}.exe"),
     ]

@@ -1,0 +1,46 @@
+# Expenses List
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: experimental
+description: "Scrollable list of interactive expense rows."
+tags: [component, example]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - ../expense_row/expense_row
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#172033"
+@panel:
+  gap: 1
+  padding: 1
+  background: "#172033"
+```
+
+## User Interface
+
+```ui
++-panel-**---------------------------------------------+
+|                                                      |
+|                                                      |
+|                                                      |
+|                                                      |
+*                                                      |
+*                                                      |
+|                                                      |
++------------------------------------------------------+
+```

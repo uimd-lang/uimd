@@ -1,0 +1,55 @@
+# Message Box
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: dialog
+status: stable
+description: "Message Box UI source."
+tags: [dialog]
+```
+
+## Members
+
+```yaml
+dialog_header:
+  type: label
+  text: Message
+
+message:
+  type: label
+  text: ""
+
+ok_btn:
+  type: button
+  title: OK
+
+cancel_btn:
+  type: button
+  title: Cancel
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+```
+
+## User Interface
+
+```ui
++--------------------------------------------+
+|dialog_header...............................|
++--------------------------------------------+
+|                                            |
+|  message.................................  |
+|  ........................................  |
+|                                            |
+|   ok_btn............  cancel_btn........   |
+|                                            |
++--------------------------------------------+
+```

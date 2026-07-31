@@ -741,6 +741,14 @@ def package_release(
     copy_tree(root / "cpp" / "third_party" / "stb", go_target / "third_party" / "stb")
     copy_file(root / "LICENSE", go_target / "LICENSE")
 
+    rust_target = payload_dir / "targets" / "rust"
+    copy_tree(root / "rust" / "src" / "uimd", rust_target)
+    copy_file(
+        root / "cpp" / "third_party" / "stb" / "stb_image.h",
+        rust_target / "vendor" / "stb" / "stb_image.h",
+    )
+    copy_file(root / "LICENSE", rust_target / "LICENSE")
+
     examples_target = payload_dir / "examples"
     copy_tree(root / "python" / "examples", examples_target / "python")
     copy_tree(root / "cpp" / "examples", examples_target / "cpp")
@@ -752,6 +760,7 @@ def package_release(
         examples_target / "go",
         excluded_relative_paths=go_example_binary_paths(go_examples),
     )
+    copy_tree(root / "rust" / "examples", examples_target / "rust")
     copy_tree(root / "shared", examples_target / "shared")
 
     manifest_path = write_manifest(release_dir, version, payload_dir)

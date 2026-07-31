@@ -1,0 +1,12 @@
+[package]
+name = "widget_gallery"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "widget_gallery"
+path = "widget_gallery.rs"
+
+[dependencies]
+serde_json = "1"
+uimd = { path = "../../src/uimd" }

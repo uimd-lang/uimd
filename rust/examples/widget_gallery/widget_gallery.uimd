@@ -1,0 +1,199 @@
+# Widget Gallery
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: stable
+description: "Widget gallery demonstrating labels, selectable text, span labels, animated text, text input, number input, checkbox, combobox, listbox, and action buttons."
+tags: [example]
+```
+
+## Members
+
+```yaml
+header:
+  type: label
+  text: "Widget Gallery"
+  description: "Window title."
+  expose: false
+
+close_btn:
+  type: button
+  title: Quit
+  description: "Close the widget gallery."
+
+plain_label:
+  type: label
+  text: "Plain label with inherited theme colors."
+  description: "Plain label using inherited theme colors."
+
+selectable_label:
+  type: label
+  text: "Select this text with the mouse to test label selection."
+  description: "Selectable label used to test mouse text selection."
+
+spans:
+  type: spanlabel
+  text: "span label"
+  description: "Span label demonstrating mixed foreground and background styling."
+
+animation:
+  type: label
+  text: "Animated label shows gradient-based rendering."
+  description: "Animated gradient label."
+
+name_label:
+  type: label
+  text: Name
+  description: "Label for the name input."
+
+name_input:
+  type: textinput
+  value: "Ada Lovelace"
+  maxlength: 80
+  description: "Editable name text input."
+
+count_label:
+  type: label
+  text: Count
+  description: "Label for the count input."
+
+count_input:
+  type: numberinput
+  value: 3
+  step_size: 1
+  min_value: 0
+  max_value: 99
+  format_str: 0
+  description: "Numeric count input with min, max, and step constraints."
+
+enabled_check:
+  type: checkbox
+  title: "Feature enabled"
+  value: 1
+  description: "Toggle for the feature enabled state."
+
+theme_label:
+  type: label
+  text: Theme
+  description: "Label for the theme selector."
+
+theme_combo:
+  type: combobox
+  options: [Dark, Light, Solarized]
+  selected_item: Dark
+  description: "Combobox selecting a visual theme value."
+
+mode_label:
+  type: label
+  text: Mode
+  description: "Label for the mode list."
+
+mode_list:
+  type: listbox
+  options: [Preview, Edit, Review, Publish, Archive]
+  selected_items: [Preview]
+  multiple: "false"
+  description: "Single-select listbox choosing the current workflow mode."
+
+apply_btn:
+  type: button
+  title: Apply
+  description: "Apply the current widget values."
+
+reset_btn:
+  type: button
+  title: Reset
+  description: "Reset widget values to defaults."
+
+summary:
+  type: label
+  text: "values:\n  name: Ada Lovelace\n  count: 3\n  theme: Dark\n  mode: Preview\n  enabled: true"
+  description: "Read-only summary of current widget values."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+@header:
+  text-align: center
+  background: "#18324f"
+  color: "#ffffff"
+@close_btn:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+  color: "#ffffff"
+@title:
+  background: "#18324f"
+@selectable_label:
+  user-select: text
+  color: "#a7f3d0"
+@spans:
+  user-select: text
+  color: "#cbd5e1"
+@animation:
+  color: "#fbbf24"
+  text-color-gradient:
+    interval: 100
+    step: 1
+    segment-size: 1
+    colors: ["#00000099", "#00000066", "#00000033", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000033", "#00000066", "#00000099"]
+textinput:
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+numberinput:
+  cursor-background: "#facc15"
+  cursor-color: "#111827"
+checkbox:
+  color: "#d1d5db"
+  checked-color: "#22c55e"
+  unchecked-color: "#f97316"
+@summary:
+  background: "#0d1524"
+  color: "#dbeafe"
+```
+
+## User Interface
+
+```ui
++-title------------------------------------------------+
+| header................................ close_btn.....|
++-label_section----------------------------------------+
+|                                                      |
+|  plain_label.......................................  |
+|                                                      |
+|  selectable_label..................................  |
+|                                                      |
+|  spans.............................................  |
+|                                                      |
+|  animation.........................................  |
+|                                                      |
++-control_section-----------+--section2----------------+
+|  name_label               |  theme_label             |
+|  name_input.............  |   theme_combo..........  |
+|                           |                          |
+|  count_label              |  mode_label              |
+|  count_input............  |  mode_list.............  |
+|                           |  ......................  |
+|  enabled_check..........  |  ......................  |
+|                           |  ......................  |
+|                           |  ......................  |
++---------------------------+--------------------------+
+|                                                      |
+|  summary...........................................  |
+|  ..................................................  |
+|  ..................................................  |
+|  ..................................................  |
+|  ..................................................  |
+|  ..................................................  |
+|                                                      |
+|  apply_btn..............  reset_btn................  |
+|                                                      |
++------------------------------------------------------+
+```

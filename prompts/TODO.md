@@ -4,6 +4,1472 @@
 
 Date: 2026-06-21
 
+- [ ] **Make the complete Rust runtime and native Rust generator structurally
+  and behaviorally 1:1 with C++**. Reopened by user report on 2026-07-28 after
+  direct validation showed that TextArea behavior and Sixel rendering still
+  differ from C++ despite broad MCP compares passing. Audit only before any
+  further implementation: compare Python shared semantics under
+  `src/uimd/runtime`, every corresponding public/state/render/input/dialog/MCP
+  path under `cpp/{include/ui,src,dialogs}`, the canonical native compiler and
+  C++/Rust generators under `cpp/tools/uimd`, and the complete Rust port under
+  `rust/src/uimd` plus representative generated outputs. Produce a concrete
+  inventory of equivalent, structurally divergent, behaviorally missing,
+  primitive-specific, and untested surfaces with exact paths, classes,
+  methods, state fields, event order, and validation gaps. Expand this task
+  with every discovered difference, required 1:1 remediation, and focused test
+  gate, then stop for user review before changing runtime, generator, examples,
+  tests, or snapshots. C++ is the structural/native oracle and Python remains
+  the shared semantic oracle; Rust-specific logic is allowed only as the
+  smallest language/OS adapter around identical public behavior.
+
+  **Audit result (2026-07-28; implementation intentionally not started):**
+  Rust is not currently structurally or behaviorally 1:1 with C++. The broad
+  C++/Rust MCP compares prove only the routes asserted by those scripts; they
+  do not cover the divergent state models and public APIs below. Complete the
+  following open tasks in dependency order rather than applying more isolated
+  Rust-only fixes:
+
+  - [x] **Replace the monolithic Rust element model with structural equivalents
+    of the C++ public element/control hierarchy.** C++ owns the base tree,
+    identity, parent/child ownership, commit mode, liveness protection, and
+    typed controls in `cpp/include/ui/core/Element.hpp`,
+    `cpp/include/ui/app/{Application,Window,Control}.hpp`, and
+    `cpp/include/ui/elements/*.hpp`. Rust currently puts nearly every
+    control-specific value, cursor, selection, option, image, and child-window
+    field into one `Element` selected by `ElementKind` in
+    `rust/src/uimd/src/elements.rs`, exposes generic
+    `Rc<RefCell<Element>>` members, and has no equivalent parent pointer/live
+    element contract or public `Application`/`Window`/`Control` architecture.
+    Port the same class responsibilities, state ownership, parent/child
+    traversal, identity/liveness checks, typed public methods, and render-state
+    roles; keep `Rc`/borrowing only as the smallest Rust memory adapter.
+    Validate stale/replaced child handling, typed generated members, public API
+    compile tests, focus ownership, and parent-background rendering against
+    C++.
+
+    Follow-up audit on 2026-07-28 found two remaining base-element deviations
+    after the state variants, typed refs, parent links, identity/liveness
+    registry, and public control APIs were ported. Rust `ElementBase` still
+    stores `id` as a second qualified-name cache even though C++ stores only
+    `Element::name()` and resolves paths through the live tree, and it stores
+    an always-true `visible` flag absent from C++ while the MCP contract reports
+    visibility from the live element. Remove both duplicate state fields,
+    compute qualified IDs during traversal/snapshot routing from existing
+    parent/owner relationships, and keep focus/hit/render/MCP behavior 1:1.
+    Add replacement/reusable/ScrollView ID regressions plus public snapshot
+    coverage before marking this structural task complete.
+
+  - [x] **Port the complete generated-window runtime options and explicit
+    window-stack frame model 1:1.** Reference
+    `cpp/include/ui/generated/{GeneratedWindowBase,GeneratedWindowRuntime}.hpp`
+    and `cpp/src/generated/GeneratedWindowRuntime.cpp`. C++ stores each
+    frame's bounds, focused index, edit mode, active ScrollView/edit child,
+    suppression flags, edit snapshot, remembered descendants, and per-frame
+    callbacks, including pre-focused key, mouse-before-focused, wheel,
+    edit-started, focus, close, overlay rendering, and overlay dim policy.
+    `rust/src/uimd/src/runtime.rs` instead has a small
+    `GeneratedWindowRuntimeOptions`, nested `modal_windows`, a generic
+    interaction snapshot, and global `GeneratedApplication::handle_window_*`
+    bridges. Port the same frame fields, callback ownership, event ordering,
+    cleanup order, top-window routing, modal capture/restore, and overlay
+    contract. Remove app-specific active-dialog/class-name dispatch from Rust
+    examples after the runtime owns it. Validate modal push/pop, replaced
+    descendants, Escape flash, scroll-scope restoration, first returned frame,
+    mouse capture, and all post-event cleanup transitions.
+
+  - [x] **Port `TextInput`/`TextArea` state and behavior exactly, replacing the
+    partial selection-only correction.** Reference
+    `cpp/include/ui/elements/TextInput.hpp` and
+    `cpp/src/elements/BasicElements.cpp`; confirm shared semantics in
+    `src/uimd/runtime/elements.py`. Rust
+    `elements.rs::new_text_input()` currently ignores its `_max_length`,
+    `new_text_area()` has no maximum-length argument, and the shared generic
+    element lacks C++ `maxLength_`, distinct column/row scroll offsets, and
+    `manualRowScroll_`. `handle_text_key()` lacks the C++ Alt+Left/Right
+    five-step, Alt+Up/Down three-visual-row, and Alt+Enter transitions.
+    Single-line rendering recomputes its visible offset rather than preserving
+    the same state and clipping behavior. TextArea rendering computes a local
+    row offset while `cursor_for_point()` uses the stored generic offset, so
+    wheel scrolling, visible rows, mouse placement, and drag selection can
+    disagree; Rust MCP mouse movement also lacks C++ drag-outside auto-scroll.
+    Cursor/selection indices must use one C++-equivalent UTF-8 source-index
+    contract throughout rather than mixing Rust character indices with
+    byte-based visual glyph offsets. Port the exact fields, movement/selection
+    state machine, maximum-length enforcement, manual wheel behavior,
+    rendering, point mapping, replacement/copy, and edit cleanup. Add
+    case-driven unit and real-PTY tests for every C++ key, Unicode, max length,
+    non-edit clipping, multiline wheel, drag outside, copy/replacement, and
+    re-entry transition.
+
+  - [x] **Port `NumberInput` as its own C++-equivalent control state machine.**
+    Reference `cpp/include/ui/elements/NumberInput.hpp` and
+    `cpp/src/elements/BasicElements.cpp`. C++ owns value, configurable step,
+    edit text/cursor, original value, editing, and replace-first state with
+    explicit begin/cancel/commit operations. Rust stores generic number/text
+    fields, has no constructor step, hardcodes increment/decrement by one, and
+    relies on window-level snapshots for rollback. Port the same fields,
+    methods, parsing/formatting, key order, step behavior, blur/confirm/Escape
+    transitions, and public API. Validate non-default steps, zero replacement,
+    invalid text, mouse blur, and modal/edit cleanup against C++.
+
+  - [x] **Port the missing typed control behavior and render-state surface.**
+    `FrameBufferView` in
+    `cpp/include/ui/elements/FrameBufferView.hpp` and
+    `cpp/src/elements/FrameBufferView.cpp` owns named frames, target order,
+    regions, pan, dimming, interaction state, and corner overlays; Rust only
+    has an enum value/constructor and currently falls through to ordinary label
+    rendering. C++ `InfoLabel` applies its standard animated gradient while
+    Rust falls through to the base label renderer. C++ `ViewHost` in
+    `ReusableElement.hpp` has a dedicated `setView`/`clearView`/`currentView`
+    contract, while Rust stores a generic child window on every element.
+    `ElementRenderState::passiveFocus` is also absent in Rust. Port those APIs
+    and algorithms and audit every remaining concrete control class, including
+    selectable Label behavior. C++ supports one drag selection across multiple
+    labels and reusable/ScrollView children through its scroll-selection model;
+    Rust tracks only one selection element/anchor. Validate each control's
+    public API, default style, state precedence, cross-label copy, reusable
+    traversal, animation, pan/dim/overlay, and focus rendering.
+
+  - [x] **Unify and port `ScrollView` as one C++-equivalent type and state
+    machine.** Reference `cpp/include/ui/elements/ScrollView.hpp` and
+    `cpp/src/elements/ScrollView.cpp`. Rust currently splits ScrollView
+    behavior between a generic `ElementKind::ScrollView` in `elements.rs` and
+    generated-window-owned rendered/dynamic-child state in `runtime.rs`. It
+    does not expose the same rendered/actual/dynamic child model, height-cache
+    invalidation, scroll/view/horizontal offsets, content window and child
+    views, save/restore contract, item/line/page/top/bottom/horizontal methods,
+    wheel line sizing/can-scroll queries, child visibility, or pending terminal
+    scroll delta. Port the exact state roles and algorithms into one canonical
+    Rust ScrollView and make generated windows consume it. Validate static,
+    dynamic, and reusable children, growth/shrink restoration, bottom
+    preservation, horizontal range, focus entry/exit, clipping, wheel routing,
+    terminal scroll hints, and both parity regression apps.
+
+  - [x] **Port the complete C++ `TerminalBuffer` ownership and presentation
+    lifecycle before making another local Sixel-diff patch.** Reference
+    `cpp/include/ui/terminal/TerminalBuffer.hpp`,
+    `cpp/src/terminal/TerminalBuffer.cpp`, and scroll-region scheduling in
+    `cpp/src/generated/GeneratedWindowRuntime.cpp`. C++ owns current and
+    previous cells, full-redraw requests, render statistics, whole/region
+    diffing, terminal scroll-region updates, and rejects scroll optimization
+    whenever raw/raw-skip cells occur in either current or previous state.
+    Rust `core.rs::TerminalBuffer` owns only current cells and
+    `runtime.rs::write_ansi_frame_diff()` is a free current/optional-previous
+    function with no equivalent region diff, render stats, scroll-region hint,
+    or pending-delta lifecycle. The earlier raw-anchor fix copied one
+    transition but not this architecture, so modal, scroll, resize, raw-image,
+    and previous-frame invalidation can still diverge and cause the reported
+    iTerm2 artifacts. Port the full ownership, invalidation, synchronized
+    update, raw-overlap, region-scroll, resize, and modal frame sequence.
+    Validate raw cells in current and previous frames, overlapping text,
+    changed/removed anchors, scroll regions, modal open/close, resize, idle
+    frames, and bounded emitted bytes.
+
+  - [ ] **Port the complete image/Sixel pipeline and fallback contract.**
+    Reference `cpp/include/ui/elements/Image.hpp`,
+    `cpp/src/elements/Image.cpp`, terminal cell metrics in
+    `cpp/src/terminal`, generated Sixel requirements in
+    `cpp/tools/uimd/NativeCppGenerator.cpp`, and the standard fallback warning
+    in `GeneratedWindowRuntime.cpp`. Rust has matching broad capability
+    heuristics and similar raster/geometry cache keys, but uses only its custom
+    encoder rather than the C++ libsixel-plus-fallback path, starts from
+    default cell pixels instead of the same ioctl/query order, emits no
+    generated `requireSixelForImageRendering` equivalent, and lacks the
+    canonical Continue/Abort warning when fallback is required. Combine this
+    with the TerminalBuffer port; do not patch `image_browser`, force fallback,
+    add delays, or mask screenshots. Validate decoder/encoder parity, cache
+    invalidation/eviction, cell metric changes, every crop edge, overlapping
+    modal/background images, unsupported-terminal warning flow, real Sixel
+    payload metadata, and saved before/after-scroll/focus/modal/resize
+    screenshots in iTerm2.
+
+  - [x] **Port terminal backend, event, and clipboard architecture with only
+    minimal POSIX/Rust adapters.** Reference
+    `cpp/include/ui/terminal/{Input,TerminalBackend}.hpp`,
+    `cpp/src/terminal/{Input,TerminalBackend,Clipboard}.cpp`, and generated
+    runtime dispatch. Rust's private event type and monolithic POSIX guard/input
+    loop do not mirror the C++ backend abstraction and complete event model.
+    Rust waits to disambiguate standalone Escape while C++ dispatches through
+    its parser/backend framing, toggles terminal autowrap differently, and
+    combines terminal-pixel queries with entry rather than the C++ detection
+    order. Rust clipboard command coverage omits C++ `xsel` and macOS
+    `osascript` write fallbacks and reads the external pasteboard back into
+    runtime state where C++ uses its internal clipboard contract. Preserve the
+    already-matching CSI/SS3/modifier/paste/mouse/pixel parser cases, but port
+    the same logical events, dispatch order, terminal entry/teardown bytes,
+    resize/focus lifecycle, clipboard chain, and copy/paste state. Explicitly
+    document and test any unavoidable lone-Escape timing adapter.
+
+  - [x] **Port core color/text-visual/layout public contracts exactly.**
+    Reference `cpp/include/ui/core`, `cpp/src/core/{Color,TextVisual}.cpp`, and
+    the public layout types. Rust color parsing accepts only long hex forms,
+    so valid C++ `#RGB` values differ. Rust exposes `visual_glyphs` and a
+    zero-column `visible_width`, but lacks C++ `safeTerminalCellText`,
+    `visibleText`, and start-column-aware width APIs; this also contributes to
+    inconsistent TextArea source indices. Port validation, short/long
+    hex/alpha/named-color semantics, safe terminal-cell text, visible text,
+    source offsets, tab/wide/combining behavior, and corresponding public
+    layout/tree responsibilities. Prove generated layout resolution against
+    C++ case by case rather than relying only on final snapshots.
+
+  - [x] **Generate and own standard dialogs through concrete Rust dialog
+    objects and the universal stack.** The shared dialog `.uimd` sources are
+    already present, but C++ concrete behavior lives in
+    `cpp/dialogs/{message_box,file_browser}.{hpp,cpp}` with object-owned
+    callbacks, result/closed state, per-frame runtime options, FileBrowser
+    double-click routing, and overwrite flow. `rust/src/uimd/src/dialogs.rs`
+    returns bare `GeneratedWindow` values plus free handler functions, and Rust
+    examples inspect active class names and manually route
+    `handle_window_*` callbacks. Port concrete MessageBox/FileBrowser
+    responsibilities and callback/result state; move double-click,
+    directory/file commit, Escape, overwrite, and nested-modal behavior into
+    the canonical dialog/runtime path and remove all example bridges. Validate
+    keyboard, mouse, double click, open/save/overwrite, Escape flash, nested
+    modal return, MCP, and direct-terminal behavior.
+
+  - [x] **Port the complete concurrent C++ MCP runtime lifecycle, not only its
+    tool inventory.** Basic Rust tool names, schemas, aliases, and
+    stdio/TCP/HTTP request routes are broadly equivalent under current tests.
+    C++ nevertheless has GUI/headless selection, action/type delays,
+    wait-render/controlled-render options, recursive UI synchronization,
+    condition-variable/render-generation state, full-redraw coordination, and
+    concurrent background transports. Rust's smaller config omits those
+    controls and branches into `serve_mcp()` instead of running MCP alongside
+    an interactive UI; its listener mutates one app serially without the same
+    shared render-generation contract. Port the configuration, synchronization,
+    server/application lifecycle, observation points, active top-window
+    routing, and post-tool cleanup order. Add C++-case-driven protocol/state
+    tests for GUI plus MCP, headless, controlled rendering, delays, batch and
+    notification requests, concurrent clients, modal tools, edit/selection
+    cleanup, and app tools.
+
+  - [x] **Make the native Rust emitter consume the same canonical compiled
+    model and property semantics as the C++ emitter.** The CLI remains
+    correctly owned by `cpp/tools/uimd`, but
+    `NativeRustGenerator.cpp::compileRustFile()` reparses a `NativeDocument`
+    and independently duplicates style/theme/metadata/MCP/event/member
+    interpretation instead of consuming the
+    `CompilerDocument`/dependency model used by
+    `NativeCppGenerator.cpp`. Concrete drift already exists: C++ reads
+    `maxlength`, while Rust reads nonexistent `max-length` and then ignores
+    it; C++ emits NumberInput `step_size`/`step`, while Rust emits no step;
+    Rust accepts fewer Image property aliases; single-file Rust generation
+    does not resolve and instantiate `uses` dependencies like C++; generated
+    members are all generic `ElementRef`; and no generated Sixel-requirement
+    call is emitted. Extract/reuse one backend-neutral native compiler model and
+    shared property/alias/dependency semantics, then keep only Rust syntax and
+    build-file emission target-specific. Validate directory and single-file
+    dependency generation, typed reusable children, every member property and
+    alias, metadata/MCP/app tools, relevant event hooks, Sixel requirements,
+    scaffold/local/installed SDK builds, and representative generated diffs.
+
+  - [ ] **Close the structural coverage gaps before calling Rust complete
+    again.** Existing Rust tests and full MCP compares do not exercise maximum
+    length, NumberInput step, Alt text movement, manual TextArea wheel/drag,
+    Unicode source indices, cross-label selection, default InfoLabel animation,
+    FrameBufferView, ViewHost, short hex, complete ScrollView APIs,
+    current/previous raw terminal-scroll interaction, dialog object ownership,
+    generator single-file dependencies, or concurrent GUI+MCP behavior. Add
+    C++-case-driven Rust unit/API tests, direct PTY cases, protocol tests, and
+    real iTerm2 visual routes for those exact surfaces. After all structural
+    tasks pass, regenerate and build both C++ and Rust for every affected
+    example, then run Rust tests/Clippy, native generator/SDK parity, all
+    C++/Rust example compares and both existing Rust regression compares with
+    `--compare-app-size 90x35`, complete direct-terminal and MCP transport
+    smoke, real Sixel screenshots, and `git diff --check`. A green snapshot
+    gate alone must never be accepted as proof of structural parity.
+
+  Audited surfaces that are already equivalent under current coverage, and
+  must remain unchanged while the gaps above are fixed: canonical native CLI
+  registration and SDK target discovery for `rust`; byte-identical shared
+  example/regression `.uimd` sources; the basic MCP tool/schema inventory and
+  stdio/TCP/HTTP baseline; CSI/SS3/modifier/bracketed-paste/SGR-mouse/pixel
+  parser cases; Sixel capability heuristics and geometry/cache-key shape; and
+  Rust ports of both currently present parity regression apps. These are
+  validated baselines, not evidence that the complete port is 1:1.
+
+  **Remediation audit findings (2026-07-28; implementation in progress):**
+  Direct method-by-method comparison of C++
+  `cpp/include/ui/elements/ScrollView.hpp` /
+  `cpp/src/elements/ScrollView.cpp` with Rust
+  `rust/src/uimd/src/elements.rs::ScrollViewState` found two contracts that
+  broad MCP snapshots did not exercise. C++ `contentWindow()` returns a valid
+  zero-skip window for an empty ScrollView, while Rust returned `None`; Rust now
+  returns the same `viewport`, `actual_skip=0`, `natural_skip=0`, and `gap=0`
+  record and has a focused lifecycle regression. C++ `setGap()` always
+  invalidates the height cache after assigning the clamped gap, while Rust
+  returned early for an unchanged value; remove that early return so dynamic
+  child replacement cannot retain stale measurements and protect the exact
+  invalidation order with a Rust state test. These fixes affect only the Rust
+  port because the Python/C++ reference contracts are unchanged.
+
+  Direct NumberInput comparison against
+  `cpp/src/elements/BasicElements.cpp::NumberInput` also found that Rust
+  `format_number()` used Rust's shortest round-trip `f64` display instead of
+  C++ `std::setprecision(12)`/`defaultfloat`, and Rust commit required the
+  complete edit string to parse while C++ `std::stod` accepts the leading
+  numeric prefix. Port the 12-significant-digit fixed/scientific threshold,
+  exponent spelling, negative zero/non-finite spelling, and prefix parse
+  behavior into the shared Rust control. Add exact cases for high precision,
+  large/scientific values, rounding across the exponent boundary, and a
+  trailing malformed numeric suffix.
+
+  Core color comparison against `cpp/src/core/Color.cpp::blendOver()` found
+  that Rust `rust/src/uimd/src/core.rs::Color::blend_over()` checked for an RGB
+  background before handling foreground alpha zero. Consequently
+  `#RRGGBB00` over a named, transparent, or unset background returned the
+  foreground in Rust, while C++ returns the background immediately. Restore
+  the identical alpha-first decision order and cover non-RGB background cases;
+  the C++ and Python reference implementations are unaffected.
+
+  Terminal backend comparison against
+  `cpp/src/terminal/TerminalBackend.cpp` and
+  `cpp/include/ui/terminal/TerminalBackend.hpp` found Rust constants and drain
+  behavior that were not 1:1: terminal pixel queries used a 100 ms total
+  deadline and 256-byte response instead of the C++ per-read 50 ms timeout and
+  64-byte cap; input used 4096-byte reads without the C++ 16384-byte per-drain
+  cap; and the poll interval was 16 ms instead of the shared 10 ms idle
+  interval. Match those limits and loop boundaries. Keep one explicit minimal
+  POSIX/Rust adapter: Rust retains a 50 ms pending-Escape continuation window
+  so split CSI/SS3/modified-key sequences remain one logical event; C++'s
+  parser consumes a lone Escape immediately when one read contains only that
+  byte. Direct split-sequence and standalone-Escape tests protect identical
+  resulting logical events despite this unavoidable framing/timing adapter.
+
+  Method-level `InputParser` comparison found further fixable event-shape
+  drift. Rust treated any SGR button with bit 64 as a wheel event instead of
+  C++'s exact button values 64/65; accepted direct Delete/PageUp/PageDown and
+  tilde Home/End sequences absent from C++; limited CSI-u Enter to modifiers
+  3/5 although C++ maps every non-default modified Enter to `Alt+Enter`; mapped
+  backspace byte 0x08 and discarded other control bytes where C++ forwards
+  their one-byte key values; and consumed an unknown complete SS3 sequence
+  instead of emitting Escape and leaving its suffix for ordinary parsing.
+  A second pass over the modified-key branches found that Rust also accepted
+  legacy CSI `Cmd+C`/`Cmd+V` forms that C++ deliberately does not, omitted the
+  exact legacy `Alt+Enter` forms `ESC[27;3;13~` and `ESC[27;5;13~`, accepted
+  CSI-u payloads with trailing fields, and treated CSI-u codepoint 3 with the
+  no-modifier value as Ctrl+C. Restore the exact strict field parsing,
+  no-modifier rejection, legacy Ctrl+C-only rule, and explicit legacy
+  Alt+Enter cases, then add case-driven regressions. Retain only two explicit
+  Rust framing adapters: valid UTF-8 input is emitted as one Rust `String` key
+  rather than invalid one-byte string fragments, and the already-recorded
+  50 ms pending-Escape window preserves split terminal sequences.
+  A further SGR/input-buffer pass found that Rust parsed mouse fields with
+  `filter_map`, so an invalid or extra field could be discarded and the
+  remaining three integers emitted as a valid event; C++ consumes such a
+  complete malformed report without an event. Rust also cleared its parser at
+  an arbitrary 1 MiB pending-input limit absent from C++. Require exactly three
+  fully parsed fields and remove the target-only reset; cover invalid middle,
+  missing, and extra fields while retaining complete-report consumption.
+
+  Terminal pixel-response parsing also used Rust's strict integer/split
+  parsing, while C++ `parseTerminalPixelResponse()` extracts the first
+  height/width fields and uses `std::stoi`, accepting leading whitespace/sign
+  and a numeric prefix. Mirror the same field boundaries and prefix parse so
+  cell-size detection consumes identical terminal reports; add malformed,
+  signed, prefixed, and embedded-response cases.
+
+  POSIX terminal-mode comparison found that Rust used `cfmakeraw()`, which
+  clears a broader set of termios flags than C++
+  `TerminalModeGuard`, and restored the saved flags verbatim. C++ clears only
+  `ECHO|ICANON|IEXTEN|ISIG`,
+  `BRKINT|ICRNL|INPCK|ISTRIP|IXON`, and `OPOST`, sets `CS8`, and forces
+  `OPOST|ONLCR` for both normal and signal restoration. Port those exact masks
+  and restore order; retain Rust's signal-handler storage only as the minimal
+  POSIX ownership adapter.
+
+  FileBrowser comparison against `cpp/dialogs/file_browser.cpp` found four
+  observable Rust state-order differences. Rust accepted a non-empty filename
+  before processing the selected ListBox directory/`..` row, so Save/Open could
+  select a file where C++ navigates first; it allowed manually typed nested
+  paths instead of requiring the resolved parent to be the current directory;
+  `refresh_entries()` forced the ListBox offset to zero after C++-equivalent
+  selected-row visibility had been established; and edit-start cursor placement
+  used Unicode scalar count even though TextInput public indices, like C++, are
+  UTF-8 source-byte offsets. Port C++ selected-path-first acceptance, current
+  directory validation, preserved selected-row scrolling, and byte-end cursor
+  placement. Also add the missing object-owned FileBrowser close callback,
+  fired with the selected path or an empty cancellation result exactly when
+  the concrete dialog reaches a terminal outcome. Cover parent navigation with
+  typed text, nested-path rejection, long selected-row visibility, Unicode
+  cursor placement, and callback delivery.
+
+  The same FileBrowser audit exposed a shared ListBox state-order deviation in
+  `rust/src/uimd/src/elements.rs`: Rust `set_selected_index`,
+  `set_selected_indices`, and `set_active_index` used the layout frame height
+  before any render, while C++ `ListBox` changes scroll offset only when
+  `lastViewportHeight_` was established by rendering. Remove the frame-height
+  shortcut so pre-render setters and the subsequent render-time visibility
+  repair occur in the same order as C++; update the existing Rust regression
+  to assert both phases.
+
+  A follow-up ScrollView lifecycle audit found two remaining ordering
+  differences in `rust/src/uimd/src/elements.rs`. C++
+  `ScrollView::clearChildren()` removes rendered children before native
+  elements and only then resets offsets/cache state, while Rust cleared the
+  native element tree first. C++ `restoreScrollPosition()` also refreshes
+  dynamic children once at the raw frame width before calculating the padded
+  content viewport; Rust began directly at the padded width. Mirror both
+  sequences exactly and add a dynamic-renderer width/order regression plus a
+  clear-state/native-liveness regression.
+
+  Direct control-render comparison against
+  `cpp/src/elements/{BasicElements,InfoLabel,MessageTable}.cpp` found that Rust
+  forced every non-MessageTable width to one when a caller requested
+  fit/natural width (`size.width <= 0`). C++ derives natural widths per
+  concrete control: visible label width, title plus button/ComboBox/ListBox
+  affordances, complete CheckBox text, TextInput caret space, current
+  NumberInput display text, and byte length for InfoLabel. Rust also clipped a
+  parsed MessageTable to the requested height even though C++ always returns
+  its complete table rows. Port those concrete size contracts and protect each
+  control with a public render-size regression, including Unicode and a table
+  whose requested bounds are smaller than its natural output.
+
+  The same direct-render pass found that C++
+  `NumberInput::render(..., editMode=true)` calls `ensureEditText()` even when
+  no generated-window transition called `beginEdit()` first. Rust rendered the
+  display value without establishing the edit snapshot because
+  `Element::render_with_state()` borrowed the control immutably. Preserve the
+  const-render public contract with the smallest Rust interior-mutability
+  adapter for NumberInput edit state, so direct and generated rendering enter
+  the same original-value/text/cursor/replace-first state exactly once.
+
+  TextInput key/API comparison found that Rust accepted a `"Delete"` key in
+  `TextInputState::handle_key()` although C++ `TextInput::handleKey()` has no
+  forward-delete branch and the C++ terminal parser deliberately does not emit
+  Delete. Remove the Rust-only behavior so MCP/direct public key dispatch also
+  matches, and cover the unchanged value/cursor result. Keep one explicit
+  language-safety adapter for UTF-8: public cursor/selection values remain
+  source-byte offsets like C++, but Rust moves, deletes, and clamps at complete
+  scalar boundaries because a Rust `String` cannot represent the invalid UTF-8
+  that C++ can temporarily create by erasing one byte. Validate identical
+  ASCII behavior plus valid Unicode selection/render/copy behavior.
+  The vertical-cursor helper also selected `target.cells[column].source_start`
+  directly, while C++ calls `rawIndexForVisualColumn()` so the second terminal
+  cell of a wide glyph resolves to its source end. Use the same midpoint helper
+  and add a two-row wide-glyph movement regression.
+
+  Base-element constructor comparison found that C++ `Element` initializes
+  `focusable_ = true` for every concrete type and `ReusableElement::setChild`
+  / `ViewHost::clearView` never rewrite that public property; focus routing
+  separately filters concrete types and child-window capabilities. Rust
+  initialized focusability from `ElementKind` and rewrote it whenever a child
+  view changed. Use the same always-true base default and preserve explicit
+  caller changes across set/replace/clear; keep the existing runtime type and
+  generated-child filters as the behavioral gate. Cover disabled reusable
+  replacement, generated ScrollView proxy focus, ViewHost exclusion, and
+  public property stability.
+
+  Generated-window stack comparison against
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::GeneratedWindowStack::push()`
+  found that a C++ frame with `startInEditMode=true` and no explicit initial
+  focus selects the first focusable element before enabling edit mode. Rust
+  `GeneratedWindowStackFrame::new()` left `focused_index=-1` while setting
+  `edit_mode=true`. Match the root-runtime and C++ frame initialization rule
+  and cover both the implicit-first-focus and explicit-name cases.
+
+  The same startup audit found a separate root-runtime difference. C++
+  `runGeneratedWindow()` enables initial edit mode only when the resolved
+  element satisfies `isEditableElement()` and immediately calls
+  `onEditStarted`; Rust `RuntimeState::new()` enabled it for any focused type
+  and the Rust terminal/headless entry points emitted no initial callback.
+  Use the same enabled/concrete/reusable-ScrollView editability predicate,
+  initialize the edit snapshot only for that case, and dispatch the initial
+  callback exactly once from interactive, headless MCP, and non-TTY entry
+  paths. Protect an editable TextInput and a non-editable Button case.
+
+  Making the Rust base `focusable` property match C++ exposed a hidden MCP
+  mouse-routing dependency: `perform_mouse_press()` used `focusable=false` to
+  recognize a non-control child inside a selectable ScrollView. C++ keeps base
+  focusability true and makes this decision from its concrete
+  `isFocusableType()`/`mouseTargetElements()` contract, so a Label child begins
+  cross-row ScrollView selection while a Button/TextInput child remains an
+  interactive target. Change Rust routing to the same concrete-type decision
+  and retain the existing cross-child selection regression.
+
+  Selectable-Label point mapping comparison against
+  `cpp/src/elements/BasicElements.cpp::Label::textPositionFromPoint()` found
+  two Rust deviations in `rust/src/uimd/src/elements.rs::cursor_for_point()`.
+  Rust returned `source_start` for every terminal cell of a wide glyph instead
+  of using the C++ glyph-run midpoint rule, and its one-row path mapped through
+  a word-wrapped visual row while C++ maps the unwrapped first logical line.
+  Use the same raw-index helper and distinct one-row/multiline row construction;
+  protect left/right halves of a wide glyph, aligned text, a long line with a
+  wrap opportunity, and out-of-row points.
+  The same API pass found that Rust `set_text()` and `set_spans()` cleared
+  Label selection endpoints, while C++ `Label::setText()`/`setSpans()` retain
+  them and clamp only when selected text is read. Preserve selection state
+  across both content setters and cover shorter replacement text and span
+  replacement.
+
+  Text-visual predicate comparison against
+  `cpp/src/core/TextVisual.cpp::isUnsafeTerminalCodepoint()` found that Rust
+  `core.rs::is_unsafe_terminal_codepoint()` used Unicode `char::is_control()`,
+  rejecting the complete C1 range even though C++ rejects only C0, DEL, and
+  its explicit combining/format/wide ranges. Use the identical numeric
+  predicate so safe-cell text, visible text/width, tabs, and source offsets
+  agree; cover DEL, a C1 code point, combining text, and wide text.
+
+  Base-tree ownership comparison against
+  `cpp/src/core/Element.cpp::Element::addChild()` found that Rust accepted an
+  `Rc` child already owned by another parent and could re-register a stale
+  child after `clearChildElements()`. C++ `unique_ptr` ownership makes both
+  states impossible. Keep `Rc` only as the memory primitive adapter: adding a
+  child must require a live element with no current parent, establish exactly
+  one parent link, and never resurrect an unregistered stale tree. Add
+  duplicate-parent, stale-readd, normal add/clear, parent-link, and liveness
+  regressions.
+
+  Element style-state comparison against
+  `cpp/src/core/Element.cpp::effectiveStyle()`/`mergedStateStyle()` found that
+  Rust pre-blended a partially transparent base background over the rendering
+  parent even when no disabled/edit/focus state style was applied. C++ performs
+  that parent blend only inside an actual state-style merge; otherwise the
+  base alpha remains for the later framebuffer composition. Move the Rust
+  parent blend to the identical merge point and cover base-only, focused with
+  an empty state style, disabled precedence, RGB parent, and non-RGB parent.
+
+  The optional-style migration exposed one additional state-precedence
+  difference in `rust/src/uimd/src/elements.rs::Element::effective_style()`.
+  C++ returns the disabled layer only when the element is disabled *and* a
+  disabled style exists; otherwise it continues to edit and focus style
+  checks. Rust entered an unconditional disabled branch and skipped edit/focus
+  even when `disabled_style` was absent. Port the exact conditional return
+  order while converting state colors to `Option<Color>`, and protect disabled
+  elements with and without a disabled layer plus simultaneous edit/focus
+  states.
+
+  NumberInput public edit-text comparison against
+  `cpp/src/elements/BasicElements.cpp::NumberInput` found one required
+  language-safety adapter. C++ accepts an arbitrary byte string through
+  `setEditText()` and moves/erases one byte at a time; Rust accepts a valid
+  Unicode `String`, but `set_number_edit_cursor()`, Left/Right, Backspace, and
+  edit rendering currently permit a cursor between UTF-8 code-unit boundaries
+  and then panic in `String::remove()` or slicing. Preserve the public
+  C++-equivalent UTF-8 source-byte cursor contract while clamping and moving at
+  complete scalar boundaries, as already required for Rust TextInput. Add
+  direct public-setter, cursor movement, Backspace, and edit-render regressions
+  proving valid Unicode remains representable and no panic occurs; ordinary
+  ASCII numeric editing must remain byte-for-byte equivalent to C++.
+
+  A public element API pass against `cpp/include/ui/core/Element.hpp` found
+  that Rust's typed control references expose the base name/identity,
+  commit/focusable/enabled/frame/base-style/render methods, but omit direct
+  forwarding methods for effective style, every state-style setter/getter,
+  parent/children traversal, generic child insertion, and child clearing.
+  The underlying `Element` already owns the corresponding canonical state and
+  behavior, so add only thin typed-reference forwards rather than another
+  implementation. Protect generated-member compile coverage plus generic
+  parent/child ownership and state-style/effective-style calls on representative
+  typed controls.
+
+  A further TextArea point-mapping pass against
+  `cpp/src/elements/BasicElements.cpp::TextInput::cursorForPoint()` found that
+  Rust clamps only the final visual-row index. C++ first clamps the requested
+  local row into the viewport height, adds the current row-scroll offset, and
+  returns the value end when that target lies below the available visual rows;
+  Rust can instead jump to the final content row and place the cursor inside
+  it. Mirror the exact viewport-row and below-content order and add cases for a
+  point below the viewport, a short document below its final row, and a
+  manually scrolled multiline value.
+
+  TextInput maximum-length replacement comparison found one remaining ASCII
+  state-order difference. C++ rejects a one-byte key only when the current
+  value is already at/over `maxLength` and there is no selection; with a
+  selection it deletes the range and inserts the key even when a public setter
+  previously supplied an over-limit value. Rust instead rejected from the
+  calculated resulting byte length. Restore the C++ pre-deletion check for
+  ASCII keys and add an over-limit setter/selected-replacement regression.
+  Retain the smallest UTF-8 safety adapter for a multi-byte Rust scalar: reject
+  it when the resulting valid `String` would cross the byte limit rather than
+  reproduce C++'s intermediate invalid byte string.
+
+  Concrete-dialog public/lifecycle comparison against
+  `cpp/dialogs/{message_box,file_browser}.{hpp,cpp}` found that Rust concrete
+  message boxes and FileBrowser have no direct `run()` entry point, and the
+  Rust FileBrowser wrapper omits the C++ public refresh/accept/select,
+  directory-query, mouse, filename-cursor, close, and stack-frame option
+  methods even though its internal state implements most of them. Add thin
+  object-owned forwards around the same generated window/state, without a
+  second dialog implementation. The mouse audit also found an observable
+  double-click ordering bug: entering a directory returns the internal
+  `Pending` outcome, so Rust reports the press unconsumed and may continue
+  routing it, while C++ `handleEntryMousePress()` returns the successful
+  `acceptCurrent()` result. The same path calls Rust's ScrollView-only
+  `scroll_offset()` accessor on the FileBrowser ListBox and panics as soon as
+  the direct mouse route reaches it; use the ListBox offset exactly like C++.
+  Preserve a separate accepted/consumed result from the outcome and cover
+  single click, directory double click, filtered-file double click,
+  callback/close state, stack frame callbacks, and standalone `run()`
+  construction.
+
+  Core public-surface inventory found no Rust equivalent of C++
+  `cpp/include/ui/core/Version.hpp::runtimeVersion()`, even though the Cargo
+  package carries the synchronized SDK version. Export the package version
+  through the same public concept from the canonical Rust crate and add a test
+  tying it to Cargo's package metadata so generated applications and
+  diagnostics cannot report a stale or independently hardcoded version.
+  The repeated audit on 2026-07-29 found that the first remediation used the
+  shorter Rust name `version()` instead of the structural Rust equivalent
+  `runtime_version()`. Rename the public function and its exact metadata test;
+  no compatibility alias is needed because the Rust target is still
+  uncommitted. Required validation: focused Rust public API test, complete
+  runtime tests, Clippy, generated example builds, and native SDK parity.
+
+  Image decoder comparison against
+  `cpp/src/elements/Image.cpp::loadRaster()` found that C++ delegates to the
+  canonical `stb_image` implementation and therefore accepts its complete
+  JPG/PNG/TGA/BMP/PSD/GIF/HDR/PIC/PNM surface, while
+  `rust/src/uimd/src/image.rs::load_image_raster()` independently chains custom
+  PNG/JPEG/GIF/BMP/TGA/PNM decoders and cannot load PSD, HDR, or PIC. Replace
+  the duplicate Rust decoding pipeline with the same stb decoder contract,
+  keeping only a minimal safe Rust wrapper that converts stb RGBA output into
+  the existing raster state. Add in-memory format probes for the shared
+  formats plus PSD/HDR/PIC coverage, invalid-data behavior, alpha preservation,
+  and a generated image-example build/render regression; the C++ decoder is
+  unchanged.
+
+  MCP configuration/state comparison against
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::{McpRuntimeConfig,
+  parseViewportArg,McpController}` and
+  `cpp/src/terminal/Clipboard.cpp` found that Rust
+  `rust/src/uimd/src/mcp.rs::McpRuntimeConfig` stores one optional viewport
+  plus four duplicate row/column/width/height fields, hardcodes an implicit
+  90x35 viewport absent from C++, adds a noncanonical `--mcp-viewport WxH`
+  argument, and stores a second MCP-only clipboard string. Rust also silently
+  replaces malformed numeric arguments with defaults, while C++ parses one
+  optional `Rect` from `--viewport` or the four component flags and reports
+  invalid values as startup errors; its delays/port retain signed integer
+  semantics and its copy/paste tools use the centralized runtime clipboard.
+  Remove the duplicate Rust fields and argument, port the exact parse/default/
+  clamp/error order, derive coordinates and render sizes from the single
+  optional viewport, and route copy, cut, mouse selection, and paste through
+  the shared clipboard implementation. Update the Rust MCP transport smoke to
+  use canonical `--viewport 0,0,width,height`. Add configuration/API tests for
+  an absent viewport, combined and component forms, malformed and signed
+  numbers, canonical delay/port behavior, runtime `set_viewport`, coordinate
+  translation, and clipboard sharing; C++ and Python are unchanged.
+
+  A method-level MCP text-tool pass against
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::McpController::{toolSetText,
+  toolTypeText}` found that Rust
+  `rust/src/uimd/src/mcp.rs::dispatch_tool()` implements `paste_text` by
+  sending every Unicode scalar through `RuntimeState::handle_key()`. C++
+  performs one `TextInput::insertText()` operation or one
+  `NumberInput::setValue(std::stod(...))` operation, emits one changed
+  callback/progress generation, and accepts the same numeric prefix as
+  `std::stod`. Port `paste_text` as its own branch with the exact per-control
+  operation and notification order; retain scalar-safe insertion as the
+  smallest Rust string adapter. Protect final value, selection replacement,
+  max length, numeric prefix/error behavior, edit-start count, text-change
+  count, and render-progress count. Keep `type_text` character-by-character
+  and `replace_selection` aliased to that path like C++.
+
+  Continuing the method-level MCP audit found additional observable Rust
+  deviations in `rust/src/uimd/src/mcp.rs` against the corresponding
+  `McpController::tool*` methods in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`. Rust merged
+  `activate_element` and `click_element` even though C++ activation uses the
+  semantic control path while click performs a frame-centre mouse press and
+  its modal/focus cleanup; Rust's edit preparation for `clear_text` and
+  `move_cursor` can send a synthetic Enter to a non-editable target before
+  returning an error, while C++ only sets MCP edit state; NumberInput
+  `press_key cmd_v` reads the generic text value and can panic; checkbox
+  text-change callbacks use lowercase instead of C++ `True`/`False`;
+  `select_text` reports clamped endpoints instead of the requested C++
+  endpoints; `get_focused_element` can expose a hidden element;
+  `get_text_snapshot` renders the full stack instead of only the active
+  window. Port each method's target validation, state/callback/cleanup order,
+  result shape, and viewport scope exactly. Add focused protocol/state
+  regressions for invalid controls,
+  modal click versus activation, numeric clipboard paste, callback spelling,
+  out-of-range selection, hidden focus, and active-modal text snapshots before
+  considering the MCP lifecycle task complete.
+
+  The same pass found that Rust's common element snapshot/schema contract is
+  structurally different even before individual tools run. C++
+  `elementType()`, `elementRole()`, `elementValueJson()`,
+  `elementCapabilitiesJson()`, and `McpController::snapshot()` omit
+  unsupported optional fields, return null for elements without a value, use
+  the public type names `label`/`scrollview`/`element`, and treat Image as a
+  text-role value. Rust always emits `name`, a duplicate `rect`, null
+  cursor/selection and empty options fields, invents target-only type names
+  such as `spanlabel`, `framebufferview`, `uiscrollview`, and
+  `uielementreusable`, gives every non-reusable element `ui.get_value`, and
+  assigns Image the action role. Port the exact conditional JSON shape,
+  type/role/value mapping, and capability derivation; protect representative
+  Label/InfoLabel/FrameBufferView/Image/ScrollView/Reusable/ViewHost plus
+  editable and selection controls with full-object equality tests against the
+  C++ contract.
+
+  Reusable-control activation comparison found another structural MCP/direct
+  input gap hidden by the broad image-browser snapshots. C++
+  `GeneratedWindowBase::activateGeneratedControl()` remains a virtual
+  capability on the concrete child object, and
+  `GeneratedWindowRuntime.cpp::activateReusableControl()` invokes it before
+  centre-point mouse routing for both `activate_element` and `click_element`.
+  Rust `GeneratedWindow` has no equivalent capability; its
+  `RuntimeState::activate_focused()` first sends the reusable's qualified name
+  to the root application and otherwise enters child descendants, while
+  `mcp.rs::click_element` routes directly to the child at the reusable's
+  centre. Rust `image_browser` compensates by recognizing root reusable-name
+  prefixes in `handle_root_button()`, rather than retaining the C++ child-owned
+  activation callback. Add one object-owned
+  `GeneratedWindow::activate_generated_control()` contract, make reusable
+  keyboard/mouse/MCP activation consume it in the same order, and migrate the
+  Rust focusable image controls to that capability without duplicating general
+  routing in the example. Protect handled/unhandled child activation,
+  centre-click interception, refocus/cleanup, and a generated focusable
+  reusable compile/runtime route against C++.
+
+  Getter traversal comparison found two more Rust MCP contract gaps. C++
+  `toolGetState()` delegates its focused value to
+  `toolGetFocusedElement()`, so an unexposed focused element remains null;
+  Rust fixed the standalone getter but `state_snapshot()` still serializes that
+  hidden element. C++ `toolGetElements()`/`toolGetSchema()` also descend from a
+  `ScrollView` native child only through each reusable child's generated
+  window; Rust `exposed_elements()` descends ordinary reusable child windows
+  but never visits reusable rows owned by `Element::children()`. Reuse one
+  exposed-focused helper for both results and mirror the exact ScrollView
+  reusable-child traversal without exposing the row proxy itself. Add state
+  equality for hidden focus and dynamic ScrollView row elements/schema.
+
+  MCP focus-state comparison found that Rust still applies the ordinary
+  keyboard edit-exit transition before `focus_element`,
+  `activate_element`, and changed-target text tools. C++
+  `focusActiveWindowElement()` does not commit or exit an ordinary root edit;
+  it commits/notifies only an active ScrollView edit child while leaving that
+  scope, and `focusActiveWindowElementWithScrollViewScope()` directly retargets
+  a contained control without that commit. Rust therefore emits extra
+  confirmation/change callbacks and clears edit state/snapshots at different
+  points. Port both C++ focus helpers as distinct Rust MCP transitions and use
+  them in the same tool paths. Cover root edit retargeting, leaving a scoped
+  child, contained activation, callbacks, edit snapshot, and final scope state.
+
+  `get_image_render_info` comparison found that C++ captures every live
+  element frame, renders only to resolve the queried image bounds, and restores
+  all frames on success or exception before computing/returning render info.
+  Rust calls the ordinary MCP renderer and leaves its layout-frame mutations
+  behind. Add the same recursive unwind-safe frame guard around this getter and
+  protect root, reusable, and ScrollView child frames from query side effects;
+  image geometry and payload metadata must remain unchanged.
+
+  `press_key cmd_v` comparison found that C++ enters edit mode and emits the
+  edit-start callback for any focused `isEditableElement()` (including
+  ComboBox, ListBox, ScrollView, and a generated ScrollView proxy) before
+  attempting the TextInput/NumberInput-only paste. Rust performs edit
+  preparation only for text/number controls and routes it through the normal
+  Enter transition. Mirror the C++ capture/begin/edit/notify order without
+  entering a ScrollView scope, while preserving actual paste/change callbacks
+  only for text and number inputs. Add non-text editable and generated-proxy
+  regressions plus numeric newline filtering.
+
+  Mouse capture/hit-test comparison found that Rust has no C++
+  `MouseClickCandidate` state. `perform_mouse_press()` recursively returns any
+  framed child and immediately dispatches Image activation, whereas C++
+  builds `mouseTargetElements()` from concrete focusable types/reusable
+  proxies, records a clickable Image candidate on press, cancels it after
+  movement or an outside release, and dispatches only on a valid release.
+  Port the exact target-list and candidate lifecycle for direct terminal and
+  all MCP mouse tools, including reusable-generated-focusable proxy selection,
+  nonselectable labels, press/move/release cancellation, modal-local
+  coordinates, and owner-aware release dispatch.
+
+  The focused `image_browser` mouse route exposed a second structural
+  hit-testing dependency hidden by the earlier target inventory. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::{scrollViewAtPosition,
+  mouseTargetElements,syncReusableChildFrames,syncWindowElementFramesTo}`
+  resolves the actual generated `ScrollView` behind its reusable proxy and
+  synchronizes every reusable/ScrollView descendant to absolute frames before
+  testing the pointer. Rust `rust/src/uimd/src/mcp.rs` passed the proxy back
+  into the nested target walk and `rust/src/uimd/src/runtime.rs` had no
+  corresponding non-rendering frame synchronization, leaving dynamic row
+  buttons in local coordinates. Port the same fullscreen fit-pass frame
+  resolution, recursive reusable ownership, visible child-view translation,
+  and hidden-child zero frame; use the generated `ScrollView` only for the
+  nested target inventory while retaining Rust's documented proxy as the
+  generated scope handle. Protect the local-to-absolute nested-button frame,
+  inactive-scope pointer entry, owner-aware dispatch, and the complete
+  `image_browser` click/modal route.
+
+  The viewport audit also exposed a shared Rust layout-size deviation.
+  C++ `generatedWindowContentSize()` resolves the runtime tree, recomputes
+  fit-content heights at the resolved width, resolves it again, and returns
+  the maximum resolved cell extent; both `activeWindowReportedSize()` and
+  `windowBounds()` consume that result. Rust
+  `rust/src/uimd/src/runtime.rs::{active_window_reported_size,window_bounds}`
+  used only the first `natural_content_size()` tree measurement even though
+  `resolve_runtime_cells()` already implements the canonical second pass.
+  Add one canonical Rust `generated_window_content_size()` with the same
+  resolved-extent algorithm and use it for reported sizes, bounds, and the MCP
+  no-viewport fallback. Protect wrapped fit-content growth, expanded modes,
+  borders, and the no-explicit-viewport MCP render/get-viewport contract.
+
+  Core style-structure comparison against
+  `cpp/include/ui/core/Style.hpp` found that Rust
+  `rust/src/uimd/src/core.rs::Style` still models optional colors and strings
+  with `ColorKind::Unset` and empty-string sentinels. C++ stores
+  `optional<Color>` for color/background/texture color/border/scope dim,
+  `optional<string>` for texture/alignment/user-select, and uses presence
+  directly during merge. Rust has `Option`, so this deviation is not required
+  by a language primitive. Port the exact optional fields/default scope-dim
+  presence and merge order; update the native Rust style emitter and regenerate
+  every Rust output instead of maintaining compatibility sentinels. Validate
+  absent versus explicit transparent/named/RGBA values, explicit empty string
+  handling where representable, state-style merging, generated style literals,
+  all runtime tests, and full render parity.
+
+  The same core pass found the corresponding terminal-cell deviation.
+  C++ `cpp/include/ui/terminal/TerminalBuffer.hpp::TerminalCell` stores
+  `optional<Color>` foreground/background in addition to `Color::Kind::Unset`;
+  Rust `rust/src/uimd/src/core.rs::Cell` stores bare `Color` and again uses the
+  unset kind as a missing-value sentinel. Port the cell fields and all blend,
+  overlay, ANSI-diff, image/fallback, selection, dim, and compact-snapshot
+  branches to the same optional-color decision order. Keep explicit
+  `Color::Unset` distinct from absent color, and add a matrix for absent,
+  explicit unset, transparent, named, opaque RGB, and partial-alpha foreground
+  and background cells, including current/previous diff behavior.
+
+  Generated-window ownership/API comparison found one remaining Rust ownership
+  adapter that must be resolved or explicitly proven minimal. C++
+  `GeneratedWindowRuntimeOptions` exposes a `GeneratedWindowStack*`, stack
+  frames reference caller-owned windows, and concrete dialog objects remain
+  directly addressable while stacked. Rust options omit `window_stack`;
+  every `GeneratedWindow` owns an embedded stack whose frames own moved
+  `GeneratedWindow` values, and dialogs transfer their window through
+  `take_window()`. Refactor to one shared/reference-counted Rust stack and
+  caller-addressable window handles if that can preserve safe ownership
+  without duplicate state; otherwise retain only the smallest documented Rust
+  ownership adapter while proving identical push/remove/top/frame callback,
+  dialog result, nested-modal, and active-window behavior. The public stack
+  option/handle surface and concrete-dialog lifecycle must not remain
+  unexplained.
+
+  Generated layout public-API comparison against declarations in
+  `cpp/include/ui/generated/GeneratedWindowRuntime.hpp` and definitions in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp` found that Rust exposes
+  rendering helpers but not the equivalent public
+  `generatedWindowContentSize`, `generatedWindowContentSizeForWidth`,
+  `generatedWindowResolvedContentSize`, or modal-background dim operation.
+  Its private `generated_window_content_height_for_width()` independently
+  clones/resolves element frames and adds window border height, whereas the C++
+  function returns the complete resolved content `Size` without adding window
+  borders and also accounts for resolved entry extents. Replace that partial
+  helper with the same three size algorithms and make ScrollView/reusable
+  layout consume the canonical result. Expose Rust-conventional public names
+  and add API/fit-content/entry-overflow/border/expanded-size tests before
+  rerunning reusable and ScrollView compares.
+
+  The post-remediation installed-SDK gate on 2026-07-29 found one remaining
+  Rust packaging dependency. `rust/src/uimd/build.rs` correctly compiles the
+  canonical stb adapter but finds `stb_image.h` only through source-checkout
+  paths (`vendor/stb` or `cpp/third_party/stb`).
+  `tools/package_sdk_release.py` already packages the same single canonical
+  header correctly, but the installed-target fixture in
+  `tools/native_uimd_parity.py` omitted that production payload step and
+  therefore failed to build its external generated Rust project. Make the
+  installed-target fixture reproduce the packaged `vendor/stb/stb_image.h`
+  contract without adding a second decoder implementation. Required
+  validation: source-checkout runtime tests/Clippy, installed-target external
+  Cargo build through
+  `tools/native_uimd_parity.py --compile-examples`, packaged SDK target-content
+  inspection, and `git diff --check`.
+
+  The freshly regenerated full C++/Rust compare on 2026-07-29 found a
+  multi-select ListBox construction-order difference at the initial
+  `formular` frame. C++ `ListBox::ListBox()` assigns its options and calls
+  `setSelectedIndex(0)` while `multiple_` is still false, then generated code
+  calls `setMultiple(true)`, preserving `selectedIndices_={0}`. Rust
+  `new_list_box()` called `set_multiple(true)` before `set_options()`, so the
+  same generated `set_selected_index(0)` left the multi-select index set empty
+  and rendered `Developer` without selected style. Mirror the C++ constructor
+  order in shared Rust elements and add a direct initial-selection/render
+  regression for both single- and multi-select lists. Required validation:
+  Rust runtime tests/Clippy, freshly regenerated `formular`, its focused
+  C++/Rust compare, and the complete C++/Rust example gate.
+
+  After the ListBox startup fix let `formular` advance to step 22, the repeated
+  MCP audit found that Rust's `string_argument(..., "text")` accepts only JSON
+  strings while C++ `jsonTextField()` serializes JSON number and boolean values
+  to text for `set_text`, `paste_text`, `type_text`, and
+  `replace_selection`. The shared YAML intentionally sends numeric `34` to a
+  NumberInput; Rust converted it to the empty fallback and returned `0`.
+  Add one C++-equivalent text-argument conversion (string unchanged,
+  number/boolean serialized, other types empty) and use it in all four text
+  tools. Protect numeric, boolean, string, null, array, and object cases plus
+  NumberInput state/callback behavior. Required validation: focused Rust MCP
+  tests, `formular` C++/Rust compare, runtime tests/Clippy, and the complete
+  example gate.
+
+  The next fresh complete example compare reached `activity_feed` and exposed
+  one domain-state ordering difference in the first frame after Add. C++
+  `cpp/examples/activity_feed/activity_feed_panel/activity_feed_panel.cpp::
+  ActivityFeedPanel::appendActivity()` invalidates dynamic children and, when
+  automatic scrolling is enabled, immediately calls `scrollToBottom()`. Rust
+  `rust/examples/activity_feed/activity_feed.rs::append_activity()` invalidated
+  the same children but only called `set_auto_scroll(true)`, so the model and
+  status advanced to three activities while the first rendered viewport could
+  still omit the new bottom row. Use the same explicit bottom-scroll operation
+  and event order in the Rust domain port; do not change the shared ScrollView
+  state machine or the compare scenario. Required validation: freshly rebuild
+  C++ and Rust `activity_feed`, pass its complete 47-assert compare, and rerun
+  the complete C++/Rust example gate.
+
+  After root-button activation was corrected, `text_editor` advanced from its
+  former step-6 failure to step 52 and exposed one concrete consequence of the
+  remaining stack ownership adapter. C++
+  `cpp/examples/text_editor/text_editor.cpp::pushBrowserFrame()` installs an
+  app-owned `GeneratedWindowFrameOptions::onButton` callback; its Open action
+  first resolves a manually typed filename and only then delegates to
+  `FileBrowser::acceptCurrent()`. Rust moves the FileBrowser window into the
+  root-owned stack, retained only object-owned dialog behavior, and offered no
+  generated-application hook equivalent to that active-frame callback.
+  Consequently `rust/examples/text_editor/text_editor.rs` always took the
+  canonical selected-row-first FileBrowser path and left the modal open.
+  Add one generated `handle_active_window_button` adapter that runs in the same
+  position as the C++ active-frame button callback, before object-owned dialog
+  behavior, and use it only for the TextEditor domain-specific typed-file
+  preference. This is the smallest safe Rust adapter around the C++ callback:
+  the moved stack remains single-owner, no duplicate dialog state or raw
+  pointer is introduced, and unhandled buttons continue into the canonical
+  dialog behavior. Required validation: generated-hook/runtime unit coverage,
+  freshly regenerate and rebuild Rust `text_editor`, pass its complete
+  224-assert compare, and rerun all generated-output/native parity gates.
+
+  The freshly rebuilt `task_board` compare localized the remaining
+  `click_element("board[0].done")` failure to pre-click descendant frame
+  synchronization. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::{toolClickElement,
+  refreshActiveWindowLayoutForMouse,syncReusableChildFrames}` refreshes the
+  active layout before reading the target frame, so the first row checkbox
+  centre is computed from its root-window coordinates. Rust
+  `rust/src/uimd/src/mcp.rs::click_element` renders first, but embedded
+  ScrollView/reusable rendering leaves the stored descendant frame in its
+  child-local coordinates until `perform_mouse_press()` later synchronizes the
+  target inventory. The click therefore uses the stale local centre
+  (`top=3,left=3`) instead of the live root frame (`top=10,left=30`); a direct
+  press at the latter point toggles correctly. Add the C++-equivalent
+  pre-target recursive frame refresh for the active window, preserving
+  modal-local coordinates, and protect root reusable, generated ScrollView,
+  dynamic row, and modal click centres. Required validation: focused runtime
+  tests, freshly rebuilt Rust `task_board`, its complete 360-assert C++/Rust
+  compare, and the complete example gate.
+
+  Once the nested checkbox click advanced, `task_board` reached the first
+  post-cancel frame and exposed the missing C++ background-focus cleanup
+  transition. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::{
+  captureBackgroundFocusCleanupContext,cleanupBackgroundFocusAfterModalClose,
+  exitBackgroundEditModeAfterModalClose}` restores a live invoking ScrollView
+  as the active edit scope after the final modal frame closes, clears only its
+  active child edit/snapshot, preserves the descendant and scroll position, and
+  renders the returned root frame dimmed outside that scope. Rust
+  `rust/src/uimd/src/runtime.rs::{RuntimeState::sync_active_window,
+  close_completed_modal}` restored the snapshot's temporary
+  `edit_mode=false` verbatim, so focus returned to `board[2].open_btn` but the
+  root frame rendered undimmed (`#1f2937` instead of `#161d26`). Port the same
+  final-modal cleanup after the close callback and live-tree repair, including
+  leave-commit notification order, without changing task-board behavior.
+  Required validation: state regression for a false temporary button state
+  returning into a live ScrollView, freshly rebuilt `task_board`, complete
+  360-assert compare, modal/ScrollView regressions, and the full example gate.
+
+  The rebuilt `task_board` then reached the later Done-filter surface and
+  exposed an example-port event-value deviation shared with `image_browser`.
+  The C++ reusable row handlers in
+  `cpp/examples/{task_board/task_list/task_list.cpp,
+  image_browser/image_browser.cpp}` deliberately ignore the textual CheckBox
+  callback argument and read `checked()` from the concrete control before
+  updating domain state. Rust
+  `rust/examples/{task_board/task_board.rs,image_browser/image_browser.rs}`
+  instead parsed only the lowercase string `"true"`, while the canonical
+  generated/runtime callback value is C++-equivalent `"True"`/`"False"`.
+  Consequently the visible CheckBox toggled but the Rust domain model retained
+  the opposite value, which appeared only after a later rebuild/filter. Mirror
+  the C++ object-owned transition by reading the live CheckBox state from the
+  named generated descendant in both Rust examples; do not change the runtime
+  callback spelling. Required validation: focused dynamic-row state coverage,
+  freshly rebuilt `task_board` and `image_browser`, their complete C++/Rust
+  compares, and the full example gate.
+
+  The final full-example validation on 2026-07-29 exposed a nondeterministic
+  Rust MCP transport/lifecycle failure that isolated scenario runs had not
+  reproduced. One sequential 14-script C++/Rust run reported zero failed
+  assertions or surface mismatches, but the Rust target closed a connection
+  before an automatic render response in three unrelated places:
+  `formular` step 58 after committing a ListBox row, `image_browser` step 39
+  after returning from FileBrowser, and `expense_tracker` step 30 during its
+  ordinary reusable-control route. The same freshly built `formular`,
+  `image_browser`, and `task_board` binaries have otherwise passed their
+  complete focused compares. Capture target exit status/stderr/backtrace and
+  connection ownership around each failure, then audit
+  `rust/src/uimd/src/mcp.rs` server/client-request lifetime and
+  `src/uimd/testing/mcp_tester.py` process/connection handling against the C++
+  MCP runtime. Fix the shared Rust runtime or general tester transport cause;
+  do not add retries, waits, scenario changes, or example-specific recovery.
+  Required validation: deterministic focused stress/repetition for all three
+  routes, Rust MCP transport smoke, runtime tests/Clippy, and a complete
+  14-script C++/Rust compare with no empty responses, failed assertions, or
+  failed steps.
+
+  Localization on 2026-07-29 reproduced the failure again at
+  `image_browser` step 34 with the target process still running and an empty
+  stderr tail, proving that neither a Rust panic nor application shutdown
+  caused the missing response. The structural transport audit then found the
+  race in `rust/src/uimd/src/mcp.rs::McpGuiServer`: Rust makes its listening
+  socket nonblocking so its owner can stop the accept loop, but does not reset
+  an accepted client stream to blocking mode. On macOS/BSD an accepted stream
+  may retain nonblocking behavior; the per-connection worker can therefore run
+  before the client's request bytes arrive, receive `WouldBlock` from
+  `read_line()`, treat it like EOF, and close only that connection. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::McpTcpServer` uses a blocking
+  accepted client and waits for the request. Keep the nonblocking listener as
+  the minimal Rust thread-stop adapter, explicitly restore every accepted TCP
+  and HTTP stream to blocking mode before handing it to a worker, and add a
+  regression that connects first and deliberately sends later. Preserve the
+  existing no-retry tester behavior and process/stderr diagnostics so a future
+  response loss remains actionable.
+
+  The repeated post-remediation audit on 2026-07-29 found one remaining
+  transport-lifecycle difference outside the GUI path. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::{McpTcpServer,McpHttpServer}`
+  accepts each TCP/HTTP client immediately on the listener thread and lets the
+  controller's UI mutex serialize application work. Rust GUI MCP already
+  mirrors that behavior through `McpGuiServer` and its UI-thread request
+  channel, but headless `rust/src/uimd/src/mcp.rs::serve_mcp()` still reads and
+  dispatches one complete client synchronously inside `listener.incoming()`.
+  A client that connects and delays its request can therefore block every
+  later headless client, which is not 1:1 with C++. Reuse one general Rust
+  socket accept/worker/request-channel adapter for GUI and headless TCP/HTTP;
+  keep all `Rc<RefCell>` application state on the owning UI thread, accept
+  clients concurrently, and dispatch queued requests in the same serialized
+  order as the C++ controller. Required validation: a delayed first headless
+  client must not block a later complete request for both TCP and HTTP, the GUI
+  delayed-send regression remains green, MCP transport smoke passes, Rust
+  runtime tests/Clippy pass, and the complete C++/Rust example gate has no
+  empty responses or failed steps.
+
+  The isolated `expense_tracker` reproduction then exposed a deterministic
+  render-state difference at the same step that the first full run reported as
+  an empty response. After focusing `main.expenses[0].category` and pressing
+  Enter, both targets report the same focused element, edit mode, and 80 live
+  elements, but Rust renders the root filter panel at row 3 column 3 with the
+  visible `F`/`#070b13` cell while C++ renders a dimmed blank
+  `#0e131f` cell. Snapshot:
+  `tests/mcp/snapshots/20260729-063745-588195-step-030-expense_tracker_compare.json`;
+  viewer: `python3 tools/mcp_snapshot_viewer.py
+  tests/mcp/snapshots/20260729-063745-588195-step-030-expense_tracker_compare.json`.
+  Audit the C++ active generated-ScrollView/ComboBox overlay and outside-scope
+  dim order in `cpp/src/generated/GeneratedWindowRuntime.cpp` against Rust
+  `rust/src/uimd/src/runtime.rs` rendering and focus-scope transitions. Fix
+  shared Rust runtime behavior only and protect the exact nested ComboBox
+  Enter frame before continuing the complete scenario and full gate.
+
+  The final direct-terminal gate on 2026-07-29 found one additional modal
+  lifecycle ordering gap after the semantic negative button flash. Rust
+  `rust/src/uimd/src/terminal.rs` calls
+  `RuntimeState::complete_pending_standard_escape()`, which dispatches the
+  dialog button and marks the concrete window closed, but unlike the MCP path
+  it does not immediately call
+  `runtime::close_completed_modal()`. With no subsequent input event, the
+  closed modal therefore remains on the stack and the application-owned
+  `on_window_closed` callback never publishes `Action canceled.`. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp` completes the delayed
+  semantic button action and modal close in one transition. Make the Rust
+  interactive loop close completed modal frames immediately after the delayed
+  dispatch, preserving the already-rendered 180 ms negative-button flash and
+  callback-before-returned-frame order. Required validation: the focused Rust
+  runtime modal test, repeated direct-PTY task-board Escape route, complete
+  Rust direct-terminal smoke, task-board C++/Rust compare, runtime
+  tests/Clippy, and the full example gate.
+
+  The repeated native-generator audit on 2026-07-29 found one remaining
+  structural duplication inside the canonical C++ tool. Although
+  `cpp/tools/uimd/NativeCompilerModel.hpp` and
+  `NativeCppGenerator.cpp::parseCompilerDocument()` now build the shared
+  `CompilerDocument`/`CompilerMember` model consumed by
+  `NativeRustGenerator.cpp`, the C++ emitter still independently reparses the
+  raw `YamlMap` for shared member semantics in `membersRequireSixel()`,
+  `ctorArgs()`, `mcpElementMetadataCode()`, `selectedIndex()` /
+  `selectedValues()`, generated hook/member loops, and the main source-emission
+  loop. That leaves two property interpreters for commit mode, multiple
+  selection, options, initial selections, Image requirements, MCP element
+  metadata, and constructor arguments, so future C++/Rust drift remains
+  possible even though current generated examples compare successfully.
+  Refactor the C++ emitter to consume `CompilerDocument::members` for every
+  backend-neutral property and retain raw YAML only for genuinely C++-specific
+  custom header/source/class and style syntax. Do not add a lookup cache or
+  second model; derive any required raw C++ adapter entry by name. Required
+  validation: rebuild the native tool, regenerate all C++ and Rust examples
+  and supported regressions, inspect generated diffs, pass native parity both
+  normally and with `--compile-examples`, build all affected C++/Rust outputs,
+  run C++ CTest and Rust tests/Clippy, and rerun the complete C++/Rust compare
+  plus the Python/C++ baseline with `--compare-app-size 90x35`.
+
+  **Final repeated remediation audit (2026-07-29):** The complete
+  runtime/compiler/tool pass found no further fixable or unexplained
+  difference in the supported terminal-only POSIX slice after the generator
+  finding above was removed. `NativeCppGenerator.cpp` now constructs shared
+  behavior exclusively from `CompilerMember`: constructor arguments, member
+  declarations, dependency/type resolution, layout types, event hooks,
+  commit mode, selections, Image/Sixel requirement, and MCP metadata no longer
+  reparse raw member YAML. The only remaining raw member reads in the C++
+  emitter are the intended C++ custom class/header adapter and inline style
+  syntax. `NativeRustGenerator.cpp` calls `parseCompilerDocument()` and has no
+  independent document/member parser. A strengthened
+  `tools/native_uimd_parity.py` fixture protects the shared `maxlength`,
+  NumberInput step, commit mode, description/expose metadata, CheckBox,
+  ComboBox/ListBox selection, multi-select, Image/Sixel, and reusable
+  dependency properties on both emitters. Regeneration preserved the exact
+  aggregate hashes of all generated C++ and Rust example outputs and produced
+  no tracked C++ example/regression diff.
+
+  The repeated structural inventory retains only these smallest language/OS
+  adapters around the same behavior:
+  - Rust typed references plus `ElementData` state variants and
+    `Rc<RefCell>`/`Weak` liveness represent C++ virtual classes and
+    `unique_ptr` ownership without adding a second state machine; base
+    responsibilities, parent/child ownership, public typed methods, and
+    replacement cleanup are equivalent.
+  - Rust stack frames own moved windows and stable identity handles rather than
+    caller raw pointers. The one `handle_active_window_button` hook preserves
+    the C++ app-owned active-frame callback position for TextEditor without
+    duplicating dialog state; push/remove/top, callbacks, and nested modal
+    behavior are equivalent.
+  - Rust preserves valid UTF-8 `String` values by moving/clamping at scalar
+    boundaries while exposing C++-equivalent source-byte indices, and retains
+    the documented 50 ms pending-Escape framing window for split terminal
+    sequences.
+  - Safe Rust wrappers call the canonical stb decoder and dynamically loaded
+    libsixel contract; they do not implement a second decoder. MCP socket
+    workers forward requests to the `Rc<RefCell>` owner thread through a
+    channel, matching the C++ concurrent accept plus serialized controller
+    contract without sharing the application tree across threads.
+  - The direct interactive backend is validated on POSIX macOS/Linux. A native
+    Windows console/ConPTY adapter remains outside this target's claimed
+    support and is not treated as a hidden parity exception.
+
+  Final automated validation passed: native parity normally and with
+  `--compile-examples`; complete regenerated C++ build plus CTest 26/26; all 13
+  Rust examples and both Rust regression apps in release mode; Rust runtime
+  155/155 plus Clippy `--all-targets -- -D warnings`; Python 489/489; complete
+  C++/Rust 14-script compare with 1,945 assertions; complete unchanged
+  Python/C++ compare with 1,024 assertions; C++/Rust regressions with 4 and 25
+  assertions plus the 14-assert Python/C++ regression baseline; Rust MCP
+  transport smoke 5/5; Rust direct-terminal PTY smoke 8/8; 42/42 example and
+  8/8 regression `.uimd` source pairs byte-identical; Python syntax checks,
+  the 99-command fixed-viewport documentation audit, and `git diff --check`.
+
+  Two child tasks intentionally remain open only for the real Sixel pixel
+  gate: the complete image/Sixel task and final structural-coverage task.
+  iTerm2 3.6.11 successfully launched the exact Rust `image_browser` command,
+  reported one visible window (`id 4893`), exposed the expected application
+  text through its scripting API, accepted focus/scroll arrow input, and kept
+  the application alive. This execution context nevertheless cannot read
+  display pixels: both full-display `screencapture` and
+  `screencapture -l 4893` fail with `could not create image`, and the
+  `computer-use` skill's required `node_repl`/Sky tool is not exposed in this
+  session. Text/session contents omit Sixel pixels and therefore cannot prove
+  absence of graphical artifacts. Keep the umbrella, image/Sixel, and coverage
+  tasks open until Screen Recording/pixel access is granted and saved iTerm2
+  screenshots pass the before/after-scroll, focus, modal, and resize routes.
+
+- [x] **Fix Rust TextArea multi-character and multiline selection 1:1 with
+  C++**. Reported during direct Rust validation on 2026-07-28: extending a
+  selection across multiple characters in a TextArea does not work like the
+  parity-validated C++ runtime. Reproduce first with direct terminal
+  Shift+Left/Right/Up/Down/Home/End sequences, including split escape input,
+  selection rendering, replacement, copy, and Escape/edit re-entry cleanup.
+  Audit Python TextInput/TextArea selection semantics under
+  `src/uimd/runtime`, C++ input dispatch and TextInput behavior under
+  `cpp/src/{terminal,elements,generated}`, and Rust under
+  `rust/src/uimd/src/{terminal,elements,runtime}.rs` structurally before
+  editing. Preserve identical event shape, anchor/cursor roles, movement order,
+  render precedence, replacement/copy behavior, and post-event cleanup; fix
+  shared Rust runtime/input behavior only, never `formular` or another example.
+  Required validation: failing-then-passing Rust unit/state regression,
+  real-PTY `formular` selection/replacement/copy coverage against C++, Rust
+  runtime tests and Clippy, regenerated/rebuilt C++ and Rust affected examples,
+  focused C++/Rust compare at `--compare-app-size 90x35`, and
+  `git diff --check`.
+
+  Completed on 2026-07-28. Python
+  `src/uimd/runtime/{application.py,elements.py}` and C++
+  `cpp/src/{terminal/Input.cpp,elements/BasicElements.cpp}` already parse and
+  apply horizontal shifted movement through one anchor/cursor selection state.
+  Rust `terminal.rs` already emitted `Shift+Left`/`Shift+Right`, but
+  `elements.rs::handle_text_key()` implemented only shifted vertical movement
+  for TextArea, so each horizontal event was rejected before it could extend
+  the range. Rust now mirrors the reference transition: establish the anchor
+  only at the first shifted movement, move/clamp the cursor for every event,
+  preserve the range for rendering/copy, and replace the complete range on the
+  next text input.
+
+  The new Rust state regression failed at the first `Shift+Left` before the
+  fix and now verifies two-character selection, both selected render cells,
+  replacement, and selection cleanup. The direct real-PTY `formular` route
+  sends the same atomic terminal sequences to freshly built C++ and Rust,
+  verifies horizontal selection replacement plus Cmd+C/Cmd+V range contents,
+  and verifies shifted multiline selection/replacement. The complete Rust PTY
+  smoke passed 8/8 groups. Rust runtime tests passed 60/60; Clippy passed with
+  `--all-targets -- -D warnings`; freshly regenerated/rebuilt C++ and Rust
+  `formular` passed its focused 239-assert compare; the complete 14-script
+  C++/Rust gate passed 1,945 assertions with zero failures or failed steps; the
+  Rust `source_separator_scroll` and `stale_scrollview_focus` regression
+  compares passed 4 and 25 assertions; Python syntax checks and
+  `git diff --check` passed. No Python, C++, native CLI, `.uimd`, or
+  example-domain behavior changed.
+
+- [ ] **Fix disappearing and artifacted Rust Sixel images in `image_browser`
+  1:1 with C++ and verify the real terminal visually**. Reported during direct
+  Rust validation on 2026-07-28: Sixel images intermittently disappear and
+  leave visual artifacts while scrolling or redrawing `image_browser`.
+  Reproduce in a real Sixel-capable macOS terminal using the exact documented
+  Rust command, capture screenshots before/after scroll, focus, modal, and
+  redraw transitions, and compare the same route with freshly generated/built
+  C++. Also capture raw PTY payload/update counts so a terminal screenshot is
+  tied to deterministic emitted Sixel geometry and lifecycle evidence. Audit
+  Python image/fallback scheduling under `src/uimd/runtime`, C++
+  `cpp/src/{elements/Image.cpp,terminal/TerminalBuffer.cpp,generated/GeneratedWindowRuntime.cpp}`,
+  and Rust `rust/src/uimd/src/{image,runtime,terminal}.rs` 1:1: source clipping,
+  terminal-cell metrics, raster/Sixel cache keys, payload placement, previous
+  frame invalidation, erase/redraw ordering, terminal-scroll interaction, and
+  modal/background compositing. Fix shared Rust runtime/rendering only; do not
+  change `image_browser`, force fallback, add sleeps, weaken snapshots, or mask
+  artifacts. Required validation: saved real-terminal screenshots showing the
+  failing-then-passing route, deterministic unit/PTY regression for the
+  localized cause, Rust runtime tests and Clippy, freshly regenerated/rebuilt
+  C++ and Rust `image_browser`, complete focused C++/Rust image compare at
+  `--compare-app-size 90x35`, Rust direct-terminal image smoke, and
+  `git diff --check`.
+
+  Implementation progress on 2026-07-28 localized and fixed the deterministic
+  Rust terminal-diff defect. Python image scheduling under
+  `src/uimd/runtime/{application.py,image.py}` and C++
+  `cpp/src/terminal/TerminalBuffer.cpp::renderDiffRegion()` preserve covered
+  raw cells, re-emit a changed raw anchor inside a synchronized update, then
+  redraw ordinary text layers above the Sixel. Rust
+  `runtime.rs::write_ansi_frame_diff()` instead emitted a literal space for
+  every changed `raw_skip` cell. A focus/style-only update could therefore
+  erase pieces of an unchanged Sixel while the unchanged raw anchor prevented
+  the payload from being sent again. Changed covered cells now emit nothing;
+  changed raw anchors clear their rectangle, emit the Sixel when fully visible,
+  and redraw non-raw layers in the same order as C++.
+
+  Both focused diff regressions failed before the fix and now protect covered
+  cell preservation and anchor-change raw/text re-emission. Rust runtime tests
+  passed 60/60 and Clippy passed with `--all-targets -- -D warnings`.
+  Freshly regenerated/rebuilt C++ and Rust `image_browser` passed its complete
+  378-assert compare; all 13 Rust examples and both Rust regression apps built
+  against the final runtime; the full 14-script C++/Rust compare passed 1,945
+  assertions; both Rust regression compares passed; and the complete direct
+  PTY smoke passed 8/8 groups, including bounded image diff output. A captured
+  2,794-byte Rust Sixel payload decoded successfully with `sixel2png` to the
+  expected 128x64 raster at `temp/rust-image-browser-after.png`, proving that
+  the emitted payload itself is valid. Python syntax checks and
+  `git diff --check` passed.
+
+  The task remains open only for the real-terminal pixel gate. The subsequent
+  structural remediation has now ported the C++ TerminalBuffer-owned
+  current/previous frame lifecycle, scroll-region/raw rejection, canonical stb
+  decode and libsixel/fallback path, terminal-cell metric order, cache keys,
+  generated Sixel requirement, and fallback-warning behavior. All automated
+  image/runtime, full-compare, PTY, Clippy, and source gates listed in the final
+  umbrella audit pass.
+
+  The final 2026-07-29 retry launched the exact prepared
+  `temp/run-rust-image-browser-iterm.command` in iTerm2 3.6.11. AppleScript
+  reports one visible window (`id 4893`), returns the expected Image Browser
+  session text, and delivered focus/scroll arrow input while the Rust process
+  remained alive. Pixel capture is still unavailable to this execution
+  context: both full-display `screencapture` and window-specific
+  `screencapture -l 4893` fail with `could not create image`, and the
+  `computer-use` skill's required `node_repl`/Sky tool is not exposed. Grant
+  Screen Recording/pixel access to the Codex host, then rerun the exact
+  launcher and save before/after-scroll, focus, modal, resize, and redraw
+  screenshots. Do not mark this task complete until those images visually
+  confirm that no Sixel pixels disappear and no artifacts remain.
+
+- [x] **Preserve the real terminal when documented Rust example commands run
+  through the Cargo progress launcher**. Reported on 2026-07-28: both
+  `activity_feed` and `calculator` build and render once through
+  `tools/cargo_with_progress.py run --release ...`, then immediately exit with
+  code 0 because the launcher pipes the complete `cargo run` stdout stream and
+  the generated TUI process no longer owns a real output TTY. Keep visible
+  dependency/build progress and silent-operation heartbeat, but execute the
+  final interactive binary with inherited stdin/stdout/stderr and terminal
+  modes. Fix the general launcher/documented command, never either example.
+  Required validation: failing-then-passing real-PTY smoke through the exact
+  documented `activity_feed` and `calculator` command shape, normal user
+  interaction remains alive until explicit quit/Ctrl+C, noninteractive
+  test/build/Clippy streaming and heartbeat tests remain green, runtime tests
+  and Clippy pass, and `git diff --check` passes.
+
+  Completed on 2026-07-28. The failure was isolated to the progress launcher,
+  not the Rust runtime or either example. The launcher piped the entire
+  `cargo run` stdout stream so the final application observed
+  `stdout.is_terminal() == false`; the Rust runtime correctly took its
+  documented noninteractive single-frame path and returned success.
+
+  `tools/cargo_with_progress.py` now handles `run` as one coordinated
+  build-and-launch operation. It runs `cargo build` with Cargo JSON artifact
+  reporting while continuing to stream human build/diagnostic output and emit
+  silent-operation heartbeats, selects the exact reported binary artifact, and
+  launches that executable directly with the launcher's original
+  stdin/stdout/stderr. Application arguments after `--`, `--bin`, and
+  `--example` selection remain supported. Build, test, and Clippy keep the
+  existing streamed-output path.
+
+  A failing-then-passing POSIX PTY regression proved the original
+  `stdin=True, stdout=False` state and now requires both descriptors to remain
+  real TTYs. The persistent Rust direct-terminal smoke also runs the exact
+  documented generate/launcher command shape for `calculator` and
+  `activity_feed`: calculator remained alive for `1+2`, and activity feed
+  remained alive until the Quit click. The complete Rust PTY smoke passed 8/8
+  groups; launcher tests passed 2/2; Rust runtime tests passed 57/57; Clippy
+  passed with `--all-targets -- -D warnings`; Python syntax checks and
+  `git diff --check` passed. No Rust runtime, generated application, example
+  domain logic, native UIMD CLI, or other language/platform path changed for
+  this fix.
+
+- [x] **Make every documented Rust Cargo command copy-paste runnable and
+  visibly alive during long silent operations**. Reported on 2026-07-28 after
+  `cargo` was available only through the implementation session's isolated
+  `/private/tmp` toolchain and the user's normal zsh had neither
+  `$HOME/.cargo/env` nor `cargo` on `PATH`. Install and verify the official
+  stable user toolchain, including Clippy, without making repository commands
+  depend on the temporary agent cache. Add one shared Cargo progress launcher
+  that streams Cargo output and emits a periodic timestamped heartbeat whenever
+  Cargo itself is silent; update every Rust build/run/test/Clippy command in
+  `docs/example_cli_commands.md` to use that launcher. Required validation:
+  fresh interactive/login zsh resolves `cargo`, direct `cargo --version` and
+  `cargo clippy` work, the progress launcher has deterministic heartbeat and
+  exit-code tests, all documented Rust commands use it, runtime tests and
+  Clippy pass through it, and `git diff --check` passes.
+
+  Completed on 2026-07-28. The official stable Rust 1.97.1 default-profile
+  toolchain is installed under the user's normal `$HOME/.cargo` and
+  `$HOME/.rustup`, including Cargo, rustc, and Clippy. Rustup added
+  `$HOME/.cargo/env` to both `.zshenv` and `.profile`; a fresh login/interactive
+  zsh resolves `/Users/marekdubovsky/.cargo/bin/cargo` and reports Cargo,
+  rustc, and Clippy 1.97.1. The permanent Cargo cache was populated from
+  crates.io and no repository command depends on the temporary
+  `/private/tmp/uimd-rust-toolchain`.
+
+  Added `tools/cargo_with_progress.py` as the single documented Cargo launcher.
+  It resolves `CARGO`, `PATH`, or `$HOME/.cargo/bin/cargo`, immediately prints
+  the exact command, streams combined Cargo output, emits a timestamped
+  heartbeat after every ten seconds of silence, reports elapsed time and exit
+  status, preserves failures, and handles interruption. This also makes copied
+  commands work in an already-open shell before it reloads `PATH`.
+  `tools/uimd_dev.py` uses the same launcher for Rust builds, tests, and Clippy.
+  Every Rust build/run/test/Clippy command in
+  `docs/example_cli_commands.md` now uses the launcher; no direct project Cargo
+  invocation remains.
+
+  Validation passed: the launcher resolved the permanent Cargo executable with
+  Cargo intentionally absent from `PATH`; its deterministic fake-Cargo test
+  observed streamed output, multiple silent heartbeats, and preserved exit code
+  7; Rust runtime tests passed 57/57 through the launcher after the permanent
+  dependency cache was populated; Clippy passed with
+  `--all-targets -- -D warnings`; a fresh zsh resolved Cargo and Clippy;
+  Python syntax checks, `uimd_dev.py --help`, the documented-command audit, and
+  `git diff --check` passed.
+
+- [x] **Implement the complete Rust generated language target with terminal,
+  runtime, generator, SDK, example, MCP, image, and regression parity**.
+  Requested on 2026-07-27. Add the canonical target spelling `rust` to the
+  native compiler/CLI under `cpp/tools/uimd`, generate Cargo projects and
+  inheritance-equivalent event hooks from the shared native model, and add one
+  Rust-owned runtime tree under `rust/src/uimd` without duplicating compiler
+  behavior. Port shared behavior structurally 1:1 from the Python reference
+  under `src/uimd/runtime` and the parity-validated C++ implementation under
+  `cpp/{include/ui,src}`: terminal setup/teardown and direct input, frame
+  rendering and blending, all public controls, focus/edit/navigation cleanup,
+  modal/window stack, ScrollView and reusable children, standard dialogs and
+  FileBrowser, MCP transports/tools/metadata, images/fallback/Sixel behavior,
+  clipboard and copy notification, and public application APIs. Generate and
+  implement the complete Rust example set from byte-identical Python `.uimd`
+  sources with domain logic matching C++/Go/Swift/C#, and port every applicable
+  app in `tests/regressions/uimd/parity`.
+
+  Parity decision: Python remains the shared runtime behavior reference; C++ is
+  the native terminal/compiler implementation and primary Rust compare oracle.
+  Rust-specific code may differ only at Cargo/standard-library/OS primitive
+  adapters while preserving the same state fields, event order, cleanup
+  points, public APIs, render rules, direct-terminal bytes, MCP contract, and
+  edge cases. No example-specific runtime fixes, alternate `.uimd` layouts,
+  waits, masks, or snapshot weakening are allowed.
+
+  Required validation: baseline native CLI smoke before edits; native Rust
+  generation/new/scaffold/SDK/doctor parity; `cargo test` and `cargo clippy`
+  for the Rust runtime; regenerate and build all Python, C++, and Rust examples;
+  build all Rust examples with their normal Cargo commands; run Python/C++
+  baseline tests, full C++/Rust example compare at
+  `--compare-app-size 90x35`, Rust direct-terminal PTY smoke against C++, and
+  every supported C++/Rust regression compare from
+  `tests/regressions/uimd/parity`; update `docs/example_cli_commands.md` for
+  every new command/test and finish with `git diff --check`. Record any truly
+  unavoidable platform exception here before reporting completion.
+
+  Completed on 2026-07-28. Rust is implemented as the terminal-only generated
+  target `rust`. The canonical native compiler/CLI owns generation through
+  `cpp/tools/uimd/NativeRustGenerator.{hpp,cpp}` and recognizes Rust in
+  generation, project scaffolding, target discovery, SDK installation,
+  packaging, doctor output, release metadata, and the source-checkout/full-test
+  helpers. There is one Rust-owned runtime crate under `rust/src/uimd`; it
+  contains the structurally equivalent frame buffer, controls, layout,
+  focus/edit/navigation state machine, window/modal stack, ScrollView and
+  reusable children, generated-window API, standard dialogs/FileBrowser,
+  image fallback/Sixel pipeline, direct terminal adapter, and MCP stdio/TCP/HTTP
+  transports. Generated application classes expose the established member and
+  relevant override-hook model rather than a second compiler or app-local
+  callback bridge.
+
+  All 13 Rust example projects and both applicable parity regression apps are
+  implemented with domain logic only. The final source audit confirmed all 42
+  Python/Rust example `.uimd` pairs and all 8 regression `.uimd` pairs are
+  byte-for-byte identical. Compare-driven fixes remained in shared Rust
+  runtime architecture: dynamic ScrollView rendered-child support for
+  `activity_feed`, full-viewport focused ComboBox overlay composition for
+  modals, and contextual modal-return restoration when a focused reusable row
+  is removed and its ScrollView becomes empty. Those transitions mirror Python
+  `src/uimd/runtime` semantics and the corresponding C++ generated-window and
+  ScrollView paths; no example-specific focus reset, wait, render mask,
+  alternate layout, or snapshot weakening was added.
+
+  Final validation on the completed source state passed:
+  - Native CLI/SDK parity passed both normally and with `--compile-examples`,
+    including external Rust scaffold generation, target lookup, and Cargo
+    compilation.
+  - Rust runtime tests passed 57/57 and runtime Clippy passed with
+    `--all-targets -- -D warnings`; all 13 example projects and both regression
+    projects built in release mode with the final runtime.
+  - The complete C++/Rust example compare passed all 14 scripts with 1,945
+    assertions, zero failed assertions, and zero step failures. This includes
+    `activity_feed` 47, `image_browser` 378, `text_editor` 224,
+    `task_board` 360, and `expense_tracker` 268 assertions.
+  - The Python/C++ regression baseline passed 14 assertions; C++/Rust
+    `source_separator_scroll` passed 4 and `stale_scrollview_focus` passed 25,
+    all with zero failures or failed steps.
+  - Rust direct-terminal PTY smoke passed 7/7 groups, covering terminal/title
+    setup, normal and signal teardown, direct/split CSI and SS3 input, one paste
+    event, SGR mouse drag/copy, modal Escape flash, bounded image diff output,
+    and explicit Quit. Rust MCP transport smoke passed 4/4 groups for stdio,
+    TCP, HTTP, metadata/app-tool schemas, batches/notifications, and unsupported
+    transport errors.
+  - The unchanged reference gates had already passed on this working state:
+    Python tests 486/486, C++ CTest 26/26, and the full Python/C++ example
+    baseline with 1,024 assertions and zero failures. Final Python syntax
+    checks, documented Rust compare viewport audit, source-identity audit, and
+    `git diff --check` also passed.
+
+  Platform validation boundary: the direct interactive Rust terminal runtime
+  and PTY smoke are implemented and validated on macOS/Linux POSIX terminals.
+  Rust source generation is documented on Windows, but a native Windows
+  console/ConPTY direct-terminal adapter was not requested or validated in this
+  target slice and interactive Windows support is not claimed.
+
 - [x] **Fix the C++/Go `text_editor` full-surface step failure exposed by the
   complete example compare on 2026-07-27**. Reproduction command:
   `./uimd mcp-test --backend python --headless --all --compare

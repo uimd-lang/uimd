@@ -250,6 +250,32 @@ manifest. On Windows, use the documented `.cmd` or `.ps1` commands from
 When a platform or dependency is unavailable, record exactly what was skipped
 and why. Do not claim support for an unvalidated public install platform.
 
+## Mandatory Post-Implementation Audit And Remediation
+
+After the implementation appears complete and the initial validation gates
+pass, do not report the language or platform as complete yet. Perform the same
+complete structural and behavioral audit again:
+
+1. Compare the entire new runtime and native compiler/generator/tool surface
+   against Python shared semantics and the corresponding C++ architecture,
+   classes, methods, state fields, event order, rendering flow, cleanup points,
+   public API, dialogs, MCP lifecycle, terminal behavior, examples, and
+   regression coverage.
+2. Produce a concrete inventory of equivalent, divergent,
+   primitive-specific, missing, and untested surfaces with exact paths and
+   required validation.
+3. Add every discovered difference to `prompts/TODO.md` as an open task before
+   changing it. Each task must identify the reference and new-target paths, the
+   required 1:1 result, and its focused validation gate.
+4. Immediately continue with implementation and remove every fixable
+   difference. Do not stop after recording the audit, and do not declare the
+   target complete because broad builds or snapshot compares pass.
+5. After remediation, repeat the complete audit and required validation.
+   Continue this audit-record-fix cycle until no unexplained structural or
+   behavioral difference remains. Any unavoidable language/OS primitive
+   adapter must be the smallest possible exception and remain explicitly
+   documented in `prompts/TODO.md` with its rationale and parity evidence.
+
 ## Handling Remaining Work
 
 When an issue is discovered but cannot be finished in the current slice:
@@ -289,4 +315,6 @@ complete for a slice only when:
 - documented commands exist
 - compare and direct-terminal tests cover the behavior exercised by users
 - supported regression corpora are built and compared against C++
+- the mandatory post-implementation audit/remediation cycle found no remaining
+  unexplained structural or behavioral difference
 - unresolved parity exceptions are recorded in `prompts/TODO.md`

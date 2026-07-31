@@ -1,4 +1,5 @@
 #include "NativeCppGenerator.hpp"
+#include "NativeCompilerModel.hpp"
 
 #include "NativeModel.hpp"
 
@@ -277,11 +278,6 @@ std::string cppString(const std::string& value)
     return result;
 }
 
-std::string cppStringValue(const YamlValue* value, const std::string& fallback = "")
-{
-    return cppString(value == nullptr ? fallback : valueAsString(*value, fallback));
-}
-
 std::string cppRawString(const std::string& value)
 {
     std::string delimiter = "UI_MCP_MD";
@@ -454,28 +450,11 @@ std::string cppElementType(const std::string& elemType, const std::set<std::stri
     return "ui::ReusableElement";
 }
 
-std::string imageRenderMode(const YamlMap& member)
+bool membersRequireSixel(const std::vector<CompilerMember>& members)
 {
-    const YamlValue* value = yamlGet(member, "render_mode");
-    if (value == nullptr)
+    for (const CompilerMember& member : members)
     {
-        value = yamlGet(member, "render-mode");
-    }
-    return lower(trim(value == nullptr ? std::string{"auto"} : valueAsString(*value, "auto")));
-}
-
-bool memberRequiresSixel(const YamlMap& member)
-{
-    return typeFor(member) == "image" && imageRenderMode(member) != "fallback";
-}
-
-bool membersRequireSixel(const YamlMap& members)
-{
-    for (const auto& [name, value] : members)
-    {
-        (void)name;
-        const YamlMap* member = valueAsMap(&value);
-        if (member != nullptr && memberRequiresSixel(*member))
+        if (member.type == "image" && lower(trim(member.renderMode)) != "fallback")
         {
             return true;
         }
@@ -483,9 +462,11 @@ bool membersRequireSixel(const YamlMap& members)
     return false;
 }
 
-std::string addElementCppType(const YamlMap& member, const std::string& elemType, const std::set<std::string>& scrollviewTypes = {})
+std::string addElementCppType(
+    const std::string& elemType,
+    const std::set<std::string>& scrollviewTypes = {}
+)
 {
-    (void)member;
     return cppElementType(elemType, scrollviewTypes);
 }
 
@@ -751,24 +732,22 @@ std::string roleForType(const std::string& typeName)
     return "text";
 }
 
-YamlMap buildMcpMetadata(const YamlMap& metadata, const YamlMap& members)
+YamlMap buildMcpMetadata(
+    const YamlMap& metadata,
+    const std::vector<CompilerMember>& members
+)
 {
     YamlMap window;
     window["description"] = makeString(yamlString(metadata, "description", ""));
 
     YamlMap elements;
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        const YamlMap* props = valueAsMap(&value);
-        if (props == nullptr)
-        {
-            continue;
-        }
         YamlMap element;
-        element["role"] = makeString(roleForType(yamlString(*props, "type", "")));
-        element["description"] = makeString(descriptionForMember(name, *props));
-        element["expose"] = makeBool(truthy(yamlGet(*props, "expose"), true));
-        elements[name] = makeMap(element);
+        element["role"] = makeString(roleForType(member.type));
+        element["description"] = makeString(member.description);
+        element["expose"] = makeBool(member.expose);
+        elements[member.name] = makeMap(element);
     }
 
     YamlMap result;
@@ -1049,27 +1028,20 @@ std::vector<std::string> dependenciesFromDefinition(const YamlMap& definition)
 }
 
 std::vector<std::string> dependencyNames(
-    const YamlMap& members,
+    const std::vector<CompilerMember>& members,
     const std::vector<std::string>& explicitDependencies,
     const std::set<std::string>& scrollviewTypes = {}
 )
 {
     std::vector<std::string> names;
     std::set<std::string> seen;
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        (void)name;
-        const YamlMap* member = valueAsMap(&value);
-        if (member == nullptr)
+        if (isBuiltinType(member.type, scrollviewTypes))
         {
             continue;
         }
-        const std::string elemType = typeFor(*member);
-        if (isBuiltinType(elemType, scrollviewTypes))
-        {
-            continue;
-        }
-        const std::string sourceName = customSourceName(*member, elemType);
+        const std::string sourceName = member.customSource;
         if (seen.insert(sourceName).second)
         {
             names.push_back(sourceName);
@@ -1143,20 +1115,141 @@ std::filesystem::path findDependencySourceFile(const std::filesystem::path& mdPa
     return findDependencyFile(mdPath, sourceName, ".md");
 }
 
-struct CompilerDocument
+int compilerSelectedIndex(const YamlMap& member, const std::vector<std::string>& options, const std::string& key)
 {
-    NativeDocument document;
-    YamlMap style;
-    YamlMap mcpMetadata;
-    YamlMap mcpTools;
-    std::string extends = DEFAULT_EXTENDS;
-    std::string direction;
-    bool focusable = false;
-    std::string kind = "window";
-    std::vector<std::string> dependencies;
-};
+    if (options.empty())
+    {
+        return -1;
+    }
+    const YamlValue* selectedValue = yamlGet(member, key);
+    if (selectedValue == nullptr)
+    {
+        return -1;
+    }
+    std::string selected;
+    bool hasSelected = false;
+    const YamlList* selectedList = valueAsList(selectedValue);
+    if (selectedList != nullptr)
+    {
+        if (!selectedList->empty())
+        {
+            selected = valueAsString(selectedList->front());
+            hasSelected = true;
+        }
+    }
+    else
+    {
+        selected = valueAsString(*selectedValue);
+        hasSelected = true;
+    }
+    if (!hasSelected)
+    {
+        return -1;
+    }
+    const auto selectedIt = std::find(options.begin(), options.end(), selected);
+    return selectedIt == options.end()
+        ? -1
+        : static_cast<int>(std::distance(options.begin(), selectedIt));
+}
 
-CompilerDocument parseCompilerDocument(const std::filesystem::path& sourcePath)
+CompilerMember compileMember(const std::string& name, const YamlMap& member)
+{
+    CompilerMember result;
+    result.name = name;
+    result.type = typeFor(member);
+    result.description = descriptionForMember(name, member);
+    result.text = yamlString(member, "text", name);
+    result.title = yamlString(member, "title", name);
+    result.value = yamlString(member, "value", "");
+    result.source = yamlString(member, "source", "");
+    result.customSource = yamlString(member, "source", result.type);
+    result.alt = yamlString(member, "alt", "");
+    result.fit = yamlString(member, "fit", "contain");
+    result.align = yamlString(member, "align", "center");
+
+    const YamlValue* renderMode = yamlGet(member, "render_mode");
+    if (renderMode == nullptr)
+    {
+        renderMode = yamlGet(member, "render-mode");
+    }
+    result.renderMode = renderMode == nullptr
+        ? "auto"
+        : valueAsString(*renderMode, "auto");
+
+    const YamlValue* verticalAlign = yamlGet(member, "valign");
+    if (verticalAlign == nullptr)
+    {
+        verticalAlign = yamlGet(member, "vertical_align");
+    }
+    if (verticalAlign == nullptr)
+    {
+        verticalAlign = yamlGet(member, "vertical-align");
+    }
+    result.verticalAlign = verticalAlign == nullptr
+        ? "middle"
+        : valueAsString(*verticalAlign, "middle");
+
+    const YamlValue* commitMode = yamlGet(member, "commit-mode");
+    if (commitMode == nullptr)
+    {
+        commitMode = yamlGet(member, "commit_mode");
+    }
+    result.hasCommitMode = commitMode != nullptr && truthy(commitMode, false);
+    if (result.hasCommitMode)
+    {
+        result.commitMode = valueAsString(*commitMode);
+    }
+
+    result.expose = truthy(yamlGet(member, "expose"), true);
+    const YamlValue* checked = yamlGet(member, "checked");
+    if (checked == nullptr)
+    {
+        checked = yamlGet(member, "value");
+    }
+    result.checked = truthy(checked, false);
+    result.multiple = truthy(yamlGet(member, "multiple"), false);
+    result.maxLength = valueAsInt(yamlGet(member, "maxlength"), 0);
+    result.numberValue = valueAsDouble(yamlGet(member, "value"), 0.0);
+    const YamlValue* numberStep = yamlGet(member, "step_size");
+    if (numberStep == nullptr)
+    {
+        numberStep = yamlGet(member, "step");
+    }
+    result.numberStep = valueAsDouble(numberStep, 1.0);
+    result.options = listValue(yamlGet(member, "options"));
+
+    const std::vector<std::string> requestedSelection =
+        listValue(yamlGet(member, "selected_items"));
+    for (const std::string& option : result.options)
+    {
+        if (std::find(requestedSelection.begin(), requestedSelection.end(), option) !=
+            requestedSelection.end())
+        {
+            result.selectedValues.push_back(option);
+        }
+    }
+    result.selectedItemIndex =
+        compilerSelectedIndex(member, result.options, "selected_item");
+    result.selectedItemsIndex =
+        compilerSelectedIndex(member, result.options, "selected_items");
+    return result;
+}
+
+std::vector<CompilerMember> compileMembers(const YamlMap& members)
+{
+    std::vector<CompilerMember> result;
+    for (const auto& [name, value] : members)
+    {
+        const YamlMap* member = valueAsMap(&value);
+        if (member != nullptr)
+        {
+            result.push_back(compileMember(name, *member));
+        }
+    }
+    return result;
+}
+
+CompilerDocument parseCompilerDocumentImpl(const std::filesystem::path& sourcePath)
 {
     CompilerDocument result;
     result.document = parseDocumentFile(pathString(sourcePath));
@@ -1166,10 +1259,12 @@ CompilerDocument parseCompilerDocument(const std::filesystem::path& sourcePath)
     const std::string direction = yamlString(result.document.definition, "direction", "");
     result.direction = direction.empty() ? "" : lower(trim(direction));
     result.focusable = truthy(yamlGet(result.document.definition, "focusable"), false);
+    result.description = yamlString(result.document.metadata, "description", "");
     result.dependencies = dependenciesFromDefinition(result.document.definition);
     result.style = styleForDocument(result.document, sourcePath, isTheme);
-    result.mcpMetadata = buildMcpMetadata(result.document.metadata, result.document.members);
     result.mcpTools = buildMcpTools(result.document.tools);
+    result.members = compileMembers(result.document.members);
+    result.mcpMetadata = buildMcpMetadata(result.document.metadata, result.members);
     return result;
 }
 
@@ -1181,14 +1276,14 @@ bool isScrollviewExtension(const CompilerDocument& model)
 std::set<std::string> scrollviewDependencyTypes(const std::filesystem::path& mdPath, const CompilerDocument& model)
 {
     std::set<std::string> types;
-    for (const std::string& sourceName : dependencyNames(model.document.members, model.dependencies, {}))
+    for (const std::string& sourceName : dependencyNames(model.members, model.dependencies, {}))
     {
         const std::filesystem::path dependency = findDependencySourceFile(mdPath, sourceName);
         if (dependency.empty())
         {
             continue;
         }
-        CompilerDocument dependencyModel = parseCompilerDocument(dependency);
+        CompilerDocument dependencyModel = parseCompilerDocumentImpl(dependency);
         if (lower(dependencyModel.extends) == "uiscrollview")
         {
             types.insert(std::filesystem::path(sourceName).filename().string());
@@ -1201,7 +1296,7 @@ std::vector<std::filesystem::path> dependencyPaths(const std::filesystem::path& 
 {
     std::vector<std::filesystem::path> paths;
     const std::set<std::string> scrollviewTypes = scrollviewDependencyTypes(mdPath, model);
-    for (const std::string& sourceName : dependencyNames(model.document.members, model.dependencies, scrollviewTypes))
+    for (const std::string& sourceName : dependencyNames(model.members, model.dependencies, scrollviewTypes))
     {
         const std::filesystem::path dependency = findDependencySourceFile(mdPath, sourceName);
         if (!dependency.empty())
@@ -1294,17 +1389,15 @@ std::string doubleCode(double value)
 }
 
 std::string ctorArgs(
-    const std::string& name,
-    const YamlMap& member,
-    const std::map<std::string, int>& scrollviewGaps = {},
-    bool customScrollviewClass = false
+    const CompilerMember& member,
+    const std::map<std::string, int>& scrollviewGaps = {}
 )
 {
-    (void)customScrollviewClass;
-    const std::string elemType = typeFor(member);
+    const std::string& name = member.name;
+    const std::string& elemType = member.type;
     if (elemType == "label" || elemType == "spanlabel" || elemType == "infolabel" || elemType == "messagetable")
     {
-        return cppString(name) + ", " + cppString(yamlString(member, "text", name));
+        return cppString(name) + ", " + cppString(member.text);
     }
     if (elemType == "framebufferview")
     {
@@ -1312,64 +1405,44 @@ std::string ctorArgs(
     }
     if (elemType == "image")
     {
-        const YamlValue* renderMode = yamlGet(member, "render_mode");
-        if (renderMode == nullptr)
-        {
-            renderMode = yamlGet(member, "render-mode");
-        }
-        const YamlValue* verticalAlign = yamlGet(member, "valign");
-        if (verticalAlign == nullptr)
-        {
-            verticalAlign = yamlGet(member, "vertical_align");
-        }
-        if (verticalAlign == nullptr)
-        {
-            verticalAlign = yamlGet(member, "vertical-align");
-        }
         return cppString(name) + ", " +
-            cppStringValue(yamlGet(member, "source")) + ", " +
-            cppStringValue(yamlGet(member, "alt")) + ", " +
-            cppStringValue(yamlGet(member, "fit"), "contain") + ", " +
-            cppStringValue(renderMode, "auto") + ", " +
-            cppStringValue(yamlGet(member, "align"), "center") + ", " +
-            cppStringValue(verticalAlign, "middle");
+            cppString(member.source) + ", " +
+            cppString(member.alt) + ", " +
+            cppString(member.fit) + ", " +
+            cppString(member.renderMode) + ", " +
+            cppString(member.align) + ", " +
+            cppString(member.verticalAlign);
     }
     if (elemType == "button")
     {
-        return cppString(name) + ", " + cppString(yamlString(member, "title", name));
+        return cppString(name) + ", " + cppString(member.title);
     }
     if (elemType == "checkbox")
     {
-        const YamlValue* checkedValue = yamlGet(member, "checked");
-        if (checkedValue == nullptr)
-        {
-            checkedValue = yamlGet(member, "value");
-        }
-        const std::string checked = truthy(checkedValue, false) ? "true" : "false";
-        return cppString(name) + ", " + cppString(yamlString(member, "title", name)) + ", " + checked;
+        return cppString(name) + ", " + cppString(member.title) + ", " +
+            (member.checked ? "true" : "false");
     }
     if (elemType == "textinput" || elemType == "textarea")
     {
-        const int maxLength = valueAsInt(yamlGet(member, "maxlength"), 0);
-        return cppString(name) + ", " + cppStringValue(yamlGet(member, "value")) + ", " + std::to_string(maxLength);
+        return cppString(name) + ", " + cppString(member.value) + ", " +
+            std::to_string(member.maxLength);
     }
     if (elemType == "numberinput")
     {
         return cppString(name) + ", " +
-            doubleCode(valueAsDouble(yamlGet(member, "value"), 0.0)) + ", " +
-            doubleCode(valueAsDouble(yamlGet(member, "step_size") != nullptr ? yamlGet(member, "step_size") : yamlGet(member, "step"), 1.0));
+            doubleCode(member.numberValue) + ", " +
+            doubleCode(member.numberStep);
     }
     if (elemType == "combobox" || elemType == "listbox")
     {
-        const std::vector<std::string> options = listValue(yamlGet(member, "options"));
         std::string optionList;
-        for (std::size_t index = 0; index < options.size(); ++index)
+        for (std::size_t index = 0; index < member.options.size(); ++index)
         {
             if (index != 0)
             {
                 optionList += ", ";
             }
-            optionList += cppString(options[index]);
+            optionList += cppString(member.options[index]);
         }
         return cppString(name) + ", std::vector<std::string>{" + optionList + "}";
     }
@@ -1386,20 +1459,15 @@ std::string ctorArgs(
     return cppString(name);
 }
 
-std::string mcpElementMetadataCode(const YamlMap& members)
+std::string mcpElementMetadataCode(const std::vector<CompilerMember>& members)
 {
     std::vector<std::string> entries;
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        const YamlMap* member = valueAsMap(&value);
-        if (member == nullptr)
-        {
-            continue;
-        }
-        const std::string expose = truthy(yamlGet(*member, "expose"), true) ? "true" : "false";
         entries.push_back(
-            "ui::GeneratedElementMetadata{" + cppString(name) + ", " +
-            cppString(descriptionForMember(name, *member)) + ", " + expose + "}"
+            "ui::GeneratedElementMetadata{" + cppString(member.name) + ", " +
+            cppString(member.description) + ", " +
+            (member.expose ? "true" : "false") + "}"
         );
     }
     std::string result = "std::vector<ui::GeneratedElementMetadata>{";
@@ -1437,8 +1505,8 @@ std::string mcpAppToolsCode(const YamlMap& mcpTools)
         const YamlValue* outputSchema = yamlGet(*tool, "outputSchema");
         const std::string inputJson = inputSchema == nullptr
             ? "{\"type\":\"object\",\"properties\":{}}"
-            : jsonCompact(*inputSchema);
-        const std::string outputJson = outputSchema == nullptr ? "" : jsonCompact(*outputSchema);
+            : compilerJsonCompact(*inputSchema);
+        const std::string outputJson = outputSchema == nullptr ? "" : compilerJsonCompact(*outputSchema);
         entries.push_back(
             "ui::GeneratedAppToolMetadata{" + cppString(name) + ", " +
             cppString(yamlString(*tool, "description", "")) + ", " +
@@ -1481,31 +1549,27 @@ std::vector<std::string> customSourceIncludes(
     const std::filesystem::path& mdPath,
     const std::filesystem::path& outputDir,
     const std::string& baseName,
-    const YamlMap& members,
+    const std::vector<CompilerMember>& members,
+    const YamlMap& rawMembers,
     const std::set<std::string>& scrollviewTypes
 )
 {
     std::vector<std::string> includes;
     std::set<std::string> seen;
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        (void)name;
-        const YamlMap* member = valueAsMap(&value);
-        if (member == nullptr)
-        {
-            continue;
-        }
-        const std::string customHeader = cppCustomHeader(*member);
+        const YamlMap* rawMember = valueAsMap(yamlGet(rawMembers, member.name));
+        const std::string customHeader =
+            rawMember == nullptr ? std::string{} : cppCustomHeader(*rawMember);
         if (!customHeader.empty() && seen.insert(customHeader).second)
         {
             includes.push_back(customHeader);
         }
-        const std::string elemType = typeFor(*member);
-        if (isBuiltinType(elemType, scrollviewTypes))
+        if (isBuiltinType(member.type, scrollviewTypes))
         {
             continue;
         }
-        const std::string sourceName = customSourceName(*member, elemType);
+        const std::string& sourceName = member.customSource;
         if (sourceName == baseName)
         {
             continue;
@@ -1608,9 +1672,10 @@ struct EventSpec
     std::string args;
 };
 
-std::vector<EventSpec> eventSpecsForMember(const std::string& name, const YamlMap& member)
+std::vector<EventSpec> eventSpecsForMember(const CompilerMember& member)
 {
-    const std::string elemType = typeFor(member);
+    const std::string& name = member.name;
+    const std::string& elemType = member.type;
     if (elemType == "button" || elemType == "image")
     {
         return {{name, "button", "Click", cppEventMethodName(name, "Click"), ""}};
@@ -1637,18 +1702,13 @@ std::vector<EventSpec> eventSpecsForMember(const std::string& name, const YamlMa
     return {};
 }
 
-std::vector<EventSpec> eventSpecs(const YamlMap& members)
+std::vector<EventSpec> eventSpecs(const std::vector<CompilerMember>& members)
 {
     std::vector<EventSpec> specs;
     std::set<std::pair<std::string, std::string>> seen;
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        const YamlMap* member = valueAsMap(&value);
-        if (member == nullptr)
-        {
-            continue;
-        }
-        for (const EventSpec& spec : eventSpecsForMember(name, *member))
+        for (const EventSpec& spec : eventSpecsForMember(member))
         {
             const auto key = std::make_pair(spec.methodName, spec.args);
             if (seen.insert(key).second)
@@ -1660,7 +1720,7 @@ std::vector<EventSpec> eventSpecs(const YamlMap& members)
     return specs;
 }
 
-std::string generateCppHookDeclarations(const YamlMap& members)
+std::string generateCppHookDeclarations(const std::vector<CompilerMember>& members)
 {
     std::vector<std::string> lines;
     for (const EventSpec& spec : eventSpecs(members))
@@ -2061,11 +2121,23 @@ struct LayoutEntryData
     int marginBottom = 0;
 };
 
-LayoutEntryData layoutEntryData(const NativeLayoutItem& cell, const YamlMap& members)
+LayoutEntryData layoutEntryData(
+    const NativeLayoutItem& cell,
+    const std::vector<CompilerMember>& members
+)
 {
     const std::string name = cell.content;
-    const YamlMap* member = name.empty() ? nullptr : valueAsMap(yamlGet(members, name));
-    const std::string elemType = member == nullptr ? (name.empty() ? "" : "label") : typeFor(*member);
+    const auto member = std::find_if(
+        members.begin(),
+        members.end(),
+        [&](const CompilerMember& candidate)
+        {
+            return candidate.name == name;
+        }
+    );
+    const std::string elemType = member == members.end()
+        ? (name.empty() ? "" : "label")
+        : member->type;
     return LayoutEntryData{
         name,
         elemType,
@@ -2123,7 +2195,12 @@ YamlMap scrollviewExtensionLayoutCellStyle(const YamlMap& input)
     return result;
 }
 
-std::string layoutEntry(const NativeLayoutItem& cell, const YamlMap& members, const YamlMap& style, bool scrollviewExtension)
+std::string layoutEntry(
+    const NativeLayoutItem& cell,
+    const std::vector<CompilerMember>& members,
+    const YamlMap& style,
+    bool scrollviewExtension
+)
 {
     LayoutEntryData data = layoutEntryData(cell, members);
     if (scrollviewExtension && data.name.empty() && (data.cellName == "panel" || data.cellName == "viewport"))
@@ -2318,7 +2395,10 @@ YamlMap scrollviewExtensionDescendantFocusStyle(const YamlMap& style)
     return {};
 }
 
-std::vector<std::string> generateCppHookDefinitions(const std::string& classNameValue, const YamlMap& members)
+std::vector<std::string> generateCppHookDefinitions(
+    const std::string& classNameValue,
+    const std::vector<CompilerMember>& members
+)
 {
     std::vector<std::string> lines;
     for (const EventSpec& spec : eventSpecs(members))
@@ -2414,7 +2494,11 @@ void appendIfBranches(
     }
 }
 
-void appendCppEventDispatch(std::vector<std::string>& lines, const std::string& classNameValue, const YamlMap& members)
+void appendCppEventDispatch(
+    std::vector<std::string>& lines,
+    const std::string& classNameValue,
+    const std::vector<CompilerMember>& members
+)
 {
     std::vector<std::pair<std::string, std::string>> buttonSpecs;
     std::vector<std::pair<std::string, std::string>> textSpecs;
@@ -2582,39 +2666,33 @@ std::string joinLines(const std::vector<std::string>& lines)
 
 std::string generateHeader(const std::string& baseName, const std::string& classNameValue, const CompilerDocument& model, const std::filesystem::path& mdPath)
 {
-    const YamlMap& members = model.document.members;
+    const std::vector<CompilerMember>& members = model.members;
+    const YamlMap& rawMembers = model.document.members;
     const YamlMap& mcpTools = model.mcpTools;
     const std::set<std::string> scrollviewTypes = scrollviewDependencyTypes(mdPath, model);
     const std::string baseClass = isScrollviewExtension(model) ? "ui::GeneratedScrollViewBase" : "ui::GeneratedWindowBase";
 
     std::vector<std::string> memberLines;
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        const YamlMap* member = valueAsMap(&value);
-        if (member == nullptr)
-        {
-            continue;
-        }
-        const std::string elemType = typeFor(*member);
-        memberLines.push_back("    " + addElementCppType(*member, elemType, scrollviewTypes) + "* " + name + " = nullptr;");
+        memberLines.push_back(
+            "    " + addElementCppType(member.type, scrollviewTypes) + "* " +
+            member.name + " = nullptr;"
+        );
     }
 
     bool hasImage = false;
     std::vector<std::string> customIncludes;
     std::set<std::string> seenCustomIncludes;
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        (void)name;
-        const YamlMap* member = valueAsMap(&value);
-        if (member == nullptr)
-        {
-            continue;
-        }
-        if (typeFor(*member) == "image")
+        if (member.type == "image")
         {
             hasImage = true;
         }
-        const std::string customHeader = cppCustomHeader(*member);
+        const YamlMap* rawMember = valueAsMap(yamlGet(rawMembers, member.name));
+        const std::string customHeader =
+            rawMember == nullptr ? std::string{} : cppCustomHeader(*rawMember);
         if (!customHeader.empty() && seenCustomIncludes.insert(customHeader).second)
         {
             customIncludes.push_back("#include \"" + customHeader + "\"");
@@ -2921,74 +2999,6 @@ void appendGeneratedHelpers(std::vector<std::string>& lines)
     });
 }
 
-int selectedIndex(const YamlMap& member, const std::string& key)
-{
-    const std::vector<std::string> options = listValue(yamlGet(member, "options"));
-    if (options.empty())
-    {
-        return -1;
-    }
-    const YamlValue* selectedValue = yamlGet(member, key);
-    if (selectedValue == nullptr)
-    {
-        return -1;
-    }
-    std::string selected;
-    bool hasSelected = false;
-    const YamlList* selectedList = valueAsList(selectedValue);
-    if (selectedList != nullptr)
-    {
-        if (!selectedList->empty())
-        {
-            selected = valueAsString(selectedList->front());
-            hasSelected = true;
-        }
-    }
-    else
-    {
-        selected = valueAsString(*selectedValue);
-        hasSelected = true;
-    }
-    if (!hasSelected)
-    {
-        return -1;
-    }
-    for (std::size_t index = 0; index < options.size(); ++index)
-    {
-        if (options[index] == selected)
-        {
-            return static_cast<int>(index);
-        }
-    }
-    return -1;
-}
-
-std::vector<std::string> selectedValues(const YamlMap& member, const std::string& key)
-{
-    const std::vector<std::string> options = listValue(yamlGet(member, "options"));
-    const std::vector<std::string> selected = listValue(yamlGet(member, key));
-    std::vector<std::string> result;
-    for (const std::string& option : options)
-    {
-        if (std::find(selected.begin(), selected.end(), option) != selected.end())
-        {
-            result.push_back(option);
-        }
-    }
-    return result;
-}
-
-std::string windowDescription(const CompilerDocument& model)
-{
-    std::string description = yamlString(model.document.metadata, "description", "");
-    if (!description.empty())
-    {
-        return description;
-    }
-    const YamlMap* window = valueAsMap(yamlGet(model.mcpMetadata, "window"));
-    return window == nullptr ? std::string{} : yamlString(*window, "description", "");
-}
-
 std::string generateSource(
     const std::string& baseName,
     const std::string& classNameValue,
@@ -2998,7 +3008,8 @@ std::string generateSource(
     bool mcpEnabled
 )
 {
-    const YamlMap& members = model.document.members;
+    const std::vector<CompilerMember>& members = model.members;
+    const YamlMap& rawMembers = model.document.members;
     const YamlMap& mcpTools = model.mcpTools;
     const YamlMap& style = model.style;
     const bool scrollviewExtension = isScrollviewExtension(model);
@@ -3006,7 +3017,15 @@ std::string generateSource(
     const std::map<std::string, int> scrollviewGaps{{"uiscrollview", scrollviewExtensionGap(style)}};
 
     std::vector<std::string> lines = sourcePrelude(baseName);
-    for (const std::string& includePath : customSourceIncludes(mdPath, outputDir, baseName, members, scrollviewTypes))
+    for (const std::string& includePath :
+         customSourceIncludes(
+             mdPath,
+             outputDir,
+             baseName,
+             members,
+             rawMembers,
+             scrollviewTypes
+         ))
     {
         lines.push_back("#include \"" + includePath + "\"");
     }
@@ -3031,7 +3050,7 @@ std::string generateSource(
         std::string{"    setGeneratedFocusable("} + (model.focusable ? "true" : "false") + ");",
         "    setGeneratedKind(" + cppString(lower(trim(model.kind.empty() ? std::string{"window"} : model.kind))) + ");",
         std::string{"    setMcpMetadata("} + (mcpEnabled ? "true" : "false") + ", " + cppString(mcpClassName(baseName)) + ", " +
-            cppRawString(mcpEnabled ? model.document.sourceText : std::string{}) + ", " + cppString(windowDescription(model)) + ", " +
+            cppRawString(mcpEnabled ? model.document.sourceText : std::string{}) + ", " + cppString(model.description) + ", " +
             mcpElementMetadataCode(members) + ");",
         "    setMcpAppTools(" + mcpAppToolsCode(mcpTools) + ");",
     });
@@ -3066,69 +3085,74 @@ std::string generateSource(
         }
     }
 
-    for (const auto& [name, value] : members)
+    for (const CompilerMember& member : members)
     {
-        const YamlMap* member = valueAsMap(&value);
-        if (member == nullptr)
-        {
-            continue;
-        }
-        const std::string elemType = typeFor(*member);
-        const std::string addElementType = addElementCppType(*member, elemType, scrollviewTypes);
+        const std::string& name = member.name;
+        const std::string& elemType = member.type;
+        const YamlMap* rawMember = valueAsMap(yamlGet(rawMembers, name));
+        const std::string addElementType =
+            addElementCppType(elemType, scrollviewTypes);
         const std::string cppType = addElementType;
         lines.push_back(
             "    " + name + " = &static_cast<" + cppType + "&>("
-            "addElement<" + addElementType + ">(" + ctorArgs(name, *member, scrollviewGaps) + "));"
+            "addElement<" + addElementType + ">(" +
+            ctorArgs(member, scrollviewGaps) + "));"
         );
-        const YamlValue* commitMode = yamlGet(*member, "commit-mode");
-        if (commitMode == nullptr)
+        if (member.hasCommitMode)
         {
-            commitMode = yamlGet(*member, "commit_mode");
-        }
-        if (commitMode != nullptr && truthy(commitMode, false))
-        {
-            lines.push_back("    " + name + "->setCommitMode(" + cppString(valueAsString(*commitMode)) + ");");
+            lines.push_back(
+                "    " + name + "->setCommitMode(" +
+                cppString(member.commitMode) + ");"
+            );
         }
         if (elemType == "combobox")
         {
-            const int index = selectedIndex(*member, "selected_item");
-            if (index >= 0)
+            if (member.selectedItemIndex >= 0)
             {
-                lines.push_back("    " + name + "->setSelectedIndex(" + std::to_string(index) + ");");
+                lines.push_back(
+                    "    " + name + "->setSelectedIndex(" +
+                    std::to_string(member.selectedItemIndex) + ");"
+                );
             }
         }
         if (elemType == "listbox")
         {
-            if (truthy(yamlGet(*member, "multiple"), false))
+            if (member.multiple)
             {
                 lines.push_back("    " + name + "->setMultiple(true);");
             }
-            std::vector<std::string> values = selectedValues(*member, "selected_items");
-            if (values.size() > 1)
+            if (member.selectedValues.size() > 1)
             {
                 std::string selectedList;
-                for (std::size_t index = 0; index < values.size(); ++index)
+                for (std::size_t index = 0;
+                     index < member.selectedValues.size();
+                     ++index)
                 {
                     if (index != 0)
                     {
                         selectedList += ", ";
                     }
-                    selectedList += cppString(values[index]);
+                    selectedList += cppString(member.selectedValues[index]);
                 }
                 lines.push_back("    " + name + "->setSelectedValues(std::vector<std::string>{" + selectedList + "});");
             }
-            else
+            else if (member.selectedItemsIndex >= 0)
             {
-                const int index = selectedIndex(*member, "selected_items");
-                if (index >= 0)
-                {
-                    lines.push_back("    " + name + "->setSelectedIndex(" + std::to_string(index) + ");");
-                }
+                lines.push_back(
+                    "    " + name + "->setSelectedIndex(" +
+                    std::to_string(member.selectedItemsIndex) + ");"
+                );
             }
         }
         if (!isBuiltinType(elemType, scrollviewTypes))
         {
-            lines.push_back("    " + name + "->setChild(std::make_unique<" + customChildClassName(*member, elemType) + ">());");
+            const std::string childClass = rawMember == nullptr
+                ? className(member.customSource)
+                : customChildClassName(*rawMember, elemType);
+            lines.push_back(
+                "    " + name + "->setChild(std::make_unique<" +
+                childClass + ">());"
+            );
         }
 
         const std::string cellName = cellNameForElement(model.document.layout, name);
@@ -3145,7 +3169,14 @@ std::string generateSource(
         {
             styleElemType = elemType;
         }
-        for (const auto& [setter, stateStyle] : styleStatesForElement(style, styleElemType, name, cellName, member))
+        for (const auto& [setter, stateStyle] :
+             styleStatesForElement(
+                 style,
+                 styleElemType,
+                 name,
+                 cellName,
+                 rawMember
+             ))
         {
             if (!stateStyle.empty())
             {
@@ -3164,15 +3195,25 @@ std::string generateSource(
     return joinLines(lines);
 }
 
-std::string memberType(const YamlMap& members, const std::string& name)
+std::string memberType(
+    const std::vector<CompilerMember>& members,
+    const std::string& name
+)
 {
-    const YamlMap* member = valueAsMap(yamlGet(members, name));
-    return member == nullptr ? std::string{} : lower(yamlString(*member, "type", ""));
+    const auto member = std::find_if(
+        members.begin(),
+        members.end(),
+        [&](const CompilerMember& candidate)
+        {
+            return candidate.name == name;
+        }
+    );
+    return member == members.end() ? std::string{} : member->type;
 }
 
 std::string generateAppStubHandlers(const CompilerDocument& model)
 {
-    const YamlMap& members = model.document.members;
+    const std::vector<CompilerMember>& members = model.members;
     if (
         (memberType(members, "name") == "textinput" || memberType(members, "name") == "textarea") &&
         memberType(members, "hello_button") == "button" &&
@@ -3361,7 +3402,7 @@ std::vector<std::filesystem::path> compileCppFile(
     visited.insert(absoluteSource);
     std::filesystem::create_directories(outputDir);
 
-    CompilerDocument model = parseCompilerDocument(absoluteSource);
+    CompilerDocument model = parseCompilerDocumentImpl(absoluteSource);
     std::vector<std::filesystem::path> generated;
     for (const std::filesystem::path& dependency : dependencyPaths(absoluteSource, model))
     {
@@ -3397,6 +3438,77 @@ std::vector<std::filesystem::path> compileCppFile(
 }
 
 }  // namespace
+
+CompilerDocument parseCompilerDocument(const std::filesystem::path& sourcePath)
+{
+    return parseCompilerDocumentImpl(sourcePath);
+}
+
+std::string compilerJsonCompact(const YamlValue& value)
+{
+    return jsonCompact(value);
+}
+
+bool compilerIsBuiltinType(const std::string& elementType)
+{
+    return isBuiltinType(elementType);
+}
+
+YamlMap compilerCellStyle(const YamlMap& style, const std::string& cellName)
+{
+    return cellStyle(style, cellName);
+}
+
+YamlMap compilerLayoutElementStyle(
+    const YamlMap& style,
+    const std::string& elementType,
+    const std::string& name,
+    const std::string& cellName
+)
+{
+    return layoutElementStyle(style, elementType, name, cellName);
+}
+
+YamlMap compilerWindowStyle(const YamlMap& style)
+{
+    return styleWindow(style);
+}
+
+std::vector<std::pair<std::string, YamlMap>> compilerStyleStatesForElement(
+    const YamlMap& style,
+    const std::string& elementType,
+    const std::string& name,
+    const std::string& cellName,
+    const YamlMap* member
+)
+{
+    return styleStatesForElement(style, elementType, name, cellName, member);
+}
+
+std::vector<std::pair<std::string, YamlMap>> compilerScrollviewExtensionStyleStates(
+    const YamlMap& style
+)
+{
+    return scrollviewExtensionStyleStates(style);
+}
+
+YamlMap compilerScrollviewExtensionDescendantFocusStyle(const YamlMap& style)
+{
+    return scrollviewExtensionDescendantFocusStyle(style);
+}
+
+int compilerScrollviewExtensionGap(const YamlMap& style)
+{
+    return scrollviewExtensionGap(style);
+}
+
+std::vector<std::filesystem::path> compilerDependencyPaths(
+    const std::filesystem::path& sourcePath,
+    const CompilerDocument& model
+)
+{
+    return dependencyPaths(sourcePath, model);
+}
 
 std::vector<std::filesystem::path> generateCppSources(
     const std::filesystem::path& sourcePath,
