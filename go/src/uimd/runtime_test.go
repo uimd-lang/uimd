@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1284,6 +1285,64 @@ func TestFileBrowserDirectoryEnterKeepsEntriesEditMode(t *testing.T) {
 	}
 	if browser.Entries.ActiveItemVisible {
 		t.Fatal("directory Enter left the FileBrowser keyboard-active row visible")
+	}
+}
+
+func TestFileBrowserMouseClickEntersDirectoryAndOnlySelectsFile(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatalf("create child directory: %v", err)
+	}
+	file := filepath.Join(root, "photo.png")
+	if err := os.WriteFile(file, []byte("png"), 0o644); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	browser := NewFileBrowser(root, root, "open", nil)
+	state := newRuntimeState(browser.GeneratedWindowBase, browser.RuntimeOptions())
+	size := Size{Width: 48, Height: 14}
+	_ = RenderGeneratedRuntimeContent(state, size)
+
+	childIndex := slices.Index(browser.Entries.Options, "child/")
+	if childIndex < 0 {
+		t.Fatalf("child directory missing from options: %v", browser.Entries.Options)
+	}
+	frame := browser.Entries.ElementFrame()
+	if !state.handleDirectMouse(directMouseEvent{
+		Name: "mouse_press",
+		X: frame.Col,
+		Y: frame.Row + childIndex - browser.Entries.ScrollOffset,
+	}, size) {
+		t.Fatal("directory mouse press was not handled")
+	}
+	if browser.CurrentDir() != child {
+		t.Fatalf("directory after click = %q, want %q", browser.CurrentDir(), child)
+	}
+
+	_ = RenderGeneratedRuntimeContent(state, size)
+	frame = browser.Entries.ElementFrame()
+	if !state.handleDirectMouse(directMouseEvent{Name: "mouse_press", X: frame.Col, Y: frame.Row}, size) {
+		t.Fatal("parent mouse press was not handled")
+	}
+	if browser.CurrentDir() != root {
+		t.Fatalf("directory after parent click = %q, want %q", browser.CurrentDir(), root)
+	}
+
+	_ = RenderGeneratedRuntimeContent(state, size)
+	fileIndex := slices.Index(browser.Entries.Options, "photo.png")
+	frame = browser.Entries.ElementFrame()
+	if !state.handleDirectMouse(directMouseEvent{
+		Name: "mouse_press",
+		X: frame.Col,
+		Y: frame.Row + fileIndex - browser.Entries.ScrollOffset,
+	}, size) {
+		t.Fatal("file mouse press was not handled")
+	}
+	if browser.Entries.SelectedIndex != fileIndex || browser.Filename.Value != "photo.png" {
+		t.Fatalf("file click selected index/value = %d/%q, want %d/photo.png", browser.Entries.SelectedIndex, browser.Filename.Value, fileIndex)
+	}
+	if browser.Closed() {
+		t.Fatal("file click closed FileBrowser")
 	}
 }
 

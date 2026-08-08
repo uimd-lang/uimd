@@ -2,6 +2,7 @@
 
 import io
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -14,6 +15,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from uimd.testing import mcp_tester_launcher
 from uimd.testing import mcp_tester as mcp_tester_module
+from uimd.testing.artifact_manifest import (
+    BuildManifestError,
+    resolve_artifact,
+    validate_artifact_paths,
+    write_manifest,
+)
 from uimd.testing.mcp_tester import (
     DEFAULT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_TYPE_DELAY_MS,
@@ -463,6 +470,154 @@ class TestMcpTesterConfig(unittest.TestCase):
             config.scripts[0].apps,
             {"calculator": _repo_path(config.root, "python/examples/calculator/calculator.py")},
         )
+
+    def test_examples_root_fallback_prefers_release_parity_outputs(self):
+        with tempfile.TemporaryDirectory() as examples_root:
+            def candidate(relative_path, contents, modified_at):
+                path = os.path.join(examples_root, relative_path)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(contents)
+                os.utime(path, (modified_at, modified_at))
+                return path
+
+            expected = {
+                "python_app": candidate(
+                    "python_app/python_app.py",
+                    "fresh Python source\n",
+                    2,
+                ),
+                "native_app": candidate(
+                    "native_app/native_app",
+                    "fresh direct build\n",
+                    2,
+                ),
+                "csharp_app": candidate(
+                    "csharp_app/bin/Release/net10.0/csharp_app.dll",
+                    "fresh C# Release build\n",
+                    2,
+                ),
+                "swift_app": candidate(
+                    "swift_app/.build/release/swift_app",
+                    "fresh Swift release build\n",
+                    2,
+                ),
+                "rust_app": candidate(
+                    "rust_app/target/release/rust_app",
+                    "fresh Rust release build\n",
+                    2,
+                ),
+            }
+            candidate(
+                "csharp_app/bin/Debug/net10.0/csharp_app.dll",
+                "stale C# Debug build\n",
+                1,
+            )
+            candidate(
+                "swift_app/.build/debug/swift_app",
+                "stale Swift debug build\n",
+                1,
+            )
+            candidate(
+                "rust_app/target/debug/rust_app",
+                "stale Rust debug build\n",
+                1,
+            )
+
+            for name, expected_path in expected.items():
+                with self.subTest(name=name):
+                    selected = mcp_tester_module._app_path_from_examples_root(
+                        examples_root,
+                        name,
+                    )
+                    self.assertEqual(selected, expected_path)
+                    with open(selected, encoding="utf-8") as handle:
+                        self.assertIn("fresh", handle.read())
+
+    def test_parity_manifest_resolves_exact_release_artifacts_for_every_platform(self):
+        with tempfile.TemporaryDirectory() as temporary_root:
+            root = Path(temporary_root)
+            source = root / "src/runtime.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("runtime source\n", encoding="utf-8")
+            definitions = (
+                ("python", "python/examples", "python/examples/demo/demo.py"),
+                ("cpp", "cpp/build/examples", "cpp/build/examples/demo/demo"),
+                ("csharp", "csharp/examples", "csharp/examples/demo/bin/Release/net10.0/demo.dll"),
+                ("swift", "swift/examples", "swift/examples/demo/.build/release/demo"),
+                ("go", "go/examples", "go/examples/demo/demo"),
+                ("rust", "rust/examples", "rust/examples/demo/target/release/demo"),
+            )
+            artifacts = []
+            expected = {}
+            for platform_name, examples_root, relative_path in definitions:
+                artifact_path = root / relative_path
+                artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                artifact_path.write_text(f"{platform_name} parity artifact\n", encoding="utf-8")
+                artifacts.append(
+                    {
+                        "kind": "example",
+                        "platform": platform_name,
+                        "name": "demo",
+                        "root": examples_root,
+                        "path": relative_path,
+                    }
+                )
+                expected[examples_root] = str(artifact_path.resolve())
+
+            write_manifest(root, artifacts, platforms=[item[0] for item in definitions])
+
+            for examples_root, artifact_path in expected.items():
+                with self.subTest(examples_root=examples_root):
+                    self.assertEqual(resolve_artifact(root, root / examples_root, "demo"), artifact_path)
+                    validate_artifact_paths(root, [root / examples_root])
+
+    def test_parity_manifest_rejects_source_changes_after_rebuild(self):
+        with tempfile.TemporaryDirectory() as temporary_root:
+            root = Path(temporary_root)
+            source = root / "src/runtime.py"
+            artifact = root / "cpp/build/examples/demo/demo"
+            source.parent.mkdir(parents=True)
+            artifact.parent.mkdir(parents=True)
+            source.write_text("before\n", encoding="utf-8")
+            artifact.write_text("binary\n", encoding="utf-8")
+            write_manifest(
+                root,
+                [{
+                    "kind": "example",
+                    "platform": "cpp",
+                    "name": "demo",
+                    "root": "cpp/build/examples",
+                    "path": "cpp/build/examples/demo/demo",
+                }],
+                platforms=["cpp"],
+            )
+            source.write_text("after\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(BuildManifestError, "source inputs changed"):
+                validate_artifact_paths(root, [artifact])
+
+    def test_parity_manifest_rejects_artifact_changes_after_rebuild(self):
+        with tempfile.TemporaryDirectory() as temporary_root:
+            root = Path(temporary_root)
+            artifact = root / "cpp/build/examples/demo/demo"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("before\n", encoding="utf-8")
+            write_manifest(
+                root,
+                [{
+                    "kind": "example",
+                    "platform": "cpp",
+                    "name": "demo",
+                    "root": "cpp/build/examples",
+                    "path": "cpp/build/examples/demo/demo",
+                }],
+                platforms=["cpp"],
+            )
+            artifact.write_text("after\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(BuildManifestError, "artifact changed"):
+                validate_artifact_paths(root, [artifact])
 
     def test_compare_examples_roots_replace_each_included_script_app_path(self):
         python_root, cpp_root = self._temporary_compare_example_roots()

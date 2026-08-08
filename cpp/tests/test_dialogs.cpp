@@ -5,9 +5,16 @@
 #include <cassert>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 
 namespace {
+
+void require(bool condition, const char* message) {
+    if (!condition) {
+        throw std::runtime_error(message);
+    }
+}
 
 void testMessageBoxes() {
     std::string callbackResult;
@@ -106,8 +113,8 @@ void testFileBrowser() {
     }
 }
 
-void testFileBrowserDoubleClickDirectory() {
-    const std::filesystem::path root = std::filesystem::temp_directory_path() / "ui_cpp_dialog_double_click_test";
+void testFileBrowserSingleClickDirectoryAndFileSelection() {
+    const std::filesystem::path root = std::filesystem::temp_directory_path() / "ui_cpp_dialog_single_click_test";
     std::filesystem::create_directories(root / "subdir");
     {
         std::ofstream(root / "open_me.txt") << "open";
@@ -125,15 +132,15 @@ void testFileBrowserDoubleClickDirectory() {
         browser.entries->frame().row + subdirIndex - browser.entries->scrollOffset(),
         browser.entries->frame().col,
     };
-    assert(!browser.handleEntryMousePress(subdirPoint));
-    assert(browser.handleEntryMousePress(subdirPoint));
-    assert(browser.currentDir() == std::filesystem::weakly_canonical(root / "subdir"));
+    require(browser.handleEntryMousePress(subdirPoint), "single directory click was not consumed");
+    require(browser.currentDir() == std::filesystem::weakly_canonical(root / "subdir"),
+            "single directory click did not enter the child directory");
 
     (void)ui::renderGeneratedWindowContent(browser, size, -1, true);
     const ui::Point parentPoint{browser.entries->frame().row, browser.entries->frame().col};
-    assert(!browser.handleEntryMousePress(parentPoint));
-    assert(browser.handleEntryMousePress(parentPoint));
-    assert(browser.currentDir() == std::filesystem::weakly_canonical(root));
+    require(browser.handleEntryMousePress(parentPoint), "single parent click was not consumed");
+    require(browser.currentDir() == std::filesystem::weakly_canonical(root),
+            "single parent click did not enter the parent directory");
 
     (void)ui::renderGeneratedWindowContent(browser, size, -1, true);
     const auto& rootOptions = browser.entries->options();
@@ -144,10 +151,12 @@ void testFileBrowserDoubleClickDirectory() {
         browser.entries->frame().row + fileIndex - browser.entries->scrollOffset(),
         browser.entries->frame().col,
     };
-    assert(!browser.handleEntryMousePress(filePoint));
-    assert(browser.handleEntryMousePress(filePoint));
-    assert(browser.closed());
-    assert(browser.result() == (std::filesystem::weakly_canonical(root) / "open_me.txt").string());
+    require(!browser.handleEntryMousePress(filePoint), "file click was consumed as an activation");
+    require(browser.entries->selectedIndex() == fileIndex, "file click did not select its row");
+    require(browser.filename->value() == "open_me.txt", "file click did not preview its name");
+    require(!browser.closed(), "file click closed FileBrowser");
+    require(!browser.handleEntryMousePress(filePoint), "repeated file click was consumed as an activation");
+    require(!browser.closed(), "repeated file click closed FileBrowser");
 }
 
 }  // namespace
@@ -155,5 +164,5 @@ void testFileBrowserDoubleClickDirectory() {
 void run_dialog_tests() {
     testMessageBoxes();
     testFileBrowser();
-    testFileBrowserDoubleClickDirectory();
+    testFileBrowserSingleClickDirectoryAndFileSelection();
 }

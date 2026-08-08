@@ -66,6 +66,10 @@ SPLIT_SEQUENCE_DELAY_SECONDS = 0.03
 DIALOG_FLASH_CAPTURE_SECONDS = 0.08
 IDLE_CAPTURE_SECONDS = 0.7
 
+sys.path.insert(0, str(ROOT / "src"))
+
+from uimd.testing.artifact_manifest import validate_artifact_paths
+
 
 def executable(examples_dir: Path, name: str) -> Path:
     return ROOT / examples_dir / name / "target" / "release" / name
@@ -83,6 +87,7 @@ def check_binaries(cpp_build_dir: Path, rust_examples_dir: Path) -> None:
         executable(rust_examples_dir, "task_board"),
         executable(rust_examples_dir, "widget_gallery"),
     ]
+    validate_artifact_paths(ROOT, paths)
     missing = [path for path in paths if not path.exists()]
     if missing:
         details = "\n".join(f"  - {path.relative_to(ROOT)}" for path in missing)
@@ -212,8 +217,18 @@ def run_formular_input_cases(
     cpp_screen = run_dynamic_screen(cpp_command, ROOT, exercise_multiline_selection)
     rust_screen = run_dynamic_screen(rust_command, ROOT, exercise_multiline_selection)
     assert_equal_screen("formular TextArea multiline selection", cpp_screen, rust_screen)
+
+    for action, tab_count in (("save", 9), ("cancel", 10)):
+        def exercise_action(app: PtyApp, *, expected_action: str = action, tabs: int = tab_count) -> None:
+            app.send(b"\t" * tabs + b"\r")
+            wait_for_screen_text(app, f"action: {expected_action}")
+            wait_for_screen_text(app, "form:")
+
+        cpp_screen = run_dynamic_screen(cpp_command, ROOT, exercise_action)
+        rust_screen = run_dynamic_screen(rust_command, ROOT, exercise_action)
+        assert_equal_screen(f"formular {action} output", cpp_screen, rust_screen)
     print(
-        "PASS Rust split CSI/SS3, TextArea arrows/selection, and one paste event",
+        "PASS Rust formular input, Save/Cancel close, and terminal YAML output",
         flush=True,
     )
 

@@ -378,6 +378,7 @@ func (browser *FileBrowser) RuntimeOptions() GeneratedWindowRuntimeOptions {
 			}
 			return false
 		},
+		OnMousePressBeforeFocused: browser.HandleEntryMousePress,
 		OnKey: func(key string) bool {
 			if key == "Escape" {
 				browser.Close("")
@@ -399,6 +400,7 @@ func (browser *FileBrowser) StackFrameOptions() GeneratedWindowFrameOptions {
 		KeepEditModeAfterEscape:   options.KeepEditModeAfterEscape,
 		OnKey:                     options.OnKey,
 		OnKeyBeforeFocusedElement: options.OnKeyBeforeFocusedElement,
+		OnMousePressBeforeFocused: options.OnMousePressBeforeFocused,
 		OnButton:                  options.OnButton,
 		OnTextChanged:             options.OnTextChanged,
 		OnTextConfirmed:           options.OnTextConfirmed,
@@ -515,6 +517,22 @@ func (browser *FileBrowser) AcceptFilename() bool {
 func (browser *FileBrowser) SelectEntry(index int) {
 	browser.Entries.SetSelectedIndex(index)
 	browser.PreviewSelected()
+}
+
+func (browser *FileBrowser) HandleEntryMousePress(point Point) bool {
+	frame := browser.Entries.ElementFrame()
+	if !frame.Contains(point) {
+		return false
+	}
+	index := browser.Entries.ScrollOffset + point.Row - frame.Row
+	if index < 0 || index >= len(browser.Entries.Options) {
+		return false
+	}
+	browser.SelectEntry(index)
+	if browser.SelectedEntryIsDirectory() {
+		return browser.AcceptCurrent()
+	}
+	return false
 }
 
 func (browser *FileBrowser) PreviewSelected() {

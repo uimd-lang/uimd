@@ -198,6 +198,50 @@ final class UimdRuntimeSmokeTests: XCTestCase
         XCTAssertEqual(browser.entries.selectedValues, [".."])
     }
 
+    func testFileBrowserMouseClickEntersDirectoryAndOnlySelectsFile() throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uimd-swift-file-browser-mouse-\(UUID().uuidString)")
+        let child = root.appendingPathComponent("child")
+        let file = root.appendingPathComponent("photo.png")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        try Data("png".utf8).write(to: file)
+        defer
+        {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let browser = FileBrowser(root: root.path, start: root.path)
+        browser.entries.frame = Rect(row: 0, col: 0, width: 20, height: 5)
+        let childIndex = try XCTUnwrap(browser.entries.options.firstIndex(of: "child/"))
+        XCTAssertEqual(
+            browser.runtimeOptions().onMousePressBeforeFocused?(
+                Point(row: childIndex, col: 0)
+            ),
+            true
+        )
+        XCTAssertEqual(browser.currentDirectory, child.path)
+
+        browser.entries.frame = Rect(row: 0, col: 0, width: 20, height: 5)
+        XCTAssertEqual(
+            browser.runtimeOptions().onMousePressBeforeFocused?(Point(row: 0, col: 0)),
+            true
+        )
+        XCTAssertEqual(browser.currentDirectory, root.path)
+
+        browser.entries.frame = Rect(row: 0, col: 0, width: 20, height: 5)
+        let fileIndex = try XCTUnwrap(browser.entries.options.firstIndex(of: "photo.png"))
+        XCTAssertEqual(
+            browser.runtimeOptions().onMousePressBeforeFocused?(
+                Point(row: fileIndex, col: 0)
+            ),
+            false
+        )
+        XCTAssertEqual(browser.entries.selectedValues, ["photo.png"])
+        XCTAssertEqual(browser.filename.value, "photo.png")
+        XCTAssertFalse(browser.shouldClose())
+    }
+
     func testImageFallbackHalfBlockKeepsTopPixelInForeground() throws
     {
         let directory = FileManager.default.temporaryDirectory

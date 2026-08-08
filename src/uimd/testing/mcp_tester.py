@@ -7,6 +7,7 @@ import glob
 import json
 import math
 import os
+from pathlib import Path
 import re
 import shutil
 import socket
@@ -36,6 +37,11 @@ except ModuleNotFoundError:
     termios = None
 
 from uimd.runtime.application import UIApplication
+from uimd.testing.artifact_manifest import (
+    BuildManifestError,
+    resolve_artifact,
+    validate_cli_args,
+)
 from uimd.testing.mcp_tester_ui import McpTesterUI
 
 
@@ -2394,7 +2400,13 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    config = parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    try:
+        validate_cli_args(Path(_project_root()), arguments)
+    except BuildManifestError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    config = parse_args(arguments)
     if config.plain or not _supports_visual_tester() or not getattr(sys.stdout, "isatty", lambda: False)():
         config.plain = True
         return _run_headless(config)
@@ -2733,16 +2745,19 @@ def _script_with_apps(script, apps):
 
 
 def _app_path_from_examples_root(examples_root, name):
+    manifest_path = resolve_artifact(Path(_project_root()), examples_root, name)
+    if manifest_path is not None:
+        return manifest_path
     candidates = [
         os.path.join(examples_root, name, f"{name}.py"),
         os.path.join(examples_root, name, f"{name}.exe"),
         os.path.join(examples_root, name, name),
-        os.path.join(examples_root, name, "bin", "Debug", "net*", f"{name}.dll"),
-        os.path.join(examples_root, name, "bin", "Debug", "net*", f"{name}.exe"),
-        os.path.join(examples_root, name, "bin", "Debug", "net*", name),
         os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.dll"),
         os.path.join(examples_root, name, "bin", "Release", "net*", f"{name}.exe"),
         os.path.join(examples_root, name, "bin", "Release", "net*", name),
+        os.path.join(examples_root, name, "bin", "Debug", "net*", f"{name}.dll"),
+        os.path.join(examples_root, name, "bin", "Debug", "net*", f"{name}.exe"),
+        os.path.join(examples_root, name, "bin", "Debug", "net*", name),
         os.path.join(examples_root, name, ".build", "release", name),
         os.path.join(examples_root, name, ".build", "debug", name),
         os.path.join(examples_root, name, "target", "release", f"{name}.exe"),

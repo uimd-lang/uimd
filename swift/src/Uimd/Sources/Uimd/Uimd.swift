@@ -6159,6 +6159,9 @@ public final class FileBrowser: GeneratedWindowBase
             }
             return false
         }
+        options.onMousePressBeforeFocused = { [weak self] point in
+            self?.handleEntryMousePress(point) ?? false
+        }
         options.onKey = { [weak self] key in
             guard let self else
             {
@@ -6172,6 +6175,30 @@ public final class FileBrowser: GeneratedWindowBase
             return false
         }
         return options
+    }
+
+    private func handleEntryMousePress(_ point: Point) -> Bool
+    {
+        let frame = entries.frame
+        guard point.row >= frame.row,
+              point.row < frame.row + frame.height,
+              point.col >= frame.col,
+              point.col < frame.col + frame.width else
+        {
+            return false
+        }
+        let index = entries.scrollOffsetValue() + point.row - frame.row
+        guard index >= 0, index < entries.options.count else
+        {
+            return false
+        }
+        entries.setSelectedIndex(index)
+        previewSelected()
+        if selectedEntryIsDirectory()
+        {
+            return acceptCurrent()
+        }
+        return false
     }
 
     public override func handleGeneratedKey(_ key: String) -> Bool
@@ -9672,7 +9699,6 @@ private final class GeneratedRuntimeController
             mousePressActivatedClickControl = false
             if options.onMousePressBeforeFocused?(Point(row: point.row, col: point.col)) == true
             {
-                editMode = false
                 return
             }
             if try performMousePressTarget(clickedElement, row: point.row, col: point.col)

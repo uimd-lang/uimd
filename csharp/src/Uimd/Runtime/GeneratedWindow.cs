@@ -303,6 +303,7 @@ public sealed class GeneratedWindowRuntimeOptions
     public bool KeepEditModeAfterEscape { get; set; }
     public Action<string>? OnButton { get; set; }
     public Func<string, string, bool, bool>? OnKeyBeforeFocusedElement { get; set; }
+    public Func<Point, bool>? OnMousePressBeforeFocused { get; set; }
     public Func<string, bool>? OnKey { get; set; }
     public Action<string, string>? OnTextChanged { get; set; }
     public Action<string, string>? OnTextConfirmed { get; set; }
@@ -8903,6 +8904,10 @@ public sealed class McpController
     private JsonNode ToolMousePressAt(Point position)
     {
         RefreshCurrentWindowLayoutForMouse();
+        if (Current.Options.OnMousePressBeforeFocused?.Invoke(position) == true)
+        {
+            return ToolGetAccessibilitySnapshot();
+        }
         Element? focused = FocusedElement();
         bool focusedComboEditMode =
             Current.EditMode &&

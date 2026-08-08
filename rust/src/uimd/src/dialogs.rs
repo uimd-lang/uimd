@@ -6,7 +6,6 @@ use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 
 #[path = "../dialogs/file_browser_ui.rs"]
 mod file_browser_ui;
@@ -20,7 +19,6 @@ mod message_box_yes_no_ui;
 mod message_box_yes_no_cancel_ui;
 
 const PARENT_ENTRY: &str = "..";
-const FILE_BROWSER_DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 
 struct DialogApplication<'a>
 {
@@ -453,8 +451,6 @@ struct FileBrowserState
     extension_filter: String,
     on_close: Option<FileBrowserCallback>,
     outcome: FileBrowserOutcome,
-    last_clicked_entry: i32,
-    last_entry_click_time: Option<Instant>,
 }
 
 impl FileBrowserState
@@ -500,8 +496,6 @@ impl FileBrowserState
             extension_filter: extension_filter.into().trim().to_string(),
             on_close,
             outcome: FileBrowserOutcome::Pending,
-            last_clicked_entry: -1,
-            last_entry_click_time: None,
         };
         browser.current_dir = browser.clamp_dir(browser.current_dir.clone());
         browser
@@ -627,24 +621,20 @@ impl FileBrowserState
             };
         }
         let index = entries.borrow().list_scroll_offset() + point.row - frame.row;
-        let now = Instant::now();
-        let double_click = index == self.last_clicked_entry
-            && self
-                .last_entry_click_time
-                .is_some_and(|last| now.duration_since(last) <= FILE_BROWSER_DOUBLE_CLICK_INTERVAL);
+        if index < 0 || index >= entries.borrow().options().len() as i32
+        {
+            return FileBrowserMousePressResult
+            {
+                outcome: FileBrowserOutcome::Pending,
+                consumed: false,
+            };
+        }
         entries.borrow_mut().set_selected_index(index);
         self.preview_selected(window);
-        self.last_clicked_entry = index;
-        self.last_entry_click_time = Some(now);
-        if double_click
-            && (self.selected_entry_is_directory(window) || self.mode == "open")
+        if self.selected_entry_is_directory(window)
         {
-            let selected_directory = self.selected_entry_is_directory(window);
-            self.last_clicked_entry = -1;
             let outcome = self.accept_current(window);
-            let consumed =
-                selected_directory || !matches!(outcome, FileBrowserOutcome::Pending);
-            return FileBrowserMousePressResult { outcome, consumed };
+            return FileBrowserMousePressResult { outcome, consumed: true };
         }
         FileBrowserMousePressResult
         {
@@ -699,8 +689,6 @@ impl FileBrowserState
             entries.set_disabled_values(disabled_files);
             entries.set_selected_index(selected);
         }
-        self.last_clicked_entry = -1;
-        self.last_entry_click_time = None;
         self.preview_selected(window);
     }
 
@@ -1413,7 +1401,7 @@ mod tests
     }
 
     #[test]
-    fn file_browser_public_surface_and_directory_double_click_match_cpp()
+    fn file_browser_public_surface_and_single_click_directory_match_cpp()
     {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1451,12 +1439,14 @@ mod tests
         assert!(browser.entry_index_is_directory(0));
         assert!(browser.entry_index_is_directory(1));
         assert!(!browser.entry_index_is_directory(2));
-        assert!(!browser.handle_entry_mouse_press(crate::Point { row: 1, col: 0 }));
         assert!(browser.handle_entry_mouse_press(crate::Point { row: 1, col: 0 }));
         assert_eq!(
             browser.current_dir(),
             child.canonicalize().expect("temporary child must canonicalize"),
         );
+        assert_eq!(entries.borrow().selected_index(), 0);
+        assert_eq!(entries.borrow().selected_indices(), &[0]);
+        assert!(!entries.borrow().active_item_visible());
 
         let frame = browser.stack_frame_options();
         assert_eq!(frame.class_name, "FileBrowser");
@@ -1470,7 +1460,7 @@ mod tests
     }
 
     #[test]
-    fn filtered_file_double_click_remains_unconsumed_like_cpp()
+    fn filtered_file_click_only_selects_and_remains_unconsumed_like_cpp()
     {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1506,6 +1496,7 @@ mod tests
 
         assert!(!browser.handle_entry_mouse_press(crate::Point { row: 1, col: 0 }));
         assert!(!browser.handle_entry_mouse_press(crate::Point { row: 1, col: 0 }));
+        assert_eq!(entries.borrow().selected_value(), "blocked.txt");
         assert!(!browser.closed());
 
         fs::remove_dir_all(&root).expect("temporary browser root must be removed");

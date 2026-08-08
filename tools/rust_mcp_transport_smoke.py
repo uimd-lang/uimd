@@ -519,6 +519,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     binary = args.binary if args.binary.is_absolute() else ROOT / args.binary
+    sys.path.insert(0, str(ROOT / "src"))
+    from uimd.testing.artifact_manifest import validate_artifact_paths
+
+    validate_artifact_paths(ROOT, [binary])
     if not binary.exists():
         raise FileNotFoundError(f"missing Rust MCP smoke binary: {binary}")
     run_stdio(binary)

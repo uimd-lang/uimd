@@ -48,6 +48,14 @@ class FileBrowser(FileBrowserUI):
 
     def handle_key(self, key):
         if (
+            isinstance(key, dict)
+            and key.get("type") == "mouse"
+            and key.get("event") == "press"
+            and key.get("button") == 0
+            and self._handle_entry_mouse_press(key)
+        ):
+            return True
+        if (
             key == "Enter"
             and getattr(self, "_edit_mode", False)
             and getattr(self, "_focused_element", None) is self.entries
@@ -72,6 +80,29 @@ class FileBrowser(FileBrowserUI):
             self._close(None)
             return True
         return super().handle_key(key)
+
+    def _handle_entry_mouse_press(self, event):
+        rect = self._element_mouse_rect(self.entries)
+        row = int(event.get("row", 0))
+        col = int(event.get("col", 0))
+        if not (
+            rect["top"] <= row < rect["bottom"]
+            and rect["left"] <= col < rect["right"]
+        ):
+            return False
+        index = self.entries._scroll_offset + row - rect["top"]
+        if index < 0 or index >= len(self.entries._options):
+            return False
+        self.set_focus(self.entries)
+        self.entries.selected_items = [self.entries._options[index]]
+        self.entries._active_index = index
+        self.entries._active_item_visible = False
+        self.entries._ensure_selection_visible(index)
+        self._enter_edit_mode()
+        self._preview_selected()
+        if self._selected_entry_is_directory():
+            self._accept_current()
+        return True
 
     def elementchanged(self, element, value):
         if element == self.open_btn:

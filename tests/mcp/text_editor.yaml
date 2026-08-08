@@ -161,6 +161,54 @@
         element_id: open_btn
       assert:
         value: Open
+    - tool: mouse_click
+      arguments:
+        x: 24
+        y: 15
+    - tool: ui.get_options
+      arguments:
+        element_id: entries
+      assert:
+        options: ["..", "nested_example.txt"]
+    - tool: get_element
+      arguments:
+        element_id: entries
+      assert:
+        value: [".."]
+    - tool: mouse_click
+      arguments:
+        x: 24
+        y: 14
+    - tool: ui.get_options
+      arguments:
+        element_id: entries
+      assert:
+        options: ["..", "example_subdir/", "created.txt", "open_target.txt", "overwrite_target.txt", "welcome.txt"]
+    - tool: mouse_click
+      arguments:
+        x: 24
+        y: 16
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: get_element
+      arguments:
+        element_id: filename
+      assert:
+        value: created.txt
+    - tool: mouse_click
+      arguments:
+        x: 24
+        y: 16
+    - tool: get_window
+      assert:
+        class: FileBrowser
+        title: File Browser
+    - tool: mouse_click
+      arguments:
+        x: 24
+        y: 14
     - tool: get_element
       arguments:
         element_id: entries

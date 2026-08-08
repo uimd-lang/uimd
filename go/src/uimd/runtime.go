@@ -29,6 +29,7 @@ type GeneratedWindowRuntimeOptions struct {
 	WindowStack               *GeneratedWindowStack
 	OnKey                     func(string) bool
 	OnKeyBeforeFocusedElement func(string, string, bool) bool
+	OnMousePressBeforeFocused func(Point) bool
 	OnButton                  func(string)
 	OnTextChanged             func(string, string)
 	OnTextConfirmed           func(string, string)
@@ -45,6 +46,7 @@ type GeneratedWindowFrameOptions struct {
 	KeepEditModeAfterEscape   bool
 	OnKey                     func(string) bool
 	OnKeyBeforeFocusedElement func(string, string, bool) bool
+	OnMousePressBeforeFocused func(Point) bool
 	OnButton                  func(string)
 	OnTextChanged             func(string, string)
 	OnTextConfirmed           func(string, string)
@@ -330,6 +332,7 @@ func (options GeneratedWindowFrameOptions) runtimeOptions() GeneratedWindowRunti
 		KeepEditModeAfterEscape:   options.KeepEditModeAfterEscape,
 		OnKey:                     options.OnKey,
 		OnKeyBeforeFocusedElement: options.OnKeyBeforeFocusedElement,
+		OnMousePressBeforeFocused: options.OnMousePressBeforeFocused,
 		OnButton:                  options.OnButton,
 		OnTextChanged:             options.OnTextChanged,
 		OnTextConfirmed:           options.OnTextConfirmed,
@@ -5229,6 +5232,10 @@ func mcpMousePoint(state *runtimeState, config *mcpRuntimeConfig, x int, y int) 
 }
 
 func performMcpMousePress(state *runtimeState, window *GeneratedWindowBase, point Point) {
+	if state.options.OnMousePressBeforeFocused != nil && state.options.OnMousePressBeforeFocused(point) {
+		state.mousePressElement = nil
+		return
+	}
 	target := mouseTargetAtPoint(state, window, point)
 	if handleOpenComboBoxMousePress(state, window, target, point) {
 		state.mousePressElement = nil

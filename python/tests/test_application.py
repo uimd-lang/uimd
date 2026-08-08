@@ -2577,6 +2577,50 @@ class TestUIApplicationSizing(unittest.TestCase):
             self.assertEqual(browser.filename.value, "photo.png")
             self.assertEqual(picked, [])
 
+    def test_file_browser_mouse_click_enters_directories_and_only_selects_files(self):
+        """One directory click navigates; file clicks only select and preview."""
+        with tempfile.TemporaryDirectory() as root:
+            child = os.path.join(root, "child")
+            os.mkdir(child)
+            path = os.path.join(root, "photo.png")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("png")
+
+            picked = []
+            app = UIApplication()
+            app.open(UIWindow(title="Main"))
+            browser = FileBrowser(root, root, mode="open", on_close=picked.append)
+            app.open(browser)
+
+            child_index = browser.entries._options.index("child/")
+            entries_rect = browser._element_mouse_rect(browser.entries)
+            col_offset, row_offset = app._active_window_offsets()
+            child_event = {
+                "type": "mouse",
+                "event": "press",
+                "button": 0,
+                "row": row_offset + entries_rect["top"] + child_index - browser.entries._scroll_offset,
+                "col": col_offset + entries_rect["left"],
+            }
+            app.handle_key(child_event)
+            self.assertEqual(browser._current_dir, child)
+
+            entries_rect = browser._element_mouse_rect(browser.entries)
+            parent_event = dict(child_event, row=row_offset + entries_rect["top"])
+            app.handle_key(parent_event)
+            self.assertEqual(browser._current_dir, root)
+
+            file_index = browser.entries._options.index("photo.png")
+            entries_rect = browser._element_mouse_rect(browser.entries)
+            file_event = dict(
+                child_event,
+                row=row_offset + entries_rect["top"] + file_index - browser.entries._scroll_offset,
+            )
+            app.handle_key(file_event)
+            self.assertEqual(browser.entries.selected_items, ["photo.png"])
+            self.assertEqual(browser.filename.value, "photo.png")
+            self.assertEqual(picked, [])
+
     def test_file_browser_escape_commits_current_entry_without_closing_dialog(self):
         """Escape from the entries ListBox commits its active value and stays open."""
         with tempfile.TemporaryDirectory() as root:

@@ -7,7 +7,7 @@ format: uimd
 format-version: 1
 kind: window
 status: stable
-description: "Text Editor UI source."
+description: "Text editor for creating, opening, editing, saving, saving as, and closing plain text files with confirmation dialogs for unsaved changes."
 tags: [example]
 ```
 
@@ -24,39 +24,48 @@ uses:
 window_header:
   type: label
   text: "Text Editor"
+  description: "Application title."
   expose: false
 
 filename:
   type: label
   text: welcome.txt
+  description: "Current file path or file name."
 
 editor:
   type: textarea
   value: ""
+  description: "Main multiline text editing area."
 
 new_btn:
   type: button
   title: New
+  description: "Create a new empty document, asking about unsaved changes when needed."
 
 open_btn:
   type: button
   title: Open
+  description: "Open the file browser to load a text file, asking about unsaved changes when needed."
 
 save_btn:
   type: button
   title: Save
+  description: "Save the current document to its current path."
 
 save_as_btn:
   type: button
   title: "Save As"
+  description: "Open the file browser in save mode and save the document to a chosen path."
 
 quit_btn:
   type: button
   title: Quit
+  description: "Close the editor, asking about unsaved changes when needed."
 
 status:
   type: label
   text: Ready
+  description: "Shows load, save, cancel, and error messages."
 ```
 
 ## Style

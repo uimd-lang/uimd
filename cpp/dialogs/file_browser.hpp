@@ -8,7 +8,6 @@
 #include <functional>
 #include <string>
 #include <string_view>
-#include <chrono>
 
 namespace ui::dialogs {
 
@@ -61,8 +60,6 @@ private:
     std::string initialFilename_;
     std::string extensionFilter_;
     std::string result_;
-    int lastClickedEntry_ = -1;
-    std::chrono::steady_clock::time_point lastEntryClickTime_{};
     bool closed_ = false;
 };
 

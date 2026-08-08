@@ -20,6 +20,11 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from uimd.testing.artifact_manifest import validate_artifact_paths
+
+
 DEFAULT_ROWS = 35
 DEFAULT_COLS = 90
 DEFAULT_START_SECONDS = 1.5
@@ -355,6 +360,7 @@ def check_binaries(cpp_build_dir: Path, go_examples_dir: Path) -> None:
         ROOT / go_examples_dir / "task_board/task_board",
         ROOT / go_examples_dir / "widget_gallery/widget_gallery",
     ]
+    validate_artifact_paths(ROOT, paths)
     missing = [path for path in paths if not path.exists()]
     if missing:
         details = "\n".join(f"  - {path.relative_to(ROOT)}" for path in missing)

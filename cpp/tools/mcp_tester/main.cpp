@@ -290,54 +290,10 @@ std::string findProjectRoot(const char* executablePath)
     return pathString(fs::current_path());
 }
 
-std::string appPathFromExamplesRoot(const std::string& examplesRoot, const std::string& name)
-{
-    const fs::path root{examplesRoot};
-    std::vector<fs::path> candidates = {
-        root / name / (name + ".py"),
-        root / name / (name + ".exe"),
-        root / name / name,
-        root / name / ".build" / "release" / name,
-        root / name / ".build" / "debug" / name,
-        root / name / "target" / "release" / (name + ".exe"),
-        root / name / "target" / "release" / name,
-        root / name / "target" / "debug" / (name + ".exe"),
-        root / name / "target" / "debug" / name,
-        root / (name + ".py"),
-        root / (name + ".exe"),
-    };
-    const fs::path buildRoot = root / name / "bin";
-    if (fs::exists(buildRoot))
-    {
-        for (const std::string& configuration : {"Debug", "Release"})
-        {
-            const fs::path configurationRoot = buildRoot / configuration;
-            if (!fs::exists(configurationRoot))
-            {
-                continue;
-            }
-            for (const fs::directory_entry& entry : fs::directory_iterator(configurationRoot))
-            {
-                if (!entry.is_directory() || !startsWith(entry.path().filename().string(), "net"))
-                {
-                    continue;
-                }
-                candidates.push_back(entry.path() / (name + ".dll"));
-                candidates.push_back(entry.path() / (name + ".exe"));
-                candidates.push_back(entry.path() / name);
-            }
-        }
-    }
-    candidates.push_back(root / name);
-    for (const auto& candidate : candidates)
-    {
-        if (fs::exists(candidate))
-        {
-            return pathString(candidate);
-        }
-    }
-    throw std::runtime_error("cannot resolve app '" + name + "' under examples root: " + examplesRoot);
-}
+std::string appPathFromExamplesRoot(
+    const std::string& projectRoot,
+    const std::string& examplesRoot,
+    const std::string& name);
 
 std::string replaceAll(std::string value, const std::string& from, const std::string& to)
 {
@@ -813,6 +769,129 @@ private:
 Json parseJson(const std::string& text)
 {
     return JsonParser(text).parse();
+}
+
+fs::path normalizedAbsolutePath(const fs::path& path)
+{
+    std::error_code error;
+    fs::path result = fs::weakly_canonical(fs::absolute(path), error);
+    return error ? fs::absolute(path).lexically_normal() : result;
+}
+
+std::optional<std::string> manifestAppPath(
+    const std::string& projectRoot,
+    const std::string& examplesRoot,
+    const std::string& name)
+{
+    const fs::path root = normalizedAbsolutePath(projectRoot);
+    const fs::path manifestPath = root / ".uimd/build-manifest.json";
+    if (!fs::is_regular_file(manifestPath))
+    {
+        return std::nullopt;
+    }
+    const Json document = parseJson(readFile(pathString(manifestPath)));
+    const Json* profile = document.get("profile");
+    const Json* artifacts = document.get("artifacts");
+    if (profile == nullptr || profile->stringValue() != "parity" ||
+        artifacts == nullptr || !artifacts->isArray())
+    {
+        throw std::runtime_error(
+            "invalid parity artifact manifest; run ./tools/rebuild_all.sh");
+    }
+
+    const fs::path requestedRoot = normalizedAbsolutePath(examplesRoot);
+    bool managedRoot = false;
+    for (const Json& artifact : artifacts->array())
+    {
+        const Json* artifactRoot = artifact.get("root");
+        const Json* artifactName = artifact.get("name");
+        const Json* artifactPath = artifact.get("path");
+        if (artifactRoot == nullptr || artifactName == nullptr || artifactPath == nullptr)
+        {
+            continue;
+        }
+        if (normalizedAbsolutePath(root / artifactRoot->stringValue()) != requestedRoot)
+        {
+            continue;
+        }
+        managedRoot = true;
+        if (artifactName->stringValue() != name)
+        {
+            continue;
+        }
+        const fs::path resolved = root / artifactPath->stringValue();
+        if (!fs::is_regular_file(resolved))
+        {
+            throw std::runtime_error(
+                "parity artifact is missing: " + relativePath(pathString(root), pathString(resolved)) +
+                "; run ./tools/rebuild_all.sh");
+        }
+        return pathString(resolved);
+    }
+    if (managedRoot)
+    {
+        throw std::runtime_error(
+            "parity manifest has no rebuilt app '" + name + "' under " + examplesRoot +
+            "; run ./tools/rebuild_all.sh");
+    }
+    return std::nullopt;
+}
+
+std::string appPathFromExamplesRoot(
+    const std::string& projectRoot,
+    const std::string& examplesRoot,
+    const std::string& name)
+{
+    if (const std::optional<std::string> path = manifestAppPath(projectRoot, examplesRoot, name))
+    {
+        return *path;
+    }
+
+    const fs::path root{examplesRoot};
+    std::vector<fs::path> candidates = {
+        root / name / (name + ".py"),
+        root / name / (name + ".exe"),
+        root / name / name,
+        root / name / ".build" / "release" / name,
+        root / name / ".build" / "debug" / name,
+        root / name / "target" / "release" / (name + ".exe"),
+        root / name / "target" / "release" / name,
+        root / name / "target" / "debug" / (name + ".exe"),
+        root / name / "target" / "debug" / name,
+        root / (name + ".py"),
+        root / (name + ".exe"),
+    };
+    const fs::path buildRoot = root / name / "bin";
+    if (fs::exists(buildRoot))
+    {
+        for (const std::string& configuration : {"Release", "Debug"})
+        {
+            const fs::path configurationRoot = buildRoot / configuration;
+            if (!fs::exists(configurationRoot))
+            {
+                continue;
+            }
+            for (const fs::directory_entry& entry : fs::directory_iterator(configurationRoot))
+            {
+                if (!entry.is_directory() || !startsWith(entry.path().filename().string(), "net"))
+                {
+                    continue;
+                }
+                candidates.push_back(entry.path() / (name + ".dll"));
+                candidates.push_back(entry.path() / (name + ".exe"));
+                candidates.push_back(entry.path() / name);
+            }
+        }
+    }
+    candidates.push_back(root / name);
+    for (const auto& candidate : candidates)
+    {
+        if (fs::exists(candidate))
+        {
+            return pathString(candidate);
+        }
+    }
+    throw std::runtime_error("cannot resolve app '" + name + "' under examples root: " + examplesRoot);
 }
 
 struct YamlLine
@@ -2480,7 +2559,7 @@ private:
                 throw std::runtime_error("examples root override requires every script to contain exactly one app");
             }
             std::string name = script.apps.begin()->first;
-            script.apps.begin()->second = appPathFromExamplesRoot(resolved, name);
+            script.apps.begin()->second = appPathFromExamplesRoot(config_.root, resolved, name);
         }
         return result;
     }
@@ -2518,7 +2597,10 @@ private:
         {
             if (fs::is_directory(resolved[index]))
             {
-                result.apps[names[index]] = appPathFromExamplesRoot(resolved[index], originalName);
+                result.apps[names[index]] = appPathFromExamplesRoot(
+                    config_.root,
+                    resolved[index],
+                    originalName);
             }
             else if (requireExamplesRoots)
             {

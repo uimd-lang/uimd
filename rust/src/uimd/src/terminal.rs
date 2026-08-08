@@ -1191,6 +1191,7 @@ fn dispatch_terminal_event<A: GeneratedApplication>(
         EventType::MouseDrag =>
         {
             crate::mcp::perform_mouse_move(
+                app,
                 state,
                 event.position.col,
                 event.position.row,

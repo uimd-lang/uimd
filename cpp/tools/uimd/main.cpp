@@ -4911,6 +4911,25 @@ int runPythonMcpTester(const std::vector<std::string>& args, const std::filesyst
     return runProcess(std::move(command));
 }
 
+int validateMcpBuildArtifacts(
+    const std::vector<std::string>& args,
+    const std::filesystem::path& executablePath)
+{
+    const std::filesystem::path root = mcpProjectRoot();
+    configureRuntimeEnvironment(executablePath);
+    std::vector<std::string> command{
+        pythonExecutable(),
+        "-m",
+        "uimd.testing.artifact_manifest",
+        "validate-cli",
+        "--root",
+        pathString(root),
+        "--",
+    };
+    command.insert(command.end(), args.begin(), args.end());
+    return runProcess(std::move(command), root);
+}
+
 int runMcpTest(const std::vector<std::string>& args, const std::filesystem::path& executablePath)
 {
     std::string backend;
@@ -4928,6 +4947,11 @@ int runMcpTest(const std::vector<std::string>& args, const std::filesystem::path
     if (wantsMcpHelp(args))
     {
         printMcpBackendHelp();
+    }
+    const int validationResult = validateMcpBuildArtifacts(forwarded, executablePath);
+    if (validationResult != EXIT_SUCCESS)
+    {
+        return validationResult;
     }
     if (backend == MCP_BACKEND_PYTHON)
     {

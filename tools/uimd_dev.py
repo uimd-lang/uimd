@@ -16,9 +16,15 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from uimd.testing.artifact_manifest import remove_manifest, validate_manifest, write_manifest
+
+
 DEFAULT_POSIX_BUILD_DIR = Path("cpp/build")
 DEFAULT_WINDOWS_BUILD_DIR = Path("cpp/build-windows")
 DEFAULT_WINDOWS_CONFIG = "Release"
+PARITY_CONFIGURATION = "Release"
 DEFAULT_GO_CACHE_DIR_NAME = "uimd-go-cache"
 GENERATE_TARGETS = (
     ("python/dialogs", "python"),
@@ -143,10 +149,16 @@ def print_full_test_summary(phases: list[FullTestPhase]) -> None:
     print(f"==> FULL TEST RESULT: {result}", flush=True)
 
 
-def cmake_configure_args(build_dir: Path) -> list[str | Path]:
+def cmake_configure_args(
+    build_dir: Path,
+    *,
+    configuration: str = PARITY_CONFIGURATION,
+) -> list[str | Path]:
     args: list[str | Path] = [cmake_command(), "-S", "cpp", "-B", build_dir]
     if is_windows():
         args.extend(["-G", "Visual Studio 17 2022", "-A", os.environ.get("UIMD_CMAKE_ARCH", "x64")])
+    else:
+        args.append(f"-DCMAKE_BUILD_TYPE={configuration}")
     return args
 
 
@@ -239,19 +251,19 @@ def should_validate_rust(args: argparse.Namespace) -> bool:
     return not args.no_rust and not is_windows()
 
 
-def ensure_configured(build_dir: Path) -> None:
+def ensure_configured(build_dir: Path, *, configuration: str = PARITY_CONFIGURATION) -> None:
     if not (ROOT / build_dir / "CMakeCache.txt").exists():
-        run(cmake_configure_args(build_dir))
+        run(cmake_configure_args(build_dir, configuration=configuration))
 
 
 def native_uimd_path(build_dir: Path, *, config: str | None = None) -> Path:
     names = ["uimd.exe"] if is_windows() else ["uimd", "uimd.exe"]
-    config_names = [config or DEFAULT_WINDOWS_CONFIG, "Release", "Debug", "RelWithDebInfo", "MinSizeRel"]
+    configuration = config or PARITY_CONFIGURATION
     candidates: list[Path] = []
     for name in names:
-        candidates.append(ROOT / build_dir / "tools/uimd" / name)
-        for config_name in config_names:
-            candidates.append(ROOT / build_dir / "tools/uimd" / config_name / name)
+        if not is_windows():
+            candidates.append(ROOT / build_dir / "tools/uimd" / name)
+        candidates.append(ROOT / build_dir / "tools/uimd" / configuration / name)
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -263,10 +275,11 @@ def native_uimd_path(build_dir: Path, *, config: str | None = None) -> Path:
 
 def example_binary_path(name: str, build_dir: Path, *, config: str | None = None) -> Path:
     executable = f"{name}.exe" if is_windows() else name
-    config_names = [config or DEFAULT_WINDOWS_CONFIG, "Release", "Debug", "RelWithDebInfo", "MinSizeRel"]
-    candidates = [ROOT / build_dir / "examples" / name / executable]
-    for config_name in config_names:
-        candidates.append(ROOT / build_dir / "examples" / name / config_name / executable)
+    configuration = config or PARITY_CONFIGURATION
+    candidates = []
+    if not is_windows():
+        candidates.append(ROOT / build_dir / "examples" / name / executable)
+    candidates.append(ROOT / build_dir / "examples" / name / configuration / executable)
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -279,10 +292,11 @@ def example_binary_path(name: str, build_dir: Path, *, config: str | None = None
 def regression_cpp_binary_path(name: str, build_dir: Path, *, config: str | None = None) -> Path:
     executable = f"{name}.exe" if is_windows() else name
     root = ROOT / regression_parity_cpp_build_root(build_dir)
-    config_names = [config or DEFAULT_WINDOWS_CONFIG, "Release", "Debug", "RelWithDebInfo", "MinSizeRel"]
-    candidates = [root / name / executable]
-    for config_name in config_names:
-        candidates.append(root / name / config_name / executable)
+    configuration = config or PARITY_CONFIGURATION
+    candidates = []
+    if not is_windows():
+        candidates.append(root / name / executable)
+    candidates.append(root / name / configuration / executable)
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -313,7 +327,7 @@ def csharp_example_project_path(name: str) -> Path:
     raise FileNotFoundError(f"C# example project not found for {name!r}: {project.relative_to(ROOT)}")
 
 
-def csharp_example_dll_path(name: str, configuration: str = "Debug") -> Path:
+def csharp_example_dll_path(name: str, configuration: str = PARITY_CONFIGURATION) -> Path:
     output_root = ROOT / "csharp/examples" / name / "bin" / configuration
     candidates = sorted(output_root.glob(f"net*/{name}.dll"))
     for candidate in candidates:
@@ -378,7 +392,7 @@ def swift_example_packages() -> list[Path]:
 
 
 def ensure_native_uimd(build_dir: Path, *, config: str | None = None) -> Path:
-    ensure_configured(build_dir)
+    ensure_configured(build_dir, configuration=config or PARITY_CONFIGURATION)
     run(cmake_build_args(build_dir, target="uimd", config=config))
     return native_uimd_path(build_dir, config=config)
 
@@ -395,7 +409,7 @@ def generate_all(uimd: Path, *, include_swift: bool, include_rust: bool) -> None
     generate_regression_parity_if_available(uimd, include_rust=include_rust)
 
 
-def build_csharp_example(name: str, configuration: str = "Debug") -> Path:
+def build_csharp_example(name: str, configuration: str = PARITY_CONFIGURATION) -> Path:
     project = csharp_example_project_path(name)
     command: list[str | Path] = [dotnet_command(), "build", project]
     if configuration:
@@ -404,7 +418,7 @@ def build_csharp_example(name: str, configuration: str = "Debug") -> Path:
     return csharp_example_dll_path(name, configuration)
 
 
-def build_all_csharp_examples(configuration: str = "Debug") -> None:
+def build_all_csharp_examples(configuration: str = PARITY_CONFIGURATION) -> None:
     projects = csharp_example_projects()
     if not projects:
         raise FileNotFoundError("no C# example projects found under csharp/examples")
@@ -466,7 +480,7 @@ def build_all_swift_examples() -> None:
         raise FileNotFoundError("no Swift example packages found under swift/examples")
     command = require_swift_command()
     for package in packages:
-        run([command, "build", "--package-path", package.parent])
+        run([command, "build", "-c", "release", "--package-path", package.parent])
 
 
 def run_swift_tests() -> None:
@@ -540,15 +554,175 @@ def regression_manifest_scripts() -> list[Path]:
     return scripts
 
 
+def _repo_relative(path: Path) -> Path:
+    resolved = path if path.is_absolute() else ROOT / path
+    return resolved.resolve().relative_to(ROOT.resolve())
+
+
+def _artifact(
+    platform_name: str,
+    kind: str,
+    name: str,
+    root: Path,
+    path: Path,
+) -> dict[str, str]:
+    return {
+        "platform": platform_name,
+        "kind": kind,
+        "name": name,
+        "root": _repo_relative(root).as_posix(),
+        "path": _repo_relative(path).as_posix(),
+    }
+
+
+def python_example_app_dirs() -> list[Path]:
+    root = ROOT / "python/examples"
+    return sorted(
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir() and (directory / f"{directory.name}.py").is_file()
+    )
+
+
+def swift_example_binary_path(name: str) -> Path:
+    path = ROOT / "swift/examples" / name / ".build/release" / name
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Swift parity artifact is missing: {path.relative_to(ROOT)}; "
+            "run ./tools/rebuild_all.sh"
+        )
+    return path
+
+
+def rust_example_binary_path(name: str) -> Path:
+    path = ROOT / "rust/examples" / name / "target/release" / name
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Rust parity artifact is missing: {path.relative_to(ROOT)}; "
+            "run ./tools/rebuild_all.sh"
+        )
+    return path
+
+
+def parity_artifacts(
+    build_dir: Path,
+    *,
+    include_swift: bool,
+    include_rust: bool,
+) -> tuple[list[dict[str, str]], list[str]]:
+    artifacts: list[dict[str, str]] = []
+    platforms = ["cpp", "csharp", "go", "python"]
+    python_root = Path("python/examples")
+    cpp_root = build_dir / "examples"
+    csharp_root = Path("csharp/examples")
+    go_root = Path("go/examples")
+    rust_root = Path("rust/examples")
+    swift_root = Path("swift/examples")
+
+    for app_dir in python_example_app_dirs():
+        name = app_dir.name
+        artifacts.append(_artifact("python", "example", name, python_root, app_dir / f"{name}.py"))
+        artifacts.append(
+            _artifact(
+                "cpp",
+                "example",
+                name,
+                cpp_root,
+                example_binary_path(name, build_dir, config=PARITY_CONFIGURATION),
+            )
+        )
+    for project in csharp_example_projects():
+        name = project.parent.name
+        artifacts.append(
+            _artifact(
+                "csharp",
+                "example",
+                name,
+                csharp_root,
+                csharp_example_dll_path(name, PARITY_CONFIGURATION),
+            )
+        )
+    for app_dir in go_example_app_dirs():
+        artifacts.append(_artifact("go", "example", app_dir.name, go_root, app_dir / app_dir.name))
+    if include_swift:
+        platforms.append("swift")
+        for package in swift_example_packages():
+            name = package.parent.name
+            artifacts.append(
+                _artifact("swift", "example", name, swift_root, swift_example_binary_path(name))
+            )
+    if include_rust:
+        platforms.append("rust")
+        for app_dir in rust_example_app_dirs():
+            artifacts.append(
+                _artifact("rust", "example", app_dir.name, rust_root, rust_example_binary_path(app_dir.name))
+            )
+
+    regression_python_root = REGRESSION_PARITY_PYTHON_ROOT
+    regression_cpp_root = regression_parity_cpp_build_root(build_dir)
+    for script in regression_manifest_scripts():
+        name = script.stem
+        python_path = ROOT / regression_python_root / name / f"{name}.py"
+        if python_path.is_file():
+            artifacts.append(
+                _artifact("python", "regression", name, regression_python_root, python_path)
+            )
+        artifacts.append(
+            _artifact(
+                "cpp",
+                "regression",
+                name,
+                regression_cpp_root,
+                regression_cpp_binary_path(name, build_dir, config=PARITY_CONFIGURATION),
+            )
+        )
+        go_path = ROOT / GO_REGRESSION_PARITY_ROOT / name / name
+        if is_windows():
+            go_path = go_path.with_suffix(".exe")
+        if go_path.is_file():
+            artifacts.append(
+                _artifact("go", "regression", name, GO_REGRESSION_PARITY_ROOT, go_path)
+            )
+        if include_rust:
+            artifacts.append(
+                _artifact(
+                    "rust",
+                    "regression",
+                    name,
+                    RUST_REGRESSION_PARITY_ROOT,
+                    rust_regression_binary_path(name),
+                )
+            )
+    return artifacts, platforms
+
+
+def write_parity_manifest(
+    build_dir: Path,
+    *,
+    include_swift: bool,
+    include_rust: bool,
+) -> Path:
+    artifacts, platforms = parity_artifacts(
+        build_dir,
+        include_swift=include_swift,
+        include_rust=include_rust,
+    )
+    path = write_manifest(ROOT, artifacts, platforms=platforms)
+    print(f"==> wrote parity artifact manifest: {path.relative_to(ROOT)}", flush=True)
+    return path
+
+
 def rebuild_all(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     validate_swift = should_validate_swift(args)
     validate_rust = should_validate_rust(args)
-    uimd = ensure_native_uimd(build_dir, config=args.config)
+    remove_manifest(ROOT)
+    run(cmake_configure_args(build_dir, configuration=PARITY_CONFIGURATION))
+    uimd = ensure_native_uimd(build_dir, config=PARITY_CONFIGURATION)
     generate_all(uimd, include_swift=validate_swift, include_rust=validate_rust)
-    run(cmake_configure_args(build_dir))
-    run(cmake_build_args(build_dir, config=args.config))
-    build_all_csharp_examples(args.csharp_config)
+    run(cmake_configure_args(build_dir, configuration=PARITY_CONFIGURATION))
+    run(cmake_build_args(build_dir, config=PARITY_CONFIGURATION))
+    build_all_csharp_examples(PARITY_CONFIGURATION)
     build_all_go_examples()
     if validate_rust:
         build_all_rust_examples()
@@ -563,8 +737,13 @@ def rebuild_all(args: argparse.Namespace) -> None:
     else:
         print("==> skip Swift examples: Swift validation is not enabled on Windows", flush=True)
     run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"])
+    write_parity_manifest(
+        build_dir,
+        include_swift=validate_swift,
+        include_rust=validate_rust,
+    )
     if args.test:
-        run(ctest_args(build_dir, config=args.config))
+        run(ctest_args(build_dir, config=PARITY_CONFIGURATION))
 
 
 def run_python_tests() -> None:
@@ -839,10 +1018,22 @@ def test_all(args: argparse.Namespace) -> None:
     validate_swift = should_validate_swift(args)
     validate_rust = should_validate_rust(args)
     try:
+        if not args.no_rebuild:
+            remove_manifest(ROOT)
+            run_full_test_phase(
+                phases,
+                "Configure CMake parity profile",
+                lambda: run(
+                    cmake_configure_args(
+                        build_dir,
+                        configuration=PARITY_CONFIGURATION,
+                    )
+                ),
+            )
         uimd = run_full_test_phase(
             phases,
             "Build repo-local uimd tool",
-            lambda: ensure_native_uimd(build_dir, config=args.config),
+            lambda: ensure_native_uimd(build_dir, config=PARITY_CONFIGURATION),
         )
         if not args.no_rebuild:
             run_full_test_phase(
@@ -854,16 +1045,15 @@ def test_all(args: argparse.Namespace) -> None:
                     include_rust=validate_rust,
                 ),
             )
-            run_full_test_phase(phases, "Configure CMake", lambda: run(cmake_configure_args(build_dir)))
             run_full_test_phase(
                 phases,
                 "Build C++ runtime, tools, examples, regressions",
-                lambda: run(cmake_build_args(build_dir, config=args.config)),
+                lambda: run(cmake_build_args(build_dir, config=PARITY_CONFIGURATION)),
             )
             run_full_test_phase(
                 phases,
                 "Build C# runtime and examples",
-                lambda: build_all_csharp_examples(args.csharp_config),
+                lambda: build_all_csharp_examples(PARITY_CONFIGURATION),
             )
             run_full_test_phase(phases, "Build Go runtime, examples, regressions", build_all_go_examples)
             if validate_rust:
@@ -895,17 +1085,31 @@ def test_all(args: argparse.Namespace) -> None:
                 "Compile Python sources",
                 lambda: run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"]),
             )
+            run_full_test_phase(
+                phases,
+                "Write parity artifact manifest",
+                lambda: write_parity_manifest(
+                    build_dir,
+                    include_swift=validate_swift,
+                    include_rust=validate_rust,
+                ),
+            )
         else:
             record_skipped_phase(phases, "Generate UIMD sources", "--no-rebuild")
-            record_skipped_phase(phases, "Configure CMake", "--no-rebuild")
+            record_skipped_phase(phases, "Configure CMake parity profile", "--no-rebuild")
             record_skipped_phase(phases, "Build C++ runtime, tools, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build C# runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Build Go runtime, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build Rust runtime, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build Swift runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
+            run_full_test_phase(phases, "Validate parity artifact manifest", lambda: validate_manifest(ROOT))
         run_full_test_phase(phases, "Python tests", run_python_tests)
-        run_full_test_phase(phases, "CTest", lambda: run(ctest_args(build_dir, config=args.config)))
+        run_full_test_phase(
+            phases,
+            "CTest",
+            lambda: run(ctest_args(build_dir, config=PARITY_CONFIGURATION)),
+        )
         run_full_test_phase(phases, "Go runtime tests", run_go_tests)
         if validate_rust:
             run_full_test_phase(phases, "Rust runtime tests", run_rust_tests)
@@ -1043,7 +1247,7 @@ def test_all(args: argparse.Namespace) -> None:
                     build_dir,
                     compare_app_size=args.compare_app_size,
                     mcp_fast=not args.no_mcp_fast,
-                    config=args.config,
+                    config=PARITY_CONFIGURATION,
                 ),
             )
         elif args.no_rust:
@@ -1165,7 +1369,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     rebuild = subparsers.add_parser("rebuild-all")
-    rebuild.add_argument("--csharp-config", default="Debug")
+    rebuild.add_argument("--csharp-config", default=PARITY_CONFIGURATION, choices=(PARITY_CONFIGURATION,))
     rebuild.add_argument("--no-swift", action="store_true")
     rebuild.add_argument("--no-rust", action="store_true")
     rebuild.add_argument("--test", action="store_true")
@@ -1175,7 +1379,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     all_tests.add_argument("--compare-app-size", default=DEFAULT_COMPARE_APP_SIZE)
     all_tests.add_argument("--no-mcp-fast", action="store_true")
     all_tests.add_argument("--no-rebuild", action="store_true")
-    all_tests.add_argument("--csharp-config", default="Debug")
+    all_tests.add_argument("--csharp-config", default=PARITY_CONFIGURATION, choices=(PARITY_CONFIGURATION,))
     all_tests.add_argument("--no-swift", action="store_true")
     all_tests.add_argument("--no-rust", action="store_true")
     all_tests.set_defaults(func=test_all)
@@ -1187,7 +1391,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     run_csharp = subparsers.add_parser("run-csharp-example")
     run_csharp.add_argument("name")
-    run_csharp.add_argument("--csharp-config", default="Debug")
+    run_csharp.add_argument("--csharp-config", default=PARITY_CONFIGURATION)
     run_csharp.add_argument("app_args", nargs=argparse.REMAINDER)
     run_csharp.set_defaults(func=run_csharp_example)
 
@@ -1201,7 +1405,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     mcp_csharp = subparsers.add_parser("mcp-csharp-example")
     mcp_csharp.add_argument("name")
     mcp_csharp.add_argument("yaml")
-    mcp_csharp.add_argument("--csharp-config", default="Debug")
+    mcp_csharp.add_argument("--csharp-config", default=PARITY_CONFIGURATION)
     mcp_csharp.add_argument("--compare-app-size", default=None)
     mcp_csharp.add_argument("--mcp-fast", action="store_true")
     mcp_csharp.set_defaults(func=mcp_csharp_example)
@@ -1217,7 +1421,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     compare_csharp.add_argument("name")
     compare_csharp.add_argument("yaml")
     compare_csharp.add_argument("--against", choices=("cpp", "python"), default="cpp")
-    compare_csharp.add_argument("--csharp-config", default="Debug")
+    compare_csharp.add_argument("--csharp-config", default=PARITY_CONFIGURATION)
     compare_csharp.add_argument("--compare-app-size", default=DEFAULT_COMPARE_APP_SIZE)
     compare_csharp.add_argument("--mcp-fast", action="store_true")
     compare_csharp.set_defaults(func=mcp_compare_csharp_example)

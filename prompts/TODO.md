@@ -4,6 +4,292 @@
 
 Date: 2026-06-21
 
+- [x] **Replace mixed implicit Debug/Release artifact discovery with one
+  explicit cross-platform build-profile and manifest contract.** Proposed on
+  2026-08-01 after a stale Swift release binary was silently selected after a
+  successful documented debug rebuild. Define one canonical `parity` profile
+  for compiled example/regression artifacts (recommended mapping: C++ Release,
+  C# Release, Swift release, Rust release, and the standard Go build; Python
+  remains source-run), while unit-test commands continue compiling current
+  sources in their native test profiles. Make `rebuild_all` write a
+  content-addressed artifact manifest containing the exact generated-source
+  fingerprint, build profile, build session, and exact executable path for
+  every platform/app. Remove first-existing-candidate guessing from
+  `src/uimd/testing/mcp_tester.py`; MCP compares, direct-terminal smokes,
+  transport smokes, and regression commands must resolve through the manifest
+  and fail clearly when the expected artifact is missing or its source hash is
+  stale. Keep optional `debug` and `release` workflows explicit and isolated,
+  never interchangeable fallbacks. Make `./tools/test_all.sh` the canonical
+  atomic rebuild-and-test entry point and retain the explicit command sequence
+  only as a diagnosable equivalent that validates the same manifest before
+  consuming artifacts. Update `docs/example_cli_commands.md`, add profile and
+  stale-source regression coverage across C++/C#/Swift/Go/Rust, and validate
+  the complete full-test gate before completion. Approved for implementation
+  by the user on 2026-08-01.
+
+  Completed on 2026-08-01. `./tools/rebuild_all.sh` now produces one atomic
+  `.uimd/build-manifest.json` for the canonical `parity` profile: C++/C#/Swift/
+  Rust examples use Release artifacts, Go uses its direct build outputs, and
+  Python remains source-run. The manifest records exact source fingerprints,
+  artifact paths, profiles, build session metadata, and artifact hashes; a
+  failed rebuild removes the old manifest and never publishes a partial one.
+  The native `./uimd mcp-test` launcher, both MCP resolver backends, all direct
+  terminal smoke scripts, and the Rust transport smoke validate this contract
+  and fail closed for missing, stale, changed, or wrong-profile inputs instead
+  of searching Debug/Release candidates. Unit-test commands still compile the
+  current runtime sources in their native test profiles and do not substitute
+  example artifacts.
+
+  `docs/example_cli_commands.md` now documents the single parity profile and
+  keeps the explicit Full Rebuild and Test block as the diagnosable equivalent
+  of `./tools/test_all.sh`. Regression tests cover exact manifest-backed
+  resolution for Python, C++, C#, Swift, Go, and Rust plus source/artifact
+  mutation rejection. Validation passed after one successful rebuild and no
+  intervening source edits: 494 Python tests, 26 CTest tests, Go/Rust/Swift
+  runtime suites, Rust Clippy with warnings denied, Swift/Go/Rust direct
+  terminal smokes, Rust MCP transport smoke, every Python/C++ and C++ versus
+  C#/Swift/Go/Rust example compare, the Python/C++ regression corpus, and both
+  Go and Rust regression compares. `./tools/test_all.sh --no-rebuild` ended
+  with `FULL TEST RESULT: PASS`, and `git diff --check` passed.
+
+- [x] **Guarantee that every command in the documented Full Rebuild and Test
+  sequence consumes the sources or artifacts refreshed by
+  `./tools/rebuild_all.sh`.** Audit `tools/uimd_dev.py::rebuild_all()`, every
+  unit-test command, direct-terminal/MCP smoke script, examples-root resolver,
+  and explicit regression binary path across Python, C++, C#, Swift, Go, and
+  Rust. Record the exact producer/consumer mapping, add regression coverage for
+  every configuration-sensitive examples-root choice, and fix any path or
+  profile that can select an alternate stale build. Preserve each platform's
+  documented profile (C# Debug, Swift debug, Rust release) rather than forcing
+  all languages into one profile. Validate the tester unit suite and
+  `git diff --check`; do not change runtimes, examples, snapshots, or waits for
+  an artifact-selection problem.
+
+  Completed on 2026-08-01. The producer/consumer audit found the complete
+  documented sequence consistent after the Swift resolver correction:
+  - Python generation and `compileall` refresh generated sources, while pytest
+    and Python/C++ MCP compares import/run those current source files directly.
+  - CMake configures the single-config C++ tree as Release by default, rebuilds
+    `cpp/build`, and CTest, all direct-terminal smokes, MCP example compares,
+    and regression compares consume binaries from that same build tree.
+  - C# rebuilds `bin/Debug/net*/<name>.dll`, and examples-root MCP resolution
+    deterministically prefers Debug over any Release artifact.
+  - SwiftPM rebuilds `.build/debug/<name>` and both direct-terminal smoke and
+    examples-root MCP resolution consume debug before the release fallback;
+    `swift test` separately compiles the current runtime sources in its normal
+    test/debug profile.
+  - Go rebuilds each example and regression as the direct executable inside
+    its app directory; direct-terminal and MCP/regression commands use those
+    exact paths, while `go test` compiles the current runtime package itself.
+  - Rust rebuilds examples and regressions with `cargo build --release`;
+    direct-terminal, transport, examples-root MCP, and explicit regression
+    commands all use `target/release`, while Cargo test and Clippy separately
+    compile the current runtime sources in their appropriate test/dev profiles.
+
+  The examples-root regression now protects all configuration-sensitive
+  choices together: Python source, direct native C++/Go executable, C# Debug
+  over Release, Swift debug over release, and Rust release over debug, with
+  alternate candidates carrying different contents and timestamps. On the
+  actual rebuilt calculator roots, resolution selected exactly
+  `python/examples/calculator/calculator.py`,
+  `cpp/build/examples/calculator/calculator`,
+  `csharp/examples/calculator/bin/Debug/net10.0/calculator.dll`,
+  `swift/examples/calculator/.build/debug/calculator`,
+  `go/examples/calculator/calculator`, and
+  `rust/examples/calculator/target/release/calculator`. All 56 MCP tester unit
+  tests and Python syntax compilation passed. The preceding exact full Swift
+  command passed all 1,972 assertions after the complete rebuild. The guarantee
+  applies when `./tools/rebuild_all.sh` returns exit code zero, Swift/Rust were
+  not explicitly skipped, and sources are not edited again before the tests.
+  No runtime, example, snapshot, wait, or documented command required a change.
+
+- [x] **Diagnose the C++/Swift `image_browser_compare` render-step failure from
+  the complete Swift parity gate.** Reported on 2026-08-01 from
+  `./uimd mcp-test --backend python --headless --all --compare
+  cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35`,
+  where `tests/mcp/image_browser_compare.yaml` passed 12 assertions but
+  produced one step failure. Reproduce the focused command against
+  `cpp/build/examples/image_browser/image_browser` and
+  `swift/examples/image_browser/.build/debug/image_browser`, inspect the exact
+  recorded snapshot and backend diagnostics, and audit the failing Swift path
+  against Python shared semantics and C++ runtime behavior before changing
+  implementation, examples, waits, masks, or snapshots. If the cause is a
+  runtime/generator parity defect, record the exact Python/C++/Swift paths and
+  required focused validation here before implementing a fix.
+
+  Diagnosed on 2026-08-01 without changing runtime behavior. The saved bundle
+  `tests/mcp/snapshots/20260731-234712-159810-step-005-image_browser_compare.json`
+  is the automatic compact snapshot after `focus_element(astro_thumb)`. C++
+  rendered the canonical `#3a4152`; the Swift target rendered `#293143`, which
+  is the same `#ffffff14` reusable focus background applied one layer fewer.
+  This was not intermittent runtime state. When a compare receives the examples
+  root `swift/examples`,
+  `src/uimd/testing/mcp_tester.py::_app_path_from_examples_root()` searches
+  `.build/release/<name>` before `.build/debug/<name>`. It therefore launched
+  `swift/examples/image_browser/.build/release/image_browser` from 2026-07-03,
+  not the freshly built debug binary from 2026-07-31. A two-step root-path probe
+  reproduced the exact colors and printed the stale release path. The same
+  probe against the explicit debug binary matched C++, and the complete focused
+  debug scenario passed 378 assertions. A separate Python/C++ probe confirms
+  `#3a4152` is the shared reference result. No Python, C++, or Swift runtime
+  implementation change is justified by this failure.
+
+- [x] **Make Swift examples-root MCP compares use the build configuration
+  produced by the documented Swift build commands instead of silently choosing
+  a stale release binary.** The documented per-example and all-example commands
+  in `docs/example_cli_commands.md` call `swift build` without `-c release`, so
+  they refresh `.build/debug`; `src/uimd/testing/mcp_tester.py::
+  _app_path_from_examples_root()` currently prefers `.build/release`. Define
+  one deterministic configuration-selection contract, keep explicit binary
+  paths unchanged, and prevent an older artifact in another configuration from
+  overriding the documented build output. Add a tester regression with both
+  Swift release/debug candidates and different timestamps/content, then run the
+  focused root-path C++/Swift `image_browser` probe and the user's complete
+  C++/Swift command with `--compare-app-size 90x35`. Audit C#, Rust, Go, and C++
+  root resolution so the Swift correction does not change their documented
+  build selection. Do not alter reusable-focus rendering, snapshots, waits, or
+  example code to hide the stale-artifact mismatch.
+
+  Completed on 2026-08-01. Swift examples-root resolution in
+  `src/uimd/testing/mcp_tester.py::_app_path_from_examples_root()` now prefers
+  `.build/debug/<name>`, which is the artifact produced by both
+  `tools/uimd_dev.py::build_all_swift_examples()` and every documented Swift
+  build/compare command. `.build/release/<name>` remains a fallback when no
+  debug build exists, while explicit binary paths remain unchanged. The
+  regression creates both candidates with different contents and timestamps
+  and proves the documented debug output wins. C# still prefers its documented
+  Debug build, Rust still prefers its documented release build, and the direct
+  Python, C++, and Go candidates are unchanged. No runtime, example, snapshot,
+  wait, or reusable-focus behavior was modified.
+
+  Validation passed: all 56 `python/tests/test_mcp_tester.py` tests; a focused
+  examples-root C++/Swift `image_browser` probe selected
+  `.build/debug/image_browser` and returned `#3a4152` on both targets;
+  `./tools/rebuild_all.sh` completed with exit code 0; and the exact documented
+  full command `./uimd mcp-test --backend python --headless --all --compare
+  cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35`
+  passed all 14 scripts with 1,972 assertions, zero failed assertions, and zero
+  step failures. In particular, `image_browser_compare.yaml` passed 378
+  assertions. `docs/example_cli_commands.md` was already correct and required
+  no change.
+
+- [x] **Fix the user-reported Rust TextInput arrow/edit fall-through, complete
+  Rust `formular` Save/Cancel behavior, and make FileBrowser mouse activation
+  identical across every supported platform.** Reported from direct Rust
+  validation on 2026-07-31. Treat Python under `src/uimd/runtime` and
+  `src/uimd/dialogs/file_browser.py` as the shared semantic reference, C++
+  under `cpp/src/{elements/BasicElements.cpp,generated/GeneratedWindowRuntime.cpp}`
+  and `cpp/dialogs/file_browser.cpp` as the structural/native reference, and
+  audit Rust under `rust/src/uimd/src/{elements,runtime,dialogs}.rs` plus
+  `rust/examples/{formular,text_editor}` before changing behavior.
+
+  Initial audit findings and required contracts:
+  - C++ generated-window dispatch forwards every edit-mode key to the active
+    element and consumes the event even when `TextInput::handleKey()` returns
+    false; Python likewise returns from its edit branch without running
+    navigation. Rust `RuntimeState::handle_key()` instead falls through after
+    a single-line TextInput rejects Up/Down, then runs spatial focus movement.
+    Port the exact C++ consume/notification order for root and ScrollView child
+    edit scopes. Up/Down on a single-line TextInput must leave its cursor/value,
+    focus, snapshot, and edit mode unchanged. Audit C#, Swift, and Go dispatch
+    and change them only if a deterministic test proves the same fall-through.
+  - `rust/examples/formular/formular.rs` implements an empty generated event
+    trait, unlike `cpp/examples/formular/formular.cpp` and the Python/C#/Swift/
+    Go ports. Add only the missing domain behavior through generated override
+    hooks: Save records `save`, Cancel records `cancel`, both request close,
+    and the final form YAML uses the same fields, selected roles, boolean/
+    number formatting, and terminal newline handling as C++. Do not change the
+    generated hook contract or add runtime-specific example workarounds.
+  - The requested FileBrowser mouse contract is one click on `..` or a
+    directory to enter it, while one click on a file only selects/previews it
+    and never accepts/closes the dialog. Current C++/Rust concrete dialogs use
+    a directory/open-file double-click path; Python/C#/Swift/Go currently rely
+    on generic ListBox selection and do not enter a directory on one click.
+    Implement one equivalent pre-focused mouse transition in the canonical
+    FileBrowser on every supported platform, preserving ListBox row mapping,
+    disabled-file behavior, edit/focus state, modal capture, callback order,
+    and post-event cleanup. Remove the obsolete double-click acceptance state;
+    do not special-case `text_editor` or any other example.
+
+  Focused C++/Rust reproduction on 2026-07-31 exposed the exact Rust modal
+  mouse-coordinate divergence behind the remaining FileBrowser failure. C++
+  keeps active modal element frames content-local and converts terminal mouse
+  coordinates once before the pre-focused callback and ordinary hit testing.
+  Rust `render_modal_window_local()` translated every active modal element
+  frame to terminal coordinates, while
+  `dispatch_mouse_press_before_focused()` converted the pointer back to local
+  coordinates only for the callback. The FileBrowser callback therefore
+  rejected the directory row and ordinary ListBox routing merely selected it.
+  Restore the C++ local-frame/local-pointer contract in the shared Rust modal
+  render and complete press/move/release/wheel routes; do not special-case
+  FileBrowser coordinates. Protect both one-click directory activation and
+  file selection through a real modal runtime route.
+
+  The final source-identity audit found that
+  `cpp/examples/text_editor/text_editor.uimd` still carries an older C++-only
+  metadata/member-description variant while Python, Rust, Go, C#, and Swift
+  share the current canonical source. Replace the C++ copy byte-for-byte from
+  `python/examples/text_editor/text_editor.uimd`, regenerate the C++ output,
+  rebuild it, and repeat the focused FileBrowser compares; this is source
+  synchronization only and must not introduce a C++ layout or behavior fork.
+
+  Required validation: add failing-then-passing runtime/dialog tests for Rust
+  root and ScrollView TextInput Up/Down edit retention; add Rust `formular`
+  logic and direct-terminal Save/Cancel output coverage; add per-platform
+  FileBrowser mouse tests for parent row, child directory, ordinary file, and
+  filtered/disabled file, including a mouse press/release route through the
+  real runtime. Regenerate and rebuild `formular` and `text_editor` for every
+  affected port, run focused C++/Rust compares for both examples and relevant
+  compares for any other changed port with `--compare-app-size 90x35`, run
+  affected unit tests plus Rust Clippy/direct PTY coverage, audit byte-identical
+  `.uimd` sources, and finish with `git diff --check`. Update
+  `docs/example_cli_commands.md` if any new test entry point is added.
+
+  Completed on 2026-07-31. The final implementation/audit found four distinct
+  causes and removed each at its owning layer:
+  - The TextInput Up/Down edit-mode fall-through was Rust-only. Python and C++
+    already consume every key offered to the active editor, and the C#/Swift/Go
+    audits found the same effective consume behavior. Rust root and active
+    ScrollView edit scopes now return from that branch even when a single-line
+    TextInput does not move its cursor, preserving focus, edit mode, snapshot,
+    value, and cleanup order exactly like C++.
+  - Rust `formular` was missing its C++-equivalent domain event overrides and
+    terminal result. Save and Cancel now record their action and request close;
+    the emitted scalar, boolean, number, selected role/country, CRLF, and
+    two-space YAML indentation behavior matches C++ exactly. The final direct
+    PTY route caught and removed an initially hidden Rust string-continuation
+    indentation difference before completion.
+  - FileBrowser's old mouse contract differed on every port. The canonical
+    transition is now one click on `..`/a directory to select, preview, hide
+    the active overlay, and enter it; one or repeated clicks on a file only
+    select/preview it and never accept or close. C++ and Rust obsolete
+    double-click timestamp state was removed, while Python, C#, Swift, and Go
+    gained the same pre-focused FileBrowser transition in their shared runtime
+    path. No example-specific mouse or dialog workaround was added.
+  - Rust alone mixed terminal-coordinate modal frames with callback-local
+    pointer coordinates. Active modal frames now remain local like C++, and
+    terminal press/move/release/wheel coordinates are converted exactly once
+    before callback, hit-test, drag, and wheel routing. A real stacked
+    FileBrowser regression protects the full route. The source audit also
+    found and synchronized an older metadata-only
+    `cpp/examples/text_editor/text_editor.uimd` copy; all affected `.uimd`
+    sources are now byte-identical to Python.
+
+  Final validation passed: Rust runtime 158/158 tests and runtime Clippy with
+  `--all-targets -- -D warnings`; Rust `formular` unit test plus its own Clippy;
+  Python application tests 119/119; C++ dialog/runtime tests; Go runtime tests;
+  Swift runtime tests 12/12; C# runtime build with zero warnings/errors; fresh
+  builds of every affected `text_editor` port, all C++ examples, and all 13
+  Rust examples. Focused `text_editor` compares passed Python/C++ with 150
+  assertions and C++ versus Rust/Go/C#/Swift with 251 assertions each. Focused
+  C++/Rust `formular` passed 239 assertions. The final complete 14-script
+  C++/Rust gate passed 1,972 assertions with zero failed assertions or steps;
+  Rust direct-terminal smoke passed 8/8 groups including Save/Cancel and exact
+  YAML output. Affected `formular`, `text_editor`, and FileBrowser `.uimd`
+  hashes match across every stored port; Python syntax checks and
+  `git diff --check` pass. No new test entry point was added, so
+  `docs/example_cli_commands.md` required no change.
+
 - [ ] **Make the complete Rust runtime and native Rust generator structurally
   and behaviorally 1:1 with C++**. Reopened by user report on 2026-07-28 after
   direct validation showed that TextArea behavior and Sixel rendering still

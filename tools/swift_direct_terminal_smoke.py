@@ -20,6 +20,11 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from uimd.testing.artifact_manifest import validate_artifact_paths
+
+
 DEFAULT_ROWS = 35
 DEFAULT_COLS = 90
 DEFAULT_QUIET_SECONDS = 0.35
@@ -424,43 +429,43 @@ def app_specs(cpp_build_dir: Path, swift_examples_dir: Path) -> dict[str, tuple[
         "activity_feed": (
             [str(ROOT / cpp_build_dir / "examples/activity_feed/activity_feed")],
             ROOT,
-            [str(ROOT / swift_examples_dir / "activity_feed/.build/debug/activity_feed")],
+            [str(ROOT / swift_examples_dir / "activity_feed/.build/release/activity_feed")],
             ROOT,
         ),
         "formular": (
             [str(ROOT / cpp_build_dir / "examples/formular/formular")],
             ROOT,
-            [str(ROOT / swift_examples_dir / "formular/.build/debug/formular")],
+            [str(ROOT / swift_examples_dir / "formular/.build/release/formular")],
             ROOT,
         ),
         "image_browser": (
             [str(ROOT / cpp_build_dir / "examples/image_browser/image_browser")],
             ROOT,
-            [str(ROOT / swift_examples_dir / "image_browser/.build/debug/image_browser")],
+            [str(ROOT / swift_examples_dir / "image_browser/.build/release/image_browser")],
             ROOT,
         ),
         "image_gallery": (
             [str(ROOT / cpp_build_dir / "examples/image_gallery/image_gallery")],
             ROOT,
-            [str(ROOT / swift_examples_dir / "image_gallery/.build/debug/image_gallery")],
+            [str(ROOT / swift_examples_dir / "image_gallery/.build/release/image_gallery")],
             ROOT,
         ),
         "expense_tracker": (
             [str(ROOT / cpp_build_dir / "examples/expense_tracker/expense_tracker")],
             ROOT,
-            [str(ROOT / swift_examples_dir / "expense_tracker/.build/debug/expense_tracker")],
+            [str(ROOT / swift_examples_dir / "expense_tracker/.build/release/expense_tracker")],
             ROOT,
         ),
         "task_board": (
             [str(ROOT / cpp_build_dir / "examples/task_board/task_board")],
             ROOT,
-            [str(ROOT / swift_examples_dir / "task_board/.build/debug/task_board")],
+            [str(ROOT / swift_examples_dir / "task_board/.build/release/task_board")],
             ROOT,
         ),
         "widget_gallery": (
             [str(ROOT / cpp_build_dir / "examples/widget_gallery/widget_gallery")],
             ROOT,
-            [str(ROOT / swift_examples_dir / "widget_gallery/.build/debug/widget_gallery")],
+            [str(ROOT / swift_examples_dir / "widget_gallery/.build/release/widget_gallery")],
             ROOT,
         ),
     }
@@ -478,6 +483,14 @@ def fake_clipboard_env() -> dict[str, str]:
 
 
 def check_binaries(specs: dict[str, tuple[list[str], Path, list[str], Path]]) -> None:
+    validate_artifact_paths(
+        ROOT,
+        [
+            command[0]
+            for spec in specs.values()
+            for command in (spec[0], spec[2])
+        ],
+    )
     missing: list[Path] = []
     for cpp_command, _cpp_cwd, swift_command, swift_cwd in specs.values():
         cpp_path = Path(cpp_command[0])

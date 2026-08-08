@@ -244,7 +244,7 @@ format: uimd
 format-version: 1
 kind: window
 status: stable
-description: "Text Editor UI source."
+description: "Text editor for creating, opening, editing, saving, saving as, and closing plain text files with confirmation dialogs for unsaved changes."
 tags: [example]
 ```
 
@@ -261,39 +261,48 @@ uses:
 window_header:
   type: label
   text: "Text Editor"
+  description: "Application title."
   expose: false
 
 filename:
   type: label
   text: welcome.txt
+  description: "Current file path or file name."
 
 editor:
   type: textarea
   value: ""
+  description: "Main multiline text editing area."
 
 new_btn:
   type: button
   title: New
+  description: "Create a new empty document, asking about unsaved changes when needed."
 
 open_btn:
   type: button
   title: Open
+  description: "Open the file browser to load a text file, asking about unsaved changes when needed."
 
 save_btn:
   type: button
   title: Save
+  description: "Save the current document to its current path."
 
 save_as_btn:
   type: button
   title: "Save As"
+  description: "Open the file browser in save mode and save the document to a chosen path."
 
 quit_btn:
   type: button
   title: Quit
+  description: "Close the editor, asking about unsaved changes when needed."
 
 status:
   type: label
   text: Ready
+  description: "Shows load, save, cancel, and error messages."
 ```
 
 ## Style
@@ -336,7 +345,7 @@ this:
 | status............................................................................... |
 +---------------------------------------------------------------------------------------+
 ```
-)UI_MCP_MD", "Text Editor UI source.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"window_header", "Text Editor", false}, ui::GeneratedElementMetadata{"filename", "welcome.txt", true}, ui::GeneratedElementMetadata{"editor", "editor", true}, ui::GeneratedElementMetadata{"new_btn", "New", true}, ui::GeneratedElementMetadata{"open_btn", "Open", true}, ui::GeneratedElementMetadata{"save_btn", "Save", true}, ui::GeneratedElementMetadata{"save_as_btn", "Save As", true}, ui::GeneratedElementMetadata{"quit_btn", "Quit", true}, ui::GeneratedElementMetadata{"status", "Ready", true}});
+)UI_MCP_MD", "Text editor for creating, opening, editing, saving, saving as, and closing plain text files with confirmation dialogs for unsaved changes.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"window_header", "Application title.", false}, ui::GeneratedElementMetadata{"filename", "Current file path or file name.", true}, ui::GeneratedElementMetadata{"editor", "Main multiline text editing area.", true}, ui::GeneratedElementMetadata{"new_btn", "Create a new empty document, asking about unsaved changes when needed.", true}, ui::GeneratedElementMetadata{"open_btn", "Open the file browser to load a text file, asking about unsaved changes when needed.", true}, ui::GeneratedElementMetadata{"save_btn", "Save the current document to its current path.", true}, ui::GeneratedElementMetadata{"save_as_btn", "Open the file browser in save mode and save the document to a chosen path.", true}, ui::GeneratedElementMetadata{"quit_btn", "Close the editor, asking about unsaved changes when needed.", true}, ui::GeneratedElementMetadata{"status", "Shows load, save, cancel, and error messages.", true}});
     setMcpAppTools(std::vector<ui::GeneratedAppToolMetadata>{});
     setGeneratedWindowStyle(makeStyle({{"background", "#162033"}, {"border-color", "transparent"}, {"border-width", "0"}}));
     window_header = &static_cast<ui::Label&>(addElement<ui::Label>("window_header", "Text Editor"));

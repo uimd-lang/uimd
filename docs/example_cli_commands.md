@@ -66,8 +66,9 @@ Windows PowerShell only:
 ## Full Rebuild and Test
 
 On POSIX, the helper runs the full local gate: regenerate/build all supported
-sources including reported-bug regression corpora, build C# examples, build
-Go examples, build Rust examples, build Swift examples on POSIX when SwiftPM
+sources including reported-bug regression corpora, build every compiled
+example in the canonical `parity` profile (Release for C++, C#, Swift, and
+Rust; the standard reproducible Go build),
 is available, compile Python sources, run Python unit tests, run C++ `ctest`,
 run Go and Rust runtime tests plus Rust Clippy, run Swift runtime tests on
 POSIX, run direct Swift, Go, and Rust terminal PTY smoke tests against C++, run
@@ -79,6 +80,13 @@ for Python/C++, C++/Go, and C++/Rust when
 `--no-swift` to the POSIX helper only when the local Swift toolchain is
 intentionally unavailable, or `--no-rust` only when the local Rust toolchain is
 intentionally unavailable.
+
+Every successful rebuild writes `.uimd/build-manifest.json` with the exact
+artifact paths plus SHA-256 hashes of the artifacts and all build inputs. The
+MCP commands and direct-terminal/transport smoke tests below accept only those
+recorded artifacts; missing, changed, or source-stale builds fail with an
+instruction to rerun `./tools/rebuild_all.sh` instead of falling back to a
+different Debug/Release output.
 
 The current Windows wrappers predate Go automation. Their sections below list
 the additional explicit Go generation, build, unit/static, and headless MCP
@@ -405,27 +413,27 @@ python3 tools/uimd_dev.py run-csharp-example widget_gallery
 Raw macOS/Linux POSIX shell form:
 
 ```bash
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/activity_feed/activity_feed.csproj --configuration Debug && dotnet csharp/examples/activity_feed/bin/Debug/net10.0/activity_feed.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/calculator/calculator.csproj --configuration Debug && dotnet csharp/examples/calculator/bin/Debug/net10.0/calculator.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/cells/cells.csproj --configuration Debug && dotnet csharp/examples/cells/bin/Debug/net10.0/cells.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/contacts_manager/contacts_manager.csproj --configuration Debug && dotnet csharp/examples/contacts_manager/bin/Debug/net10.0/contacts_manager.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/expense_tracker/expense_tracker.csproj --configuration Debug && dotnet csharp/examples/expense_tracker/bin/Debug/net10.0/expense_tracker.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/formular/formular.csproj --configuration Debug && dotnet csharp/examples/formular/bin/Debug/net10.0/formular.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/image_browser/image_browser.csproj --configuration Debug && dotnet csharp/examples/image_browser/bin/Debug/net10.0/image_browser.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/image_gallery/image_gallery.csproj --configuration Debug && dotnet csharp/examples/image_gallery/bin/Debug/net10.0/image_gallery.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/markdown_viewer/markdown_viewer.csproj --configuration Debug && dotnet csharp/examples/markdown_viewer/bin/Debug/net10.0/markdown_viewer.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/special_elements/special_elements.csproj --configuration Debug && dotnet csharp/examples/special_elements/bin/Debug/net10.0/special_elements.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/task_board/task_board.csproj --configuration Debug && dotnet csharp/examples/task_board/bin/Debug/net10.0/task_board.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/text_editor/text_editor.csproj --configuration Debug && dotnet csharp/examples/text_editor/bin/Debug/net10.0/text_editor.dll
-./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/widget_gallery/widget_gallery.csproj --configuration Debug && dotnet csharp/examples/widget_gallery/bin/Debug/net10.0/widget_gallery.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/activity_feed/activity_feed.csproj --configuration Release && dotnet csharp/examples/activity_feed/bin/Release/net10.0/activity_feed.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/calculator/calculator.csproj --configuration Release && dotnet csharp/examples/calculator/bin/Release/net10.0/calculator.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/cells/cells.csproj --configuration Release && dotnet csharp/examples/cells/bin/Release/net10.0/cells.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/contacts_manager/contacts_manager.csproj --configuration Release && dotnet csharp/examples/contacts_manager/bin/Release/net10.0/contacts_manager.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/expense_tracker/expense_tracker.csproj --configuration Release && dotnet csharp/examples/expense_tracker/bin/Release/net10.0/expense_tracker.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/formular/formular.csproj --configuration Release && dotnet csharp/examples/formular/bin/Release/net10.0/formular.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/image_browser/image_browser.csproj --configuration Release && dotnet csharp/examples/image_browser/bin/Release/net10.0/image_browser.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/image_gallery/image_gallery.csproj --configuration Release && dotnet csharp/examples/image_gallery/bin/Release/net10.0/image_gallery.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/markdown_viewer/markdown_viewer.csproj --configuration Release && dotnet csharp/examples/markdown_viewer/bin/Release/net10.0/markdown_viewer.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/special_elements/special_elements.csproj --configuration Release && dotnet csharp/examples/special_elements/bin/Release/net10.0/special_elements.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/task_board/task_board.csproj --configuration Release && dotnet csharp/examples/task_board/bin/Release/net10.0/task_board.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/text_editor/text_editor.csproj --configuration Release && dotnet csharp/examples/text_editor/bin/Release/net10.0/text_editor.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/widget_gallery/widget_gallery.csproj --configuration Release && dotnet csharp/examples/widget_gallery/bin/Release/net10.0/widget_gallery.dll
 ```
 
 Raw Windows PowerShell form for one example:
 
 ```powershell
 .\uimd.ps1 generate csharp\examples --target csharp
-dotnet build csharp\examples\activity_feed\activity_feed.csproj --configuration Debug
-dotnet csharp\examples\activity_feed\bin\Debug\net10.0\activity_feed.dll
+dotnet build csharp\examples\activity_feed\activity_feed.csproj --configuration Release
+dotnet csharp\examples\activity_feed\bin\Release\net10.0\activity_feed.dll
 ```
 
 ## Go Examples
@@ -540,19 +548,19 @@ builds a release binary, and runs it from the repository working directory.
 macOS SwiftPM:
 
 ```bash
-./uimd generate swift/examples/activity_feed --target swift && swift build --package-path swift/examples/activity_feed && swift run --package-path swift/examples/activity_feed activity_feed
-./uimd generate swift/examples/calculator --target swift && swift build --package-path swift/examples/calculator && swift run --package-path swift/examples/calculator calculator
-./uimd generate swift/examples/cells --target swift && swift build --package-path swift/examples/cells && swift run --package-path swift/examples/cells cells
-./uimd generate swift/examples/contacts_manager --target swift && swift build --package-path swift/examples/contacts_manager && swift run --package-path swift/examples/contacts_manager contacts_manager
-./uimd generate swift/examples/expense_tracker --target swift && swift build --package-path swift/examples/expense_tracker && swift run --package-path swift/examples/expense_tracker expense_tracker
-./uimd generate swift/examples/formular --target swift && swift build --package-path swift/examples/formular && swift run --package-path swift/examples/formular formular
-./uimd generate swift/examples/image_browser --target swift && swift build --package-path swift/examples/image_browser && swift run --package-path swift/examples/image_browser image_browser
-./uimd generate swift/examples/image_gallery --target swift && swift build --package-path swift/examples/image_gallery && swift run --package-path swift/examples/image_gallery image_gallery
-./uimd generate swift/examples/markdown_viewer --target swift && swift build --package-path swift/examples/markdown_viewer && swift run --package-path swift/examples/markdown_viewer markdown_viewer
-./uimd generate swift/examples/special_elements --target swift && swift build --package-path swift/examples/special_elements && swift run --package-path swift/examples/special_elements special_elements
-./uimd generate swift/examples/task_board --target swift && swift build --package-path swift/examples/task_board && swift run --package-path swift/examples/task_board task_board
-./uimd generate swift/examples/text_editor --target swift && swift build --package-path swift/examples/text_editor && swift run --package-path swift/examples/text_editor text_editor
-./uimd generate swift/examples/widget_gallery --target swift && swift build --package-path swift/examples/widget_gallery && swift run --package-path swift/examples/widget_gallery widget_gallery
+./uimd generate swift/examples/activity_feed --target swift && swift build -c release --package-path swift/examples/activity_feed && swift run -c release --package-path swift/examples/activity_feed activity_feed
+./uimd generate swift/examples/calculator --target swift && swift build -c release --package-path swift/examples/calculator && swift run -c release --package-path swift/examples/calculator calculator
+./uimd generate swift/examples/cells --target swift && swift build -c release --package-path swift/examples/cells && swift run -c release --package-path swift/examples/cells cells
+./uimd generate swift/examples/contacts_manager --target swift && swift build -c release --package-path swift/examples/contacts_manager && swift run -c release --package-path swift/examples/contacts_manager contacts_manager
+./uimd generate swift/examples/expense_tracker --target swift && swift build -c release --package-path swift/examples/expense_tracker && swift run -c release --package-path swift/examples/expense_tracker expense_tracker
+./uimd generate swift/examples/formular --target swift && swift build -c release --package-path swift/examples/formular && swift run -c release --package-path swift/examples/formular formular
+./uimd generate swift/examples/image_browser --target swift && swift build -c release --package-path swift/examples/image_browser && swift run -c release --package-path swift/examples/image_browser image_browser
+./uimd generate swift/examples/image_gallery --target swift && swift build -c release --package-path swift/examples/image_gallery && swift run -c release --package-path swift/examples/image_gallery image_gallery
+./uimd generate swift/examples/markdown_viewer --target swift && swift build -c release --package-path swift/examples/markdown_viewer && swift run -c release --package-path swift/examples/markdown_viewer markdown_viewer
+./uimd generate swift/examples/special_elements --target swift && swift build -c release --package-path swift/examples/special_elements && swift run -c release --package-path swift/examples/special_elements special_elements
+./uimd generate swift/examples/task_board --target swift && swift build -c release --package-path swift/examples/task_board && swift run -c release --package-path swift/examples/task_board task_board
+./uimd generate swift/examples/text_editor --target swift && swift build -c release --package-path swift/examples/text_editor && swift run -c release --package-path swift/examples/text_editor text_editor
+./uimd generate swift/examples/widget_gallery --target swift && swift build -c release --package-path swift/examples/widget_gallery && swift run -c release --package-path swift/examples/widget_gallery widget_gallery
 ```
 
 ## Source Regeneration
@@ -595,11 +603,11 @@ POSIX raw form:
 ./uimd generate tests/regressions/uimd/parity/cpp --target cpp
 cmake -S cpp -B cpp/build
 cmake --build cpp/build
-for proj in csharp/examples/*/*.csproj; do dotnet build "$proj" --configuration Debug; done
+for proj in csharp/examples/*/*.csproj; do dotnet build "$proj" --configuration Release; done
 for dir in go/examples/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
 for dir in go/regressions/uimd/parity/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
 for manifest in rust/examples/*/Cargo.toml rust/regressions/uimd/parity/*/Cargo.toml; do python3 tools/cargo_with_progress.py build --release --manifest-path "$manifest"; done
-for package in swift/examples/*/Package.swift; do swift build --package-path "$(dirname "$package")"; done
+for package in swift/examples/*/Package.swift; do swift build -c release --package-path "$(dirname "$package")"; done
 python3 -m compileall python src tests tools
 ```
 
@@ -619,7 +627,7 @@ Windows raw form:
 .\uimd.ps1 generate tests\regressions\uimd\parity\cpp --target cpp
 cmake -S cpp -B cpp\build-windows -G "Visual Studio 17 2022" -A x64
 cmake --build cpp\build-windows --config Release
-Get-ChildItem csharp\examples -Filter *.csproj -Recurse | ForEach-Object { dotnet build $_.FullName --configuration Debug }
+Get-ChildItem csharp\examples -Filter *.csproj -Recurse | ForEach-Object { dotnet build $_.FullName --configuration Release }
 Get-ChildItem go\examples -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
 Get-ChildItem go\regressions\uimd\parity -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
 python -m compileall python src tests tools
@@ -926,20 +934,20 @@ Raw POSIX form:
 
 ```bash
 ./uimd mcp-test --backend python --headless csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/activity_feed/bin/Debug/net10.0/activity_feed.dll tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/calculator/bin/Debug/net10.0/calculator.dll tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/cells/bin/Debug/net10.0/cells.dll tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/contacts_manager/bin/Debug/net10.0/contacts_manager.dll tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/expense_tracker/bin/Debug/net10.0/expense_tracker.dll tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/formular/bin/Debug/net10.0/formular.dll tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/image_browser/bin/Debug/net10.0/image_browser.dll tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/image_gallery/bin/Debug/net10.0/image_gallery.dll tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/image_gallery/bin/Debug/net10.0/image_gallery.dll tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/markdown_viewer/bin/Debug/net10.0/markdown_viewer.dll tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/special_elements/bin/Debug/net10.0/special_elements.dll tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/task_board/bin/Debug/net10.0/task_board.dll tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/text_editor/bin/Debug/net10.0/text_editor.dll tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless csharp/examples/widget_gallery/bin/Debug/net10.0/widget_gallery.dll tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/activity_feed/bin/Release/net10.0/activity_feed.dll tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/calculator/bin/Release/net10.0/calculator.dll tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/cells/bin/Release/net10.0/cells.dll tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/contacts_manager/bin/Release/net10.0/contacts_manager.dll tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/expense_tracker/bin/Release/net10.0/expense_tracker.dll tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/formular/bin/Release/net10.0/formular.dll tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/image_browser/bin/Release/net10.0/image_browser.dll tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/image_gallery/bin/Release/net10.0/image_gallery.dll tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/image_gallery/bin/Release/net10.0/image_gallery.dll tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/markdown_viewer/bin/Release/net10.0/markdown_viewer.dll tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/special_elements/bin/Release/net10.0/special_elements.dll tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/task_board/bin/Release/net10.0/task_board.dll tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/text_editor/bin/Release/net10.0/text_editor.dll tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/widget_gallery/bin/Release/net10.0/widget_gallery.dll tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 ## C++/Swift MCP Compare Tests
@@ -953,20 +961,20 @@ Raw macOS POSIX all-example form:
 Raw macOS POSIX per-app form:
 
 ```bash
-./uimd mcp-test --headless --compare cpp/build/examples/activity_feed/activity_feed swift/examples/activity_feed/.build/debug/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/calculator/calculator swift/examples/calculator/.build/debug/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/cells/cells swift/examples/cells/.build/debug/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/contacts_manager/contacts_manager swift/examples/contacts_manager/.build/debug/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/expense_tracker/expense_tracker swift/examples/expense_tracker/.build/debug/expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/formular/formular swift/examples/formular/.build/debug/formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/image_browser/image_browser swift/examples/image_browser/.build/debug/image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/image_gallery/image_gallery swift/examples/image_gallery/.build/debug/image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/image_gallery/image_gallery swift/examples/image_gallery/.build/debug/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/markdown_viewer/markdown_viewer swift/examples/markdown_viewer/.build/debug/markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/special_elements/special_elements swift/examples/special_elements/.build/debug/special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/task_board/task_board swift/examples/task_board/.build/debug/task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/text_editor/text_editor swift/examples/text_editor/.build/debug/text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --compare cpp/build/examples/widget_gallery/widget_gallery swift/examples/widget_gallery/.build/debug/widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/activity_feed/activity_feed swift/examples/activity_feed/.build/release/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/calculator/calculator swift/examples/calculator/.build/release/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/cells/cells swift/examples/cells/.build/release/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/contacts_manager/contacts_manager swift/examples/contacts_manager/.build/release/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/expense_tracker/expense_tracker swift/examples/expense_tracker/.build/release/expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/formular/formular swift/examples/formular/.build/release/formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/image_browser/image_browser swift/examples/image_browser/.build/release/image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/image_gallery/image_gallery swift/examples/image_gallery/.build/release/image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/image_gallery/image_gallery swift/examples/image_gallery/.build/release/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/markdown_viewer/markdown_viewer swift/examples/markdown_viewer/.build/release/markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/special_elements/special_elements swift/examples/special_elements/.build/release/special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/task_board/task_board swift/examples/task_board/.build/release/task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/text_editor/text_editor swift/examples/text_editor/.build/release/text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/widget_gallery/widget_gallery swift/examples/widget_gallery/.build/release/widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 ## C++/Go MCP Compare Tests

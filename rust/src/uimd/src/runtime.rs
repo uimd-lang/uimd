@@ -2269,6 +2269,7 @@ impl RuntimeState
                     dispatch_change_if_needed(app, self, options, &inner, before);
                     return true;
                 }
+                return true;
             }
             let scope_focusable = self
                 .scope_edit_element
@@ -2384,6 +2385,7 @@ impl RuntimeState
                 dispatch_change_if_needed(app, self, options, &element, before);
                 return true;
             }
+            return true;
         }
         if dispatch_key(app, options, key)
         {
@@ -3034,7 +3036,7 @@ fn active_callback_options(
     )
 }
 
-fn active_callback_position(root: &GeneratedWindow, position: Point) -> Point
+pub(crate) fn active_window_point(root: &GeneratedWindow, position: Point) -> Point
 {
     root.window_stack.top().map_or(position, |frame| Point
     {
@@ -3140,7 +3142,6 @@ pub(crate) fn dispatch_mouse_press_before_focused<A: GeneratedApplication>(
 ) -> bool
 {
     let (options, _) = active_callback_options(app.window(), root_options);
-    let position = active_callback_position(app.window(), position);
     if options
         .on_mouse_press_before_focused
         .as_ref()
@@ -3159,7 +3160,6 @@ pub(crate) fn dispatch_mouse_wheel_before_focused<A: GeneratedApplication>(
 ) -> bool
 {
     let (options, _) = active_callback_options(app.window(), root_options);
-    let position = active_callback_position(app.window(), position);
     if options
         .on_mouse_wheel_before_focused
         .as_ref()
@@ -6071,7 +6071,6 @@ fn render_modal_window_local<A: GeneratedApplication>(
         (combo_box, frame)
     });
     state.viewport = previous_viewport;
-    translate_window_frames(app.window(), bounds.row, bounds.col);
     (rendered, focused_combo_box)
 }
 
@@ -7471,6 +7470,112 @@ mod tests
     }
 
     #[test]
+    fn single_line_text_input_consumes_vertical_arrows_without_leaving_edit_mode()
+    {
+        let mut app = App { window: GeneratedWindow::new("test"), activated: false };
+        let name = new_text_input("name", "Marek", 0);
+        name.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: 10,
+            height: 1,
+        });
+        let email = new_text_input("email", "marek@example.com", 0);
+        email.borrow_mut().set_frame(Rect
+        {
+            row: 2,
+            col: 0,
+            width: 20,
+            height: 1,
+        });
+        app.window.add_element(name.clone());
+        app.window.add_element(email);
+        let options = GeneratedWindowRuntimeOptions
+        {
+            initial_focus_name: "name".to_string(),
+            ..Default::default()
+        };
+        let mut state = RuntimeState::new(
+            &app.window,
+            &options,
+            Size { width: 24, height: 6 },
+        );
+
+        assert!(state.handle_key(&mut app, &options, "Enter"));
+        assert!(state.edit_mode);
+        assert!(state.handle_key(&mut app, &options, "Down"));
+        assert!(state.edit_mode);
+        assert!(state
+            .focused_element(&app.window)
+            .is_some_and(|focused| Rc::ptr_eq(&focused, &name)));
+        assert_eq!(name.borrow().value(), "Marek");
+        assert!(state.handle_key(&mut app, &options, "Up"));
+        assert!(state.edit_mode);
+        assert!(state
+            .focused_element(&app.window)
+            .is_some_and(|focused| Rc::ptr_eq(&focused, &name)));
+    }
+
+    #[test]
+    fn scoped_single_line_text_input_consumes_vertical_arrows_without_navigation()
+    {
+        let mut scroll = GeneratedWindow::new_scroll_view("items");
+        let name = scroll.add_element(new_text_input("name", "Marek", 0));
+        name.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: 10,
+            height: 1,
+        });
+        let email = scroll.add_element(new_text_input("email", "marek@example.com", 0));
+        email.borrow_mut().set_frame(Rect
+        {
+            row: 2,
+            col: 0,
+            width: 20,
+            height: 1,
+        });
+        let mut app = App { window: GeneratedWindow::new("test"), activated: false };
+        let panel = app.window.add_element(new_reusable_element("panel", "Items"));
+        panel.borrow_mut().set_child_window(scroll);
+        let options = GeneratedWindowRuntimeOptions
+        {
+            initial_focus_name: "panel".to_string(),
+            ..Default::default()
+        };
+        let mut state = RuntimeState::new(
+            &app.window,
+            &options,
+            Size { width: 24, height: 6 },
+        );
+        state.scope_edit_element = Some(panel);
+        assert!(state.focus_element(&app.window, &name));
+
+        assert!(state.handle_key(&mut app, &options, "Enter"));
+        assert!(state.edit_mode);
+        assert!(state.scope_dim_element.as_ref().is_some_and(|editing|
+        {
+            Rc::ptr_eq(editing, &name)
+        }));
+        assert!(state.handle_key(&mut app, &options, "Down"));
+        assert!(state.edit_mode);
+        assert!(state.scope_dim_element.as_ref().is_some_and(|editing|
+        {
+            Rc::ptr_eq(editing, &name)
+        }));
+        assert!(state
+            .focused_element(&app.window)
+            .is_some_and(|focused| Rc::ptr_eq(&focused, &name)));
+        assert_eq!(name.borrow().value(), "Marek");
+        assert!(state.handle_key(&mut app, &options, "Up"));
+        assert!(state
+            .focused_element(&app.window)
+            .is_some_and(|focused| Rc::ptr_eq(&focused, &name)));
+    }
+
+    #[test]
     fn enter_activates_the_child_owned_reusable_control_name_like_cpp()
     {
         struct ReusableApp
@@ -8326,6 +8431,70 @@ mod tests
         );
 
         std::fs::remove_dir_all(&root).expect("remove FileBrowser fixture");
+    }
+
+    #[test]
+    fn modal_file_browser_directory_click_uses_local_frames_like_cpp()
+    {
+        let unique = format!(
+            "uimd-rust-file-browser-mouse-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after Unix epoch")
+                .as_nanos(),
+        );
+        let root = std::env::temp_dir().join(unique);
+        let child = root.join("child");
+        std::fs::create_dir_all(&child).expect("create FileBrowser child fixture");
+
+        let mut browser = crate::FileBrowser::open(&root, Some(&root));
+        let mut app = App
+        {
+            window: GeneratedWindow::new("test"),
+            activated: false,
+        };
+        app.window.open_window(browser.take_window());
+        let options = GeneratedWindowRuntimeOptions::default();
+        let viewport = Size { width: 90, height: 35 };
+        let mut state = RuntimeState::new(&app.window, &options, viewport);
+        let _ = render_generated_application(&mut app, &mut state, &options);
+
+        let bounds = app
+            .window
+            .window_stack
+            .top()
+            .expect("FileBrowser modal frame")
+            .bounds;
+        let entries_frame = app
+            .active_window()
+            .find_element("entries")
+            .expect("FileBrowser entries")
+            .borrow()
+            .frame;
+        assert!(entries_frame.row < bounds.row);
+        crate::mcp::perform_mouse_press(
+            &mut app,
+            &mut state,
+            &options,
+            viewport,
+            bounds.col + entries_frame.col,
+            bounds.row + entries_frame.row + 1,
+        );
+
+        assert_eq!(
+            browser.current_dir(),
+            child.canonicalize().expect("FileBrowser child canonical path"),
+        );
+        let entries = app
+            .active_window()
+            .find_element("entries")
+            .expect("FileBrowser entries after navigation");
+        assert_eq!(entries.borrow().selected_value(), "..");
+        assert_eq!(entries.borrow().selected_indices(), &[0]);
+        assert!(!entries.borrow().active_item_visible());
+
+        std::fs::remove_dir_all(&root).expect("remove FileBrowser mouse fixture");
     }
 
     #[test]

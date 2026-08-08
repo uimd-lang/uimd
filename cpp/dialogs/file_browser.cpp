@@ -3,7 +3,6 @@
 #include "message_box.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
 #include <regex>
 #include <sstream>
@@ -14,8 +13,6 @@
 namespace ui::dialogs {
 
 namespace {
-
-constexpr auto kFileBrowserDoubleClickInterval = std::chrono::milliseconds(400);
 
 std::string displayName(const std::filesystem::directory_entry& entry) {
     const std::string name = entry.path().filename().string();
@@ -94,7 +91,6 @@ void FileBrowser::refreshEntries() {
     const auto& options = entries->options();
     auto selected = std::find(options.begin(), options.end(), initialFilename_);
     entries->setSelectedIndex(selected == options.end() ? 0 : static_cast<int>(selected - options.begin()));
-    lastClickedEntry_ = -1;
     previewSelected();
 }
 
@@ -168,15 +164,12 @@ bool FileBrowser::handleEntryMousePress(Point point) {
         return false;
     }
     const int index = entries->scrollOffset() + point.row - frame.row;
-    const auto now = std::chrono::steady_clock::now();
-    const bool doubleClick = index == lastClickedEntry_ && now - lastEntryClickTime_ <= kFileBrowserDoubleClickInterval;
+    if (index < 0 || index >= static_cast<int>(entries->options().size())) {
+        return false;
+    }
     selectEntry(index);
-    lastClickedEntry_ = index;
-    lastEntryClickTime_ = now;
-    if (doubleClick && (entryIndexIsDirectory(index) || mode_ == "open")) {
-        const bool accepted = acceptCurrent();
-        lastClickedEntry_ = -1;
-        return accepted;
+    if (entryIndexIsDirectory(index)) {
+        return acceptCurrent();
     }
     return false;
 }

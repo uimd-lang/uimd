@@ -493,6 +493,7 @@ public sealed class FileBrowser : GeneratedWindowBase
                 MoveFilenameCursorToEnd();
             }
         };
+        options.OnMousePressBeforeFocused = HandleEntryMousePress;
         options.OnKey = key =>
         {
             if (key == "Escape")
@@ -540,6 +541,27 @@ public sealed class FileBrowser : GeneratedWindowBase
         int selectedIndex = rows.IndexOf(initialFilename);
         entries.SetSelectedIndex(selectedIndex >= 0 ? selectedIndex : 0);
         PreviewSelected();
+    }
+
+    private bool HandleEntryMousePress(Point point)
+    {
+        Rect frame = entries.Frame;
+        if (!frame.Contains(point))
+        {
+            return false;
+        }
+        int index = entries.ScrollOffset + point.Row - frame.Row;
+        if (index < 0 || index >= entries.Options.Count)
+        {
+            return false;
+        }
+        entries.SetSelectedIndex(index);
+        PreviewSelected();
+        if (SelectedEntryIsDirectory())
+        {
+            return AcceptCurrent();
+        }
+        return false;
     }
 
     public bool AcceptCurrent()

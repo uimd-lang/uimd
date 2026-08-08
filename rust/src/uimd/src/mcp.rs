@@ -1586,13 +1586,15 @@ where
                 return Ok(json!({"ok": true, "element_id": element_id}));
             }
             let frame = element.borrow().frame;
-            perform_mouse_press(
+            perform_mouse_press_at_active_point(
                 app,
                 state,
                 options,
-                state.viewport,
-                frame.col + frame.width / 2,
-                frame.row + frame.height / 2,
+                Point
+                {
+                    row: frame.row + frame.height / 2,
+                    col: frame.col + frame.width / 2,
+                },
             );
             let active_element = app.active_window().find_element(element_id);
             if let Some(active_element) = active_element
@@ -2233,7 +2235,7 @@ where
                     from_x,
                     from_y,
                 );
-                perform_mouse_move(state, to_x, to_y);
+                perform_mouse_move(app, state, to_x, to_y);
                 if let Some(selected) =
                     perform_mouse_release(app, state, options, to_x, to_y)
                 {
@@ -2281,7 +2283,7 @@ where
                             y,
                         );
                     }
-                    "mouse_move" => perform_mouse_move(state, x, y),
+                    "mouse_move" => perform_mouse_move(app, state, x, y),
                     "mouse_release" =>
                     {
                         if let Some(selected) =
@@ -2477,22 +2479,38 @@ pub(crate) fn perform_mouse_press<A: GeneratedApplication>(
     y: i32,
 )
 {
+    state.viewport = viewport;
+    crate::render_generated_application(app, state, options);
+    let point = crate::runtime::active_window_point(
+        app.window(),
+        Point { row: y, col: x },
+    );
+    perform_mouse_press_at_active_point(app, state, options, point);
+}
+
+fn perform_mouse_press_at_active_point<A: GeneratedApplication>(
+    app: &mut A,
+    state: &mut RuntimeState,
+    options: &GeneratedWindowRuntimeOptions,
+    point: Point,
+)
+{
     state.mouse_selection_element = None;
     state.mouse_selection_anchor = 0;
     state.mouse_click_candidate = None;
     state.mouse_click_candidate_moved = false;
     state.scroll_selection = crate::runtime::ScrollSelection::default();
-    state.viewport = viewport;
-    crate::render_generated_application(app, state, options);
     if crate::runtime::dispatch_mouse_press_before_focused(
         app,
         options,
-        Point { row: y, col: x },
+        point,
     )
     {
         return;
     }
     crate::runtime::clear_label_selections(app.active_window_mut());
+    let x = point.col;
+    let y = point.row;
     if activate_combo_box_option_at(app, state, options, x, y)
     {
         return;
@@ -2739,8 +2757,19 @@ pub(crate) fn perform_mouse_press<A: GeneratedApplication>(
     }
 }
 
-pub(crate) fn perform_mouse_move(state: &mut RuntimeState, x: i32, y: i32)
+pub(crate) fn perform_mouse_move<A: GeneratedApplication>(
+    app: &A,
+    state: &mut RuntimeState,
+    x: i32,
+    y: i32,
+)
 {
+    let point = crate::runtime::active_window_point(
+        app.window(),
+        Point { row: y, col: x },
+    );
+    let x = point.col;
+    let y = point.row;
     if state.mouse_click_candidate.is_some()
     {
         state.mouse_click_candidate_moved = true;
@@ -2795,6 +2824,12 @@ pub(crate) fn perform_mouse_release<A: GeneratedApplication>(
     y: i32,
 ) -> Option<String>
 {
+    let point = crate::runtime::active_window_point(
+        app.window(),
+        Point { row: y, col: x },
+    );
+    let x = point.col;
+    let y = point.row;
     if let Some(candidate) = state.mouse_click_candidate.take()
     {
         let moved = std::mem::take(&mut state.mouse_click_candidate_moved);
@@ -2857,16 +2892,20 @@ pub(crate) fn perform_mouse_wheel<A: GeneratedApplication>(
 {
     state.viewport = viewport;
     crate::render_generated_application(app, state, options);
+    let point = crate::runtime::active_window_point(
+        app.window(),
+        Point { row: y, col: x },
+    );
     if crate::runtime::dispatch_mouse_wheel_before_focused(
         app,
         options,
-        Point { row: y, col: x },
+        point,
         delta,
     )
     {
         return true;
     }
-    let Some(target) = element_at(app, x, y) else { return false };
+    let Some(target) = element_at(app, point.col, point.row) else { return false };
     if scroll_element(&target, delta).is_ok()
     {
         return true;
@@ -6425,7 +6464,7 @@ mod tests
         assert_eq!(&*activated.borrow(), &["preview"]);
 
         state.mouse_click_candidate = Some(image.clone());
-        perform_mouse_move(&mut state, 4, 2);
+        perform_mouse_move(&app, &mut state, 4, 2);
         assert_eq!(
             perform_mouse_release(&mut app, &mut state, &options, 4, 2),
             None,
@@ -6608,7 +6647,7 @@ mod tests
         let mut state = RuntimeState::new(&app.window, &options, viewport);
 
         perform_mouse_press(&mut app, &mut state, &options, viewport, 1, 0);
-        perform_mouse_move(&mut state, 4, 0);
+        perform_mouse_move(&app, &mut state, 4, 0);
 
         assert_eq!(
             perform_mouse_release(&mut app, &mut state, &options, 4, 0)
@@ -6676,7 +6715,7 @@ mod tests
         let mut state = RuntimeState::new(&app.window, &options, viewport);
 
         perform_mouse_press(&mut app, &mut state, &options, viewport, 0, 0);
-        perform_mouse_move(&mut state, 2, 1);
+        perform_mouse_move(&app, &mut state, 2, 1);
 
         assert!(state.scroll_selection.changed);
         assert_eq!(
@@ -6703,7 +6742,7 @@ mod tests
         state.mouse_selection_element = Some(area.clone());
         state.mouse_selection_anchor = 0;
 
-        perform_mouse_move(&mut state, 0, 2);
+        perform_mouse_move(&app, &mut state, 0, 2);
 
         assert_eq!(area.borrow().selected_text(), "zero\none\n");
         let rendered = area.borrow().render(5, 2, true, true);
