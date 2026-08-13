@@ -8,6 +8,8 @@ pub const DEFAULT_VIEWPORT_HEIGHT: i32 = 32;
 pub const TEXT_TAB_WIDTH: i32 = 4;
 pub const DEFAULT_CELL_GAP: i32 = 1;
 pub const DEFAULT_CELL_PADDING: i32 = 0;
+const ANSI_RESET_SCROLL_REGION: &str = "\x1b[r";
+const MINIMUM_SCROLL_REGION_ROWS: i32 = 2;
 
 pub fn tab_spaces_for_column(column: i32) -> i32
 {
@@ -1594,12 +1596,23 @@ impl TerminalBuffer
                     }
                     if clear_height >= raw_height
                     {
+                        let anchor_row = row + row_offset;
+                        let no_scroll_region = raw_no_scroll_region(
+                            anchor_row,
+                            raw_height,
+                            row_offset + self.height,
+                        );
+                        output.push_str(&no_scroll_region);
                         push_terminal_cursor(
                             &mut output,
                             row + row_offset,
                             col + col_offset,
                         );
                         output.push_str(&style_cell.raw);
+                        if !no_scroll_region.is_empty()
+                        {
+                            output.push_str(ANSI_RESET_SCROLL_REGION);
+                        }
                         raw_emitted = true;
                     }
                     for covered_row in row..row + clear_height
@@ -1801,6 +1814,23 @@ impl TerminalBuffer
         }
         false
     }
+}
+
+fn raw_no_scroll_region(anchor_row: i32, raw_height: i32, buffer_bottom_exclusive: i32) -> String
+{
+    if anchor_row >= MINIMUM_SCROLL_REGION_ROWS
+    {
+        return format!("\x1b[1;{anchor_row}r");
+    }
+    let raw_bottom_exclusive = anchor_row + max(MINIMUM_RENDERABLE_SIZE, raw_height);
+    if buffer_bottom_exclusive - raw_bottom_exclusive >= MINIMUM_SCROLL_REGION_ROWS
+    {
+        return format!(
+            "\x1b[{};{buffer_bottom_exclusive}r",
+            raw_bottom_exclusive + MINIMUM_RENDERABLE_SIZE,
+        );
+    }
+    String::new()
 }
 
 fn push_terminal_cursor(output: &mut String, row: i32, col: i32)
@@ -2240,6 +2270,19 @@ mod tests
         assert!(payload.starts_with("\x1b[?2026h"));
         assert!(payload.contains("RAW"));
         assert!(payload.ends_with("\x1b[?2026l"));
+
+        let mut guarded = TerminalBuffer::new(4, 8);
+        {
+            let anchor = guarded.cell_mut(3, 1).expect("guarded raw anchor");
+            anchor.raw = "RAW".to_string();
+            anchor.raw_width = 2;
+            anchor.raw_height = 5;
+        }
+        let guarded_payload = guarded.render_diff(0, 0);
+        let guard_start = guarded_payload.find("\x1b[1;3r").expect("scroll guard");
+        let raw_start = guarded_payload.find("RAW").expect("raw payload");
+        let guard_end = guarded_payload[raw_start..].find("\x1b[r").expect("guard reset") + raw_start;
+        assert!(guard_start < raw_start && raw_start < guard_end);
 
         let mut bottom_clipped = TerminalBuffer::new(2, 1);
         {

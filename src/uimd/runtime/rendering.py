@@ -10,6 +10,8 @@ ANSI_RESET = "\x1b[0m"
 ANSI_CLEAR_SCREEN = "\x1b[H\x1b[2J"
 ANSI_SYNC_UPDATE_BEGIN = "\x1b[?2026h"
 ANSI_SYNC_UPDATE_END = "\x1b[?2026l"
+ANSI_RESET_SCROLL_REGION = "\x1b[r"
+MINIMUM_SCROLL_REGION_ROWS = 2
 RGB_COMPACT_LENGTH = 9
 RGB_HEX_LENGTH = 7
 MIN_CELL_TEXT_LENGTH = 1
@@ -58,6 +60,21 @@ def terminal_cell_text(value):
     if _is_unsafe_width_char(ch):
         return TERMINAL_CONTROL_PLACEHOLDER
     return ch
+
+
+def raw_no_scroll_region(anchor_row, raw_height, buffer_bottom_exclusive):
+    anchor_row = int(anchor_row)
+    raw_height = max(1, int(raw_height))
+    buffer_bottom_exclusive = int(buffer_bottom_exclusive)
+    if anchor_row >= MINIMUM_SCROLL_REGION_ROWS:
+        return f"\x1b[1;{anchor_row}r"
+    raw_bottom_exclusive = anchor_row + raw_height
+    if buffer_bottom_exclusive - raw_bottom_exclusive >= MINIMUM_SCROLL_REGION_ROWS:
+        return (
+            f"\x1b[{raw_bottom_exclusive + ANSI_BASE_ROW};"
+            f"{buffer_bottom_exclusive}r"
+        )
+    return ""
 
 
 class TerminalBufferRenderStats:
@@ -392,11 +409,20 @@ class TerminalBuffer:
                         output.append(cell_style_sequence(style_cell))
                         output.append(" " * clear_width)
                     if clear_height >= raw_height:
+                        anchor_row = row + int(row_offset)
+                        no_scroll_region = raw_no_scroll_region(
+                            anchor_row,
+                            raw_height,
+                            int(row_offset) + self.height,
+                        )
+                        output.append(no_scroll_region)
                         output.append(
                             f"\x1b[{row + int(row_offset) + ANSI_BASE_ROW};"
                             f"{col + int(col_offset) + ANSI_BASE_COL}H"
                         )
                         output.append(raw)
+                        if no_scroll_region:
+                            output.append(ANSI_RESET_SCROLL_REGION)
                         raw_emitted = True
                     for covered_row in range(row, row + clear_height):
                         for covered_col in range(col, col + clear_width):

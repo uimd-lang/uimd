@@ -419,22 +419,22 @@ final class UimdRuntimeSmokeTests: XCTestCase
             size: Size(width: 1, height: 6),
             state: ElementRenderState(clipTop: 2, clipBottom: 6)
         )
-        XCTAssertEqual(topClipped[2][0].rawHeight, 4)
-        XCTAssertFalse(topClipped[2][0].raw.isEmpty)
-        XCTAssertTrue(topClipped[3][0].rawSkip)
-        XCTAssertTrue(topClipped[4][0].rawSkip)
-        XCTAssertTrue(topClipped[5][0].rawSkip)
+        for row in 2...5
+        {
+            XCTAssertEqual(topClipped[row][0].rawHeight, 1)
+            XCTAssertFalse(topClipped[row][0].raw.isEmpty)
+        }
         XCTAssertTrue(topClipped[0][0].raw.isEmpty)
 
         let bottomClipped = image.render(
             size: Size(width: 1, height: 6),
             state: ElementRenderState(clipTop: 0, clipBottom: 4)
         )
-        XCTAssertEqual(bottomClipped[0][0].rawHeight, 4)
-        XCTAssertFalse(bottomClipped[0][0].raw.isEmpty)
-        XCTAssertTrue(bottomClipped[1][0].rawSkip)
-        XCTAssertTrue(bottomClipped[2][0].rawSkip)
-        XCTAssertTrue(bottomClipped[3][0].rawSkip)
+        for row in 0...3
+        {
+            XCTAssertEqual(bottomClipped[row][0].rawHeight, 1)
+            XCTAssertFalse(bottomClipped[row][0].raw.isEmpty)
+        }
         XCTAssertFalse(bottomClipped[4][0].rawSkip)
     }
 

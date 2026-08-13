@@ -14,6 +14,8 @@ import sys
 import tempfile
 import time
 
+from full_test_report import FullTestReporter, default_log_path
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -65,6 +67,16 @@ class PhaseSkip:
     detail: str
 
 
+_full_test_reporter: FullTestReporter | None = None
+
+
+def emit_line(value: str, *, file=None) -> None:
+    if _full_test_reporter is not None:
+        _full_test_reporter.write_raw_line(value)
+        return
+    print(value, file=file, flush=True)
+
+
 def is_windows() -> bool:
     return platform.system().lower() == "windows"
 
@@ -95,15 +107,21 @@ def cmake_command() -> str:
 
 def run(command: list[str | Path], *, cwd: Path = ROOT) -> None:
     printable = " ".join(str(part) for part in command)
-    print(f"==> {printable}", flush=True)
+    if _full_test_reporter is not None:
+        _full_test_reporter.run(command, cwd=cwd)
+        return
+    emit_line(f"==> {printable}")
     subprocess.run([str(part) for part in command], cwd=cwd, check=True)
 
 
 def run_with_env(command: list[str | Path], *, cwd: Path = ROOT, env: dict[str, str]) -> None:
     printable = " ".join(str(part) for part in command)
-    print(f"==> {printable}", flush=True)
     merged_env = os.environ.copy()
     merged_env.update(env)
+    if _full_test_reporter is not None:
+        _full_test_reporter.run(command, cwd=cwd, env=merged_env)
+        return
+    emit_line(f"==> {printable}")
     subprocess.run([str(part) for part in command], cwd=cwd, check=True, env=merged_env)
 
 
@@ -120,33 +138,62 @@ def failure_detail(exc: BaseException) -> str:
 
 def record_skipped_phase(phases: list[FullTestPhase], name: str, detail: str) -> None:
     phases.append(FullTestPhase(name, "SKIP", 0.0, detail))
+    if _full_test_reporter is not None:
+        _full_test_reporter.skip_phase(name, detail)
 
 
-def run_full_test_phase(phases: list[FullTestPhase], name: str, action):
+def run_full_test_phase(
+    phases: list[FullTestPhase],
+    name: str,
+    action,
+    *,
+    report_kind: str = "generic",
+    continue_on_failure: bool = False,
+):
+    if _full_test_reporter is not None:
+        _full_test_reporter.start_phase(
+            name,
+            report_kind,
+            keep_going_commands=continue_on_failure,
+        )
     started = time.monotonic()
     try:
         result = action()
+        if _full_test_reporter is not None and _full_test_reporter.phase_has_failed_commands():
+            command_error = _full_test_reporter.first_failed_command()
+            assert command_error is not None
+            raise command_error
     except BaseException as exc:
-        phases.append(FullTestPhase(name, "FAIL", time.monotonic() - started, failure_detail(exc)))
+        elapsed = time.monotonic() - started
+        detail = failure_detail(exc)
+        phases.append(FullTestPhase(name, "FAIL", elapsed, detail))
+        if _full_test_reporter is not None:
+            _full_test_reporter.finish_phase("FAIL", elapsed, detail)
+        if continue_on_failure:
+            return None
         raise
     elapsed = time.monotonic() - started
     if isinstance(result, PhaseSkip):
         phases.append(FullTestPhase(name, "SKIP", elapsed, result.detail))
+        if _full_test_reporter is not None:
+            _full_test_reporter.finish_phase("SKIP", elapsed, result.detail)
         return None
     phases.append(FullTestPhase(name, "PASS", elapsed))
+    if _full_test_reporter is not None:
+        _full_test_reporter.finish_phase("PASS", elapsed)
     return result
 
 
 def print_full_test_summary(phases: list[FullTestPhase]) -> None:
     if not phases:
         return
-    print("==> FULL TEST SUMMARY", flush=True)
+    emit_line("==> FULL TEST SUMMARY")
     width = max(len(phase.name) for phase in phases)
     for phase in phases:
         detail = f" ({phase.detail})" if phase.detail else ""
-        print(f"{phase.status:<4} {phase.name:<{width}} {phase.seconds:>6.1f}s{detail}", flush=True)
+        emit_line(f"{phase.status:<4} {phase.name:<{width}} {phase.seconds:>6.1f}s{detail}")
     result = "FAIL" if any(phase.status == "FAIL" for phase in phases) else "PASS"
-    print(f"==> FULL TEST RESULT: {result}", flush=True)
+    emit_line(f"==> FULL TEST RESULT: {result}")
 
 
 def cmake_configure_args(
@@ -453,6 +500,10 @@ def build_all_rust_examples() -> None:
     app_dirs = rust_example_app_dirs()
     if not app_dirs:
         raise FileNotFoundError("no Rust example apps found under rust/examples")
+    run(
+        cargo_with_progress_command("build", "--release", "--all-targets"),
+        cwd=ROOT / "rust/src/uimd",
+    )
     for app_dir in [*app_dirs, *rust_regression_app_dirs()]:
         run(cargo_with_progress_command("build", "--release"), cwd=app_dir)
 
@@ -524,7 +575,7 @@ def run_rust_mcp_transport_smoke() -> None:
 def generate_regression_parity_if_available(uimd: Path, *, include_rust: bool) -> None:
     regression_root = ROOT / REGRESSION_PARITY_ROOT
     if not regression_root.exists():
-        print(f"==> skip regression parity generation: {REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        emit_line(f"==> skip regression parity generation: {REGRESSION_PARITY_ROOT} does not exist")
         return
     for path, _target in REGRESSION_GENERATE_TARGETS:
         if not (ROOT / path).exists():
@@ -708,7 +759,7 @@ def write_parity_manifest(
         include_rust=include_rust,
     )
     path = write_manifest(ROOT, artifacts, platforms=platforms)
-    print(f"==> wrote parity artifact manifest: {path.relative_to(ROOT)}", flush=True)
+    emit_line(f"==> wrote parity artifact manifest: {path.relative_to(ROOT)}")
     return path
 
 
@@ -727,15 +778,15 @@ def rebuild_all(args: argparse.Namespace) -> None:
     if validate_rust:
         build_all_rust_examples()
     elif args.no_rust:
-        print("==> skip Rust examples: --no-rust", flush=True)
+        emit_line("==> skip Rust examples: --no-rust")
     else:
-        print("==> skip Rust examples: Rust validation is not enabled on Windows", flush=True)
+        emit_line("==> skip Rust examples: Rust validation is not enabled on Windows")
     if validate_swift:
         build_all_swift_examples()
     elif args.no_swift:
-        print("==> skip Swift examples: --no-swift", flush=True)
+        emit_line("==> skip Swift examples: --no-swift")
     else:
-        print("==> skip Swift examples: Swift validation is not enabled on Windows", flush=True)
+        emit_line("==> skip Swift examples: Swift validation is not enabled on Windows")
     run([sys.executable, "-m", "compileall", "python", "src", "tests", "tools"])
     write_parity_manifest(
         build_dir,
@@ -753,14 +804,15 @@ def run_python_tests() -> None:
         stderr=subprocess.DEVNULL,
         check=False,
     )
+    live_report_args = ["-p", "tools.pytest_live_report"] if _full_test_reporter is not None else []
     if probe.returncode == 0:
-        run([sys.executable, "-m", "pytest", "python/tests"])
+        run([sys.executable, "-m", "pytest", *live_report_args, "python/tests"])
         return
     pytest = shutil.which("pytest")
     if pytest is not None:
-        run([pytest, "python/tests"])
+        run([pytest, *live_report_args, "python/tests"])
         return
-    run([sys.executable, "-m", "pytest", "python/tests"])
+    run([sys.executable, "-m", "pytest", *live_report_args, "python/tests"])
 
 
 def run_example_compare(
@@ -895,7 +947,7 @@ def run_regression_compare_if_available(
     cpp_root = ROOT / cpp_root_path
     manifest = ROOT / REGRESSION_PARITY_MANIFEST
     if not python_root.exists() and not cpp_root.exists() and not manifest.exists():
-        print(f"==> skip regression parity compare: {REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        emit_line(f"==> skip regression parity compare: {REGRESSION_PARITY_ROOT} does not exist")
         return PhaseSkip(f"{REGRESSION_PARITY_ROOT} does not exist")
     if not python_root.exists() or not cpp_root.exists() or not manifest.exists():
         if not python_root.exists():
@@ -937,7 +989,7 @@ def run_go_regression_compare_if_available(
     go_root = ROOT / GO_REGRESSION_PARITY_ROOT
     manifest = ROOT / REGRESSION_PARITY_MANIFEST
     if not cpp_root.exists() and not go_root.exists() and not manifest.exists():
-        print(f"==> skip Go regression parity compare: {GO_REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        emit_line(f"==> skip Go regression parity compare: {GO_REGRESSION_PARITY_ROOT} does not exist")
         return PhaseSkip(f"{GO_REGRESSION_PARITY_ROOT} does not exist")
     if not cpp_root.exists() or not go_root.exists() or not manifest.exists():
         if not cpp_root.exists():
@@ -981,7 +1033,7 @@ def run_rust_regression_compare_if_available(
     rust_root = ROOT / RUST_REGRESSION_PARITY_ROOT
     manifest = ROOT / REGRESSION_PARITY_MANIFEST
     if not cpp_root.exists() and not rust_root.exists() and not manifest.exists():
-        print(f"==> skip Rust regression parity compare: {RUST_REGRESSION_PARITY_ROOT} does not exist", flush=True)
+        emit_line(f"==> skip Rust regression parity compare: {RUST_REGRESSION_PARITY_ROOT} does not exist")
         return PhaseSkip(f"{RUST_REGRESSION_PARITY_ROOT} does not exist")
     if not cpp_root.exists() or not rust_root.exists() or not manifest.exists():
         if not cpp_root.exists():
@@ -1013,6 +1065,22 @@ def run_rust_regression_compare_if_available(
 
 
 def test_all(args: argparse.Namespace) -> None:
+    global _full_test_reporter
+
+    if args.keep_going and not args.live_report:
+        raise ValueError("--keep-going requires --live-report")
+    if args.log_file and not args.live_report:
+        raise ValueError("--log-file requires --live-report")
+
+    reporter: FullTestReporter | None = None
+    if args.live_report:
+        log_path = Path(args.log_file) if args.log_file else default_log_path(ROOT)
+        if not log_path.is_absolute():
+            log_path = ROOT / log_path
+        reporter = FullTestReporter(log_path)
+        reporter.open()
+        _full_test_reporter = reporter
+
     phases: list[FullTestPhase] = []
     build_dir = Path(args.build_dir)
     validate_swift = should_validate_swift(args)
@@ -1104,16 +1172,41 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Build Swift runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
             run_full_test_phase(phases, "Validate parity artifact manifest", lambda: validate_manifest(ROOT))
-        run_full_test_phase(phases, "Python tests", run_python_tests)
+        run_full_test_phase(
+            phases,
+            "Python tests",
+            run_python_tests,
+            report_kind="pytest",
+            continue_on_failure=args.keep_going,
+        )
         run_full_test_phase(
             phases,
             "CTest",
             lambda: run(ctest_args(build_dir, config=PARITY_CONFIGURATION)),
+            report_kind="ctest",
+            continue_on_failure=args.keep_going,
         )
-        run_full_test_phase(phases, "Go runtime tests", run_go_tests)
+        run_full_test_phase(
+            phases,
+            "Go runtime tests",
+            run_go_tests,
+            report_kind="go",
+            continue_on_failure=args.keep_going,
+        )
         if validate_rust:
-            run_full_test_phase(phases, "Rust runtime tests", run_rust_tests)
-            run_full_test_phase(phases, "Rust clippy", run_rust_clippy)
+            run_full_test_phase(
+                phases,
+                "Rust runtime tests",
+                run_rust_tests,
+                report_kind="cargo",
+                continue_on_failure=args.keep_going,
+            )
+            run_full_test_phase(
+                phases,
+                "Rust clippy",
+                run_rust_clippy,
+                continue_on_failure=args.keep_going,
+            )
         elif args.no_rust:
             record_skipped_phase(phases, "Rust runtime tests", "--no-rust")
             record_skipped_phase(phases, "Rust clippy", "--no-rust")
@@ -1121,11 +1214,19 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Rust runtime tests", "Rust validation is not enabled on Windows")
             record_skipped_phase(phases, "Rust clippy", "Rust validation is not enabled on Windows")
         if validate_swift:
-            run_full_test_phase(phases, "Swift runtime tests", run_swift_tests)
+            run_full_test_phase(
+                phases,
+                "Swift runtime tests",
+                run_swift_tests,
+                report_kind="swift",
+                continue_on_failure=args.keep_going,
+            )
             run_full_test_phase(
                 phases,
                 "Swift direct terminal smoke",
                 lambda: run_swift_direct_terminal_smoke(build_dir),
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
             )
         elif args.no_swift:
             record_skipped_phase(phases, "Swift runtime tests", "--no-swift")
@@ -1144,14 +1245,24 @@ def test_all(args: argparse.Namespace) -> None:
                 phases,
                 "Go direct terminal smoke",
                 lambda: run_go_direct_terminal_smoke(build_dir),
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
             )
         if validate_rust:
             run_full_test_phase(
                 phases,
                 "Rust direct terminal smoke",
                 lambda: run_rust_direct_terminal_smoke(build_dir),
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
             )
-            run_full_test_phase(phases, "Rust MCP transport smoke", run_rust_mcp_transport_smoke)
+            run_full_test_phase(
+                phases,
+                "Rust MCP transport smoke",
+                run_rust_mcp_transport_smoke,
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
+            )
         elif args.no_rust:
             record_skipped_phase(phases, "Rust direct terminal smoke", "--no-rust")
             record_skipped_phase(phases, "Rust MCP transport smoke", "--no-rust")
@@ -1167,6 +1278,8 @@ def test_all(args: argparse.Namespace) -> None:
                 compare_app_size=args.compare_app_size,
                 mcp_fast=not args.no_mcp_fast,
             ),
+            report_kind="mcp",
+            continue_on_failure=args.keep_going,
         )
         run_full_test_phase(
             phases,
@@ -1177,6 +1290,8 @@ def test_all(args: argparse.Namespace) -> None:
                 compare_app_size=args.compare_app_size,
                 mcp_fast=not args.no_mcp_fast,
             ),
+            report_kind="mcp",
+            continue_on_failure=args.keep_going,
         )
         if validate_swift:
             run_full_test_phase(
@@ -1188,6 +1303,8 @@ def test_all(args: argparse.Namespace) -> None:
                     compare_app_size=args.compare_app_size,
                     mcp_fast=not args.no_mcp_fast,
                 ),
+                report_kind="mcp",
+                continue_on_failure=args.keep_going,
             )
         elif args.no_swift:
             record_skipped_phase(phases, "MCP Swift example compare", "--no-swift")
@@ -1202,6 +1319,8 @@ def test_all(args: argparse.Namespace) -> None:
                 compare_app_size=args.compare_app_size,
                 mcp_fast=not args.no_mcp_fast,
             ),
+            report_kind="mcp",
+            continue_on_failure=args.keep_going,
         )
         if validate_rust:
             run_full_test_phase(
@@ -1213,6 +1332,8 @@ def test_all(args: argparse.Namespace) -> None:
                     compare_app_size=args.compare_app_size,
                     mcp_fast=not args.no_mcp_fast,
                 ),
+                report_kind="mcp",
+                continue_on_failure=args.keep_going,
             )
         elif args.no_rust:
             record_skipped_phase(phases, "MCP Rust example compare", "--no-rust")
@@ -1227,6 +1348,8 @@ def test_all(args: argparse.Namespace) -> None:
                 compare_app_size=args.compare_app_size,
                 mcp_fast=not args.no_mcp_fast,
             ),
+            report_kind="mcp",
+            continue_on_failure=args.keep_going,
         )
         run_full_test_phase(
             phases,
@@ -1237,6 +1360,8 @@ def test_all(args: argparse.Namespace) -> None:
                 compare_app_size=args.compare_app_size,
                 mcp_fast=not args.no_mcp_fast,
             ),
+            report_kind="mcp",
+            continue_on_failure=args.keep_going,
         )
         if validate_rust:
             run_full_test_phase(
@@ -1249,6 +1374,8 @@ def test_all(args: argparse.Namespace) -> None:
                     mcp_fast=not args.no_mcp_fast,
                     config=PARITY_CONFIGURATION,
                 ),
+                report_kind="mcp",
+                continue_on_failure=args.keep_going,
             )
         elif args.no_rust:
             record_skipped_phase(phases, "MCP Rust regression parity compare", "--no-rust")
@@ -1258,8 +1385,23 @@ def test_all(args: argparse.Namespace) -> None:
                 "MCP Rust regression parity compare",
                 "Rust validation is not enabled on Windows",
             )
+    except Exception as exc:
+        if reporter is not None:
+            return_code = exc.returncode if isinstance(exc, subprocess.CalledProcessError) else 1
+            raise subprocess.CalledProcessError(return_code, ["test-all"]) from exc
+        raise
     finally:
-        print_full_test_summary(phases)
+        try:
+            print_full_test_summary(phases)
+            if reporter is not None:
+                reporter.finish_gate(phases)
+        finally:
+            if reporter is not None:
+                reporter.close()
+            _full_test_reporter = None
+
+    if any(phase.status == "FAIL" for phase in phases):
+        raise subprocess.CalledProcessError(1, ["test-all"])
 
 
 def run_cpp_example(args: argparse.Namespace) -> None:
@@ -1382,6 +1524,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     all_tests.add_argument("--csharp-config", default=PARITY_CONFIGURATION, choices=(PARITY_CONFIGURATION,))
     all_tests.add_argument("--no-swift", action="store_true")
     all_tests.add_argument("--no-rust", action="store_true")
+    all_tests.add_argument("--live-report", action="store_true")
+    all_tests.add_argument("--log-file")
+    all_tests.add_argument("--keep-going", action="store_true")
     all_tests.set_defaults(func=test_all)
 
     run_example = subparsers.add_parser("run-cpp-example")

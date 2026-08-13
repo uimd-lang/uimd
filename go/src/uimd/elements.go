@@ -30,8 +30,11 @@ const (
 	imageInfoColorQuantum         = 64
 	imageSixelBitsPerGlyph        = 6
 	imageSixelColorComponentScale = 100
-	imageSixelColorLevels         = 6
+	imageSixelColorLevels         = 4
 	imageSixelRunLengthThreshold  = 4
+	imageSixelChunkCellRows       = 1
+	imageSixelCacheMaxEntries     = 512
+	imageSixelCacheMaxBytes       = 32 * 1024 * 1024
 	imageFallbackUpperHalfBlock   = "▀"
 	imageFallbackFullBlock        = "█"
 	imageSixelIntroducer          = "\x1bPq"
@@ -55,21 +58,27 @@ var imageRasterCache = struct {
 }{values: map[string]imageRaster{}}
 
 type imageRenderCacheKey struct {
-	source        string
-	width         int
-	height        int
-	fit           string
-	align         string
-	verticalAlign string
-	background    imageRgb
-	sourceHeight  int
-	cropTop       int
+	source            string
+	pixelWidth        int
+	pixelHeight       int
+	fit               string
+	align             string
+	verticalAlign     string
+	background        imageRgb
+	sourcePixelHeight int
+	cropTopPixels     int
+}
+
+type imageSixelCacheEntry struct {
+	payload string
+	lastUse uint64
 }
 
 var imageSixelCache = struct {
-	sync.RWMutex
-	values map[imageRenderCacheKey]string
-}{values: map[imageRenderCacheKey]string{}}
+	sync.Mutex
+	values     map[imageRenderCacheKey]imageSixelCacheEntry
+	useCounter uint64
+}{values: map[imageRenderCacheKey]imageSixelCacheEntry{}}
 
 type ElementRenderState struct {
 	Focused                  bool
@@ -795,21 +804,7 @@ func (element *Image) Render(size Size, state ElementRenderState) [][]TerminalCe
 		if regionFit == "contain" {
 			regionFit = "cover"
 		}
-		raw := ""
 		if visibleRows > 0 {
-			raw = cachedSixelImagePayload(
-				resolveImagePath(element.Source),
-				raster,
-				region.cols,
-				visibleRows,
-				regionFit,
-				align,
-				verticalAlign,
-				background,
-				region.rows,
-				visibleTop-region.rowOffset)
-		}
-		if raw != "" {
 			content := RenderPlainText("", width, height, style)
 			for row := visibleTop; row < visibleBottom; row++ {
 				if row < 0 || row >= len(content) {
@@ -822,13 +817,38 @@ func (element *Image) Render(size Size, state ElementRenderState) [][]TerminalCe
 					content[row][col].RawSkip = true
 				}
 			}
-			if visibleTop >= 0 && visibleTop < len(content) &&
-				region.colOffset >= 0 && region.colOffset < len(content[visibleTop]) {
-				anchor := &content[visibleTop][region.colOffset]
+			cropTop := visibleTop - region.rowOffset
+			cropBottom := cropTop + visibleRows
+			firstChunk := cropTop / imageSixelChunkCellRows * imageSixelChunkCellRows
+			rawPresent := false
+			for chunkTop := firstChunk; chunkTop < cropBottom; chunkTop += imageSixelChunkCellRows {
+				segmentTop := maxInt(cropTop, chunkTop)
+				segmentBottom := minInt(cropBottom, chunkTop+imageSixelChunkCellRows)
+				segmentRows := segmentBottom - segmentTop
+				raw := cachedSixelImagePayload(
+					resolveImagePath(element.Source),
+					raster,
+					region.cols,
+					segmentRows,
+					regionFit,
+					align,
+					verticalAlign,
+					background,
+					region.rows,
+					segmentTop)
+				anchorRow := visibleTop + segmentTop - cropTop
+				if raw == "" || anchorRow < 0 || anchorRow >= len(content) ||
+					region.colOffset < 0 || region.colOffset >= len(content[anchorRow]) {
+					continue
+				}
+				anchor := &content[anchorRow][region.colOffset]
 				anchor.Raw = raw
 				anchor.RawWidth = region.cols
-				anchor.RawHeight = visibleRows
+				anchor.RawHeight = segmentRows
 				anchor.RawSkip = false
+				rawPresent = true
+			}
+			if rawPresent {
 				return content
 			}
 		}
@@ -853,6 +873,7 @@ func (element *Image) RenderInfo(size Size, state ElementRenderState) map[string
 	align := normalizedImageValue(element.Align, defaultImageAlign)
 	verticalAlign := normalizedImageValue(element.VerticalAlign, defaultImageVerticalAlign)
 	resolvedRenderMode := resolvedImageRenderMode(renderMode)
+	cellPixels := terminalCellPixelSize()
 	info := map[string]any{
 		"source":                 element.Source,
 		"path":                   resolveImagePath(element.Source),
@@ -864,8 +885,8 @@ func (element *Image) RenderInfo(size Size, state ElementRenderState) map[string
 		"source_height":          0,
 		"element_width":          width,
 		"element_height":         height,
-		"cell_pixel_width":       imageCellPixelWidth,
-		"cell_pixel_height":      imageCellPixelHeight,
+		"cell_pixel_width":       cellPixels.Width,
+		"cell_pixel_height":      cellPixels.Height,
 		"image_left":             0,
 		"image_top":              0,
 		"image_width":            0,
@@ -1356,70 +1377,74 @@ func cachedSixelImagePayload(sourcePath string, source imageRaster, width int, h
 		sourceHeight = height
 	}
 	cropTop = maxInt(0, cropTop)
+	cellPixels := terminalCellPixelSize()
+	pixelWidth := width * maxInt(minimumRenderableSize, cellPixels.Width)
+	pixelHeight := height * maxInt(minimumRenderableSize, cellPixels.Height)
+	sourcePixelHeight := sourceHeight * maxInt(minimumRenderableSize, cellPixels.Height)
+	cropTopPixels := cropTop * maxInt(minimumRenderableSize, cellPixels.Height)
 	key := imageRenderCacheKey{
-		source:        sourcePath,
-		width:         width,
-		height:        height,
-		fit:           fit,
-		align:         align,
-		verticalAlign: verticalAlign,
-		background:    background,
-		sourceHeight:  sourceHeight,
-		cropTop:       cropTop,
+		source:            sourcePath,
+		pixelWidth:        pixelWidth,
+		pixelHeight:       pixelHeight,
+		fit:               fit,
+		align:             align,
+		verticalAlign:     verticalAlign,
+		background:        background,
+		sourcePixelHeight: sourcePixelHeight,
+		cropTopPixels:     cropTopPixels,
 	}
-	imageSixelCache.RLock()
-	cached, found := imageSixelCache.values[key]
-	imageSixelCache.RUnlock()
-	if found {
-		return cached
-	}
-	raw := sixelImagePayload(source, width, height, fit, align, verticalAlign, background, sourceHeight, cropTop)
 	imageSixelCache.Lock()
-	imageSixelCache.values[key] = raw
-	imageSixelCache.Unlock()
-	return raw
-}
-
-func sixelImagePayload(source imageRaster, width int, height int, fit string, align string, verticalAlign string, background imageRgb, sourceHeight int, cropTop int) string {
-	width = maxInt(minimumRenderableSize, width)
-	height = maxInt(minimumRenderableSize, height)
-	if sourceHeight <= 0 {
-		sourceHeight = height
+	imageSixelCache.useCounter++
+	cached, found := imageSixelCache.values[key]
+	if found {
+		cached.lastUse = imageSixelCache.useCounter
+		imageSixelCache.values[key] = cached
+		imageSixelCache.Unlock()
+		return cached.payload
 	}
-	cropTop = maxInt(0, cropTop)
-	fitted := resizeImageRaster(
+	imageSixelCache.Unlock()
+	payload := resizeImageRasterRows(
 		source,
-		width*imageCellPixelWidth,
-		sourceHeight*imageCellPixelHeight,
+		pixelWidth,
+		sourcePixelHeight,
+		cropTopPixels,
+		pixelHeight,
 		fit,
 		align,
 		verticalAlign,
 		background)
-	payload := cropImageRasterRows(
-		fitted,
-		cropTop*imageCellPixelHeight,
-		height*imageCellPixelHeight)
-	return sixelPayload(quantizeImageRaster(payload))
+	raw := sixelPayload(quantizeImageRaster(payload))
+	if len(raw) <= imageSixelCacheMaxBytes {
+		imageSixelCache.Lock()
+		imageSixelCache.useCounter++
+		imageSixelCache.values[key] = imageSixelCacheEntry{payload: raw, lastUse: imageSixelCache.useCounter}
+		for len(imageSixelCache.values) > imageSixelCacheMaxEntries || imageSixelCacheBytes() > imageSixelCacheMaxBytes {
+			var oldestKey imageRenderCacheKey
+			var oldestUse uint64
+			oldestFound := false
+			for candidateKey, entry := range imageSixelCache.values {
+				if !oldestFound || entry.lastUse < oldestUse {
+					oldestKey = candidateKey
+					oldestUse = entry.lastUse
+					oldestFound = true
+				}
+			}
+			if !oldestFound {
+				break
+			}
+			delete(imageSixelCache.values, oldestKey)
+		}
+		imageSixelCache.Unlock()
+	}
+	return raw
 }
 
-func cropImageRasterRows(source imageRaster, top int, height int) imageRaster {
-	if source.width <= 0 || source.height <= 0 || height <= 0 || len(source.pixels) == 0 {
-		return imageRaster{}
+func imageSixelCacheBytes() int {
+	total := 0
+	for _, entry := range imageSixelCache.values {
+		total += len(entry.payload)
 	}
-	top = clampInt(top, 0, source.height)
-	bottom := clampInt(top+height, top, source.height)
-	if bottom <= top {
-		return imageRaster{}
-	}
-	result := imageRaster{
-		width:  source.width,
-		height: bottom - top,
-		pixels: append([]imageRgb(nil), source.pixels[top*source.width:bottom*source.width]...),
-	}
-	if len(source.alpha) >= source.width*source.height {
-		result.alpha = append([]int(nil), source.alpha[top*source.width:bottom*source.width]...)
-	}
-	return result
+	return total
 }
 
 func quantizeImageRaster(raster imageRaster) imageRaster {
@@ -1465,6 +1490,7 @@ func sixelPayload(raster imageRaster) string {
 
 	var output strings.Builder
 	output.WriteString(imageSixelIntroducer)
+	fmt.Fprintf(&output, "\"1;1;%d;%d", raster.width, raster.height)
 	for index, color := range colors {
 		fmt.Fprintf(
 			&output,
@@ -1539,15 +1565,30 @@ func appendSixelRun(output *strings.Builder, character byte, count int) {
 }
 
 func resizeImageRaster(source imageRaster, targetWidth int, targetHeight int, fit string, align string, verticalAlign string, background imageRgb) imageRaster {
+	return resizeImageRasterRows(
+		source,
+		targetWidth,
+		targetHeight,
+		0,
+		maxInt(minimumRenderableSize, targetHeight),
+		fit,
+		align,
+		verticalAlign,
+		background)
+}
+
+func resizeImageRasterRows(source imageRaster, targetWidth int, targetHeight int, firstTargetRow int, targetRowCount int, fit string, align string, verticalAlign string, background imageRgb) imageRaster {
 	targetWidth = maxInt(minimumRenderableSize, targetWidth)
 	targetHeight = maxInt(minimumRenderableSize, targetHeight)
+	firstTargetRow = clampInt(firstTargetRow, 0, targetHeight)
+	targetRowCount = clampInt(targetRowCount, 0, targetHeight-firstTargetRow)
 	if source.width <= 0 || source.height <= 0 || len(source.pixels) == 0 {
 		return imageRaster{}
 	}
-	pixelCount := targetWidth * targetHeight
+	pixelCount := targetWidth * targetRowCount
 	result := imageRaster{
 		width:  targetWidth,
-		height: targetHeight,
+		height: targetRowCount,
 		pixels: make([]imageRgb, pixelCount),
 		alpha:  make([]int, pixelCount),
 	}
@@ -1584,7 +1625,8 @@ func resizeImageRaster(source imageRaster, targetWidth int, targetHeight int, fi
 		}
 	}
 
-	for y := 0; y < targetHeight; y++ {
+	for y := 0; y < targetRowCount; y++ {
+		targetY := firstTargetRow + y
 		for x := 0; x < targetWidth; x++ {
 			sourceLeft := 0.0
 			sourceRight := 0.0
@@ -1593,18 +1635,18 @@ func resizeImageRaster(source imageRaster, targetWidth int, targetHeight int, fi
 			if stretch {
 				sourceLeft = float64(x) * float64(source.width) / float64(targetWidth)
 				sourceRight = float64(x+1) * float64(source.width) / float64(targetWidth)
-				sourceTop = float64(y) * float64(source.height) / float64(targetHeight)
-				sourceBottom = float64(y+1) * float64(source.height) / float64(targetHeight)
+				sourceTop = float64(targetY) * float64(source.height) / float64(targetHeight)
+				sourceBottom = float64(targetY+1) * float64(source.height) / float64(targetHeight)
 			} else if cover {
 				sourceLeft = (float64(x) + xOffset) / scale
 				sourceRight = (float64(x+1) + xOffset) / scale
-				sourceTop = (float64(y) + yOffset) / scale
-				sourceBottom = (float64(y+1) + yOffset) / scale
+				sourceTop = (float64(targetY) + yOffset) / scale
+				sourceBottom = (float64(targetY+1) + yOffset) / scale
 			} else {
 				sourceLeft = (float64(x) - xOffset) / scale
 				sourceRight = (float64(x+1) - xOffset) / scale
-				sourceTop = (float64(y) - yOffset) / scale
-				sourceBottom = (float64(y+1) - yOffset) / scale
+				sourceTop = (float64(targetY) - yOffset) / scale
+				sourceBottom = (float64(targetY+1) - yOffset) / scale
 			}
 			index := y*targetWidth + x
 			result.pixels[index] = sampleRasterArea(source, sourceLeft, sourceTop, sourceRight, sourceBottom, background)
@@ -1666,11 +1708,12 @@ func imageRegion(width int, height int, sourceWidth int, sourceHeight int, fit s
 	if fit != "contain" || sourceWidth == 0 || sourceHeight == 0 {
 		return imageCellRegion{cols: width, rows: height}
 	}
-	canvasWidth := float64(width * imageCellPixelWidth)
-	canvasHeight := float64(height * imageCellPixelHeight)
+	cellPixels := terminalCellPixelSize()
+	canvasWidth := float64(width * cellPixels.Width)
+	canvasHeight := float64(height * cellPixels.Height)
 	scale := math.Min(canvasWidth/float64(sourceWidth), canvasHeight/float64(sourceHeight))
-	cols := clampInt(int(math.Round(float64(sourceWidth)*scale/float64(imageCellPixelWidth))), minimumRenderableSize, width)
-	rows := clampInt(int(math.Round(float64(sourceHeight)*scale/float64(imageCellPixelHeight))), minimumRenderableSize, height)
+	cols := clampInt(int(math.Round(float64(sourceWidth)*scale/float64(cellPixels.Width))), minimumRenderableSize, width)
+	rows := clampInt(int(math.Round(float64(sourceHeight)*scale/float64(cellPixels.Height))), minimumRenderableSize, height)
 	return imageCellRegion{
 		cols:      cols,
 		rows:      rows,

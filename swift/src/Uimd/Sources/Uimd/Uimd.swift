@@ -29,7 +29,12 @@ private let kImageCellPixelHeight = 16
 private let kFallbackVerticalSamplesPerCell = 2
 private let kSixelBitsPerGlyph = 6
 private let kSixelColorComponentScale = 100
-private let kSixelColorLevels = 6
+private let kSixelColorLevels = 4
+private let kSixelChunkCellRows = 1
+private let kSixelCacheMaxEntries = 512
+private let kSixelCacheMaxBytes = 32 * 1024 * 1024
+private let kMinimumScrollRegionRows = 2
+private let kAnsiResetScrollRegion = "\u{001B}[r"
 private let kTestFallbackCheckerTilePixels = 4
 private let kTestFallbackCheckerLightAlpha = 160
 private let kTestFallbackColorQuantum = 32
@@ -1243,21 +1248,7 @@ open class Image: UIElement
             }
             let visibleRows = max(0, visibleBottom - visibleTop)
             let regionFit = fit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "contain" ? "cover" : fit
-            let raw = visibleRows > 0
-                ? cachedSixelPayload(
-                    source: sourcePath,
-                    raster: raster,
-                    width: region.width,
-                    height: visibleRows,
-                    fit: regionFit,
-                    align: align,
-                    verticalAlign: verticalAlign,
-                    background: background,
-                    sourceHeight: region.height,
-                    cropTop: visibleTop - region.row
-                )
-                : ""
-            if !raw.isEmpty
+            if visibleRows > 0
             {
                 var content = imageBlankContent(width: width, height: height, style: style)
                 for row in visibleTop..<visibleBottom where row >= 0 && row < content.count
@@ -1267,15 +1258,45 @@ open class Image: UIElement
                         content[row][col].rawSkip = true
                     }
                 }
-                if visibleTop >= 0,
-                   visibleTop < content.count,
-                   region.col >= 0,
-                   region.col < content[visibleTop].count
+                let cropTop = visibleTop - region.row
+                let cropBottom = cropTop + visibleRows
+                let firstChunk = cropTop / kSixelChunkCellRows * kSixelChunkCellRows
+                var rawPresent = false
+                var chunkTop = firstChunk
+                while chunkTop < cropBottom
                 {
-                    content[visibleTop][region.col].raw = raw
-                    content[visibleTop][region.col].rawWidth = region.width
-                    content[visibleTop][region.col].rawHeight = visibleRows
-                    content[visibleTop][region.col].rawSkip = false
+                    let segmentTop = max(cropTop, chunkTop)
+                    let segmentBottom = min(cropBottom, chunkTop + kSixelChunkCellRows)
+                    let segmentRows = segmentBottom - segmentTop
+                    let raw = cachedSixelPayload(
+                        source: sourcePath,
+                        raster: raster,
+                        width: region.width,
+                        height: segmentRows,
+                        fit: regionFit,
+                        align: align,
+                        verticalAlign: verticalAlign,
+                        background: background,
+                        sourceHeight: region.height,
+                        cropTop: segmentTop
+                    )
+                    let anchorRow = visibleTop + segmentTop - cropTop
+                    if !raw.isEmpty,
+                       anchorRow >= 0,
+                       anchorRow < content.count,
+                       region.col >= 0,
+                       region.col < content[anchorRow].count
+                    {
+                        content[anchorRow][region.col].raw = raw
+                        content[anchorRow][region.col].rawWidth = region.width
+                        content[anchorRow][region.col].rawHeight = segmentRows
+                        content[anchorRow][region.col].rawSkip = false
+                        rawPresent = true
+                    }
+                    chunkTop += kSixelChunkCellRows
+                }
+                if rawPresent
+                {
                     return content
                 }
             }
@@ -12144,8 +12165,19 @@ private final class TerminalFrameBuffer
                     }
                     if clearHeight >= rawHeight
                     {
+                        let anchorRow = row + rowOffset
+                        let noScrollRegion = rawNoScrollRegion(
+                            anchorRow: anchorRow,
+                            rawHeight: rawHeight,
+                            bufferBottomExclusive: rowOffset + height
+                        )
+                        output.append(noScrollRegion)
                         output.append("\u{001B}[\(row + rowOffset + kTerminalAnsiBaseRow);\(col + colOffset + kTerminalAnsiBaseCol)H")
                         output.append(styleCell.raw)
+                        if !noScrollRegion.isEmpty
+                        {
+                            output.append(kAnsiResetScrollRegion)
+                        }
                         rawEmitted = true
                     }
                     for coveredRow in row..<(row + clearHeight)
@@ -12445,6 +12477,20 @@ private func terminalCellPixels() -> Size
         return override
     }
     return detectedTerminalCellPixels() ?? Size(width: kImageCellPixelWidth, height: kImageCellPixelHeight)
+}
+
+private func rawNoScrollRegion(anchorRow: Int, rawHeight: Int, bufferBottomExclusive: Int) -> String
+{
+    if anchorRow >= kMinimumScrollRegionRows
+    {
+        return "\u{001B}[1;\(anchorRow)r"
+    }
+    let rawBottomExclusive = anchorRow + max(kMinimumRenderableSize, rawHeight)
+    if bufferBottomExclusive - rawBottomExclusive >= kMinimumScrollRegionRows
+    {
+        return "\u{001B}[\(rawBottomExclusive + kTerminalAnsiBaseRow);\(bufferBottomExclusive)r"
+    }
+    return ""
 }
 
 private func sgrForCell(_ cell: TerminalCell) -> String
@@ -13325,37 +13371,63 @@ private let runtimeImageRenderedContentCache = RuntimeImageRenderedContentCache(
 private struct RuntimeImageSixelCacheKey: Hashable
 {
     var source: String
-    var width: Int
-    var height: Int
+    var pixelWidth: Int
+    var pixelHeight: Int
     var fit: String
     var align: String
     var verticalAlign: String
     var background: RuntimeRgb
-    var sourceHeight: Int
-    var cropTop: Int
-    var cellPixelWidth: Int
-    var cellPixelHeight: Int
+    var sourcePixelHeight: Int
+    var cropTopPixels: Int
+}
+
+private struct RuntimeImageSixelCacheEntry
+{
+    var payload: String
+    var lastUse: UInt64
 }
 
 private final class RuntimeImageSixelCache: @unchecked Sendable
 {
     private let lock = NSLock()
-    private var payloads: [RuntimeImageSixelCacheKey: String] = [:]
+    private var payloads: [RuntimeImageSixelCacheKey: RuntimeImageSixelCacheEntry] = [:]
+    private var useCounter: UInt64 = 0
 
     func cached(_ key: RuntimeImageSixelCacheKey) -> String?
     {
         lock.lock()
-        defer
+        useCounter += 1
+        let currentUse = useCounter
+        guard var entry = payloads[key] else
         {
             lock.unlock()
+            return nil
         }
-        return payloads[key]
+        entry.lastUse = currentUse
+        payloads[key] = entry
+        lock.unlock()
+        return entry.payload
     }
 
     func store(_ payload: String, for key: RuntimeImageSixelCacheKey)
     {
         lock.lock()
-        payloads[key] = payload
+        guard payload.utf8.count <= kSixelCacheMaxBytes else
+        {
+            lock.unlock()
+            return
+        }
+        useCounter += 1
+        payloads[key] = RuntimeImageSixelCacheEntry(payload: payload, lastUse: useCounter)
+        while payloads.count > kSixelCacheMaxEntries ||
+              payloads.values.reduce(0, { $0 + $1.payload.utf8.count }) > kSixelCacheMaxBytes
+        {
+            guard let oldest = payloads.min(by: { $0.value.lastUse < $1.value.lastUse })?.key else
+            {
+                break
+            }
+            payloads.removeValue(forKey: oldest)
+        }
         lock.unlock()
     }
 }
@@ -13624,14 +13696,41 @@ private func resizeImageRaster(
     background: RuntimeRgb
 ) -> RuntimeImageRaster?
 {
+    resizeImageRasterRows(
+        source,
+        targetWidth: targetWidth,
+        targetHeight: targetHeight,
+        firstTargetRow: 0,
+        targetRowCount: max(1, targetHeight),
+        fit: fit,
+        align: align,
+        verticalAlign: verticalAlign,
+        background: background
+    )
+}
+
+private func resizeImageRasterRows(
+    _ source: RuntimeImageRaster,
+    targetWidth: Int,
+    targetHeight: Int,
+    firstTargetRow: Int,
+    targetRowCount: Int,
+    fit: String,
+    align: String,
+    verticalAlign: String,
+    background: RuntimeRgb
+) -> RuntimeImageRaster?
+{
     let targetWidth = max(1, targetWidth)
     let targetHeight = max(1, targetHeight)
+    let firstTargetRow = max(0, min(targetHeight, firstTargetRow))
+    let targetRowCount = max(0, min(targetRowCount, targetHeight - firstTargetRow))
     guard source.width > 0, source.height > 0, !source.pixels.isEmpty else
     {
         return nil
     }
 
-    let pixelCount = targetWidth * targetHeight
+    let pixelCount = targetWidth * targetRowCount
     var pixels = Array(repeating: background, count: pixelCount)
     var alpha = Array(repeating: 255, count: pixelCount)
     let normalizedFit = fit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -13655,8 +13754,9 @@ private func resizeImageRaster(
             : alignmentOffset(outer: Double(targetHeight), inner: drawnHeight, value: verticalAlign, startValue: "top", endValue: "bottom")
     )
 
-    for y in 0..<targetHeight
+    for y in 0..<targetRowCount
     {
+        let targetY = firstTargetRow + y
         for x in 0..<targetWidth
         {
             let sourceLeft: Double
@@ -13667,22 +13767,22 @@ private func resizeImageRaster(
             {
                 sourceLeft = Double(x) * Double(source.width) / Double(targetWidth)
                 sourceRight = Double(x + 1) * Double(source.width) / Double(targetWidth)
-                sourceTop = Double(y) * Double(source.height) / Double(targetHeight)
-                sourceBottom = Double(y + 1) * Double(source.height) / Double(targetHeight)
+                sourceTop = Double(targetY) * Double(source.height) / Double(targetHeight)
+                sourceBottom = Double(targetY + 1) * Double(source.height) / Double(targetHeight)
             }
             else if cover
             {
                 sourceLeft = (Double(x) + xOffset) / scale
                 sourceRight = (Double(x + 1) + xOffset) / scale
-                sourceTop = (Double(y) + yOffset) / scale
-                sourceBottom = (Double(y + 1) + yOffset) / scale
+                sourceTop = (Double(targetY) + yOffset) / scale
+                sourceBottom = (Double(targetY + 1) + yOffset) / scale
             }
             else
             {
                 sourceLeft = (Double(x) - xOffset) / scale
                 sourceRight = (Double(x + 1) - xOffset) / scale
-                sourceTop = (Double(y) - yOffset) / scale
-                sourceBottom = (Double(y + 1) - yOffset) / scale
+                sourceTop = (Double(targetY) - yOffset) / scale
+                sourceBottom = (Double(targetY + 1) - yOffset) / scale
             }
             let index = y * targetWidth + x
             pixels[index] = sampleRasterArea(
@@ -13696,32 +13796,7 @@ private func resizeImageRaster(
             alpha[index] = 255
         }
     }
-    return RuntimeImageRaster(width: targetWidth, height: targetHeight, pixels: pixels, alpha: alpha)
-}
-
-private func cropRasterRows(_ raster: RuntimeImageRaster, top: Int, height: Int) -> RuntimeImageRaster
-{
-    guard raster.width > 0, raster.height > 0, height > 0 else
-    {
-        return RuntimeImageRaster(width: raster.width, height: 0, pixels: [], alpha: [])
-    }
-    let start = max(0, min(raster.height, top))
-    let end = max(start, min(raster.height, start + height))
-    var pixels: [RuntimeRgb] = []
-    var alpha: [Int] = []
-    pixels.reserveCapacity((end - start) * raster.width)
-    alpha.reserveCapacity((end - start) * raster.width)
-    for row in start..<end
-    {
-        let rowStart = row * raster.width
-        let rowEnd = rowStart + raster.width
-        pixels.append(contentsOf: raster.pixels[rowStart..<rowEnd])
-        if raster.alpha.count >= rowEnd
-        {
-            alpha.append(contentsOf: raster.alpha[rowStart..<rowEnd])
-        }
-    }
-    return RuntimeImageRaster(width: raster.width, height: end - start, pixels: pixels, alpha: alpha)
+    return RuntimeImageRaster(width: targetWidth, height: targetRowCount, pixels: pixels, alpha: alpha)
 }
 
 private func quantizeSixelChannel(_ value: Int) -> Int
@@ -13801,7 +13876,7 @@ private func sixelPayload(_ raster: RuntimeImageRaster) -> String
     }
 
     let sortedColors = sortedSixelColors(colors)
-    var output = "\u{001B}Pq"
+    var output = "\u{001B}Pq\"1;1;\(raster.width);\(raster.height)"
     for color in sortedColors
     {
         guard let index = colors[color] else
@@ -13923,27 +13998,31 @@ private func cachedSixelPayload(
     let sourceHeight = sourceHeight > 0 ? sourceHeight : height
     let cropTop = max(0, cropTop)
     let cellPixels = terminalCellPixels()
+    let pixelWidth = width * max(1, cellPixels.width)
+    let pixelHeight = height * max(1, cellPixels.height)
+    let sourcePixelHeight = sourceHeight * max(1, cellPixels.height)
+    let cropTopPixels = cropTop * max(1, cellPixels.height)
     let key = RuntimeImageSixelCacheKey(
         source: source,
-        width: width,
-        height: height,
+        pixelWidth: pixelWidth,
+        pixelHeight: pixelHeight,
         fit: fit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
         align: align.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
         verticalAlign: verticalAlign.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
         background: background,
-        sourceHeight: sourceHeight,
-        cropTop: cropTop,
-        cellPixelWidth: cellPixels.width,
-        cellPixelHeight: cellPixels.height
+        sourcePixelHeight: sourcePixelHeight,
+        cropTopPixels: cropTopPixels
     )
     if let cached = runtimeImageSixelCache.cached(key)
     {
         return cached
     }
-    guard let fitted = resizeImageRaster(
+    guard let payloadRaster = resizeImageRasterRows(
         raster,
-        targetWidth: width * max(1, cellPixels.width),
-        targetHeight: sourceHeight * max(1, cellPixels.height),
+        targetWidth: pixelWidth,
+        targetHeight: sourcePixelHeight,
+        firstTargetRow: cropTopPixels,
+        targetRowCount: pixelHeight,
         fit: fit,
         align: align,
         verticalAlign: verticalAlign,
@@ -13953,11 +14032,6 @@ private func cachedSixelPayload(
         runtimeImageSixelCache.store("", for: key)
         return ""
     }
-    let payloadRaster = cropRasterRows(
-        fitted,
-        top: cropTop * max(1, cellPixels.height),
-        height: height * max(1, cellPixels.height)
-    )
     let raw = libsixelPayload(payloadRaster) ?? sixelPayload(quantizeSixelRaster(payloadRaster))
     runtimeImageSixelCache.store(raw, for: key)
     return raw

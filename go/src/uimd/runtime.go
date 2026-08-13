@@ -3976,7 +3976,7 @@ func runInteractiveTerminal(window *GeneratedWindowBase, options GeneratedWindow
 			time.Sleep(terminalInputIdleSleep)
 			continue
 		}
-		for _, input := range inputs {
+		for _, input := range coalesceMouseWheelInputs(inputs) {
 			if input.Empty() {
 				continue
 			}
@@ -4064,11 +4064,15 @@ func isTerminal(file *os.File) bool {
 }
 
 const (
-	terminalInputBufferSize            = 4096
+	terminalInputReadBufferSize        = 256
+	terminalInputDrainMaxBytes         = 16384
 	mouseCoordinateOffset              = 1
 	mouseDragFlag                      = 32
-	mouseWheelFlag                     = 64
-	mouseButtonMask                    = 3
+	sgrMouseWheelUpButton              = 64
+	sgrMouseWheelDownButton            = 65
+	sgrMouseWheelUpDelta               = 1
+	sgrMouseWheelDownDelta             = -1
+	maxCoalescedMouseWheelDelta        = 12
 	bracketedPasteStart                = "\x1b[200~"
 	bracketedPasteEnd                  = "\x1b[201~"
 	copyNotificationText               = "Copied to clipboard"
@@ -4100,6 +4104,32 @@ type directMouseEvent struct {
 	X     int
 	Y     int
 	Delta int
+}
+
+func coalesceMouseWheelInputs(inputs []terminalInput) []terminalInput {
+	coalesced := make([]terminalInput, 0, len(inputs))
+	for index := 0; index < len(inputs); {
+		input := inputs[index]
+		if input.Mouse == nil || input.Mouse.Name != "scroll" {
+			coalesced = append(coalesced, input)
+			index++
+			continue
+		}
+
+		merged := *input.Mouse
+		delta := 0
+		for index < len(inputs) && inputs[index].Mouse != nil && inputs[index].Mouse.Name == "scroll" {
+			merged.X = inputs[index].Mouse.X
+			merged.Y = inputs[index].Mouse.Y
+			delta += inputs[index].Mouse.Delta
+			index++
+		}
+		merged.Delta = minInt(maxCoalescedMouseWheelDelta, maxInt(-maxCoalescedMouseWheelDelta, delta))
+		if merged.Delta != 0 {
+			coalesced = append(coalesced, terminalInput{Mouse: &merged})
+		}
+	}
+	return coalesced
 }
 
 func (state *runtimeState) handleDirectMouse(event directMouseEvent, size Size) bool {
@@ -4166,10 +4196,11 @@ func (reader *directTerminalInputReader) Read(input *os.File, now time.Time) []t
 	if reader == nil || input == nil {
 		return nil
 	}
-	data := make([]byte, 0, terminalInputBufferSize)
-	for len(data) < cap(data) {
-		buffer := make([]byte, cap(data)-len(data))
-		count, err := input.Read(buffer)
+	data := make([]byte, 0, terminalInputDrainMaxBytes)
+	buffer := make([]byte, terminalInputReadBufferSize)
+	for len(data) < terminalInputDrainMaxBytes {
+		remaining := terminalInputDrainMaxBytes - len(data)
+		count, err := input.Read(buffer[:minInt(len(buffer), remaining)])
 		if err != nil || count == 0 {
 			break
 		}
@@ -4371,12 +4402,11 @@ func parseSgrMousePrefix(data string) (directMouseEvent, int, bool) {
 	x := col - mouseCoordinateOffset
 	y := row - mouseCoordinateOffset
 	consumed := terminator + 1
-	if button&mouseWheelFlag != 0 {
-		delta := 1
-		if button&mouseButtonMask != 0 {
-			delta = -1
-		}
-		return directMouseEvent{Name: "scroll", X: x, Y: y, Delta: delta}, consumed, true
+	if button == sgrMouseWheelUpButton {
+		return directMouseEvent{Name: "scroll", X: x, Y: y, Delta: sgrMouseWheelUpDelta}, consumed, true
+	}
+	if button == sgrMouseWheelDownButton {
+		return directMouseEvent{Name: "scroll", X: x, Y: y, Delta: sgrMouseWheelDownDelta}, consumed, true
 	}
 	name := "mouse_press"
 	if final == 'm' {

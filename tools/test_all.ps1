@@ -3,7 +3,10 @@ param(
     [string]$Config = 'Release',
     [string]$CompareAppSize = '90x35',
     [switch]$NoMcpFast,
-    [switch]$NoRebuild
+    [switch]$NoRebuild,
+    [switch]$LiveReport,
+    [switch]$KeepGoing,
+    [string]$LogFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,6 +28,15 @@ if ($NoMcpFast) {
 }
 if ($NoRebuild) {
     $arguments += '--no-rebuild'
+}
+if ($LiveReport) {
+    $arguments += '--live-report'
+}
+if ($KeepGoing) {
+    $arguments += '--keep-going'
+}
+if ($LogFile) {
+    $arguments += @('--log-file', $LogFile)
 }
 
 Push-Location $root

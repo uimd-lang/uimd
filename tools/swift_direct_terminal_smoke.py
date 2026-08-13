@@ -11,6 +11,7 @@ from pathlib import Path
 import pty
 import re
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -22,7 +23,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from uimd.testing.artifact_manifest import validate_artifact_paths
+from uimd.testing.artifact_manifest import resolve_artifact, validate_artifact_paths
 
 
 DEFAULT_ROWS = 35
@@ -44,6 +45,30 @@ IMAGE_BROWSER_FALLBACK_ROWS = 62
 IMAGE_BROWSER_FALLBACK_COLS = 176
 IMAGE_BROWSER_SIXEL_MODAL_ROWS = 35
 IMAGE_BROWSER_SIXEL_MODAL_COLS = 90
+IMAGE_BROWSER_SIXEL_SCROLL_STEPS = 6
+IMAGE_BROWSER_SIXEL_SCROLL_X = 60
+IMAGE_BROWSER_SIXEL_SCROLL_Y = 20
+IMAGE_BROWSER_SIXEL_MAX_WORK_SPREAD_FACTOR = 2
+IMAGE_BROWSER_SIXEL_MAX_PAYLOADS_PER_ROW = 2
+IMAGE_BROWSER_SIXEL_READY_SECONDS = 15.0
+IMAGE_BROWSER_SIXEL_FRAME_SECONDS = 5.0
+IMAGE_BROWSER_WHEEL_BURST_PAIR_COUNT = 400
+IMAGE_BROWSER_WHEEL_BURST_MAX_RESPONSE_SECONDS = 1.5
+IMAGE_BROWSER_WHEEL_BURST_CPP_FACTOR = 3.0
+IMAGE_BROWSER_WHEEL_BURST_ROWS = 37
+IMAGE_BROWSER_WHEEL_BURST_COLS = 107
+IMAGE_BROWSER_WHEEL_BURST_X = 70
+IMAGE_BROWSER_WHEEL_BURST_Y = 22
+DIRECT_TERMINAL_CELL_PIXEL_WIDTH = 14
+DIRECT_TERMINAL_CELL_PIXEL_HEIGHT = 34
+SIXEL_SCROLL_MODEL_ROWS = 5
+SIXEL_SCROLL_MODEL_COLS = 12
+SIXEL_SCROLL_MODEL_CELL_PIXEL_HEIGHT = 10
+SIXEL_FORBIDDEN_DIAGNOSTICS = (
+    b"making histogram",
+    b"colors found",
+    b"tupletable size",
+)
 TASK_BOARD_SCROLL_BOTTOM_ROWS = 62
 TASK_BOARD_SCROLL_BOTTOM_COLS = 176
 TASK_BOARD_SCROLL_BOTTOM_X = 120
@@ -56,11 +81,21 @@ FAKE_PBCOPY_MODE = 0o755
 
 
 class TerminalScreen:
-    def __init__(self, rows: int, cols: int) -> None:
+    def __init__(
+        self,
+        rows: int,
+        cols: int,
+        pixel_width: int = 0,
+        pixel_height: int = 0,
+    ) -> None:
         self.rows = rows
         self.cols = cols
+        self.pixel_width = pixel_width
+        self.pixel_height = pixel_height
         self.row = 0
         self.col = 0
+        self.scroll_top = 0
+        self.scroll_bottom = rows - 1
         self.pending = ""
         self.title = ""
         self.grid = [[" "] * cols for _ in range(rows)]
@@ -77,9 +112,11 @@ class TerminalScreen:
         self.col = 0
 
     def clone(self) -> "TerminalScreen":
-        result = TerminalScreen(self.rows, self.cols)
+        result = TerminalScreen(self.rows, self.cols, self.pixel_width, self.pixel_height)
         result.row = self.row
         result.col = self.col
+        result.scroll_top = self.scroll_top
+        result.scroll_bottom = self.scroll_bottom
         result.pending = self.pending
         result.title = self.title
         result.grid = [row[:] for row in self.grid]
@@ -151,12 +188,42 @@ class TerminalScreen:
                 end += 1
             if end >= len(text):
                 return None
+            self._handle_dcs(text[index + 2:end])
             return end + 2
         return index + 2
 
     def _handle_osc(self, payload: str) -> None:
         if payload.startswith("0;") or payload.startswith("2;"):
             self.title = payload[2:]
+
+    def _handle_dcs(self, payload: str) -> None:
+        if self.pixel_height <= 0 or self.rows <= 0:
+            return
+        raster = re.search(r'"1;1;\d+;(\d+)', payload)
+        if raster is None:
+            return
+        raster_height = int(raster.group(1))
+        cell_pixel_height = self.pixel_height // self.rows
+        if raster_height <= 0 or cell_pixel_height <= 0:
+            return
+        occupied_rows = (raster_height + cell_pixel_height - 1) // cell_pixel_height
+        target_row = self.row + occupied_rows - 1
+        if self.scroll_top <= self.row <= self.scroll_bottom and target_row > self.scroll_bottom:
+            self._scroll_up(target_row - self.scroll_bottom)
+            self.row = self.scroll_bottom
+            return
+        self.row = min(self.rows - 1, target_row)
+
+    def _scroll_up(self, count: int) -> None:
+        region_height = self.scroll_bottom - self.scroll_top + 1
+        count = min(max(0, count), region_height)
+        for _ in range(count):
+            del self.grid[self.scroll_top]
+            self.grid.insert(self.scroll_bottom, [" "] * self.cols)
+            del self.foreground[self.scroll_top]
+            self.foreground.insert(self.scroll_bottom, [None] * self.cols)
+            del self.background[self.scroll_top]
+            self.background.insert(self.scroll_bottom, [None] * self.cols)
 
     def _write_char(self, char: str) -> None:
         if char == "\r":
@@ -202,6 +269,17 @@ class TerminalScreen:
             self._erase_line(value(0, 0))
         elif final == "m":
             self._handle_sgr(values)
+        elif final == "r":
+            top = value(0, 1) - 1
+            bottom = value(1, self.rows) - 1
+            if 0 <= top < bottom < self.rows:
+                self.scroll_top = top
+                self.scroll_bottom = bottom
+            else:
+                self.scroll_top = 0
+                self.scroll_bottom = self.rows - 1
+            self.row = 0
+            self.col = 0
 
     def _handle_sgr(self, values: list[int | None]) -> None:
         if not values:
@@ -285,15 +363,26 @@ class TerminalScreen:
 
 
 class PtyApp:
-    def __init__(self, command: list[str], cwd: Path, rows: int, cols: int, env: dict[str, str]) -> None:
+    def __init__(
+        self,
+        command: list[str],
+        cwd: Path,
+        rows: int,
+        cols: int,
+        env: dict[str, str],
+        pixel_width: int = 0,
+        pixel_height: int = 0,
+    ) -> None:
         self.command = command
         self.cwd = cwd
         self.rows = rows
         self.cols = cols
+        self.pixel_width = pixel_width
+        self.pixel_height = pixel_height
         self.env = env
         self.master_fd: int | None = None
         self.process: subprocess.Popen[bytes] | None = None
-        self.screen = TerminalScreen(rows, cols)
+        self.screen = TerminalScreen(rows, cols, pixel_width, pixel_height)
         self.output = bytearray()
 
     def __enter__(self) -> "PtyApp":
@@ -371,7 +460,11 @@ class PtyApp:
             self.process.wait(timeout=DEFAULT_STOP_SECONDS)
 
     def _set_pty_size(self, fd: int) -> None:
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
+        fcntl.ioctl(
+            fd,
+            termios.TIOCSWINSZ,
+            struct.pack("HHHH", self.rows, self.cols, self.pixel_width, self.pixel_height),
+        )
 
 
 def sgr_wheel(button: int, x: int, y: int) -> bytes:
@@ -469,6 +562,33 @@ def app_specs(cpp_build_dir: Path, swift_examples_dir: Path) -> dict[str, tuple[
             ROOT,
         ),
     }
+
+
+def image_browser_runtime_specs() -> list[tuple[str, list[str], Path]]:
+    roots = (
+        ("Python", "python/examples"),
+        ("C++", "cpp/build/examples"),
+        ("C#", "csharp/examples"),
+        ("Swift", "swift/examples"),
+        ("Go", "go/examples"),
+        ("Rust", "rust/examples"),
+    )
+    paths = {
+        platform: Path(resolve_artifact(ROOT, examples_root, "image_browser") or "")
+        for platform, examples_root in roots
+    }
+    dotnet = shutil.which("dotnet")
+    if dotnet is None:
+        raise FileNotFoundError("dotnet is required for the all-runtime image PTY check")
+    validate_artifact_paths(ROOT, list(paths.values()))
+    return [
+        ("Python", [sys.executable, str(paths["Python"])], ROOT),
+        ("C++", [str(paths["C++"])], ROOT),
+        ("C#", [dotnet, str(paths["C#"])], ROOT),
+        ("Swift", [str(paths["Swift"])], ROOT),
+        ("Go", [str(paths["Go"])], ROOT),
+        ("Rust", [str(paths["Rust"])], ROOT),
+    ]
 
 
 def fake_clipboard_env() -> dict[str, str]:
@@ -667,6 +787,39 @@ def sixel_payload_signatures(data: bytes) -> list[tuple[tuple[int, int] | None, 
     return signatures
 
 
+def run_sixel_terminal_scroll_model_case(name: str) -> None:
+    def screen_with_rows() -> TerminalScreen:
+        screen = TerminalScreen(
+            SIXEL_SCROLL_MODEL_ROWS,
+            SIXEL_SCROLL_MODEL_COLS,
+            pixel_height=SIXEL_SCROLL_MODEL_ROWS * SIXEL_SCROLL_MODEL_CELL_PIXEL_HEIGHT,
+        )
+        for row in range(SIXEL_SCROLL_MODEL_ROWS):
+            screen.feed(f"\x1b[{row + 1};1Hrow-{row}".encode())
+        return screen
+
+    raster_height = SIXEL_SCROLL_MODEL_CELL_PIXEL_HEIGHT * 2
+    sixel = f'\x1bP0;1;0q"1;1;1;{raster_height}#0~\x1b\\'.encode()
+
+    unguarded = screen_with_rows()
+    unguarded.feed(f"\x1b[{SIXEL_SCROLL_MODEL_ROWS};1H".encode() + sixel)
+    if "row-0" in unguarded.text():
+        raise AssertionError(f"{name}: unguarded bottom-edge Sixel did not scroll the model")
+
+    guarded = screen_with_rows()
+    guarded.feed(
+        (
+            f"\x1b[1;{SIXEL_SCROLL_MODEL_ROWS - 1}r"
+            f"\x1b[{SIXEL_SCROLL_MODEL_ROWS};1H"
+        ).encode()
+        + sixel
+        + b"\x1b[r"
+    )
+    if "row-0" not in guarded.text() or "row-4" not in guarded.text():
+        raise AssertionError(f"{name}: guarded bottom-edge Sixel damaged the terminal grid")
+    print(f"PASS {name}", flush=True)
+
+
 def run_case(
     name: str,
     specs: dict[str, tuple[list[str], Path, list[str], Path]],
@@ -759,7 +912,15 @@ def run_image_browser_sixel_modal_case(
     }
 
     def capture(command: list[str], cwd: Path) -> tuple[list[tuple[tuple[int, int] | None, str | None]], str]:
-        with PtyApp(command, cwd, IMAGE_BROWSER_SIXEL_MODAL_ROWS, IMAGE_BROWSER_SIXEL_MODAL_COLS, env) as app:
+        with PtyApp(
+            command,
+            cwd,
+            IMAGE_BROWSER_SIXEL_MODAL_ROWS,
+            IMAGE_BROWSER_SIXEL_MODAL_COLS,
+            env,
+            pixel_width=IMAGE_BROWSER_SIXEL_MODAL_COLS * DIRECT_TERMINAL_CELL_PIXEL_WIDTH,
+            pixel_height=IMAGE_BROWSER_SIXEL_MODAL_ROWS * DIRECT_TERMINAL_CELL_PIXEL_HEIGHT,
+        ) as app:
             row, col = wait_for_screen_text(app, "Image items")
             app.send(sgr_click(col + 2, row + 1))
             row, col = wait_for_screen_text(app, "Show")
@@ -777,16 +938,255 @@ def run_image_browser_sixel_modal_case(
 
     cpp_signatures, cpp_screen = capture(cpp_command, cpp_cwd)
     swift_signatures, swift_screen = capture(swift_command, swift_cwd)
-    assert_contains(f"{name} C++", cpp_screen, ["Close"])
-    assert_contains(f"{name} Swift", swift_screen, ["Close"])
+    expected = ["Image Browser", "Render", "Image items", "Close"]
+    assert_contains(f"{name} C++", cpp_screen, expected)
+    assert_contains(f"{name} Swift", swift_screen, expected)
     if not cpp_signatures:
         raise AssertionError(f"{name}: C++ did not emit Sixel payloads for image dialog")
+    for platform, signatures in (("C++", cpp_signatures), ("Swift", swift_signatures)):
+        if any(
+            raster_header is None or re.fullmatch(r'"1;1;\d+;\d+', raster_header) is None
+            for _anchor, raster_header in signatures
+        ):
+            raise AssertionError(f"{name}: {platform} emitted Sixel without exact raster geometry")
     if cpp_signatures != swift_signatures:
         raise AssertionError(
             f"{name}: Swift Sixel dialog payloads differ from C++: "
             f"C++={cpp_signatures!r} Swift={swift_signatures!r}"
         )
     print(f"PASS {name}", flush=True)
+
+
+def run_image_browser_repeated_sixel_scroll_case(
+    name: str,
+) -> None:
+    env = {
+        "TERM_PROGRAM": "iTerm.app",
+        "ITERM_SESSION_ID": "uimd-test",
+        "LC_TERMINAL": "iTerm2",
+        "UIMD_FORCE_SIXEL": "1",
+        "UIMD_DISABLE_SIXEL": "",
+    }
+
+    def capture(command: list[str], cwd: Path) -> tuple[list[int], list[int], str]:
+        with PtyApp(
+            command,
+            cwd,
+            IMAGE_BROWSER_SIXEL_MODAL_ROWS,
+            IMAGE_BROWSER_SIXEL_MODAL_COLS,
+            env,
+            pixel_width=IMAGE_BROWSER_SIXEL_MODAL_COLS * DIRECT_TERMINAL_CELL_PIXEL_WIDTH,
+            pixel_height=IMAGE_BROWSER_SIXEL_MODAL_ROWS * DIRECT_TERMINAL_CELL_PIXEL_HEIGHT,
+        ) as app:
+            wait_for_screen_text(app, "Gallery", IMAGE_BROWSER_SIXEL_READY_SECONDS)
+            if any(message in app.output for message in SIXEL_FORBIDDEN_DIAGNOSTICS):
+                raise AssertionError(f"{name}: libsixel diagnostics leaked into terminal output")
+            app.send(b"\t\t\t\r")
+            wait_for_screen_text(app, "Astronaut", IMAGE_BROWSER_SIXEL_READY_SECONDS)
+            byte_counts: list[int] = []
+            payload_counts: list[int] = []
+            for _ in range(IMAGE_BROWSER_SIXEL_SCROLL_STEPS):
+                start = len(app.output)
+                if app.master_fd is None:
+                    raise RuntimeError("PTY app is not running")
+                os.write(
+                    app.master_fd,
+                    sgr_wheel(65, IMAGE_BROWSER_SIXEL_SCROLL_X, IMAGE_BROWSER_SIXEL_SCROLL_Y),
+                )
+                deadline = time.monotonic() + IMAGE_BROWSER_SIXEL_FRAME_SECONDS
+                while len(app.output) == start and time.monotonic() < deadline:
+                    app.drain(total_seconds=min(DEFAULT_DRAIN_SECONDS, deadline - time.monotonic()))
+                app.drain()
+                chunk = bytes(app.output)[start:]
+                if any(message in chunk for message in SIXEL_FORBIDDEN_DIAGNOSTICS):
+                    raise AssertionError(f"{name}: libsixel diagnostics leaked during scrolling")
+                if re.search(rb"\x1b\[\d*[ST]", chunk):
+                    raise AssertionError(f"{name}: runtime emitted a terminal scroll command")
+                byte_counts.append(len(chunk))
+                payload_counts.append(chunk.count(b"\x1bP"))
+            return byte_counts, payload_counts, app.screen.text()
+
+    def assert_bounded(platform: str, byte_counts: list[int], payload_counts: list[int]) -> None:
+        if not byte_counts or min(byte_counts) <= 0:
+            raise AssertionError(f"{name}: {platform} emitted no repeated-scroll frames")
+        max_payloads = IMAGE_BROWSER_SIXEL_MODAL_ROWS * IMAGE_BROWSER_SIXEL_MAX_PAYLOADS_PER_ROW
+        if any(count <= 0 or count > max_payloads for count in payload_counts):
+            raise AssertionError(
+                f"{name}: {platform} emitted unbounded Sixel payload counts {payload_counts!r}"
+            )
+        if max(byte_counts) > min(byte_counts) * IMAGE_BROWSER_SIXEL_MAX_WORK_SPREAD_FACTOR:
+            raise AssertionError(
+                f"{name}: {platform} repeated-scroll output grew progressively {byte_counts!r}"
+            )
+
+    expected = ["Image Browser", "Render", "Gallery", "Image items"]
+    for platform, command, cwd in image_browser_runtime_specs():
+        byte_counts, payload_counts, screen = capture(command, cwd)
+        assert_bounded(platform, byte_counts, payload_counts)
+        assert_contains(f"{name} {platform}", screen, expected)
+    print(f"PASS {name}", flush=True)
+
+
+def run_image_browser_mouse_wheel_burst_case(name: str) -> None:
+    env = {
+        "TERM_PROGRAM": "iTerm.app",
+        "ITERM_SESSION_ID": "uimd-wheel-burst",
+        "LC_TERMINAL": "iTerm2",
+        "UIMD_FORCE_SIXEL": "1",
+        "UIMD_DISABLE_SIXEL": "",
+    }
+    paths = {
+        platform: Path(resolve_artifact(ROOT, examples_root, "image_browser") or "")
+        for platform, examples_root in (
+            ("C++", "cpp/build/examples"),
+            ("Go", "go/examples"),
+            ("Rust", "rust/examples"),
+        )
+    }
+    validate_artifact_paths(ROOT, list(paths.values()))
+    wheel_pair = (
+        sgr_wheel(65, IMAGE_BROWSER_WHEEL_BURST_X, IMAGE_BROWSER_WHEEL_BURST_Y)
+        + sgr_wheel(64, IMAGE_BROWSER_WHEEL_BURST_X, IMAGE_BROWSER_WHEEL_BURST_Y)
+    )
+    input_bytes = wheel_pair * IMAGE_BROWSER_WHEEL_BURST_PAIR_COUNT + b"\x03"
+
+    def exit_seconds(platform: str, command: list[str]) -> float:
+        with PtyApp(
+            command,
+            ROOT,
+            IMAGE_BROWSER_WHEEL_BURST_ROWS,
+            IMAGE_BROWSER_WHEEL_BURST_COLS,
+            env,
+            pixel_width=IMAGE_BROWSER_WHEEL_BURST_COLS * DIRECT_TERMINAL_CELL_PIXEL_WIDTH,
+            pixel_height=IMAGE_BROWSER_WHEEL_BURST_ROWS * DIRECT_TERMINAL_CELL_PIXEL_HEIGHT,
+        ) as app:
+            wait_for_screen_text(app, "Gallery", IMAGE_BROWSER_SIXEL_READY_SECONDS)
+            app.send(b"\t\t\t\r")
+            wait_for_screen_text(app, "Astronaut", IMAGE_BROWSER_SIXEL_READY_SECONDS)
+            app.drain()
+            if app.master_fd is None or app.process is None:
+                raise RuntimeError("PTY app is not running")
+            start = time.monotonic()
+            written = 0
+            deadline = (
+                start
+                + IMAGE_BROWSER_WHEEL_BURST_MAX_RESPONSE_SECONDS
+                * IMAGE_BROWSER_WHEEL_BURST_CPP_FACTOR
+            )
+            while time.monotonic() < deadline:
+                if written < len(input_bytes):
+                    try:
+                        written += os.write(app.master_fd, input_bytes[written:])
+                    except BlockingIOError:
+                        pass
+                while select.select([app.master_fd], [], [], 0)[0]:
+                    try:
+                        data = os.read(app.master_fd, 65536)
+                    except (BlockingIOError, OSError):
+                        break
+                    if not data:
+                        break
+                    app.output.extend(data)
+                status = app.process.poll()
+                if status is not None:
+                    if status != 0:
+                        raise AssertionError(
+                            f"{name}: {platform} exited with status {status}"
+                        )
+                    if written != len(input_bytes):
+                        raise AssertionError(
+                            f"{name}: {platform} exited before the complete wheel burst"
+                        )
+                    return time.monotonic() - start
+                time.sleep(0.001)
+            raise AssertionError(f"{name}: {platform} did not consume the wheel burst")
+
+    measurements = {
+        platform: exit_seconds(platform, [str(paths[platform])])
+        for platform in ("C++", "Go", "Rust")
+    }
+    target_limit = max(
+        IMAGE_BROWSER_WHEEL_BURST_MAX_RESPONSE_SECONDS,
+        measurements["C++"] * IMAGE_BROWSER_WHEEL_BURST_CPP_FACTOR,
+    )
+    for platform in ("Go", "Rust"):
+        if measurements[platform] > target_limit:
+            raise AssertionError(
+                f"{name}: {platform} burst drain took {measurements[platform]:.3f}s "
+                f"after C++ took {measurements['C++']:.3f}s "
+                f"(limit {target_limit:.3f}s)"
+            )
+    summary = ", ".join(
+        f"{platform} {measurements[platform]:.3f}s"
+        for platform in ("C++", "Go", "Rust")
+    )
+    print(f"PASS {name}: {summary}", flush=True)
+
+
+def run_csharp_image_browser_sixel_cell_geometry_case(name: str) -> None:
+    env = {
+        "TERM_PROGRAM": "iTerm.app",
+        "ITERM_SESSION_ID": "uimd-csharp-cell-geometry",
+        "LC_TERMINAL": "iTerm2",
+        "UIMD_FORCE_SIXEL": "1",
+        "UIMD_DISABLE_SIXEL": "",
+    }
+    paths = {
+        platform: Path(resolve_artifact(ROOT, examples_root, "image_browser") or "")
+        for platform, examples_root in (
+            ("C++", "cpp/build/examples"),
+            ("C#", "csharp/examples"),
+        )
+    }
+    validate_artifact_paths(ROOT, list(paths.values()))
+    dotnet = shutil.which("dotnet")
+    if dotnet is None:
+        raise FileNotFoundError("dotnet is required for the C# Sixel geometry check")
+
+    commands = {
+        "C++": [str(paths["C++"])],
+        "C#": [dotnet, str(paths["C#"])],
+    }
+
+    def raster_heights(platform: str) -> set[int]:
+        with PtyApp(
+            commands[platform],
+            ROOT,
+            IMAGE_BROWSER_SIXEL_MODAL_ROWS,
+            IMAGE_BROWSER_SIXEL_MODAL_COLS,
+            env,
+            pixel_width=IMAGE_BROWSER_SIXEL_MODAL_COLS * DIRECT_TERMINAL_CELL_PIXEL_WIDTH,
+            pixel_height=IMAGE_BROWSER_SIXEL_MODAL_ROWS * DIRECT_TERMINAL_CELL_PIXEL_HEIGHT,
+        ) as app:
+            wait_for_screen_text(app, "Gallery", IMAGE_BROWSER_SIXEL_READY_SECONDS)
+            app.drain()
+            headers = [
+                raster_header
+                for _anchor, raster_header in sixel_payload_signatures(bytes(app.output))
+                if raster_header is not None
+            ]
+            heights = {
+                int(match.group(1))
+                for header in headers
+                if (match := re.fullmatch(r'"1;1;\d+;(\d+)', header)) is not None
+            }
+            if not heights:
+                raise AssertionError(f"{name}: {platform} emitted no exact Sixel raster headers")
+            return heights
+
+    cpp_heights = raster_heights("C++")
+    csharp_heights = raster_heights("C#")
+    expected = {DIRECT_TERMINAL_CELL_PIXEL_HEIGHT}
+    if cpp_heights != expected:
+        raise AssertionError(
+            f"{name}: C++ raster heights {sorted(cpp_heights)!r}, expected {sorted(expected)!r}"
+        )
+    if csharp_heights != cpp_heights:
+        raise AssertionError(
+            f"{name}: C# raster heights {sorted(csharp_heights)!r} differ from "
+            f"C++ {sorted(cpp_heights)!r}"
+        )
+    print(f"PASS {name}: one physical cell is {DIRECT_TERMINAL_CELL_PIXEL_HEIGHT}px", flush=True)
 
 
 def assert_idle_output_grows(name: str, command: list[str], cwd: Path, rows: int, cols: int, env: dict[str, str]) -> None:
@@ -874,6 +1274,7 @@ def main() -> int:
 
     specs = app_specs(Path(args.cpp_build_dir), Path(args.swift_examples_dir))
     check_binaries(specs)
+    run_sixel_terminal_scroll_model_case("terminal emulator models guarded Sixel scrolling")
 
     tab = b"\t"
     shift_tab = b"\x1b[Z"
@@ -1166,6 +1567,15 @@ def main() -> int:
         "image_browser top modal emits clipped sixel payload",
         specs,
     )
+    run_image_browser_repeated_sixel_scroll_case(
+        "image_browser repeated Sixel scrolling stays bounded",
+    )
+    run_image_browser_mouse_wheel_burst_case(
+        "image_browser sustained mouse-wheel burst stays responsive",
+    )
+    run_csharp_image_browser_sixel_cell_geometry_case(
+        "C# image_browser Sixel rows use physical terminal-cell geometry",
+    )
 
     def exercise_activity_feed_settings_checkbox_arrows(app: PtyApp) -> None:
         app.send(tab + enter)
@@ -1318,7 +1728,7 @@ def main() -> int:
         args.rows,
         args.cols,
     )
-    print("PASS Swift direct terminal smoke: 31/31 checks passed", flush=True)
+    print("PASS Swift direct terminal smoke: 35/35 checks passed", flush=True)
     return 0
 
 

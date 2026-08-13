@@ -313,6 +313,8 @@ public sealed class TerminalBuffer
     private const string AnsiReset = "\x1b[0m";
     private const string AnsiSyncUpdateBegin = "\x1b[?2026h";
     private const string AnsiSyncUpdateEnd = "\x1b[?2026l";
+    private const string AnsiResetScrollRegion = "\x1b[r";
+    private const int MinimumScrollRegionRows = 2;
 
     private readonly TerminalCell[,] cells;
     private readonly TerminalCell[,] previous;
@@ -415,8 +417,15 @@ public sealed class TerminalBuffer
                     }
                     if (clearHeight >= rawHeight)
                     {
+                        int anchorRow = row + rowOffset;
+                        string noScrollRegion = RawNoScrollRegion(anchorRow, rawHeight, rowOffset + Height);
+                        output.Append(noScrollRegion);
                         output.Append(CursorPosition(row + rowOffset, col + colOffset));
                         output.Append(styleCell.Raw);
+                        if (!string.IsNullOrEmpty(noScrollRegion))
+                        {
+                            output.Append(AnsiResetScrollRegion);
+                        }
                         rawEmitted = true;
                     }
                     for (int coveredRow = row; coveredRow < row + clearHeight; ++coveredRow)
@@ -473,6 +482,20 @@ public sealed class TerminalBuffer
             return AnsiSyncUpdateBegin + output + AnsiSyncUpdateEnd;
         }
         return output.ToString();
+    }
+
+    private static string RawNoScrollRegion(int anchorRow, int rawHeight, int bufferBottomExclusive)
+    {
+        if (anchorRow >= MinimumScrollRegionRows)
+        {
+            return $"\x1b[1;{anchorRow}r";
+        }
+        int rawBottomExclusive = anchorRow + Math.Max(1, rawHeight);
+        if (bufferBottomExclusive - rawBottomExclusive >= MinimumScrollRegionRows)
+        {
+            return $"\x1b[{rawBottomExclusive + AnsiBaseRow};{bufferBottomExclusive}r";
+        }
+        return "";
     }
 
     public string RenderScrollRegion(int rowOffset, int startRow, int height, int delta)

@@ -14,13 +14,15 @@ const (
 )
 
 const (
-	minimumRenderableSize = 1
-	defaultViewportWidth  = 100
-	defaultViewportHeight = 32
-	ansiTerminalBaseRow   = 1
-	ansiTerminalBaseCol   = 1
-	ansiSyncUpdateBegin   = "\x1b[?2026h"
-	ansiSyncUpdateEnd     = "\x1b[?2026l"
+	minimumRenderableSize   = 1
+	defaultViewportWidth    = 100
+	defaultViewportHeight   = 32
+	ansiTerminalBaseRow     = 1
+	ansiTerminalBaseCol     = 1
+	ansiSyncUpdateBegin     = "\x1b[?2026h"
+	ansiSyncUpdateEnd       = "\x1b[?2026l"
+	ansiResetScrollRegion   = "\x1b[r"
+	minimumScrollRegionRows = 2
 )
 
 const (
@@ -594,8 +596,13 @@ func (buffer *TerminalBuffer) RenderDiff() string {
 					builder.WriteString(strings.Repeat(" ", clearWidth))
 				}
 				if clearHeight >= rawHeight {
+					noScrollRegion := rawNoScrollRegion(row, rawHeight, buffer.height)
+					builder.WriteString(noScrollRegion)
 					writeAnsiCursorPosition(&builder, row, col)
 					builder.WriteString(current.Raw)
+					if noScrollRegion != "" {
+						builder.WriteString(ansiResetScrollRegion)
+					}
 					rawEmitted = true
 				}
 				for coveredRow := row; coveredRow < row+clearHeight; coveredRow++ {
@@ -717,8 +724,13 @@ func (buffer *TerminalBuffer) ansiFrameWithRawCells() string {
 				builder.WriteString(strings.Repeat(" ", clearWidth))
 			}
 			if clearHeight >= rawHeight {
+				noScrollRegion := rawNoScrollRegion(row, rawHeight, buffer.height)
+				builder.WriteString(noScrollRegion)
 				writeAnsiCursorPosition(&builder, row, col)
 				builder.WriteString(cell.Raw)
+				if noScrollRegion != "" {
+					builder.WriteString(ansiResetScrollRegion)
+				}
 			}
 		}
 	}
@@ -756,6 +768,17 @@ func (buffer *TerminalBuffer) ansiFrameWithRawCells() string {
 	builder.WriteString("\x1b[0m")
 	builder.WriteString(ansiSyncUpdateEnd)
 	return builder.String()
+}
+
+func rawNoScrollRegion(anchorRow int, rawHeight int, bufferBottomExclusive int) string {
+	if anchorRow >= minimumScrollRegionRows {
+		return fmt.Sprintf("\x1b[1;%dr", anchorRow)
+	}
+	rawBottomExclusive := anchorRow + maxInt(minimumRenderableSize, rawHeight)
+	if bufferBottomExclusive-rawBottomExclusive >= minimumScrollRegionRows {
+		return fmt.Sprintf("\x1b[%d;%dr", rawBottomExclusive+ansiTerminalBaseRow, bufferBottomExclusive)
+	}
+	return ""
 }
 
 func writeAnsiCursorPosition(builder *strings.Builder, row int, col int) {

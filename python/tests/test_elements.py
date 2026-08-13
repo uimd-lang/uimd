@@ -204,9 +204,13 @@ class TestImage(unittest.TestCase):
                          patch.object(Image, "_sixel_payload", side_effect=fake_payload):
                         rows = image.render_cells()
 
-                    self.assertEqual(payload_calls, [(4, expected_rows, "stretch", 8, expected_crop_top)])
-                    self.assertEqual(rows[expected_anchor_row][0].raw, "\x1bPqmock\x1b\\")
-                    self.assertEqual(rows[expected_anchor_row][0].raw_height, expected_rows)
+                    self.assertEqual(payload_calls, [
+                        (4, 1, "stretch", 8, crop_top)
+                        for crop_top in range(expected_crop_top, expected_crop_top + expected_rows)
+                    ])
+                    for row in range(expected_anchor_row, expected_anchor_row + expected_rows):
+                        self.assertEqual(rows[row][0].raw, "\x1bPqmock\x1b\\")
+                        self.assertEqual(rows[row][0].raw_height, 1)
                     self.assertFalse(any(cell.raw_skip for row in rows[:expected_anchor_row] for cell in row))
                     trailing_rows = rows[expected_anchor_row + expected_rows:]
                     self.assertFalse(any(cell.raw or cell.raw_skip for row in trailing_rows for cell in row))
@@ -257,6 +261,69 @@ class TestImage(unittest.TestCase):
 
         self.assertTrue(rows[0][0].raw.startswith("\x1bPq"))
 
+    def test_image_sixel_encoder_does_not_write_quantizer_diagnostics_to_stderr(self):
+        self._require_pillow()
+        if not image_module._load_libsixel():
+            self.skipTest("libsixel Python binding is not installed")
+
+        code = textwrap.dedent(
+            """
+            from PIL import Image
+            from uimd.runtime import image
+
+            assert image._load_libsixel()
+            payload = image._sixel_encode_libsixel(Image.new("RGB", (8, 8), (64, 128, 192)))
+            assert payload.startswith("\x1bPq")
+            """
+        )
+        env = dict(os.environ)
+        source_path = os.path.join(ROOT_DIR, "src")
+        env["PYTHONPATH"] = source_path + os.pathsep + env.get("PYTHONPATH", "")
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT_DIR,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+
+    def test_image_sixel_visible_row_resampling_stays_in_native_pillow(self):
+        pillow_image = image_module._require_pillow()
+        source = pillow_image.new("RGBA", (3, 2))
+        source.putdata([
+            (255, 0, 0, 255),
+            (0, 255, 0, 128),
+            (0, 0, 255, 255),
+            (255, 255, 0, 64),
+            (0, 255, 255, 255),
+            (255, 0, 255, 192),
+        ])
+
+        for fit in ("stretch", "cover"):
+            with self.subTest(fit=fit), patch.object(
+                image_module,
+                "_sample_image_area",
+                side_effect=AssertionError("Sixel strips must not use the Python pixel loop"),
+            ):
+                full = image_module._fit_image_rows(
+                    source, 9, 8, 0, 8, fit, background=(3, 7, 11),
+                )
+                top = image_module._fit_image_rows(
+                    source, 9, 8, 0, 3, fit, background=(3, 7, 11),
+                )
+                bottom = image_module._fit_image_rows(
+                    source, 9, 8, 3, 5, fit, background=(3, 7, 11),
+                )
+
+            combined = pillow_image.new("RGBA", full.size)
+            combined.paste(top, (0, 0))
+            combined.paste(bottom, (0, 3))
+            self.assertEqual(combined.tobytes(), full.tobytes())
+
     def test_sixel_unavailable_excepthook_prints_actionable_error_without_traceback(self):
         error = image_module.SixelUnavailableError("libsixel not found.")
         stderr = io.StringIO()
@@ -298,6 +365,21 @@ class TestImage(unittest.TestCase):
             }):
                 with image_module._configured_sixel_library_lookup():
                     self.assertEqual(image_module.ctypes.util.find_library("sixel"), os.path.abspath(library_path))
+
+    def test_homebrew_sixel_library_discovery_uses_detected_prefix(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            library_dir = os.path.join(temp_dir, "lib")
+            os.makedirs(library_dir)
+            library_path = os.path.join(library_dir, "libsixel.1.dylib")
+            with open(library_path, "wb") as handle:
+                handle.write(b"")
+
+            with patch.dict(os.environ, {"HOMEBREW_PREFIX": temp_dir}, clear=False), \
+                 patch.object(image_module.shutil, "which", return_value=None):
+                self.assertEqual(
+                    image_module._homebrew_sixel_library_path(),
+                    os.path.abspath(library_path),
+                )
 
     def test_image_sixel_mode_can_be_disabled_for_fallback(self):
         self._require_pillow()

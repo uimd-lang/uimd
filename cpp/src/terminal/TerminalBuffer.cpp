@@ -16,6 +16,8 @@ constexpr int kAnsiDefaultForeground = 39;
 constexpr int kAnsiDefaultBackground = 49;
 constexpr char kAnsiSyncUpdateBegin[] = "\x1b[?2026h";
 constexpr char kAnsiSyncUpdateEnd[] = "\x1b[?2026l";
+constexpr char kAnsiResetScrollRegion[] = "\x1b[r";
+constexpr int kMinimumScrollRegionRows = 2;
 
 [[nodiscard]] std::size_t cellCountFor(int width, int height) {
     if (width < 0 || height < 0) {
@@ -47,6 +49,18 @@ constexpr char kAnsiSyncUpdateEnd[] = "\x1b[?2026l";
 
 [[nodiscard]] std::string terminalCellText(const std::string& text) {
     return safeTerminalCellText(text);
+}
+
+[[nodiscard]] std::string rawNoScrollRegion(int anchorRow, int rawHeight, int bufferBottomExclusive) {
+    if (anchorRow >= kMinimumScrollRegionRows) {
+        return "\x1b[1;" + std::to_string(anchorRow) + "r";
+    }
+    const int rawBottomExclusive = anchorRow + std::max(1, rawHeight);
+    if (bufferBottomExclusive - rawBottomExclusive >= kMinimumScrollRegionRows) {
+        return "\x1b[" + std::to_string(rawBottomExclusive + kAnsiBaseRow) + ";" +
+               std::to_string(bufferBottomExclusive) + "r";
+    }
+    return {};
 }
 
 }  // namespace
@@ -154,9 +168,18 @@ std::string TerminalBuffer::renderDiffRegion(
                     output.append(static_cast<std::size_t>(clearWidth), ' ');
                 }
                 if (clearHeight >= rawHeight) {
+                    const int anchorRow = row + rowOffset;
+                    const std::string noScrollRegion = rawNoScrollRegion(
+                        anchorRow,
+                        rawHeight,
+                        rowOffset + height_);
+                    output += noScrollRegion;
                     output += "\x1b[" + std::to_string(row + rowOffset + kAnsiBaseRow) + ";" +
                               std::to_string(col + colOffset + kAnsiBaseCol) + "H";
                     output += styleCell.raw;
+                    if (!noScrollRegion.empty()) {
+                        output += kAnsiResetScrollRegion;
+                    }
                     rawEmitted = true;
                 }
                 for (int coveredRow = row; coveredRow < row + clearHeight; ++coveredRow) {
@@ -254,7 +277,6 @@ std::string TerminalBuffer::renderScrollRegion(int rowOffset, int startRow, int 
     if (scrollRegionHasRawCells(firstRow, lastRow)) {
         return "";
     }
-
     const std::vector<TerminalCell> before = previous_;
     if (delta > 0) {
         for (int row = lastRow - 1; row >= firstRow + distance; --row) {

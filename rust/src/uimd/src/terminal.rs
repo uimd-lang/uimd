@@ -29,6 +29,7 @@ const TERMINAL_TEXT_AREA_PIXEL_RESPONSE_PREFIX: &str = "\x1b[4;";
 const TERMINAL_PIXEL_RESPONSE_MAX_BYTES: usize = 64;
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const ANIMATED_RENDER_INTERVAL: Duration = Duration::from_millis(70);
+const MAX_COALESCED_MOUSE_WHEEL_DELTA: i32 = 12;
 const INPUT_BUFFER_BYTES: usize = 256;
 const INPUT_DRAIN_MAX_BYTES: usize = 16384;
 const MOUSE_COORDINATE_BASE: i32 = 1;
@@ -312,6 +313,40 @@ impl InputParser
         }
         true
     }
+}
+
+fn coalesce_mouse_wheel_events(events: Vec<Event>) -> Vec<Event>
+{
+    let mut coalesced = Vec::with_capacity(events.len());
+    let mut index = 0;
+    while index < events.len()
+    {
+        let event = &events[index];
+        if event.event_type != EventType::MouseWheel
+        {
+            coalesced.push(event.clone());
+            index += 1;
+            continue;
+        }
+
+        let mut merged = event.clone();
+        let mut delta = 0;
+        while index < events.len() && events[index].event_type == EventType::MouseWheel
+        {
+            merged.position = events[index].position;
+            delta += events[index].wheel_delta;
+            index += 1;
+        }
+        merged.wheel_delta = delta.clamp(
+            -MAX_COALESCED_MOUSE_WHEEL_DELTA,
+            MAX_COALESCED_MOUSE_WHEEL_DELTA,
+        );
+        if merged.wheel_delta != 0
+        {
+            coalesced.push(merged);
+        }
+    }
+    coalesced
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize>
@@ -1755,7 +1790,7 @@ pub fn run_interactive_terminal<A: GeneratedApplication>(
                 return 1;
             }
         };
-        for mut event in events
+        for mut event in coalesce_mouse_wheel_events(events)
         {
             if matches!(
                 event.event_type,
@@ -1932,6 +1967,43 @@ mod tests
         assert!(parser.feed(b"\x1b[<0;5M").is_empty());
         assert!(parser.feed(b"\x1b[<0;5;7;9M").is_empty());
         assert_eq!(parser.feed(b"x"), vec![Event::key("x")]);
+    }
+
+    #[test]
+    fn consecutive_mouse_wheel_bursts_match_cpp_bounded_coalescing()
+    {
+        let burst_count = usize::try_from(MAX_COALESCED_MOUSE_WHEEL_DELTA)
+            .expect("positive wheel coalescing bound")
+            + 8;
+        let mut events = (0..burst_count)
+            .map(|index| Event::wheel(index as i32, index as i32 + 1, 1))
+            .collect::<Vec<_>>();
+        events.push(Event::key("Down"));
+        events.push(Event::wheel(30, 31, 1));
+        events.push(Event::wheel(32, 33, -1));
+        events.push(Event::pointer(EventType::MousePress, 34, 35));
+        events.extend(
+            (0..burst_count)
+                .map(|index| Event::wheel(index as i32 + 40, index as i32 + 41, -1)),
+        );
+
+        assert_eq!(
+            coalesce_mouse_wheel_events(events),
+            vec![
+                Event::wheel(
+                    burst_count as i32 - 1,
+                    burst_count as i32,
+                    MAX_COALESCED_MOUSE_WHEEL_DELTA,
+                ),
+                Event::key("Down"),
+                Event::pointer(EventType::MousePress, 34, 35),
+                Event::wheel(
+                    burst_count as i32 + 39,
+                    burst_count as i32 + 40,
+                    -MAX_COALESCED_MOUSE_WHEEL_DELTA,
+                ),
+            ],
+        );
     }
 
     #[test]

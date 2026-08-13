@@ -1594,13 +1594,10 @@ public static class GeneratedWindowRuntime
         {
             return null;
         }
-        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
+        Size? ioctlSize = TerminalCellPixelSizeFromIoctl();
+        if (ioctlSize.HasValue)
         {
-            Size? ioctlSize = TerminalCellPixelSizeFromIoctl();
-            if (ioctlSize.HasValue)
-            {
-                return ioctlSize.Value;
-            }
+            return ioctlSize.Value;
         }
         Size? direct = QueryTerminalPixelReport(input, TerminalCellPixelQuery, TerminalCellPixelResponsePrefix);
         if (direct.HasValue)
@@ -1628,10 +1625,12 @@ public static class GeneratedWindowRuntime
             return null;
         }
         PosixWinSize size = new();
-        ulong request = OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst()
-            ? DarwinTiocgwinsz
-            : LinuxTiocgwinsz;
-        if (PosixIoctl(PosixStdoutFileDescriptor, request, ref size) != 0 ||
+        bool isDarwin = OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst();
+        ulong request = isDarwin ? DarwinTiocgwinsz : LinuxTiocgwinsz;
+        int result = isDarwin
+            ? DarwinIoctl(PosixStdoutFileDescriptor, request, ref size)
+            : PosixIoctl(PosixStdoutFileDescriptor, request, ref size);
+        if (result != 0 ||
             size.Col == 0 ||
             size.Row == 0 ||
             size.XPixel == 0 ||
@@ -2065,6 +2064,9 @@ public static class GeneratedWindowRuntime
 
     [DllImport("libc", EntryPoint = "ioctl", SetLastError = true)]
     private static extern int PosixIoctl(int fd, ulong request, ref PosixWinSize size);
+
+    [DllImport("libc", EntryPoint = "__ioctl", SetLastError = true)]
+    private static extern int DarwinIoctl(int fd, ulong request, ref PosixWinSize size);
 
     private static bool IsCompleteEscapeSequence(string sequence)
     {

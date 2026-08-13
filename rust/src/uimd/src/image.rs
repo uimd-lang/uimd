@@ -28,14 +28,16 @@ const IMAGE_INFO_SAMPLE_GRID_SIZE: i32 = 3;
 const IMAGE_INFO_COLOR_QUANTUM: i32 = 64;
 const IMAGE_SIXEL_BITS_PER_GLYPH: i32 = 6;
 const IMAGE_SIXEL_COLOR_COMPONENT_SCALE: i32 = 100;
-const IMAGE_SIXEL_COLOR_LEVELS: i32 = 6;
+const IMAGE_SIXEL_COLOR_LEVELS: i32 = 4;
 const IMAGE_SIXEL_RUN_LENGTH_THRESHOLD: usize = 4;
-const IMAGE_SIXEL_MAX_COLORS: i32 = 256;
+const IMAGE_SIXEL_MAX_COLORS: i32 = 64;
 const IMAGE_SIXEL_FALSE_STATUS_MASK: i32 = 0x1000;
 const IMAGE_SIXEL_PIXEL_FORMAT_RGB888: i32 = 0x03;
-const IMAGE_SIXEL_LARGE_AUTO: i32 = 0;
-const IMAGE_SIXEL_REP_AUTO: i32 = 0;
-const IMAGE_SIXEL_QUALITY_HIGH: i32 = 1;
+const IMAGE_SIXEL_DIFFUSE_NONE: i32 = 1;
+const IMAGE_SIXEL_OPTIMIZE_PALETTE: i32 = 1;
+const IMAGE_SIXEL_CHUNK_CELL_ROWS: i32 = 1;
+const IMAGE_SIXEL_CACHE_MAX_ENTRIES: usize = 512;
+const IMAGE_SIXEL_CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const IMAGE_FALLBACK_UPPER_HALF_BLOCK: &str = "▀";
 const IMAGE_FALLBACK_FULL_BLOCK: &str = "█";
 const IMAGE_SIXEL_INTRODUCER: &str = "\x1bPq";
@@ -189,16 +191,14 @@ type SixelOutputNewFunction = unsafe extern "C" fn(
 type SixelDitherNewFunction =
     unsafe extern "C" fn(*mut *mut SixelDither, c_int, *mut c_void) -> c_int;
 #[cfg(unix)]
-type SixelDitherInitializeFunction = unsafe extern "C" fn(
-    *mut SixelDither,
-    *mut u8,
-    c_int,
-    c_int,
-    c_int,
-    c_int,
-    c_int,
-    c_int,
-) -> c_int;
+type SixelDitherSetPaletteFunction = unsafe extern "C" fn(*mut SixelDither, *mut u8);
+#[cfg(unix)]
+type SixelDitherSetPixelFormatFunction = unsafe extern "C" fn(*mut SixelDither, c_int);
+#[cfg(unix)]
+type SixelDitherSetOptimizePaletteFunction = unsafe extern "C" fn(*mut SixelDither, c_int);
+#[cfg(unix)]
+type SixelDitherSetDiffusionTypeFunction =
+    unsafe extern "C" fn(*mut SixelDither, c_int);
 #[cfg(unix)]
 type SixelEncodeFunction = unsafe extern "C" fn(
     *mut u8,
@@ -219,7 +219,10 @@ struct SixelApi
 {
     output_new: SixelOutputNewFunction,
     dither_new: SixelDitherNewFunction,
-    dither_initialize: SixelDitherInitializeFunction,
+    dither_set_palette: SixelDitherSetPaletteFunction,
+    dither_set_pixel_format: SixelDitherSetPixelFormatFunction,
+    dither_set_optimize_palette: SixelDitherSetOptimizePaletteFunction,
+    dither_set_diffusion_type: SixelDitherSetDiffusionTypeFunction,
     encode: SixelEncodeFunction,
     output_unref: SixelOutputUnrefFunction,
     dither_unref: SixelDitherUnrefFunction,
@@ -238,14 +241,14 @@ struct ImageCellRegion
 struct ImageRenderCacheKey
 {
     source: String,
-    width: i32,
-    height: i32,
+    pixel_width: i32,
+    pixel_height: i32,
     fit: String,
     align: String,
     vertical_align: String,
     background: ImageRgb,
-    source_height: i32,
-    crop_top: i32,
+    source_pixel_height: i32,
+    crop_top_pixels: i32,
 }
 
 impl PartialEq for ImageRenderCacheKey
@@ -253,14 +256,14 @@ impl PartialEq for ImageRenderCacheKey
     fn eq(&self, other: &Self) -> bool
     {
         self.source == other.source
-            && self.width == other.width
-            && self.height == other.height
+            && self.pixel_width == other.pixel_width
+            && self.pixel_height == other.pixel_height
             && self.fit == other.fit
             && self.align == other.align
             && self.vertical_align == other.vertical_align
             && self.background == other.background
-            && self.source_height == other.source_height
-            && self.crop_top == other.crop_top
+            && self.source_pixel_height == other.source_pixel_height
+            && self.crop_top_pixels == other.crop_top_pixels
     }
 }
 
@@ -269,14 +272,14 @@ impl Hash for ImageRenderCacheKey
     fn hash<H: Hasher>(&self, state: &mut H)
     {
         self.source.hash(state);
-        self.width.hash(state);
-        self.height.hash(state);
+        self.pixel_width.hash(state);
+        self.pixel_height.hash(state);
         self.fit.hash(state);
         self.align.hash(state);
         self.vertical_align.hash(state);
         self.background.hash(state);
-        self.source_height.hash(state);
-        self.crop_top.hash(state);
+        self.source_pixel_height.hash(state);
+        self.crop_top_pixels.hash(state);
     }
 }
 
@@ -337,10 +340,24 @@ fn raster_cache() -> &'static Mutex<HashMap<String, Arc<ImageRaster>>>
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn sixel_cache() -> &'static Mutex<HashMap<ImageRenderCacheKey, String>>
+#[derive(Clone, Debug)]
+struct SixelCacheEntry
 {
-    static CACHE: OnceLock<Mutex<HashMap<ImageRenderCacheKey, String>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    payload: String,
+    last_use: u64,
+}
+
+#[derive(Default)]
+struct SixelCache
+{
+    entries: HashMap<ImageRenderCacheKey, SixelCacheEntry>,
+    use_counter: u64,
+}
+
+fn sixel_cache() -> &'static Mutex<SixelCache>
+{
+    static CACHE: OnceLock<Mutex<SixelCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(SixelCache::default()))
 }
 
 #[cfg(target_os = "macos")]
@@ -505,10 +522,28 @@ fn load_sixel_api() -> Option<&'static SixelApi>
                     symbol("sixel_dither_new")?,
                 )
             },
-            dither_initialize: unsafe
+            dither_set_palette: unsafe
             {
-                std::mem::transmute::<*mut c_void, SixelDitherInitializeFunction>(
-                    symbol("sixel_dither_initialize")?,
+                std::mem::transmute::<*mut c_void, SixelDitherSetPaletteFunction>(
+                    symbol("sixel_dither_set_palette")?,
+                )
+            },
+            dither_set_pixel_format: unsafe
+            {
+                std::mem::transmute::<*mut c_void, SixelDitherSetPixelFormatFunction>(
+                    symbol("sixel_dither_set_pixelformat")?,
+                )
+            },
+            dither_set_optimize_palette: unsafe
+            {
+                std::mem::transmute::<*mut c_void, SixelDitherSetOptimizePaletteFunction>(
+                    symbol("sixel_dither_set_optimize_palette")?,
+                )
+            },
+            dither_set_diffusion_type: unsafe
+            {
+                std::mem::transmute::<*mut c_void, SixelDitherSetDiffusionTypeFunction>(
+                    symbol("sixel_dither_set_diffusion_type")?,
                 )
             },
             encode: unsafe
@@ -970,23 +1005,6 @@ fn render_sixel_image(
         return false;
     }
     let region_fit = if fit == "contain" { "cover" } else { fit };
-    let raw = cached_sixel_image_payload(
-        source_path,
-        raster,
-        region.cols,
-        visible_rows,
-        region_fit,
-        align,
-        vertical_align,
-        background,
-        region.rows,
-        visible_top - region.row_offset,
-    );
-    if raw.is_empty()
-    {
-        return false;
-    }
-
     for row in visible_top..visible_bottom
     {
         for col in region.col_offset..region.col_offset + region.cols
@@ -998,15 +1016,43 @@ fn render_sixel_image(
             }
         }
     }
-    let Some(anchor) = buffer.cell_mut(visible_top, region.col_offset) else
+    let crop_top = visible_top - region.row_offset;
+    let crop_bottom = crop_top + visible_rows;
+    let first_chunk = crop_top / IMAGE_SIXEL_CHUNK_CELL_ROWS * IMAGE_SIXEL_CHUNK_CELL_ROWS;
+    let mut raw_present = false;
+    for chunk_top in (first_chunk..crop_bottom).step_by(IMAGE_SIXEL_CHUNK_CELL_ROWS as usize)
     {
-        return false;
-    };
-    anchor.raw = raw;
-    anchor.raw_width = region.cols;
-    anchor.raw_height = visible_rows;
-    anchor.raw_skip = false;
-    true
+        let segment_top = max(crop_top, chunk_top);
+        let segment_bottom = min(crop_bottom, chunk_top + IMAGE_SIXEL_CHUNK_CELL_ROWS);
+        let segment_rows = segment_bottom - segment_top;
+        let raw = cached_sixel_image_payload(
+            source_path,
+            raster,
+            region.cols,
+            segment_rows,
+            region_fit,
+            align,
+            vertical_align,
+            background,
+            region.rows,
+            segment_top,
+        );
+        if raw.is_empty()
+        {
+            continue;
+        }
+        let anchor_row = visible_top + segment_top - crop_top;
+        let Some(anchor) = buffer.cell_mut(anchor_row, region.col_offset) else
+        {
+            continue;
+        };
+        anchor.raw = raw;
+        anchor.raw_width = region.cols;
+        anchor.raw_height = segment_rows;
+        anchor.raw_skip = false;
+        raw_present = true;
+    }
+    raw_present
 }
 
 fn fallback_background(style: &Style) -> ImageRgb
@@ -1434,8 +1480,36 @@ fn resize_image_raster(
     background: ImageRgb,
 ) -> ImageRaster
 {
+    resize_image_raster_rows(
+        source,
+        target_width,
+        target_height,
+        0,
+        max(MINIMUM_RENDERABLE_SIZE, target_height),
+        fit,
+        align,
+        vertical_align,
+        background,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resize_image_raster_rows(
+    source: &ImageRaster,
+    target_width: i32,
+    target_height: i32,
+    first_target_row: i32,
+    target_row_count: i32,
+    fit: &str,
+    align: &str,
+    vertical_align: &str,
+    background: ImageRgb,
+) -> ImageRaster
+{
     let target_width = max(MINIMUM_RENDERABLE_SIZE, target_width);
     let target_height = max(MINIMUM_RENDERABLE_SIZE, target_height);
+    let first_target_row = first_target_row.clamp(0, target_height);
+    let target_row_count = target_row_count.clamp(0, target_height - first_target_row);
     if source.width <= 0 || source.height <= 0 || source.pixels.is_empty()
     {
         return ImageRaster::default();
@@ -1443,9 +1517,9 @@ fn resize_image_raster(
     let mut result = ImageRaster
     {
         width: target_width,
-        height: target_height,
-        pixels: vec![background; (target_width * target_height) as usize],
-        alpha: vec![IMAGE_CHANNEL_MAX; (target_width * target_height) as usize],
+        height: target_row_count,
+        pixels: vec![background; (target_width * target_row_count) as usize],
+        alpha: vec![IMAGE_CHANNEL_MAX; (target_width * target_row_count) as usize],
     };
     let fit = normalized_image_value(fit, DEFAULT_IMAGE_FIT);
     let stretch = fit == "stretch";
@@ -1502,8 +1576,9 @@ fn resize_image_raster(
             ),
         )
     };
-    for y in 0..target_height
+    for y in 0..target_row_count
     {
+        let target_y = first_target_row + y;
         for x in 0..target_width
         {
             let (left, right, top, bottom) = if stretch
@@ -1511,8 +1586,8 @@ fn resize_image_raster(
                 (
                     f64::from(x) * f64::from(source.width) / f64::from(target_width),
                     f64::from(x + 1) * f64::from(source.width) / f64::from(target_width),
-                    f64::from(y) * f64::from(source.height) / f64::from(target_height),
-                    f64::from(y + 1) * f64::from(source.height) / f64::from(target_height),
+                    f64::from(target_y) * f64::from(source.height) / f64::from(target_height),
+                    f64::from(target_y + 1) * f64::from(source.height) / f64::from(target_height),
                 )
             }
             else if cover
@@ -1520,8 +1595,8 @@ fn resize_image_raster(
                 (
                     (f64::from(x) + x_offset) / scale,
                     (f64::from(x + 1) + x_offset) / scale,
-                    (f64::from(y) + y_offset) / scale,
-                    (f64::from(y + 1) + y_offset) / scale,
+                    (f64::from(target_y) + y_offset) / scale,
+                    (f64::from(target_y + 1) + y_offset) / scale,
                 )
             }
             else
@@ -1529,8 +1604,8 @@ fn resize_image_raster(
                 (
                     (f64::from(x) - x_offset) / scale,
                     (f64::from(x + 1) - x_offset) / scale,
-                    (f64::from(y) - y_offset) / scale,
-                    (f64::from(y + 1) - y_offset) / scale,
+                    (f64::from(target_y) - y_offset) / scale,
+                    (f64::from(target_y + 1) - y_offset) / scale,
                 )
             };
             result.pixels[(y * target_width + x) as usize] =
@@ -1784,32 +1859,36 @@ fn libsixel_encode(raster: &ImageRaster) -> String
         unsafe { (api.output_unref)(output) };
         return String::new();
     }
-    let initialize_status = unsafe
+    let mut palette = Vec::with_capacity(IMAGE_SIXEL_MAX_COLORS as usize * 3);
+    for red in 0..IMAGE_SIXEL_COLOR_LEVELS
     {
-        (api.dither_initialize)(
-            dither,
+        for green in 0..IMAGE_SIXEL_COLOR_LEVELS
+        {
+            for blue in 0..IMAGE_SIXEL_COLOR_LEVELS
+            {
+                for component in [red, green, blue]
+                {
+                    palette.push(
+                        (component * IMAGE_CHANNEL_MAX / (IMAGE_SIXEL_COLOR_LEVELS - 1)) as u8,
+                    );
+                }
+            }
+        }
+    }
+    unsafe
+    {
+        (api.dither_set_palette)(dither, palette.as_mut_ptr());
+        (api.dither_set_pixel_format)(dither, IMAGE_SIXEL_PIXEL_FORMAT_RGB888);
+        (api.dither_set_optimize_palette)(dither, IMAGE_SIXEL_OPTIMIZE_PALETTE);
+        (api.dither_set_diffusion_type)(dither, IMAGE_SIXEL_DIFFUSE_NONE);
+        (api.encode)(
             rgb.as_mut_ptr(),
             raster.width,
             raster.height,
-            IMAGE_SIXEL_PIXEL_FORMAT_RGB888,
-            IMAGE_SIXEL_LARGE_AUTO,
-            IMAGE_SIXEL_REP_AUTO,
-            IMAGE_SIXEL_QUALITY_HIGH,
-        )
-    };
-    if sixel_status_succeeded(initialize_status)
-    {
-        unsafe
-        {
-            (api.encode)(
-                rgb.as_mut_ptr(),
-                raster.width,
-                raster.height,
-                3,
-                dither,
-                output,
-            );
-        }
+            3,
+            dither,
+            output,
+        );
     }
     unsafe
     {
@@ -1843,111 +1922,82 @@ fn cached_sixel_image_payload(
     let height = max(MINIMUM_RENDERABLE_SIZE, height);
     let source_height = if source_height <= 0 { height } else { source_height };
     let crop_top = max(0, crop_top);
+    let cell_pixels = terminal_cell_pixel_size();
+    let pixel_width = width * cell_pixels.width;
+    let pixel_height = height * cell_pixels.height;
+    let source_pixel_height = source_height * cell_pixels.height;
+    let crop_top_pixels = crop_top * cell_pixels.height;
     let key = ImageRenderCacheKey
     {
         source: source_path.to_string(),
-        width,
-        height,
+        pixel_width,
+        pixel_height,
         fit: fit.to_string(),
         align: align.to_string(),
         vertical_align: vertical_align.to_string(),
         background,
-        source_height,
-        crop_top,
+        source_pixel_height,
+        crop_top_pixels,
     };
-    if let Some(cached) = sixel_cache()
-        .lock()
-        .expect("image sixel cache lock poisoned")
-        .get(&key)
-        .cloned()
     {
-        return cached;
+        let mut cache = sixel_cache()
+            .lock()
+            .expect("image sixel cache lock poisoned");
+        cache.use_counter += 1;
+        let use_counter = cache.use_counter;
+        if let Some(cached) = cache.entries.get_mut(&key)
+        {
+            cached.last_use = use_counter;
+            return cached.payload.clone();
+        }
     }
-    let raw = sixel_image_payload(
+    let payload_raster = resize_image_raster_rows(
         source,
-        width,
-        height,
-        fit,
-        align,
-        vertical_align,
-        background,
-        source_height,
-        crop_top,
-    );
-    sixel_cache()
-        .lock()
-        .expect("image sixel cache lock poisoned")
-        .insert(key, raw.clone());
-    raw
-}
-
-#[allow(clippy::too_many_arguments)]
-fn sixel_image_payload(
-    source: &ImageRaster,
-    width: i32,
-    height: i32,
-    fit: &str,
-    align: &str,
-    vertical_align: &str,
-    background: ImageRgb,
-    source_height: i32,
-    crop_top: i32,
-) -> String
-{
-    let cell_pixels = terminal_cell_pixel_size();
-    let fitted = resize_image_raster(
-        source,
-        width * cell_pixels.width,
-        source_height * cell_pixels.height,
+        pixel_width,
+        source_pixel_height,
+        crop_top_pixels,
+        pixel_height,
         fit,
         align,
         vertical_align,
         background,
     );
-    let cropped = crop_image_raster_rows(
-        &fitted,
-        crop_top * cell_pixels.height,
-        height * cell_pixels.height,
-    );
-    let optimized = libsixel_encode(&cropped);
-    if optimized.is_empty()
+    let optimized = libsixel_encode(&payload_raster);
+    let raw = if optimized.is_empty()
     {
-        sixel_payload(&quantize_image_raster(cropped))
+        sixel_payload(&quantize_image_raster(payload_raster))
     }
     else
     {
         optimized
-    }
-}
-
-fn crop_image_raster_rows(source: &ImageRaster, top: i32, height: i32) -> ImageRaster
-{
-    if source.width <= 0 || source.height <= 0 || height <= 0 || source.pixels.is_empty()
+    };
+    if raw.len() <= IMAGE_SIXEL_CACHE_MAX_BYTES
     {
-        return ImageRaster::default();
-    }
-    let top = top.clamp(0, source.height);
-    let bottom = (top + height).clamp(top, source.height);
-    if bottom <= top
-    {
-        return ImageRaster::default();
-    }
-    let start = (top * source.width) as usize;
-    let end = (bottom * source.width) as usize;
-    ImageRaster
-    {
-        width: source.width,
-        height: bottom - top,
-        pixels: source.pixels[start..end].to_vec(),
-        alpha: if source.alpha.len() >= (source.width * source.height) as usize
+        let mut cache = sixel_cache()
+            .lock()
+            .expect("image sixel cache lock poisoned");
+        cache.use_counter += 1;
+        let use_counter = cache.use_counter;
+        cache.entries.insert(key, SixelCacheEntry
         {
-            source.alpha[start..end].to_vec()
+            payload: raw.clone(),
+            last_use: use_counter,
+        });
+        while cache.entries.len() > IMAGE_SIXEL_CACHE_MAX_ENTRIES
+            || cache.entries.values().map(|entry| entry.payload.len()).sum::<usize>()
+                > IMAGE_SIXEL_CACHE_MAX_BYTES
+        {
+            let Some(oldest) = cache.entries.iter()
+                .min_by_key(|(_, entry)| entry.last_use)
+                .map(|(key, _)| key.clone())
+            else
+            {
+                break;
+            };
+            cache.entries.remove(&oldest);
         }
-        else
-        {
-            Vec::new()
-        },
     }
+    raw
 }
 
 fn quantize_image_raster(mut raster: ImageRaster) -> ImageRaster
@@ -1988,7 +2038,11 @@ fn sixel_payload(raster: &ImageRaster) -> String
         color_set.insert(*color);
     }
     let colors: Vec<ImageRgb> = color_set.into_iter().collect();
-    let mut output = String::from(IMAGE_SIXEL_INTRODUCER);
+    let mut output = format!(
+        "{IMAGE_SIXEL_INTRODUCER}\"1;1;{};{}",
+        raster.width,
+        raster.height,
+    );
     for (index, color) in colors.iter().enumerate()
     {
         output.push_str(&format!(
@@ -2252,6 +2306,7 @@ mod tests
     {
         let payload = sixel_payload(&quantize_image_raster(test_raster()));
         assert!(payload.starts_with(IMAGE_SIXEL_INTRODUCER));
+        assert!(payload.starts_with("\x1bPq\"1;1;2;2"));
         assert!(payload.ends_with(IMAGE_SIXEL_TERMINATOR));
     }
 
@@ -2282,12 +2337,13 @@ mod tests
                 },
             ));
 
-            let anchor = buffer
-                .cell(expected_anchor_row, 0)
-                .expect("clipped Sixel anchor");
-            assert!(anchor.raw.starts_with(IMAGE_SIXEL_INTRODUCER));
-            assert_eq!(anchor.raw_width, 4);
-            assert_eq!(anchor.raw_height, expected_rows);
+            for row in expected_anchor_row..expected_anchor_row + expected_rows
+            {
+                let anchor = buffer.cell(row, 0).expect("clipped Sixel anchor");
+                assert!(anchor.raw.starts_with(IMAGE_SIXEL_INTRODUCER));
+                assert_eq!(anchor.raw_width, 4);
+                assert_eq!(anchor.raw_height, 1);
+            }
             for row in 0..expected_anchor_row
             {
                 assert!((0..buffer.width).all(|col|

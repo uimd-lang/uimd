@@ -122,6 +122,62 @@ func TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape(t *testing.T) {
 	}
 }
 
+func TestCoalesceMouseWheelInputsMatchesCppBoundedRuns(t *testing.T) {
+	wheel := func(x int, y int, delta int) terminalInput {
+		return terminalInput{Mouse: &directMouseEvent{Name: "scroll", X: x, Y: y, Delta: delta}}
+	}
+	press := terminalInput{Mouse: &directMouseEvent{Name: "mouse_press", X: 7, Y: 8}}
+	inputs := []terminalInput{
+		wheel(1, 2, 8),
+		wheel(3, 4, 9),
+		{Key: "Enter"},
+		wheel(5, 6, 1),
+		wheel(6, 7, -1),
+		press,
+		wheel(8, 9, -8),
+		wheel(10, 11, -9),
+	}
+
+	got := coalesceMouseWheelInputs(inputs)
+	if len(got) != 4 {
+		t.Fatalf("coalesced input count = %d, want 4: %#v", len(got), got)
+	}
+	if got[0].Mouse == nil || *got[0].Mouse != (directMouseEvent{Name: "scroll", X: 3, Y: 4, Delta: 12}) {
+		t.Fatalf("positive wheel run = %#v, want latest position and delta 12", got[0].Mouse)
+	}
+	if got[1].Key != "Enter" {
+		t.Fatalf("non-wheel boundary = %#v, want Enter", got[1])
+	}
+	if got[2].Mouse == nil || *got[2].Mouse != *press.Mouse {
+		t.Fatalf("mouse boundary = %#v, want %#v", got[2].Mouse, press.Mouse)
+	}
+	if got[3].Mouse == nil || *got[3].Mouse != (directMouseEvent{Name: "scroll", X: 10, Y: 11, Delta: -12}) {
+		t.Fatalf("negative wheel run = %#v, want latest position and delta -12", got[3].Mouse)
+	}
+}
+
+func TestParseSgrMouseAcceptsOnlyCanonicalWheelButtons(t *testing.T) {
+	tests := []struct {
+		sequence  string
+		wantName  string
+		wantDelta int
+	}{
+		{sequence: "\x1b[<64;4;5M", wantName: "scroll", wantDelta: 1},
+		{sequence: "\x1b[<65;4;5M", wantName: "scroll", wantDelta: -1},
+		{sequence: "\x1b[<66;4;5M", wantName: "mouse_press", wantDelta: 0},
+		{sequence: "\x1b[<67;4;5M", wantName: "mouse_press", wantDelta: 0},
+	}
+	for _, test := range tests {
+		event, ok := parseSgrMouse(test.sequence)
+		if !ok {
+			t.Fatalf("parseSgrMouse(%q) failed", test.sequence)
+		}
+		if event.Name != test.wantName || event.Delta != test.wantDelta {
+			t.Errorf("parseSgrMouse(%q) = %#v, want name %q delta %d", test.sequence, event, test.wantName, test.wantDelta)
+		}
+	}
+}
+
 func TestParseKeySupportsCsiAndSs3Arrows(t *testing.T) {
 	tests := []struct {
 		sequence string
@@ -243,12 +299,15 @@ func TestForcedSixelImageRendersRawPayloadIntoAnsiFrame(t *testing.T) {
 	if !strings.HasPrefix(anchor.Raw, "\x1bPq") || !strings.HasSuffix(anchor.Raw, "\x1b\\") {
 		t.Fatalf("raw payload = %q, want a complete Sixel sequence", anchor.Raw)
 	}
-	if anchor.RawWidth != 2 || anchor.RawHeight != 2 || anchor.RawSkip {
-		t.Fatalf("raw anchor metadata = width %d height %d skip %v, want 2/2/false", anchor.RawWidth, anchor.RawHeight, anchor.RawSkip)
+	if anchor.RawWidth != 2 || anchor.RawHeight != 1 || anchor.RawSkip {
+		t.Fatalf("raw anchor metadata = width %d height %d skip %v, want 2/1/false", anchor.RawWidth, anchor.RawHeight, anchor.RawSkip)
 	}
 	for row := range rows {
 		for col := range rows[row] {
-			if row == 0 && col == 0 {
+			if col == 0 {
+				if rows[row][col].Raw == "" || rows[row][col].RawHeight != 1 {
+					t.Fatalf("row %d is missing its one-row raw segment", row)
+				}
 				continue
 			}
 			if !rows[row][col].RawSkip {
@@ -310,8 +369,11 @@ func TestScrollViewTopClippedSixelKeepsCroppedRawAnchor(t *testing.T) {
 	if anchor.Raw == "" {
 		t.Fatal("top-clipped Sixel lost its raw anchor")
 	}
-	if anchor.RawWidth != 2 || anchor.RawHeight != 2 || anchor.RawSkip {
-		t.Fatalf("cropped raw anchor metadata = width %d height %d skip %v, want 2/2/false", anchor.RawWidth, anchor.RawHeight, anchor.RawSkip)
+	if anchor.RawWidth != 2 || anchor.RawHeight != 1 || anchor.RawSkip {
+		t.Fatalf("cropped raw anchor metadata = width %d height %d skip %v, want 2/1/false", anchor.RawWidth, anchor.RawHeight, anchor.RawSkip)
+	}
+	if rows[1][0].Raw == "" || rows[1][0].RawHeight != 1 {
+		t.Fatal("second clipped row is missing its one-row Sixel segment")
 	}
 }
 
@@ -1310,8 +1372,8 @@ func TestFileBrowserMouseClickEntersDirectoryAndOnlySelectsFile(t *testing.T) {
 	frame := browser.Entries.ElementFrame()
 	if !state.handleDirectMouse(directMouseEvent{
 		Name: "mouse_press",
-		X: frame.Col,
-		Y: frame.Row + childIndex - browser.Entries.ScrollOffset,
+		X:    frame.Col,
+		Y:    frame.Row + childIndex - browser.Entries.ScrollOffset,
 	}, size) {
 		t.Fatal("directory mouse press was not handled")
 	}
@@ -1333,8 +1395,8 @@ func TestFileBrowserMouseClickEntersDirectoryAndOnlySelectsFile(t *testing.T) {
 	frame = browser.Entries.ElementFrame()
 	if !state.handleDirectMouse(directMouseEvent{
 		Name: "mouse_press",
-		X: frame.Col,
-		Y: frame.Row + fileIndex - browser.Entries.ScrollOffset,
+		X:    frame.Col,
+		Y:    frame.Row + fileIndex - browser.Entries.ScrollOffset,
 	}, size) {
 		t.Fatal("file mouse press was not handled")
 	}

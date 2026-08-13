@@ -49,13 +49,15 @@ constexpr int kImageCellPixelHeight = 16;
 constexpr int kFallbackVerticalSamplesPerCell = 2;
 constexpr int kSixelBitsPerGlyph = 6;
 constexpr int kSixelColorComponentScale = 100;
-constexpr int kSixelColorLevels = 6;
-constexpr int kSixelMaxColors = 256;
+constexpr int kSixelColorLevels = 4;
+constexpr int kSixelMaxColors = 64;
 constexpr int kSixelFalseStatusMask = 0x1000;
 constexpr int kSixelPixelFormatRgb888 = 0x03;
-constexpr int kSixelLargeAuto = 0x0;
-constexpr int kSixelRepAuto = 0x0;
-constexpr int kSixelQualityHigh = 0x1;
+constexpr int kSixelDiffuseNone = 0x1;
+constexpr int kSixelOptimizePalette = 0x1;
+constexpr int kSixelChunkCellRows = 1;
+constexpr std::size_t kSixelCacheMaxEntries = 512;
+constexpr std::size_t kSixelCacheMaxBytes = 32U * 1024U * 1024U;
 constexpr int kExecutablePathInitialBufferSize = 4096;
 constexpr int kTestFallbackCheckerTilePixels = 4;
 constexpr int kTestFallbackCheckerLightAlpha = 160;
@@ -79,7 +81,10 @@ using SixelStatus = int;
 using SixelWriteFunction = int (*)(char*, int, void*);
 using SixelOutputNewFunction = SixelStatus (*)(sixel_output_t**, SixelWriteFunction, void*, void*);
 using SixelDitherNewFunction = SixelStatus (*)(sixel_dither_t**, int, void*);
-using SixelDitherInitializeFunction = SixelStatus (*)(sixel_dither_t*, unsigned char*, int, int, int, int, int, int);
+using SixelDitherSetPaletteFunction = void (*)(sixel_dither_t*, unsigned char*);
+using SixelDitherSetPixelFormatFunction = void (*)(sixel_dither_t*, int);
+using SixelDitherSetOptimizePaletteFunction = void (*)(sixel_dither_t*, int);
+using SixelDitherSetDiffusionTypeFunction = void (*)(sixel_dither_t*, int);
 using SixelEncodeFunction = SixelStatus (*)(unsigned char*, int, int, int, sixel_dither_t*, sixel_output_t*);
 using SixelOutputUnrefFunction = void (*)(sixel_output_t*);
 using SixelDitherUnrefFunction = void (*)(sixel_dither_t*);
@@ -88,7 +93,10 @@ struct SixelApi
 {
     SixelOutputNewFunction outputNew = nullptr;
     SixelDitherNewFunction ditherNew = nullptr;
-    SixelDitherInitializeFunction ditherInitialize = nullptr;
+    SixelDitherSetPaletteFunction ditherSetPalette = nullptr;
+    SixelDitherSetPixelFormatFunction ditherSetPixelFormat = nullptr;
+    SixelDitherSetOptimizePaletteFunction ditherSetOptimizePalette = nullptr;
+    SixelDitherSetDiffusionTypeFunction ditherSetDiffusionType = nullptr;
     SixelEncodeFunction encode = nullptr;
     SixelOutputUnrefFunction outputUnref = nullptr;
     SixelDitherUnrefFunction ditherUnref = nullptr;
@@ -121,22 +129,28 @@ struct Raster
 struct ImageRenderCacheKey
 {
     std::string source;
-    int width = 0;
-    int height = 0;
+    int pixelWidth = 0;
+    int pixelHeight = 0;
     std::string fit;
     std::string align;
     std::string verticalAlign;
     Rgb background;
-    int sourceHeight = 0;
-    int cropTop = 0;
+    int sourcePixelHeight = 0;
+    int cropTopPixels = 0;
 
     friend bool operator<(const ImageRenderCacheKey& lhs, const ImageRenderCacheKey& rhs)
     {
-        return std::tie(lhs.source, lhs.width, lhs.height, lhs.fit, lhs.align, lhs.verticalAlign,
-                        lhs.background, lhs.sourceHeight, lhs.cropTop) <
-               std::tie(rhs.source, rhs.width, rhs.height, rhs.fit, rhs.align, rhs.verticalAlign,
-                        rhs.background, rhs.sourceHeight, rhs.cropTop);
+        return std::tie(lhs.source, lhs.pixelWidth, lhs.pixelHeight, lhs.fit, lhs.align, lhs.verticalAlign,
+                        lhs.background, lhs.sourcePixelHeight, lhs.cropTopPixels) <
+               std::tie(rhs.source, rhs.pixelWidth, rhs.pixelHeight, rhs.fit, rhs.align, rhs.verticalAlign,
+                        rhs.background, rhs.sourcePixelHeight, rhs.cropTopPixels);
     }
+};
+
+struct SixelCacheEntry
+{
+    std::string payload;
+    std::uint64_t lastUse = 0;
 };
 
 [[nodiscard]] std::string normalizedMode(std::string text, std::string fallback)
@@ -482,12 +496,22 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
 
         loadedApi.outputNew = reinterpret_cast<SixelOutputNewFunction>(loadSymbol(handle, "sixel_output_new"));
         loadedApi.ditherNew = reinterpret_cast<SixelDitherNewFunction>(loadSymbol(handle, "sixel_dither_new"));
-        loadedApi.ditherInitialize = reinterpret_cast<SixelDitherInitializeFunction>(loadSymbol(handle, "sixel_dither_initialize"));
+        loadedApi.ditherSetPalette = reinterpret_cast<SixelDitherSetPaletteFunction>(
+            loadSymbol(handle, "sixel_dither_set_palette"));
+        loadedApi.ditherSetPixelFormat = reinterpret_cast<SixelDitherSetPixelFormatFunction>(
+            loadSymbol(handle, "sixel_dither_set_pixelformat"));
+        loadedApi.ditherSetOptimizePalette = reinterpret_cast<SixelDitherSetOptimizePaletteFunction>(
+            loadSymbol(handle, "sixel_dither_set_optimize_palette"));
+        loadedApi.ditherSetDiffusionType = reinterpret_cast<SixelDitherSetDiffusionTypeFunction>(
+            loadSymbol(handle, "sixel_dither_set_diffusion_type"));
         loadedApi.encode = reinterpret_cast<SixelEncodeFunction>(loadSymbol(handle, "sixel_encode"));
         loadedApi.outputUnref = reinterpret_cast<SixelOutputUnrefFunction>(loadSymbol(handle, "sixel_output_unref"));
         loadedApi.ditherUnref = reinterpret_cast<SixelDitherUnrefFunction>(loadSymbol(handle, "sixel_dither_unref"));
         const bool available = loadedApi.outputNew != nullptr && loadedApi.ditherNew != nullptr &&
-                               loadedApi.ditherInitialize != nullptr && loadedApi.encode != nullptr &&
+                               loadedApi.ditherSetPalette != nullptr && loadedApi.ditherSetPixelFormat != nullptr &&
+                               loadedApi.ditherSetOptimizePalette != nullptr &&
+                               loadedApi.ditherSetDiffusionType != nullptr &&
+                               loadedApi.encode != nullptr &&
                                loadedApi.outputUnref != nullptr && loadedApi.ditherUnref != nullptr;
         return available ? &loadedApi : nullptr;
     }();
@@ -651,11 +675,20 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
     return span / 2.0;
 }
 
-[[nodiscard]] Raster resizeRaster(const Raster& source, int targetWidth, int targetHeight, const std::string& fit,
-                                  const std::string& align, const std::string& verticalAlign, Rgb background = {})
+[[nodiscard]] Raster resizeRasterRows(const Raster& source,
+                                      int targetWidth,
+                                      int targetHeight,
+                                      int firstTargetRow,
+                                      int targetRowCount,
+                                      const std::string& fit,
+                                      const std::string& align,
+                                      const std::string& verticalAlign,
+                                      Rgb background = {})
 {
     targetWidth = std::max(1, targetWidth);
     targetHeight = std::max(1, targetHeight);
+    firstTargetRow = std::clamp(firstTargetRow, 0, targetHeight);
+    targetRowCount = std::clamp(targetRowCount, 0, targetHeight - firstTargetRow);
     if (source.width == 0 || source.height == 0)
     {
         return {};
@@ -663,10 +696,14 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
 
     Raster result;
     result.width = static_cast<unsigned>(targetWidth);
-    result.height = static_cast<unsigned>(targetHeight);
-    const std::size_t pixelCount = static_cast<std::size_t>(targetWidth) * static_cast<std::size_t>(targetHeight);
+    result.height = static_cast<unsigned>(targetRowCount);
+    const std::size_t pixelCount = static_cast<std::size_t>(targetWidth) * static_cast<std::size_t>(targetRowCount);
     result.pixels.assign(pixelCount, background);
     result.alpha.assign(pixelCount, 255);
+    if (targetRowCount == 0)
+    {
+        return result;
+    }
 
     const bool stretch = fit == "stretch";
     const double scale = stretch ? 0.0 : (
@@ -688,8 +725,9 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
             : alignmentOffset(targetHeight, drawnHeight, verticalAlign, "top", "bottom")
     );
 
-    for (int y = 0; y < targetHeight; ++y)
+    for (int y = 0; y < targetRowCount; ++y)
     {
+        const int targetY = firstTargetRow + y;
         for (int x = 0; x < targetWidth; ++x)
         {
             double sourceLeft = 0.0;
@@ -700,22 +738,22 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
             {
                 sourceLeft = static_cast<double>(x) * source.width / targetWidth;
                 sourceRight = static_cast<double>(x + 1) * source.width / targetWidth;
-                sourceTop = static_cast<double>(y) * source.height / targetHeight;
-                sourceBottom = static_cast<double>(y + 1) * source.height / targetHeight;
+                sourceTop = static_cast<double>(targetY) * source.height / targetHeight;
+                sourceBottom = static_cast<double>(targetY + 1) * source.height / targetHeight;
             }
             else if (cover)
             {
                 sourceLeft = (static_cast<double>(x) + xOffset) / scale;
                 sourceRight = (static_cast<double>(x + 1) + xOffset) / scale;
-                sourceTop = (static_cast<double>(y) + yOffset) / scale;
-                sourceBottom = (static_cast<double>(y + 1) + yOffset) / scale;
+                sourceTop = (static_cast<double>(targetY) + yOffset) / scale;
+                sourceBottom = (static_cast<double>(targetY + 1) + yOffset) / scale;
             }
             else
             {
                 sourceLeft = (static_cast<double>(x) - xOffset) / scale;
                 sourceRight = (static_cast<double>(x + 1) - xOffset) / scale;
-                sourceTop = (static_cast<double>(y) - yOffset) / scale;
-                sourceBottom = (static_cast<double>(y + 1) - yOffset) / scale;
+                sourceTop = (static_cast<double>(targetY) - yOffset) / scale;
+                sourceBottom = (static_cast<double>(targetY + 1) - yOffset) / scale;
             }
             const std::size_t dstIdx = static_cast<std::size_t>(y) * targetWidth + static_cast<std::size_t>(x);
             result.pixels[dstIdx] = sampleRasterArea(source, sourceLeft, sourceTop, sourceRight, sourceBottom, background);
@@ -723,6 +761,21 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
         }
     }
     return result;
+}
+
+[[nodiscard]] Raster resizeRaster(const Raster& source, int targetWidth, int targetHeight, const std::string& fit,
+                                  const std::string& align, const std::string& verticalAlign, Rgb background = {})
+{
+    return resizeRasterRows(
+        source,
+        targetWidth,
+        targetHeight,
+        0,
+        std::max(1, targetHeight),
+        fit,
+        align,
+        verticalAlign,
+        background);
 }
 
 [[nodiscard]] Color colorFromRgb(Rgb color)
@@ -791,36 +844,6 @@ void appendEnvironmentSearchDirectories(std::vector<std::filesystem::path>& dire
         }
     }
     return signature;
-}
-
-[[nodiscard]] Raster cropRasterRows(const Raster& source, int top, int height)
-{
-    top = std::max(0, top);
-    height = std::max(1, height);
-    if (source.width == 0 || source.height == 0 || (top <= 0 && height >= static_cast<int>(source.height)))
-    {
-        return source;
-    }
-    const int bottom = std::min(static_cast<int>(source.height), top + height);
-    if (bottom <= top)
-    {
-        return {};
-    }
-    Raster cropped;
-    cropped.width = source.width;
-    cropped.height = static_cast<unsigned>(bottom - top);
-    const std::size_t rowWidth = static_cast<std::size_t>(source.width);
-    cropped.pixels.reserve(rowWidth * static_cast<std::size_t>(cropped.height));
-    cropped.alpha.reserve(rowWidth * static_cast<std::size_t>(cropped.height));
-    for (int row = top; row < bottom; ++row)
-    {
-        const std::size_t offset = static_cast<std::size_t>(row) * rowWidth;
-        cropped.pixels.insert(cropped.pixels.end(), source.pixels.begin() + static_cast<std::ptrdiff_t>(offset),
-                              source.pixels.begin() + static_cast<std::ptrdiff_t>(offset + rowWidth));
-        cropped.alpha.insert(cropped.alpha.end(), source.alpha.begin() + static_cast<std::ptrdiff_t>(offset),
-                             source.alpha.begin() + static_cast<std::ptrdiff_t>(offset + rowWidth));
-    }
-    return cropped;
 }
 
 [[nodiscard]] RenderedContent blankContent(int width, int height, const Style& style)
@@ -1184,7 +1207,8 @@ struct CellRegion
         }
     }
 
-    std::string output = "\x1bPq";
+    std::string output = "\x1bPq\"1;1;" + std::to_string(raster.width) + ";" +
+                         std::to_string(raster.height);
     for (const auto& [color, index] : colors)
     {
         output += "#" + std::to_string(index) + ";2;" +
@@ -1251,8 +1275,27 @@ int libsixelWrite(char* data, int size, void* priv)
     return size;
 }
 
-// Optimized, higher-quality encoder via libsixel (adaptive palette + dithering),
-// replacing the naive in-house O(colors x pixels) loop.
+[[nodiscard]] std::array<unsigned char, kSixelMaxColors * 3> fixedSixelPalette()
+{
+    std::array<unsigned char, kSixelMaxColors * 3> palette{};
+    std::size_t offset = 0;
+    for (int red = 0; red < kSixelColorLevels; ++red)
+    {
+        for (int green = 0; green < kSixelColorLevels; ++green)
+        {
+            for (int blue = 0; blue < kSixelColorLevels; ++blue)
+            {
+                palette[offset++] = static_cast<unsigned char>(red * 255 / (kSixelColorLevels - 1));
+                palette[offset++] = static_cast<unsigned char>(green * 255 / (kSixelColorLevels - 1));
+                palette[offset++] = static_cast<unsigned char>(blue * 255 / (kSixelColorLevels - 1));
+            }
+        }
+    }
+    return palette;
+}
+
+// Use a fixed bounded palette so library quantizer diagnostics can never leak
+// into the application's terminal while retaining libsixel's compact encoder.
 [[nodiscard]] std::string libsixelEncode(const Raster& raster)
 {
     if (raster.width == 0 || raster.height == 0)
@@ -1286,13 +1329,12 @@ int libsixelWrite(char* data, int size, void* priv)
     }
     const int width = static_cast<int>(raster.width);
     const int height = static_cast<int>(raster.height);
-    const SixelStatus status = api->ditherInitialize(
-        dither, rgb.data(), width, height, kSixelPixelFormatRgb888,
-        kSixelLargeAuto, kSixelRepAuto, kSixelQualityHigh);
-    if (sixelStatusSucceeded(status))
-    {
-        api->encode(rgb.data(), width, height, 3, dither, output);
-    }
+    auto palette = fixedSixelPalette();
+    api->ditherSetPalette(dither, palette.data());
+    api->ditherSetPixelFormat(dither, kSixelPixelFormatRgb888);
+    api->ditherSetOptimizePalette(dither, kSixelOptimizePalette);
+    api->ditherSetDiffusionType(dither, kSixelDiffuseNone);
+    api->encode(rgb.data(), width, height, 3, dither, output);
     api->ditherUnref(dither);
     api->outputUnref(output);
     return out;
@@ -1303,26 +1345,77 @@ int libsixelWrite(char* data, int size, void* priv)
                                              const std::string& align, const std::string& verticalAlign,
                                              Rgb background, int sourceHeight = 0, int cropTop = 0)
 {
-    static std::map<ImageRenderCacheKey, std::string> cache;
+    static std::map<ImageRenderCacheKey, SixelCacheEntry> cache;
+    static std::uint64_t cacheUse = 0;
     sourceHeight = sourceHeight > 0 ? sourceHeight : height;
     cropTop = std::max(0, cropTop);
-    const ImageRenderCacheKey key{source, width, height, fit, align, verticalAlign, background, sourceHeight, cropTop};
-    const auto cached = cache.find(key);
-    if (cached != cache.end())
-    {
-        return cached->second;
-    }
     const auto [cellW, cellH] = terminalCellPx();
     const int pixelW = cellW > 0 ? cellW : kImageCellPixelWidth;
     const int pixelH = cellH > 0 ? cellH : kImageCellPixelHeight;
-    const Raster fitted = resizeRaster(sourceRaster, width * pixelW, sourceHeight * pixelH, fit, align, verticalAlign, background);
-    const Raster payloadRaster = cropRasterRows(fitted, cropTop * pixelH, height * pixelH);
+    const int targetPixelWidth = std::max(1, width) * pixelW;
+    const int visiblePixelHeight = std::max(1, height) * pixelH;
+    const int sourcePixelHeight = std::max(1, sourceHeight) * pixelH;
+    const int cropTopPixels = cropTop * pixelH;
+    const ImageRenderCacheKey key{
+        source,
+        targetPixelWidth,
+        visiblePixelHeight,
+        fit,
+        align,
+        verticalAlign,
+        background,
+        sourcePixelHeight,
+        cropTopPixels,
+    };
+    const auto cached = cache.find(key);
+    if (cached != cache.end())
+    {
+        cached->second.lastUse = ++cacheUse;
+        return cached->second.payload;
+    }
+    const Raster payloadRaster = resizeRasterRows(
+        sourceRaster,
+        targetPixelWidth,
+        sourcePixelHeight,
+        cropTopPixels,
+        visiblePixelHeight,
+        fit,
+        align,
+        verticalAlign,
+        background);
     std::string raw = libsixelEncode(payloadRaster);
     if (raw.empty())
     {
         raw = sixelPayload(quantizeRaster(payloadRaster));
     }
-    cache[key] = raw;
+    if (raw.size() <= kSixelCacheMaxBytes)
+    {
+        cache[key] = SixelCacheEntry{raw, ++cacheUse};
+        const auto cacheBytes = []()
+        {
+            std::size_t total = 0;
+            for (const auto& [_, entry] : cache)
+            {
+                total += entry.payload.size();
+            }
+            return total;
+        };
+        while (cache.size() > kSixelCacheMaxEntries || cacheBytes() > kSixelCacheMaxBytes)
+        {
+            const auto oldest = std::min_element(
+                cache.begin(),
+                cache.end(),
+                [](const auto& lhs, const auto& rhs)
+                {
+                    return lhs.second.lastUse < rhs.second.lastUse;
+                });
+            if (oldest == cache.end())
+            {
+                break;
+            }
+            cache.erase(oldest);
+        }
+    }
     return raw;
 }
 
@@ -1598,12 +1691,7 @@ RenderedContent Image::render(Size size, ElementRenderState state) const
         // Inside its own cell region the image fills the area; letterbox lives in
         // the surrounding transparent cells, not baked into the sixel.
         const std::string regionFit = (fit_ == "contain") ? std::string("cover") : fit_;
-        const std::string raw = visibleRows > 0
-            ? cachedSixelPayload(source_, sourceRaster, region.cols, visibleRows,
-                                 regionFit, align_, verticalAlign_, background,
-                                 region.rows, visibleTop - region.rowOffset)
-            : std::string{};
-        if (!raw.empty())
+        if (visibleRows > 0)
         {
             RenderedContent content = blankContent(width, height, style);
             for (int r = visibleTop; r < visibleBottom; ++r)
@@ -1613,13 +1701,36 @@ RenderedContent Image::render(Size size, ElementRenderState state) const
                     content[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)].rawSkip = true;
                 }
             }
-            TerminalCell& anchor = content[static_cast<std::size_t>(visibleTop)]
-                                          [static_cast<std::size_t>(region.colOffset)];
-            anchor.raw = raw;
-            anchor.rawWidth = region.cols;
-            anchor.rawHeight = visibleRows;
-            anchor.rawSkip = false;
-            return content;
+            const int cropTop = visibleTop - region.rowOffset;
+            const int cropBottom = cropTop + visibleRows;
+            const int firstChunk = (cropTop / kSixelChunkCellRows) * kSixelChunkCellRows;
+            bool rawPresent = false;
+            for (int chunkTop = firstChunk; chunkTop < cropBottom; chunkTop += kSixelChunkCellRows)
+            {
+                const int segmentTop = std::max(cropTop, chunkTop);
+                const int segmentBottom = std::min(cropBottom, chunkTop + kSixelChunkCellRows);
+                const int segmentRows = segmentBottom - segmentTop;
+                const std::string raw = cachedSixelPayload(
+                    source_, sourceRaster, region.cols, segmentRows,
+                    regionFit, align_, verticalAlign_, background,
+                    region.rows, segmentTop);
+                if (raw.empty())
+                {
+                    continue;
+                }
+                const int anchorRow = visibleTop + segmentTop - cropTop;
+                TerminalCell& anchor = content[static_cast<std::size_t>(anchorRow)]
+                                              [static_cast<std::size_t>(region.colOffset)];
+                anchor.raw = raw;
+                anchor.rawWidth = region.cols;
+                anchor.rawHeight = segmentRows;
+                anchor.rawSkip = false;
+                rawPresent = true;
+            }
+            if (rawPresent)
+            {
+                return content;
+            }
         }
     }
 

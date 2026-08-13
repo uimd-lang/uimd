@@ -1506,6 +1506,23 @@ int main() {
     assert(rawSyncBegin < rawPayload);
     assert(rawPayload < rawSyncEnd);
 
+    ui::TerminalBuffer guardedRawDiffBuffer{4, 8};
+    guardedRawDiffBuffer.setCell(3, 1, ui::TerminalCell{
+        .text = " ",
+        .raw = "RAW",
+        .rawWidth = 2,
+        .rawHeight = 5,
+    });
+    const std::string guardedRawDiff = guardedRawDiffBuffer.renderDiff();
+    const std::size_t guardStart = guardedRawDiff.find("\x1b[1;3r");
+    const std::size_t guardedRawPayload = guardedRawDiff.find("RAW");
+    const std::size_t guardEnd = guardedRawDiff.find("\x1b[r", guardedRawPayload);
+    assert(guardStart != std::string::npos);
+    assert(guardedRawPayload != std::string::npos);
+    assert(guardEnd != std::string::npos);
+    assert(guardStart < guardedRawPayload);
+    assert(guardedRawPayload < guardEnd);
+
     ui::TerminalBuffer bottomClippedRawDiffBuffer{2, 1};
     bottomClippedRawDiffBuffer.setCell(0, 0, ui::TerminalCell{
         .text = " ",

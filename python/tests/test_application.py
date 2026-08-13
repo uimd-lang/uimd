@@ -496,6 +496,18 @@ class TestUIApplication(unittest.TestCase):
         self.assertNotIn("RAW", frame)
         self.assertIn("\x1b[1;1H", frame)
 
+    def test_terminal_buffer_guards_raw_payload_from_scrolling_the_screen(self):
+        buffer = TerminalBuffer(4, 8)
+        buffer.set_cell(3, 1, TerminalCell(" ", raw="RAW", raw_width=2, raw_height=5))
+
+        frame = buffer.render_diff()
+
+        guard_start = frame.index("\x1b[1;3r")
+        payload = frame.index("RAW")
+        guard_end = frame.index("\x1b[r", payload)
+        self.assertLess(guard_start, payload)
+        self.assertLess(payload, guard_end)
+
     def test_window_cell_render_clips_raw_image_before_terminal_diff(self):
         """Window rendering must crop raw image cells before terminal buffers see them."""
         window = UIWindow(title="Test")

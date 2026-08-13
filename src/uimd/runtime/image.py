@@ -1,6 +1,9 @@
 import os
+import shutil
 import struct
+import subprocess
 import sys
+import ctypes
 import ctypes.util
 import importlib.util
 try:
@@ -10,6 +13,7 @@ except ModuleNotFoundError:
     fcntl = None
     termios = None
 from contextlib import contextmanager
+from collections import OrderedDict
 from functools import lru_cache
 from io import BytesIO
 
@@ -24,20 +28,27 @@ _LIBSIXEL_CHECKED = False
 _LIBSIXEL_ERROR = None
 sixel_output_new = None
 sixel_dither_new = None
-sixel_dither_initialize = None
+sixel_dither_set_palette = None
+sixel_dither_set_pixelformat = None
+sixel_dither_set_optimize_palette = None
+sixel_dither_set_diffusion_type = None
 sixel_dither_unref = None
 sixel_output_unref = None
 sixel_encode = None
 SIXEL_PIXELFORMAT_RGB888 = None
-SIXEL_LARGE_AUTO = None
-SIXEL_REP_AUTO = None
-SIXEL_QUALITY_HIGH = None
+SIXEL_DIFFUSE_NONE = None
 
 
 IMAGE_CELL_PIXEL_WIDTH = 8
 IMAGE_CELL_PIXEL_HEIGHT = 16
 IMAGE_FALLBACK_VERTICAL_SAMPLES_PER_CELL = 2
-IMAGE_SIXEL_MAX_COLORS = 256
+IMAGE_SIXEL_COLOR_LEVELS = 4
+IMAGE_SIXEL_MAX_COLORS = 64
+IMAGE_SIXEL_OPTIMIZE_PALETTE = 1
+IMAGE_SIXEL_CHUNK_CELL_ROWS = 1
+IMAGE_SIXEL_CACHE_MAX_ENTRIES = 512
+IMAGE_SIXEL_CACHE_MAX_BYTES = 32 * 1024 * 1024
+HOMEBREW_QUERY_TIMEOUT_SECONDS = 2
 TEST_FALLBACK_BLEND_DENOMINATOR = 255
 TEST_FALLBACK_CHECKER_TILE_PIXELS = 4
 TEST_FALLBACK_CHECKER_LIGHT_ALPHA = 160
@@ -79,6 +90,7 @@ _FORCE_CELL_BACKGROUND_RENDERING_DEPTH = 0
 _SIXEL_EXCEPTHOOK_INSTALLED = False
 _PREVIOUS_EXCEPTHOOK = None
 _DLL_DIRECTORY_HANDLES = []
+_SIXEL_CACHE = OrderedDict()
 
 
 @contextmanager
@@ -208,9 +220,39 @@ def _configured_sixel_library_path():
     return None
 
 
+def _homebrew_sixel_library_path():
+    if os.name == "nt":
+        return None
+    prefixes = []
+    configured_prefix = os.environ.get("HOMEBREW_PREFIX", "").strip()
+    if configured_prefix:
+        prefixes.append(configured_prefix)
+    brew = shutil.which("brew")
+    if brew:
+        try:
+            result = subprocess.run(
+                [brew, "--prefix", "libsixel"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=HOMEBREW_QUERY_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None and result.returncode == 0 and result.stdout.strip():
+            prefixes.append(result.stdout.strip())
+    names = ("libsixel.1.dylib", "libsixel.dylib", "libsixel.so.1", "libsixel.so")
+    for prefix in prefixes:
+        for name in names:
+            candidate = os.path.join(prefix, "lib", name)
+            if os.path.isfile(candidate):
+                return os.path.abspath(candidate)
+    return None
+
+
 @contextmanager
 def _configured_sixel_library_lookup():
-    configured = _configured_sixel_library_path()
+    configured = _configured_sixel_library_path() or _homebrew_sixel_library_path()
     if not configured:
         yield
         return
@@ -374,22 +416,37 @@ class Image(UIElement):
                 visible_top = max(visible_top, clip_top)
                 visible_bottom = min(visible_bottom, clip_bottom)
             visible_rows = max(0, visible_bottom - visible_top)
-            raw = self._sixel_payload(
-                cols,
-                visible_rows,
-                region_fit,
-                source_rows=rows,
-                crop_top=visible_top - row_off,
-            ) if visible_rows > 0 else ""
-            if raw:
+            if visible_rows > 0:
                 color = getattr(style, "color", None)
                 bg = getattr(style, "background", None)
                 cells = self._blank_cells(width, height, style)
                 for row in range(visible_top, visible_bottom):
                     for col in range(col_off, col_off + cols):
                         cells[row][col] = TerminalCell(" ", color, bg, raw_skip=True)
-                cells[visible_top][col_off] = TerminalCell(" ", color, bg, raw, cols, visible_rows)
-                return cells
+                crop_top = visible_top - row_off
+                crop_bottom = crop_top + visible_rows
+                first_chunk = (crop_top // IMAGE_SIXEL_CHUNK_CELL_ROWS) * IMAGE_SIXEL_CHUNK_CELL_ROWS
+                raw_present = False
+                for chunk_top in range(first_chunk, crop_bottom, IMAGE_SIXEL_CHUNK_CELL_ROWS):
+                    segment_top = max(crop_top, chunk_top)
+                    segment_bottom = min(crop_bottom, chunk_top + IMAGE_SIXEL_CHUNK_CELL_ROWS)
+                    segment_rows = segment_bottom - segment_top
+                    raw = self._sixel_payload(
+                        cols,
+                        segment_rows,
+                        region_fit,
+                        source_rows=rows,
+                        crop_top=segment_top,
+                    )
+                    if not raw:
+                        continue
+                    anchor_row = visible_top + segment_top - crop_top
+                    cells[anchor_row][col_off] = TerminalCell(
+                        " ", color, bg, raw, cols, segment_rows,
+                    )
+                    raw_present = True
+                if raw_present:
+                    return cells
         return self._fallback_cells(width, height, style)
 
     def _effective_style(self):
@@ -705,26 +762,28 @@ def require_sixel_for_image_rendering():
 
 def _load_libsixel():
     global _LIBSIXEL_AVAILABLE, _LIBSIXEL_CHECKED, _LIBSIXEL_ERROR
-    global sixel_output_new, sixel_dither_new, sixel_dither_initialize
+    global sixel_output_new, sixel_dither_new, sixel_dither_set_palette, sixel_dither_set_pixelformat
+    global sixel_dither_set_optimize_palette, sixel_dither_set_diffusion_type
     global sixel_dither_unref, sixel_output_unref, sixel_encode
-    global SIXEL_PIXELFORMAT_RGB888, SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, SIXEL_QUALITY_HIGH
+    global SIXEL_PIXELFORMAT_RGB888, SIXEL_DIFFUSE_NONE
 
     if _LIBSIXEL_CHECKED:
         return _LIBSIXEL_AVAILABLE
     _LIBSIXEL_CHECKED = True
     try:
         with _configured_sixel_library_lookup():
+            import libsixel as loaded_libsixel
             from libsixel import (
                 sixel_output_new as loaded_sixel_output_new,
                 sixel_dither_new as loaded_sixel_dither_new,
-                sixel_dither_initialize as loaded_sixel_dither_initialize,
+                sixel_dither_set_pixelformat as loaded_sixel_dither_set_pixelformat,
+                sixel_dither_set_optimize_palette as loaded_sixel_dither_set_optimize_palette,
+                sixel_dither_set_diffusion_type as loaded_sixel_dither_set_diffusion_type,
                 sixel_dither_unref as loaded_sixel_dither_unref,
                 sixel_output_unref as loaded_sixel_output_unref,
                 sixel_encode as loaded_sixel_encode,
                 SIXEL_PIXELFORMAT_RGB888 as loaded_SIXEL_PIXELFORMAT_RGB888,
-                SIXEL_LARGE_AUTO as loaded_SIXEL_LARGE_AUTO,
-                SIXEL_REP_AUTO as loaded_SIXEL_REP_AUTO,
-                SIXEL_QUALITY_HIGH as loaded_SIXEL_QUALITY_HIGH,
+                SIXEL_DIFFUSE_NONE as loaded_SIXEL_DIFFUSE_NONE,
             )
     except Exception as exc:
         _LIBSIXEL_ERROR = str(exc)
@@ -733,14 +792,19 @@ def _load_libsixel():
 
     sixel_output_new = loaded_sixel_output_new
     sixel_dither_new = loaded_sixel_dither_new
-    sixel_dither_initialize = loaded_sixel_dither_initialize
+    # libsixel-python 0.5.0 exposes this wrapper with a Python-2-only string
+    # conversion, so bind the same native symbol directly for a bytes palette.
+    loaded_libsixel._sixel.sixel_dither_set_palette.restype = None
+    loaded_libsixel._sixel.sixel_dither_set_palette.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    sixel_dither_set_palette = loaded_libsixel._sixel.sixel_dither_set_palette
+    sixel_dither_set_pixelformat = loaded_sixel_dither_set_pixelformat
+    sixel_dither_set_optimize_palette = loaded_sixel_dither_set_optimize_palette
+    sixel_dither_set_diffusion_type = loaded_sixel_dither_set_diffusion_type
     sixel_dither_unref = loaded_sixel_dither_unref
     sixel_output_unref = loaded_sixel_output_unref
     sixel_encode = loaded_sixel_encode
     SIXEL_PIXELFORMAT_RGB888 = loaded_SIXEL_PIXELFORMAT_RGB888
-    SIXEL_LARGE_AUTO = loaded_SIXEL_LARGE_AUTO
-    SIXEL_REP_AUTO = loaded_SIXEL_REP_AUTO
-    SIXEL_QUALITY_HIGH = loaded_SIXEL_QUALITY_HIGH
+    SIXEL_DIFFUSE_NONE = loaded_SIXEL_DIFFUSE_NONE
     _LIBSIXEL_ERROR = None
     _LIBSIXEL_AVAILABLE = True
     return True
@@ -767,7 +831,6 @@ def _load_image(path):
         return image.convert("RGBA")
 
 
-@lru_cache(maxsize=128)
 def _sixel_for_image(path, width_cells, height_cells, fit, align, valign, background_rgb=(0, 0, 0), source_height_cells=None, crop_top_cells=0):
     cell_px = _terminal_cell_px()
     cell_w = cell_px[0] if cell_px else IMAGE_CELL_PIXEL_WIDTH
@@ -777,15 +840,32 @@ def _sixel_for_image(path, width_cells, height_cells, fit, align, valign, backgr
     source_pixel_height = max(1, source_height_cells * cell_h)
     crop_top = max(0, int(crop_top_cells) * cell_h)
     crop_height = max(1, int(height_cells) * cell_h)
-    rgba = _fit_image(_load_image(path), pixel_width, source_pixel_height, fit, background=background_rgb, align=align, valign=valign)
-    if crop_top > 0 or crop_height < rgba.height:
-        rgba = rgba.crop((0, crop_top, pixel_width, min(rgba.height, crop_top + crop_height)))
+    key = (
+        path, pixel_width, crop_height, fit, align, valign,
+        tuple(background_rgb), source_pixel_height, crop_top,
+    )
+    cached = _SIXEL_CACHE.get(key)
+    if cached is not None:
+        _SIXEL_CACHE.move_to_end(key)
+        return cached
+    rgba = _fit_image_rows(
+        _load_image(path), pixel_width, source_pixel_height, crop_top, crop_height,
+        fit, background=background_rgb, align=align, valign=valign,
+    )
     require_sixel_for_image_rendering()
     try:
-        return _sixel_encode_libsixel(rgba.convert("RGB"))
+        raw = _sixel_encode_libsixel(rgba.convert("RGB"))
     except Exception:
-        pass
-    return _sixel_encode_python(rgba)
+        raw = _sixel_encode_python(rgba)
+    if len(raw) <= IMAGE_SIXEL_CACHE_MAX_BYTES:
+        _SIXEL_CACHE[key] = raw
+        _SIXEL_CACHE.move_to_end(key)
+        while (
+            len(_SIXEL_CACHE) > IMAGE_SIXEL_CACHE_MAX_ENTRIES
+            or sum(len(payload) for payload in _SIXEL_CACHE.values()) > IMAGE_SIXEL_CACHE_MAX_BYTES
+        ):
+            _SIXEL_CACHE.popitem(last=False)
+    return raw
 
 
 def _sixel_encode_libsixel(rgb_image):
@@ -795,10 +875,17 @@ def _sixel_encode_libsixel(rgb_image):
     output = sixel_output_new(lambda chunk, _priv: buffer.write(chunk))
     dither = sixel_dither_new(IMAGE_SIXEL_MAX_COLORS)
     try:
-        sixel_dither_initialize(
-            dither, data, width, height, SIXEL_PIXELFORMAT_RGB888,
-            SIXEL_LARGE_AUTO, SIXEL_REP_AUTO, SIXEL_QUALITY_HIGH,
+        palette = bytes(
+            component * 255 // (IMAGE_SIXEL_COLOR_LEVELS - 1)
+            for red in range(IMAGE_SIXEL_COLOR_LEVELS)
+            for green in range(IMAGE_SIXEL_COLOR_LEVELS)
+            for blue in range(IMAGE_SIXEL_COLOR_LEVELS)
+            for component in (red, green, blue)
         )
+        sixel_dither_set_palette(dither, palette)
+        sixel_dither_set_pixelformat(dither, SIXEL_PIXELFORMAT_RGB888)
+        sixel_dither_set_optimize_palette(dither, IMAGE_SIXEL_OPTIMIZE_PALETTE)
+        sixel_dither_set_diffusion_type(dither, SIXEL_DIFFUSE_NONE)
         sixel_encode(data, width, height, 3, dither, output)
     finally:
         sixel_dither_unref(dither)
@@ -815,7 +902,7 @@ def _sixel_encode_python(rgba):
     used_colors = sorted(set(p for i, p in enumerate(pixel_data) if alpha_flat[i] > 0))
     color_map = {color: index for index, color in enumerate(used_colors)}
 
-    parts = [SIXEL_ESC + "Pq"]
+    parts = [f'{SIXEL_ESC}Pq"1;1;{image.width};{image.height}']
     for color, index in color_map.items():
         palette_offset = int(color) * 3
         red = palette[palette_offset] if palette_offset < len(palette) else 0
@@ -862,9 +949,18 @@ def _sixel_encode_python(rgba):
 
 
 def _fit_image(image, width, height, fit, background=(0, 0, 0), align=DEFAULT_IMAGE_ALIGN, valign=DEFAULT_IMAGE_VALIGN):
+    return _fit_image_rows(
+        image, width, height, 0, height, fit,
+        background=background, align=align, valign=valign,
+    )
+
+
+def _fit_image_rows(image, width, height, first_row, row_count, fit, background=(0, 0, 0), align=DEFAULT_IMAGE_ALIGN, valign=DEFAULT_IMAGE_VALIGN):
     pillow_image = _require_pillow()
     width = max(1, int(width))
     height = max(1, int(height))
+    first_row = max(0, min(height, int(first_row)))
+    row_count = max(0, min(int(row_count), height - first_row))
     fit = str(fit or DEFAULT_IMAGE_FIT).strip().lower()
     src = image if image.mode == "RGBA" else image.convert("RGBA")
     stretch = fit == "stretch"
@@ -887,28 +983,60 @@ def _fit_image(image, width, height, fit, background=(0, 0, 0), align=DEFAULT_IM
         else _alignment_offset_float(height, drawn_height, valign, "top", "bottom")
     )
 
+    if row_count == 0:
+        return pillow_image.new("RGBA", (width, 0), (*background, 255))
+
+    # Sixel rendering reaches this path once for every visible terminal-cell
+    # row. Stretch and cover always map the requested output strip wholly into
+    # the source raster, so Pillow can run the same area-resampling operation
+    # in native code. Keep the explicit sampler below for contain/letterbox
+    # strips, whose source rectangle may extend outside the image.
+    if stretch or cover:
+        opaque_source = pillow_image.new("RGB", src.size, tuple(background))
+        opaque_source.paste(src.convert("RGB"), mask=src.getchannel("A"))
+        if stretch:
+            source_box = (
+                0.0,
+                first_row * src.height / height,
+                float(src.width),
+                (first_row + row_count) * src.height / height,
+            )
+        else:
+            source_box = (
+                x_offset / scale,
+                (first_row + y_offset) / scale,
+                (width + x_offset) / scale,
+                (first_row + row_count + y_offset) / scale,
+            )
+        return opaque_source.resize(
+            (width, row_count),
+            resample=pillow_image.Resampling.BOX,
+            box=source_box,
+        ).convert("RGBA")
+
     pixels = []
-    for y in range(height):
+    for y in range(row_count):
+        target_y = first_row + y
         for x in range(width):
             if stretch:
                 source_left = x * src.width / width
                 source_right = (x + 1) * src.width / width
-                source_top = y * src.height / height
-                source_bottom = (y + 1) * src.height / height
+                source_top = target_y * src.height / height
+                source_bottom = (target_y + 1) * src.height / height
             elif cover:
                 source_left = (x + x_offset) / scale
                 source_right = (x + 1 + x_offset) / scale
-                source_top = (y + y_offset) / scale
-                source_bottom = (y + 1 + y_offset) / scale
+                source_top = (target_y + y_offset) / scale
+                source_bottom = (target_y + 1 + y_offset) / scale
             else:
                 source_left = (x - x_offset) / scale
                 source_right = (x + 1 - x_offset) / scale
-                source_top = (y - y_offset) / scale
-                source_bottom = (y + 1 - y_offset) / scale
+                source_top = (target_y - y_offset) / scale
+                source_bottom = (target_y + 1 - y_offset) / scale
             pixels.append(_sample_image_area(
                 src, source_left, source_top, source_right, source_bottom, background,
             ) + (255,))
-    result = pillow_image.new("RGBA", (width, height), (*background, 255))
+    result = pillow_image.new("RGBA", (width, row_count), (*background, 255))
     result.putdata(pixels)
     return result
 

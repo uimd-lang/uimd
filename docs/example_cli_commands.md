@@ -99,6 +99,43 @@ macOS/Linux (POSIX shell):
 ./tools/test_all.sh
 ```
 
+For a concise live terminal report plus one complete log with fail-fast
+execution, use:
+
+```bash
+./tools/test_all.sh --live-report
+```
+
+To continue with independent test phases after a test failure and collect all
+failures in the same final recap, use:
+
+```bash
+./tools/test_all.sh --live-report --keep-going
+```
+
+`--live-report` writes every command and every unabridged stdout/stderr line to
+a new `.uimd/test-logs/test-all-<timestamp>.log` file as the processes run. The
+terminal shows one `passed/total` line when each phase completes and immediately
+shows one single-line diagnostic for every failed pytest test, CTest test, Go/
+Rust/Swift test, smoke check, or MCP script/example step. `--keep-going`
+continues with independent test phases after a test failure so the final report
+contains the entire gate; prerequisite configure/generate/build/manifest
+failures remain fail-fast because later results would be invalid. Omit
+`--keep-going` to retain fail-fast execution, or select a new explicit log path
+with `--log-file <path>`. Without `--live-report`, the existing full terminal
+output and behavior are unchanged. At the end, live reporting repeats one
+concise line for every phase, repeats every failed test/assertion/step with its
+one-line reason, prints the total passed/failed/skipped phase count, and points
+to the complete log. If an MCP all-script command aborts before its final
+`RESULT`, its phase line uses the completed per-script `SUMMARY` counts and the
+active script's distinct abort reason is retained alongside any earlier
+assertion or snapshot failures. Such summary-derived MCP counts are marked
+`partial`. An aborted direct-terminal or transport smoke similarly reports its
+observed `PASS` checks plus the failed attempt instead of falling back to a
+generic `0/1 gate` whenever individual check output is available. On macOS the
+POSIX wrapper also exposes an installed Homebrew `libsixel` library to Python
+children when neither `UIMD_LIBSIXEL_PATH` nor `UIMD_LIBSIXEL_DIR` was supplied.
+
 Equivalent explicit command sequence:
 
 ```bash
@@ -129,6 +166,8 @@ Windows over SSH / cmd.exe:
 
 ```bat
 .\tools\test_all.cmd
+.\tools\test_all.cmd --live-report
+.\tools\test_all.cmd --live-report --keep-going
 ```
 
 The Windows wrapper does not yet automate the Go-specific build, runtime, or
@@ -158,6 +197,8 @@ Windows PowerShell only:
 
 ```powershell
 .\tools\test_all.ps1
+.\tools\test_all.ps1 -LiveReport
+.\tools\test_all.ps1 -LiveReport -KeepGoing
 ```
 
 The PowerShell wrapper has the same current Go automation boundary. Use this
@@ -659,9 +700,11 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_configured_sixel_library_lookup_overrides_ctypes_find_library
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_image_sixel_encoder_uses_libsixel_when_available
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_image_sixel_mode_falls_back_for_apple_terminal
+PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_image_sixel_visible_row_resampling_stays_in_native_pillow
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_sixel_unavailable_excepthook_prints_actionable_error_without_traceback
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_xterm_term_name_does_not_imply_sixel_support
 PYTHONPATH=python:src python3 -m pytest python/tests/test_example_resource_parity.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_full_test_report.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_transports.py

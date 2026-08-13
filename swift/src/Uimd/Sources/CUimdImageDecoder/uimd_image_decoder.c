@@ -12,12 +12,12 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#define UIMD_SIXEL_MAX_COLORS 256
+#define UIMD_SIXEL_MAX_COLORS 64
+#define UIMD_SIXEL_COLOR_LEVELS 4
 #define UIMD_SIXEL_FALSE_STATUS_MASK 0x1000
 #define UIMD_SIXEL_PIXEL_FORMAT_RGB888 0x03
-#define UIMD_SIXEL_LARGE_AUTO 0x0
-#define UIMD_SIXEL_REP_AUTO 0x0
-#define UIMD_SIXEL_QUALITY_HIGH 0x1
+#define UIMD_SIXEL_DIFFUSE_NONE 0x1
+#define UIMD_SIXEL_OPTIMIZE_PALETTE 0x1
 #define UIMD_PATH_BUFFER_SIZE 4096
 
 typedef struct sixel_output sixel_output_t;
@@ -26,7 +26,10 @@ typedef int SixelStatus;
 typedef int (*SixelWriteFunction)(char*, int, void*);
 typedef SixelStatus (*SixelOutputNewFunction)(sixel_output_t**, SixelWriteFunction, void*, void*);
 typedef SixelStatus (*SixelDitherNewFunction)(sixel_dither_t**, int, void*);
-typedef SixelStatus (*SixelDitherInitializeFunction)(sixel_dither_t*, unsigned char*, int, int, int, int, int, int);
+typedef void (*SixelDitherSetPaletteFunction)(sixel_dither_t*, unsigned char*);
+typedef void (*SixelDitherSetPixelFormatFunction)(sixel_dither_t*, int);
+typedef void (*SixelDitherSetOptimizePaletteFunction)(sixel_dither_t*, int);
+typedef void (*SixelDitherSetDiffusionTypeFunction)(sixel_dither_t*, int);
 typedef SixelStatus (*SixelEncodeFunction)(unsigned char*, int, int, int, sixel_dither_t*, sixel_output_t*);
 typedef void (*SixelOutputUnrefFunction)(sixel_output_t*);
 typedef void (*SixelDitherUnrefFunction)(sixel_dither_t*);
@@ -35,7 +38,10 @@ typedef struct UimdSixelApi
 {
     SixelOutputNewFunction output_new;
     SixelDitherNewFunction dither_new;
-    SixelDitherInitializeFunction dither_initialize;
+    SixelDitherSetPaletteFunction dither_set_palette;
+    SixelDitherSetPixelFormatFunction dither_set_pixel_format;
+    SixelDitherSetOptimizePaletteFunction dither_set_optimize_palette;
+    SixelDitherSetDiffusionTypeFunction dither_set_diffusion_type;
     SixelEncodeFunction encode;
     SixelOutputUnrefFunction output_unref;
     SixelDitherUnrefFunction dither_unref;
@@ -299,11 +305,16 @@ static UimdSixelApi* uimd_load_sixel_api(void)
 
     api.output_new = (SixelOutputNewFunction)uimd_load_symbol(handle, "sixel_output_new");
     api.dither_new = (SixelDitherNewFunction)uimd_load_symbol(handle, "sixel_dither_new");
-    api.dither_initialize = (SixelDitherInitializeFunction)uimd_load_symbol(handle, "sixel_dither_initialize");
+    api.dither_set_palette = (SixelDitherSetPaletteFunction)uimd_load_symbol(handle, "sixel_dither_set_palette");
+    api.dither_set_pixel_format = (SixelDitherSetPixelFormatFunction)uimd_load_symbol(handle, "sixel_dither_set_pixelformat");
+    api.dither_set_optimize_palette = (SixelDitherSetOptimizePaletteFunction)uimd_load_symbol(handle, "sixel_dither_set_optimize_palette");
+    api.dither_set_diffusion_type = (SixelDitherSetDiffusionTypeFunction)uimd_load_symbol(handle, "sixel_dither_set_diffusion_type");
     api.encode = (SixelEncodeFunction)uimd_load_symbol(handle, "sixel_encode");
     api.output_unref = (SixelOutputUnrefFunction)uimd_load_symbol(handle, "sixel_output_unref");
     api.dither_unref = (SixelDitherUnrefFunction)uimd_load_symbol(handle, "sixel_dither_unref");
-    if (api.output_new == 0 || api.dither_new == 0 || api.dither_initialize == 0 ||
+    if (api.output_new == 0 || api.dither_new == 0 || api.dither_set_palette == 0 ||
+        api.dither_set_pixel_format == 0 || api.dither_set_optimize_palette == 0 ||
+        api.dither_set_diffusion_type == 0 ||
         api.encode == 0 || api.output_unref == 0 || api.dither_unref == 0)
     {
         return 0;
@@ -414,21 +425,26 @@ int uimd_encode_sixel_rgb(const uint8_t* rgb, int width, int height, UimdSixelPa
         return 0;
     }
 
-    unsigned char* mutable_rgb = (unsigned char*)rgb;
-    const SixelStatus status = api->dither_initialize(
-        dither,
-        mutable_rgb,
-        width,
-        height,
-        UIMD_SIXEL_PIXEL_FORMAT_RGB888,
-        UIMD_SIXEL_LARGE_AUTO,
-        UIMD_SIXEL_REP_AUTO,
-        UIMD_SIXEL_QUALITY_HIGH
-    );
-    if (uimd_sixel_status_succeeded(status))
+    unsigned char palette[UIMD_SIXEL_MAX_COLORS * 3];
+    int palette_offset = 0;
+    for (int red = 0; red < UIMD_SIXEL_COLOR_LEVELS; ++red)
     {
-        api->encode(mutable_rgb, width, height, 3, dither, sixel_output);
+        for (int green = 0; green < UIMD_SIXEL_COLOR_LEVELS; ++green)
+        {
+            for (int blue = 0; blue < UIMD_SIXEL_COLOR_LEVELS; ++blue)
+            {
+                palette[palette_offset++] = (unsigned char)(red * 255 / (UIMD_SIXEL_COLOR_LEVELS - 1));
+                palette[palette_offset++] = (unsigned char)(green * 255 / (UIMD_SIXEL_COLOR_LEVELS - 1));
+                palette[palette_offset++] = (unsigned char)(blue * 255 / (UIMD_SIXEL_COLOR_LEVELS - 1));
+            }
+        }
     }
+    unsigned char* mutable_rgb = (unsigned char*)rgb;
+    api->dither_set_palette(dither, palette);
+    api->dither_set_pixel_format(dither, UIMD_SIXEL_PIXEL_FORMAT_RGB888);
+    api->dither_set_optimize_palette(dither, UIMD_SIXEL_OPTIMIZE_PALETTE);
+    api->dither_set_diffusion_type(dither, UIMD_SIXEL_DIFFUSE_NONE);
+    api->encode(mutable_rgb, width, height, 3, dither, sixel_output);
     api->dither_unref(dither);
     api->output_unref(sixel_output);
 

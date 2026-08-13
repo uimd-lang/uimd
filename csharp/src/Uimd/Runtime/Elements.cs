@@ -764,13 +764,15 @@ public sealed class Image : Element
     private const int FallbackVerticalSamplesPerCell = 2;
     private const int SixelBitsPerGlyph = 6;
     private const int SixelColorComponentScale = 100;
-    private const int SixelColorLevels = 6;
-    private const int SixelMaxColors = 256;
+    private const int SixelColorLevels = 4;
+    private const int SixelMaxColors = 64;
     private const int SixelFalseStatusMask = 0x1000;
     private const int SixelPixelFormatRgb888 = 0x03;
-    private const int SixelLargeAuto = 0x0;
-    private const int SixelRepAuto = 0x0;
-    private const int SixelQualityHigh = 0x1;
+    private const int SixelDiffuseNone = 0x1;
+    private const int SixelOptimizePalette = 0x1;
+    private const int SixelChunkCellRows = 1;
+    private const int SixelCacheMaxEntries = 512;
+    private const int SixelCacheMaxBytes = 32 * 1024 * 1024;
     private const int TestFallbackBlendDenominator = 255;
     private const int TestFallbackCheckerTilePixels = 4;
     private const int TestFallbackCheckerLightAlpha = 160;
@@ -795,7 +797,8 @@ public sealed class Image : Element
     private static readonly object RasterCacheLock = new();
     private static readonly Dictionary<string, Raster> RasterCache = new();
     private static readonly object SixelPayloadCacheLock = new();
-    private static readonly Dictionary<ImageRenderCacheKey, string> SixelPayloadCache = new();
+    private static readonly Dictionary<ImageRenderCacheKey, SixelCacheEntry> SixelPayloadCache = new();
+    private static ulong sixelCacheUse;
 
     private static Size? terminalCellPixelOverride;
 
@@ -1246,22 +1249,6 @@ public sealed class Image : Element
         }
         string regionFit = Fit == "contain" ? "cover" : Fit;
         RgbSample background = LetterboxRgb(style);
-        string raw = CachedSixelPayload(
-            source,
-            raster,
-            cols,
-            visibleRows,
-            regionFit,
-            Align,
-            VerticalAlign,
-            background,
-            rows,
-            visibleTop - rowOffset);
-        if (string.IsNullOrEmpty(raw))
-        {
-            return FallbackImageContent(raster, width, height, style);
-        }
-
         for (int row = visibleTop; row < visibleBottom; ++row)
         {
             if (row < 0 || row >= height)
@@ -1277,14 +1264,40 @@ public sealed class Image : Element
                 content[row][col].RawSkip = true;
             }
         }
-        int anchorRow = Math.Clamp(visibleTop, 0, height - 1);
         int anchorCol = Math.Clamp(colOffset, 0, width - 1);
-        TerminalCell anchor = content[anchorRow][anchorCol];
-        anchor.Raw = raw;
-        anchor.RawWidth = cols;
-        anchor.RawHeight = visibleRows;
-        anchor.RawSkip = false;
-        return content;
+        int cropTop = visibleTop - rowOffset;
+        int cropBottom = cropTop + visibleRows;
+        int firstChunk = cropTop / SixelChunkCellRows * SixelChunkCellRows;
+        bool rawPresent = false;
+        for (int chunkTop = firstChunk; chunkTop < cropBottom; chunkTop += SixelChunkCellRows)
+        {
+            int segmentTop = Math.Max(cropTop, chunkTop);
+            int segmentBottom = Math.Min(cropBottom, chunkTop + SixelChunkCellRows);
+            int segmentRows = segmentBottom - segmentTop;
+            string raw = CachedSixelPayload(
+                source,
+                raster,
+                cols,
+                segmentRows,
+                regionFit,
+                Align,
+                VerticalAlign,
+                background,
+                rows,
+                segmentTop);
+            if (string.IsNullOrEmpty(raw))
+            {
+                continue;
+            }
+            int anchorRow = visibleTop + segmentTop - cropTop;
+            TerminalCell anchor = content[anchorRow][anchorCol];
+            anchor.Raw = raw;
+            anchor.RawWidth = cols;
+            anchor.RawHeight = segmentRows;
+            anchor.RawSkip = false;
+            rawPresent = true;
+        }
+        return rawPresent ? content : FallbackImageContent(raster, width, height, style);
     }
 
     private (int Cols, int Rows, int ColOffset, int RowOffset) ImageCellRegion(
@@ -1480,7 +1493,10 @@ public sealed class Image : Element
         }
 
         StringBuilder output = new();
-        output.Append("\x1bPq");
+        output.Append("\x1bPq\"1;1;");
+        output.Append(raster.Width);
+        output.Append(';');
+        output.Append(raster.Height);
         foreach (RgbSample color in colors)
         {
             int index = colorIndexes[color];
@@ -1563,28 +1579,33 @@ public sealed class Image : Element
     {
         sourceHeight = sourceHeight > 0 ? sourceHeight : height;
         cropTop = Math.Max(0, cropTop);
-        ImageRenderCacheKey key = new(source, width, height, fit, align, verticalAlign, background, sourceHeight, cropTop);
+        Size cellPixels = TerminalCellPixels();
+        int targetPixelWidth = Math.Max(1, width) * cellPixels.Width;
+        int visiblePixelHeight = Math.Max(1, height) * cellPixels.Height;
+        int sourcePixelHeight = Math.Max(1, sourceHeight) * cellPixels.Height;
+        int cropTopPixels = cropTop * cellPixels.Height;
+        ImageRenderCacheKey key = new(
+            source, targetPixelWidth, visiblePixelHeight, fit, align, verticalAlign,
+            background, sourcePixelHeight, cropTopPixels);
         lock (SixelPayloadCacheLock)
         {
-            if (SixelPayloadCache.TryGetValue(key, out string? cached))
+            if (SixelPayloadCache.TryGetValue(key, out SixelCacheEntry? cached))
             {
-                return cached;
+                cached.LastUse = ++sixelCacheUse;
+                return cached.Payload;
             }
         }
 
-        Size cellPixels = TerminalCellPixels();
-        Raster fitted = ResizeRaster(
+        Raster payloadRaster = ResizeRasterRows(
             sourceRaster,
-            width * cellPixels.Width,
-            sourceHeight * cellPixels.Height,
+            targetPixelWidth,
+            sourcePixelHeight,
+            cropTopPixels,
+            visiblePixelHeight,
             fit,
             align,
             verticalAlign,
             background);
-        Raster payloadRaster = CropRasterRows(
-            fitted,
-            cropTop * cellPixels.Height,
-            height * cellPixels.Height);
         string raw = LibsixelEncode(payloadRaster);
         if (string.IsNullOrEmpty(raw))
         {
@@ -1593,7 +1614,17 @@ public sealed class Image : Element
 
         lock (SixelPayloadCacheLock)
         {
-            SixelPayloadCache[key] = raw;
+            if (raw.Length <= SixelCacheMaxBytes)
+            {
+                SixelPayloadCache[key] = new SixelCacheEntry(raw, ++sixelCacheUse);
+                while (
+                    SixelPayloadCache.Count > SixelCacheMaxEntries ||
+                    SixelPayloadCache.Values.Sum(entry => entry.Payload.Length) > SixelCacheMaxBytes)
+                {
+                    ImageRenderCacheKey oldest = SixelPayloadCache.MinBy(entry => entry.Value.LastUse).Key;
+                    SixelPayloadCache.Remove(oldest);
+                }
+            }
         }
         return raw;
     }
@@ -1611,9 +1642,11 @@ public sealed class Image : Element
         }
 
         byte[] rgb = raster.ToRgbBytes();
+        byte[] palette = FixedSixelPalette();
         StringBuilder outputText = new();
         GCHandle outputHandle = GCHandle.Alloc(outputText);
         GCHandle rgbHandle = GCHandle.Alloc(rgb, GCHandleType.Pinned);
+        GCHandle paletteHandle = GCHandle.Alloc(palette, GCHandleType.Pinned);
         IntPtr output = IntPtr.Zero;
         IntPtr dither = IntPtr.Zero;
         try
@@ -1629,19 +1662,11 @@ public sealed class Image : Element
                 output = IntPtr.Zero;
                 return "";
             }
-            int status = api.DitherInitialize(
-                dither,
-                rgbData,
-                raster.Width,
-                raster.Height,
-                SixelPixelFormatRgb888,
-                SixelLargeAuto,
-                SixelRepAuto,
-                SixelQualityHigh);
-            if (SixelStatusSucceeded(status))
-            {
-                _ = api.Encode(rgbData, raster.Width, raster.Height, 3, dither, output);
-            }
+            api.DitherSetPalette(dither, paletteHandle.AddrOfPinnedObject());
+            api.DitherSetPixelFormat(dither, SixelPixelFormatRgb888);
+            api.DitherSetOptimizePalette(dither, SixelOptimizePalette);
+            api.DitherSetDiffusionType(dither, SixelDiffuseNone);
+            _ = api.Encode(rgbData, raster.Width, raster.Height, 3, dither, output);
             return outputText.ToString();
         }
         finally
@@ -1654,9 +1679,29 @@ public sealed class Image : Element
             {
                 api.OutputUnref(output);
             }
+            paletteHandle.Free();
             rgbHandle.Free();
             outputHandle.Free();
         }
+    }
+
+    private static byte[] FixedSixelPalette()
+    {
+        byte[] palette = new byte[SixelMaxColors * 3];
+        int offset = 0;
+        for (int red = 0; red < SixelColorLevels; ++red)
+        {
+            for (int green = 0; green < SixelColorLevels; ++green)
+            {
+                for (int blue = 0; blue < SixelColorLevels; ++blue)
+                {
+                    palette[offset++] = (byte)(red * byte.MaxValue / (SixelColorLevels - 1));
+                    palette[offset++] = (byte)(green * byte.MaxValue / (SixelColorLevels - 1));
+                    palette[offset++] = (byte)(blue * byte.MaxValue / (SixelColorLevels - 1));
+                }
+            }
+        }
+        return palette;
     }
 
     private static bool SixelStatusSucceeded(int status)
@@ -1692,12 +1737,30 @@ public sealed class Image : Element
         string verticalAlign,
         RgbSample background)
     {
+        return ResizeRasterRows(
+            raster, targetWidth, targetHeight, 0, Math.Max(1, targetHeight),
+            fit, align, verticalAlign, background);
+    }
+
+    private static Raster ResizeRasterRows(
+        Raster raster,
+        int targetWidth,
+        int targetHeight,
+        int firstTargetRow,
+        int targetRowCount,
+        string fit,
+        string align,
+        string verticalAlign,
+        RgbSample background)
+    {
         targetWidth = Math.Max(1, targetWidth);
         targetHeight = Math.Max(1, targetHeight);
-        byte[] data = new byte[targetWidth * targetHeight * 4];
+        firstTargetRow = Math.Clamp(firstTargetRow, 0, targetHeight);
+        targetRowCount = Math.Clamp(targetRowCount, 0, targetHeight - firstTargetRow);
+        byte[] data = new byte[targetWidth * targetRowCount * 4];
         if (raster.Width <= 0 || raster.Height <= 0)
         {
-            return new Raster(targetWidth, targetHeight, data);
+            return new Raster(targetWidth, targetRowCount, data);
         }
         fit = NormalizedMode(fit, DefaultImageFit);
         bool stretch = fit == "stretch";
@@ -1715,8 +1778,9 @@ public sealed class Image : Element
         double yOffset = stretch ? 0.0 : cover
             ? AlignmentOffsetFloat(drawnHeight, targetHeight, verticalAlign, "top", "bottom")
             : AlignmentOffsetFloat(targetHeight, drawnHeight, verticalAlign, "top", "bottom");
-        for (int y = 0; y < targetHeight; ++y)
+        for (int y = 0; y < targetRowCount; ++y)
         {
+            int targetY = firstTargetRow + y;
             for (int x = 0; x < targetWidth; ++x)
             {
                 double sourceLeft;
@@ -1727,22 +1791,22 @@ public sealed class Image : Element
                 {
                     sourceLeft = x * raster.Width / (double)targetWidth;
                     sourceRight = (x + 1) * raster.Width / (double)targetWidth;
-                    sourceTop = y * raster.Height / (double)targetHeight;
-                    sourceBottom = (y + 1) * raster.Height / (double)targetHeight;
+                    sourceTop = targetY * raster.Height / (double)targetHeight;
+                    sourceBottom = (targetY + 1) * raster.Height / (double)targetHeight;
                 }
                 else if (cover)
                 {
                     sourceLeft = (x + xOffset) / scale;
                     sourceRight = (x + 1 + xOffset) / scale;
-                    sourceTop = (y + yOffset) / scale;
-                    sourceBottom = (y + 1 + yOffset) / scale;
+                    sourceTop = (targetY + yOffset) / scale;
+                    sourceBottom = (targetY + 1 + yOffset) / scale;
                 }
                 else
                 {
                     sourceLeft = (x - xOffset) / scale;
                     sourceRight = (x + 1 - xOffset) / scale;
-                    sourceTop = (y - yOffset) / scale;
-                    sourceBottom = (y + 1 - yOffset) / scale;
+                    sourceTop = (targetY - yOffset) / scale;
+                    sourceBottom = (targetY + 1 - yOffset) / scale;
                 }
                 RgbSample color = SampleRasterArea(raster, sourceLeft, sourceTop, sourceRight, sourceBottom, background);
                 int offset = (y * targetWidth + x) * 4;
@@ -1752,7 +1816,7 @@ public sealed class Image : Element
                 data[offset + 3] = byte.MaxValue;
             }
         }
-        return new Raster(targetWidth, targetHeight, data);
+        return new Raster(targetWidth, targetRowCount, data);
     }
 
     private static int ChannelFromSample(double value)
@@ -1863,35 +1927,6 @@ public sealed class Image : Element
     private static string RgbHex(RgbSample color)
     {
         return $"#{color.Red:x2}{color.Green:x2}{color.Blue:x2}";
-    }
-
-    private static Raster CropRasterRows(Raster raster, int top, int height)
-    {
-        top = Math.Max(0, top);
-        height = Math.Max(1, height);
-        if (raster.Width <= 0 || raster.Height <= 0 || top <= 0 && height >= raster.Height)
-        {
-            return raster;
-        }
-        int bottom = Math.Min(raster.Height, top + height);
-        if (bottom <= top)
-        {
-            return new Raster(raster.Width, 0, Array.Empty<byte>());
-        }
-        byte[] data = new byte[raster.Width * (bottom - top) * 4];
-        for (int y = top; y < bottom; ++y)
-        {
-            for (int x = 0; x < raster.Width; ++x)
-            {
-                RgbaSample pixel = raster.PixelAt(x, y);
-                int offset = ((y - top) * raster.Width + x) * 4;
-                data[offset] = (byte)pixel.Red;
-                data[offset + 1] = (byte)pixel.Green;
-                data[offset + 2] = (byte)pixel.Blue;
-                data[offset + 3] = (byte)pixel.Alpha;
-            }
-        }
-        return new Raster(raster.Width, bottom - top, data);
     }
 
     private RgbSample LetterboxRgb(Style style)
@@ -2061,14 +2096,26 @@ public sealed class Image : Element
 
     private readonly record struct ImageRenderCacheKey(
         string Source,
-        int Width,
-        int Height,
+        int PixelWidth,
+        int PixelHeight,
         string Fit,
         string Align,
         string VerticalAlign,
         RgbSample Background,
-        int SourceHeight,
-        int CropTop);
+        int SourcePixelHeight,
+        int CropTopPixels);
+
+    private sealed class SixelCacheEntry
+    {
+        public SixelCacheEntry(string payload, ulong lastUse)
+        {
+            Payload = payload;
+            LastUse = lastUse;
+        }
+
+        public string Payload { get; }
+        public ulong LastUse { get; set; }
+    }
 
     private readonly record struct RgbSample(int Red, int Green, int Blue);
 
@@ -2084,15 +2131,16 @@ public sealed class Image : Element
     private delegate int SixelDitherNewFunction(out IntPtr dither, int colors, IntPtr allocator);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int SixelDitherInitializeFunction(
-        IntPtr dither,
-        IntPtr pixels,
-        int width,
-        int height,
-        int format,
-        int largest,
-        int representative,
-        int quality);
+    private delegate void SixelDitherSetPaletteFunction(IntPtr dither, IntPtr palette);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SixelDitherSetPixelFormatFunction(IntPtr dither, int format);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SixelDitherSetOptimizePaletteFunction(IntPtr dither, int optimize);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SixelDitherSetDiffusionTypeFunction(IntPtr dither, int diffusion);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int SixelEncodeFunction(IntPtr pixels, int width, int height, int depth, IntPtr dither, IntPtr output);
@@ -2109,7 +2157,10 @@ public sealed class Image : Element
             IntPtr handle,
             SixelOutputNewFunction outputNew,
             SixelDitherNewFunction ditherNew,
-            SixelDitherInitializeFunction ditherInitialize,
+            SixelDitherSetPaletteFunction ditherSetPalette,
+            SixelDitherSetPixelFormatFunction ditherSetPixelFormat,
+            SixelDitherSetOptimizePaletteFunction ditherSetOptimizePalette,
+            SixelDitherSetDiffusionTypeFunction ditherSetDiffusionType,
             SixelEncodeFunction encode,
             SixelOutputUnrefFunction outputUnref,
             SixelDitherUnrefFunction ditherUnref)
@@ -2117,7 +2168,10 @@ public sealed class Image : Element
             Handle = handle;
             OutputNew = outputNew;
             DitherNew = ditherNew;
-            DitherInitialize = ditherInitialize;
+            DitherSetPalette = ditherSetPalette;
+            DitherSetPixelFormat = ditherSetPixelFormat;
+            DitherSetOptimizePalette = ditherSetOptimizePalette;
+            DitherSetDiffusionType = ditherSetDiffusionType;
             Encode = encode;
             OutputUnref = outputUnref;
             DitherUnref = ditherUnref;
@@ -2126,7 +2180,10 @@ public sealed class Image : Element
         public IntPtr Handle { get; }
         public SixelOutputNewFunction OutputNew { get; }
         public SixelDitherNewFunction DitherNew { get; }
-        public SixelDitherInitializeFunction DitherInitialize { get; }
+        public SixelDitherSetPaletteFunction DitherSetPalette { get; }
+        public SixelDitherSetPixelFormatFunction DitherSetPixelFormat { get; }
+        public SixelDitherSetOptimizePaletteFunction DitherSetOptimizePalette { get; }
+        public SixelDitherSetDiffusionTypeFunction DitherSetDiffusionType { get; }
         public SixelEncodeFunction Encode { get; }
         public SixelOutputUnrefFunction OutputUnref { get; }
         public SixelDitherUnrefFunction DitherUnref { get; }
@@ -2332,7 +2389,10 @@ public sealed class Image : Element
         {
             if (!TryGet(handle, "sixel_output_new", out SixelOutputNewFunction? outputNew) ||
                 !TryGet(handle, "sixel_dither_new", out SixelDitherNewFunction? ditherNew) ||
-                !TryGet(handle, "sixel_dither_initialize", out SixelDitherInitializeFunction? ditherInitialize) ||
+                !TryGet(handle, "sixel_dither_set_palette", out SixelDitherSetPaletteFunction? ditherSetPalette) ||
+                !TryGet(handle, "sixel_dither_set_pixelformat", out SixelDitherSetPixelFormatFunction? ditherSetPixelFormat) ||
+                !TryGet(handle, "sixel_dither_set_optimize_palette", out SixelDitherSetOptimizePaletteFunction? ditherSetOptimizePalette) ||
+                !TryGet(handle, "sixel_dither_set_diffusion_type", out SixelDitherSetDiffusionTypeFunction? ditherSetDiffusionType) ||
                 !TryGet(handle, "sixel_encode", out SixelEncodeFunction? encode) ||
                 !TryGet(handle, "sixel_output_unref", out SixelOutputUnrefFunction? outputUnref) ||
                 !TryGet(handle, "sixel_dither_unref", out SixelDitherUnrefFunction? ditherUnref))
@@ -2343,7 +2403,10 @@ public sealed class Image : Element
                 handle,
                 outputNew!,
                 ditherNew!,
-                ditherInitialize!,
+                ditherSetPalette!,
+                ditherSetPixelFormat!,
+                ditherSetOptimizePalette!,
+                ditherSetDiffusionType!,
                 encode!,
                 outputUnref!,
                 ditherUnref!);

@@ -4,6 +4,185 @@
 
 Date: 2026-06-21
 
+- [x] **Install the local image-test dependencies and make aborted smoke/MCP
+  summaries explicitly partial.** Requested on 2026-08-10 after the corrected
+  live report showed that the source-checkout Xcode Python lacks Pillow, the
+  machine lacks the system libsixel library and Python binding, and failed
+  direct-terminal phases fall back to an unhelpful `0/1 gate` despite already
+  completed `PASS` checks. Install libsixel plus Pillow and `libsixel-python`
+  into the exact interpreter used by `tools/test_all.sh`; verify both native and
+  Python dependency discovery. Count observed direct-smoke `PASS` records when
+  a command aborts before its authoritative final `x/y` result, include the
+  terminal failure as one attempted check, and visibly mark summary-derived MCP
+  counts as partial when no final `RESULT` was emitted. Preserve final-result
+  authority, complete raw logs, immediate/final failure reasons, exit behavior,
+  fail-fast/keep-going behavior, test order, and coverage. Add focused reporter
+  regressions, then run the complete full-test gate. Parity decision: dependency
+  installation and developer/test-reporting only; runtime behavior, compiler
+  output, public APIs, examples, MCP assertions, and snapshots are unchanged.
+
+  Completed on 2026-08-10. Homebrew `libsixel 1.8.7-r2`, Xcode-Python-user-site
+  `Pillow 11.3.0`, and `libsixel-python 0.5.0` are installed. The POSIX
+  `test_all.sh` wrapper now discovers Homebrew's libsixel directory without a
+  hardcoded prefix while respecting explicit `UIMD_LIBSIXEL_PATH` and
+  `UIMD_LIBSIXEL_DIR`. Focused validation passed: reporter tests 14/14, image
+  element tests 107/107 with no Pillow skips, Python/C++ MCP example compare
+  1040/1040, Swift direct-terminal smoke 31/31, and Rust direct-terminal smoke
+  8/8. Full-gate log:
+  `.uimd/test-logs/test-all-20260810-164646-764443.log`. Before the intentional
+  stop, every build/unit/lint/smoke/transport phase passed, as did MCP Python/C++
+  1040/1040, C# 1972/1972, Swift 1972/1972, Go 1972/1972, general regression
+  parity 14/14, and Go regression parity 29/29. The final recap's only two
+  failures were manual `KeyboardInterrupt` checkpoints, not product failures:
+  `MCP Rust example compare` was interrupted after 32.4 seconds and `MCP Rust
+  regression parity compare` after 4/4 already-observed assertions. Validation
+  then resumed with the exact interrupted coverage: the complete Rust example
+  compare passed 1972/1972, `source_separator_scroll` passed 4/4, and
+  `stale_scrollview_focus` passed 25/25. Together with the 26 phases that had
+  already completed successfully in the full-gate run, all documented phases
+  and assertions are covered without a product failure. No test process
+  remains running.
+
+- [x] **Make the final live report preserve every distinct failure cause and
+  honest partial MCP counts from an aborted all-example command.** Requested on
+  2026-08-10 after the first real complete `--live-report --keep-going` run.
+  When earlier MCP scripts already emitted snapshot failures and a later script
+  aborts the command for a different reason, retain and print both causes
+  immediately and in the final recap. Attribute a command-level MCP failure to
+  the active script rather than the executable, aggregate completed `SUMMARY`
+  lines when no final `RESULT` is available, and avoid repeating an identical
+  phase/failure label such as `Swift direct terminal smoke | Swift direct
+  terminal smoke`. Preserve the complete raw log, existing exit behavior,
+  fail-fast/keep-going semantics, test execution, and required coverage. Add
+  focused regression cases based on the observed Python image snapshot plus
+  later missing-libsixel abort and multi-command MCP aggregation. Do not install
+  libsixel or change image/runtime/test expectations in this task. Parity
+  decision: reporter-only developer tooling; Python/C++/C#/Swift/Go/Rust runtime
+  behavior, native MCP execution, generated APIs, and snapshots are unaffected.
+
+  Completed on 2026-08-10. The MCP parser now accumulates each completed
+  per-script `SUMMARY` within a command and uses those honest partial counts
+  only when that command never reaches its authoritative final `RESULT`.
+  Command boundaries prevent summary/result double counting while preserving
+  aggregation across the separate regression compare commands. If an MCP
+  command exits after earlier structured failures, the reporter also retains a
+  distinct final diagnostic that is not already represented, attributes it to
+  the active YAML script, and emits it immediately at command failure and again
+  in `FULL TEST RECAP`. Distinct failures within the same script are no longer
+  collapsed, and an identical phase/failure label is printed only once.
+
+  Validation passed: all 12 focused reporter/orchestration tests, including the
+  observed snapshot-mismatch-then-libsixel-abort scenario and partial
+  multi-command MCP aggregation; the complete Python suite with 501 passed and
+  5 skipped; Python syntax compilation; and `git diff --check`. No libsixel
+  package was installed, and runtime behavior, MCP scripts, image expectations,
+  snapshots, and test coverage were not changed.
+
+- [x] **Repeat concise failures in the final full-test recap and stabilize Rust
+  inputs before writing the parity artifact manifest.** Requested on 2026-08-10
+  after `Swift direct terminal smoke` rejected a manifest made stale when
+  `rust/src/uimd/Cargo.lock` changed during the later Rust runtime test. Preserve
+  immediate one-line failure reporting, but retain each deduplicated failure so
+  `--live-report` also ends with one line per phase and one line per failed
+  test/assertion/step including its reason. Keep fail-fast as the default and
+  retain `--keep-going` as the explicit option that attempts independent later
+  phases after a failure; document both concise commands in
+  `docs/example_cli_commands.md`. Make the Rust build prerequisite cover the
+  runtime crate before the manifest is written so subsequent tests cannot
+  mutate tracked Rust dependency metadata and invalidate the artifact gate.
+  Add focused regression coverage for the final recap, failure reasons,
+  fail-fast/keep-going contract, and Rust prerequisite ordering. Parity
+  decision: this changes developer/test orchestration only; runtime behavior,
+  generated APIs, examples, MCP assertions, and cross-platform UI behavior are
+  unaffected. POSIX and Windows wrappers continue forwarding the same options.
+
+  Completed on 2026-08-10. The live reporter now retains every deduplicated
+  failure event after its immediate terminal emission, retains the one-line
+  count/status record for every completed or skipped phase, and ends with a
+  `FULL TEST RECAP` that repeats all phase lines followed by every failed
+  test/assertion/step and its concise reason before the aggregate result and log
+  path. A failed command without a structured suite event uses its final
+  one-line diagnostic, while smoke errors in the observed
+  `ERROR <name> failed: <reason>` format are parsed and emitted immediately.
+  Documentation now shows concise fail-fast and explicit `--keep-going`
+  variants for POSIX, cmd, and PowerShell.
+
+  The Rust prerequisite phase now builds `rust/src/uimd` with release
+  `--all-targets` before examples/regressions and before the artifact manifest
+  is written. This resolves all runtime/dev dependencies and synchronizes its
+  lockfile before source hashes are recorded. Validation passed: 10 focused
+  reporter/orchestration tests; the complete Python suite with 499 passed and
+  5 skipped; Rust release all-targets build, 158/158 Rust tests, and Clippy with
+  warnings denied; an identical SHA-256 for `rust/src/uimd/Cargo.lock` before
+  and after Rust tests/Clippy; a valid parity artifact manifest afterward;
+  Python syntax compilation; and `git diff --check`. A real
+  `./tools/test_all.sh --live-report --keep-going` run confirmed concise phase
+  output, immediate one-line reasons, and continuation after independent Swift,
+  Rust, and MCP failures. The intentionally long remaining MCP platform matrix
+  was stopped after C# compare because missing local libsixel would have repeated
+  the same lengthy environment failure for later platforms; deterministic
+  coverage verifies the final recap itself.
+
+- [x] **Add an opt-in live concise report and one complete log for the full
+  rebuild-and-test gate without changing existing test behavior.** Requested
+  on 2026-08-10 for the command sequence documented in
+  `docs/example_cli_commands.md`. Extend the canonical
+  `tools/uimd_dev.py::test_all()` / `./tools/test_all.sh` path so one command
+  streams every child process output immediately into a single timestamped log
+  while the terminal prints only one completed summary line per build/test
+  phase (`passed/total`, skips, duration), plus an immediate one-line diagnostic
+  for every failed test, assertion, MCP script/example, or failed step. Preserve
+  the complete raw output in the log, return a failing exit status when any gate
+  fails, and keep the current default full-output/fail-fast behavior unchanged;
+  concise reporting must be opt-in. Use explicit parsers for pytest, CTest, Go,
+  Rust/Cargo, Swift, direct-terminal/transport smoke, and MCP result lines, with
+  regression tests for chunked live output, counts, immediate failure emission,
+  ANSI/control cleanup, logging, and exit status. If MCP needs a structured
+  summary addition, make it additive in `src/uimd/testing/mcp_tester.py` and the
+  native `cpp/tools/uimd` command contract without changing assertion execution,
+  rendering, timing, cleanup, snapshots, or existing human-readable output.
+  Parity decision: this is developer/test orchestration only; Python/C++/C#/
+  Swift/Go/Rust runtime behavior and generated public APIs are unaffected, and
+  POSIX/Windows wrappers must expose the same opt-in reporting contract.
+
+  Completed on 2026-08-10. `./tools/test_all.sh --live-report --keep-going`
+  now keeps the existing default full-output/fail-fast mode untouched while the
+  opt-in reporter streams combined child stdout/stderr into a unique flushed
+  `.uimd/test-logs/test-all-<timestamp>.log`. The terminal receives only the
+  log path, one `passed/total` result per completed phase, immediate deduplicated
+  one-line failures, and the final phase total. Parsers cover pytest, CTest, Go
+  packages/tests, Cargo/libtest, Swift XCTest/Testing, direct/transport smokes,
+  and aggregated single- or multi-command MCP results. A tiny opt-in pytest
+  plugin emits the assertion message when each failure completes; existing MCP
+  `FAIL step`, `SUMMARY`, and `RESULT` lines already provided the required live
+  contract, so no MCP tester/runtime behavior changed. `--keep-going` continues
+  independent test phases and commands inside multi-command phases, while
+  configure/generate/build/manifest prerequisites remain fail-fast. POSIX/cmd
+  wrappers already pass arguments through, and PowerShell now exposes matching
+  `-LiveReport`, `-KeepGoing`, and `-LogFile` options.
+
+  Validation passed: all 7 focused reporter/parser/process tests; Python with
+  496 passed and 5 skipped; CTest 26/26; Rust 158/158; Swift 12/12; Python syntax
+  compilation; and `git diff --check`. A real concise no-rebuild run preserved
+  the missing-manifest diagnostics only in the full log and returned exit 1
+  with the correct one-line terminal summaries. The exact full live command
+  regenerated all sources and rebuilt the native tool plus the complete C++
+  runtime/examples/regression tree, then stopped correctly at the prerequisite
+  C# build because this machine has no `dotnet`; `go` is also unavailable.
+  Therefore C#/Go builds and the final manifest-backed MCP matrix could not be
+  executed in this environment. PowerShell (`pwsh`) is likewise unavailable,
+  so its thin argument-forwarding update was source-audited but not executed.
+  Follow-up on 2026-08-10: installed the arm64 .NET 10.0.302 SDK into
+  `~/.dotnet`, exposed it through `~/.local/bin/dotnet`, regenerated the C#
+  `activity_feed` sources, and verified its Release build with 0 warnings and
+  0 errors. Installed Go 1.26.5 through Homebrew and verified the canonical Go
+  runtime tests. A subsequent rebuild regenerated every platform and completed
+  all C++, C#, Go, and Rust builds; the identical remaining Swift build phase
+  completed for every example after granting the Codex sandbox access to the
+  user-level Swift cache. The Rust builds also synchronized the example and
+  regression lockfiles from UIMD 0.4.24 to the current 0.4.25 package version.
+  PowerShell remains unavailable, so its wrapper has still not been executed.
+
 - [x] **Replace mixed implicit Debug/Release artifact discovery with one
   explicit cross-platform build-profile and manifest contract.** Proposed on
   2026-08-01 after a stale Swift release binary was silently selected after a
@@ -1506,8 +1685,119 @@ Date: 2026-06-21
   `git diff --check` passed. No Python, C++, native CLI, `.uimd`, or
   example-domain behavior changed.
 
-- [ ] **Fix disappearing and artifacted Rust Sixel images in `image_browser`
-  1:1 with C++ and verify the real terminal visually**. Reported during direct
+- [x] **Fix disappearing, artifacted, and progressively slow Sixel images in
+  `image_browser` across every runtime and verify the real terminal visually**.
+  Expanded by direct user validation on 2026-08-12: Rust, C++, C#, Go, and
+  Swift all lose images or leave corrupt/stale terminal regions during focus,
+  view changes, and ScrollView movement; sustained 10-20 second scrolling
+  becomes severely slow and can briefly scroll the whole terminal window with
+  stray characters below the app before it recovers. The supplied screenshots
+  show damaged sidebar text/selection blocks and inconsistent image surfaces in
+  Rust and C#. Python cannot currently start from the documented direct
+  `python3` command because it reports the Homebrew native libsixel as missing
+  even though the full-test wrapper discovers it and its Python binding. This
+  invalidates the earlier assumption that C++ is the correct visible reference
+  and expands the task to the shared terminal/Sixel lifecycle plus consistent
+  native-library discovery on Python. Reproduce the same interaction route in
+  all six runtimes, locate the last known-good image/terminal behavior, and fix
+  canonical runtime code only: Python `src/uimd/runtime`, C++ `cpp/src`, then
+  port the identical state/order/geometry/cache/erase contract to C#, Swift,
+  Go, and Rust. Do not change the example, force fallback, add sleeps, weaken
+  tests, or treat headless MCP metadata parity as visible-terminal proof. Add a
+  real PTY/terminal regression that exercises repeated scroll/view/focus redraw
+  and bounds emitted Sixel work, verify native terminal scrolling/restoration,
+  and make the ordinary Python launch discover the same installed libsixel as
+  the canonical full-test environment without machine-specific paths.
+
+  Diagnosis on 2026-08-12: iTerm2 reports no `CSI 16 t` cell-size response;
+  its proprietary `OSC 1337;ReportCellSize` reports a 17x7-point cell with a
+  Retina scale of 2, while `TIOCGWINSZ` reports the exact corresponding 34x14
+  physical-pixel cell. The generic `CSI 14 t` fallback is unsafe in iTerm2
+  because it reports the window frame rather than the terminal text grid. A
+  real-size 107x37 C++ PTY reproduction emitted 786,231 bytes and 12 Sixel
+  payloads for the first frame; the 1,022x1,020 main payload alone used 490,601
+  bytes and ended exactly on terminal row 37. Gallery scroll frames then took
+  4.1 seconds/226,277 bytes, followed by 28.5 seconds/762,320 bytes and 25.9
+  seconds/706,199 bytes as new clipped payload variants were generated. This
+  reproduces the user's progressive slowdown without an example-specific
+  cause. Inline Sixel advances the terminal cursor by image rows; any decoded
+  overrun at the bottom scrolls iTerm2's alternate grid, invalidates the
+  runtime's `previous` terminal buffer, and explains the shifted/stale text and
+  disappearing unchanged images in the supplied screenshots.
+
+  Parity implementation contract: Python
+  `src/uimd/runtime/{application.py,image.py,rendering.py}` remains the shared
+  semantic reference; C++
+  `cpp/src/{terminal/TerminalBackend.cpp,terminal/TerminalBuffer.cpp,elements/Image.cpp}`
+  is the native structural path; C# `Runtime/{GeneratedWindow.cs,Core.cs,Elements.cs}`,
+  Swift `Uimd.swift` plus `CUimdImageDecoder`, Go `runtime.go/core.go/elements.go`,
+  and Rust `terminal.rs/core.rs/image.rs` must receive the same metric,
+  placement, cache-key/eviction, direct visible-crop, palette/work bound, and
+  no-terminal-scroll order. Protect each raw emission with a temporary scroll
+  region outside its image path when a safe region exists, then reset margins;
+  preserve exact full-grid images through accurate metrics. Include actual
+  pixel target/crop geometry in cache identity, replace unbounded port caches
+  with the same bounded runtime resource policy, and generate only the visible
+  pixel rows rather than resampling a full off-screen image before cropping.
+  Extend the existing direct-terminal emulator to model Sixel raster height and
+  terminal scrolling with nonzero PTY pixel dimensions, and add repeated
+  gallery/ScrollView output-work coverage. No `.uimd`, example, delay, fallback,
+  snapshot mask, or test expectation may hide the defect.
+
+  Implementation/checkpoint on 2026-08-12: the shared six-runtime correction
+  is implemented. Python now discovers Homebrew libsixel dynamically for an
+  ordinary direct launch while still respecting explicit environment paths.
+  Python/C++/C#/Swift/Rust no longer invoke the noisy Homebrew
+  `sixel_dither_initialize()` path, whose palette diagnostics (`making
+  histogram`, `colors found`, `tupletable size`) were written to the same PTY
+  as the UI and are visibly present as fragments in the supplied C# screenshot;
+  they use the same fixed 64-color palette contract instead. All six runtimes
+  now encode only visible pixel rows, split Sixel into terminal-cell-row
+  payloads, include physical target/crop geometry in cache identity, apply the
+  same 512-entry/32-MiB bounded cache policy, emit exact raster dimensions, and
+  protect raw output with temporary scroll margins so inline Sixel cannot
+  scroll the application grid. Go now obtains physical cell pixels through
+  `TIOCGWINSZ` on supported POSIX systems instead of its former fixed 8x16
+  assumption. The direct-terminal emulator models PTY pixel dimensions, Sixel
+  raster height/margins, and physical terminal scrolling.
+
+  Focused validation passed on the final implementation: the rebuilt Python,
+  C++, C#, Swift, Go, and Rust `image_browser` artifacts all passed one
+  persistent repeated Gallery/ScrollView Sixel route with bounded payloads,
+  stable per-frame work, no terminal-scroll commands, no libsixel diagnostics,
+  and intact text surfaces; direct Python startup without
+  `UIMD_LIBSIXEL_PATH`/`UIMD_LIBSIXEL_DIR` discovered the installed Homebrew
+  library, emitted Sixel, and remained alive. Python image/application tests
+  passed 229/229 including a real-libsixel empty-stderr regression; CTest
+  passed 26/26, Go runtime tests passed, Rust passed 158/158 plus Clippy, and
+  Swift passed 12/12. A complete rebuild succeeded for every generated target.
+
+  Canonical full-test checkpoint:
+  `.uimd/test-logs/test-all-20260812-170542-546254.log`. All build, compile,
+  manifest, unit, lint, direct-terminal, and transport phases through Rust MCP
+  transport passed; the expanded direct-terminal phase passed 33/33 and
+  contains the repeated all-six-runtime Sixel regression. MCP Python/C++ passed
+  1040/1040, C++/C# passed 1972/1972 (including `image_browser` 378/378), and
+  C++/Swift passed 1972/1972 (including `image_browser` 378/378). Per the
+  user's request, the run was intentionally interrupted immediately after the
+  Swift PASS; the Go phase had run for only 35 seconds and is recorded as a
+  `KeyboardInterrupt`, while the later full Go/Rust and regression phases were
+  not run in this checkpoint; do not interpret that interruption as a product
+  failure.
+
+  Resumed validation on 2026-08-12 completed the remaining runtime gates. The
+  complete C++/Rust example compare passed 1972/1972. Python/C++ regression
+  parity passed 14/14, C++/Go regressions passed 4/4 and 25/25, and C++/Rust
+  regressions passed 4/4 and 25/25. The resumed aggregate C++/Go example run
+  passed every scenario other than one unrelated `text_editor` FileBrowser
+  fixture/render step; its `image_browser` route passed. A focused final-binary
+  C++/Go `text_editor` rerun passed 251/251, proving the application/runtime
+  route itself is green. The aggregate failure is tracked separately below as
+  a tester target-name/fixture isolation defect. The intentionally interrupted
+  monolithic log is not itself a clean 28/28 replacement.
+
+  Originally reported during direct
+  Rust validation on 2026-07-28: Sixel images intermittently disappear and
   Rust validation on 2026-07-28: Sixel images intermittently disappear and
   leave visual artifacts while scrolling or redrawing `image_browser`.
   Reproduce in a real Sixel-capable macOS terminal using the exact documented
@@ -1555,7 +1845,8 @@ Date: 2026-06-21
   the emitted payload itself is valid. Python syntax checks and
   `git diff --check` passed.
 
-  The task remains open only for the real-terminal pixel gate. The subsequent
+  At that checkpoint the task remained open only for the real-terminal pixel
+  gate. The subsequent
   structural remediation has now ported the C++ TerminalBuffer-owned
   current/previous frame lifecycle, scroll-region/raw rejection, canonical stb
   decode and libsixel/fallback path, terminal-cell metric order, cache keys,
@@ -1573,8 +1864,236 @@ Date: 2026-06-21
   `computer-use` skill's required `node_repl`/Sky tool is not exposed. Grant
   Screen Recording/pixel access to the Codex host, then rerun the exact
   launcher and save before/after-scroll, focus, modal, resize, and redraw
-  screenshots. Do not mark this task complete until those images visually
-  confirm that no Sixel pixels disappear and no artifacts remain.
+  screenshots.
+
+  Completed on 2026-08-13 after the user performed the missing real-terminal
+  visual gate. Direct Python launch with
+  `python3 python/examples/image_browser/image_browser.py`, the C++ build, and
+  the Rust build all rendered and remained functional during interaction; the
+  previously reported disappearing images, terminal corruption, and severe
+  progressive scrolling slowdown did not reproduce. Together with the
+  automated six-runtime PTY, unit, build, compare, and regression results
+  above, this closes the shared Sixel runtime defect. The separate aggregate
+  Go MCP tester target-name/fixture issue below is not an image-rendering
+  failure and remains open independently.
+
+- [x] **Eliminate the remaining Python and Rust Sixel rendering throughput gap
+  relative to C++**. Reported by direct user validation on 2026-08-13 after the
+  disappearing-image/corruption fix: Python `image_browser` renders images
+  extremely slowly, and Rust is visibly faster than Python but still markedly
+  slower than C++. Reproduce the same first render, cached redraw, view switch,
+  and repeated ScrollView route at identical terminal cell/pixel dimensions;
+  record per-frame encode time, emitted bytes/payload count, cache hits/misses,
+  and CPU profiles instead of relying only on wall-clock impressions. Audit
+  Python `src/uimd/runtime/{image.py,rendering.py}`, C++
+  `cpp/src/{elements/Image.cpp,terminal/TerminalBuffer.cpp}`, and Rust
+  `rust/src/uimd/src/{image.rs,core.rs}` structurally 1:1, including decode,
+  resize/crop, quantization, libsixel output callback/buffering, cache lookup,
+  payload splitting, and terminal writes. Fix canonical runtime code only;
+  preserve identical visible geometry, fixed-palette output, bounded cache,
+  scroll-margin safety, and image quality. Do not alter `image_browser`, force
+  fallback, lower resolution/colors, add delays, or weaken parity tests.
+  Required validation: deterministic encode/cache work regression, quantified
+  before/after Python/C++/Rust benchmark at the same PTY pixel geometry,
+  Python image/application tests, CTest, Rust tests plus Clippy, rebuilt three
+  `image_browser` targets, repeated direct-terminal Sixel PTY route, focused
+  image compares at `--compare-app-size 90x35`, real-terminal user retry, and
+  `git diff --check`.
+
+  Implementation checkpoint on 2026-08-13: the Python gap was localized to
+  `_fit_image_rows()`, not libsixel. A representative 70-cell-wide, 30-row
+  cold render spent 11.93 of 12.07 profiled seconds in the interpreted
+  area-resampling loop, making 999,600 `_sample_image_area()` calls; native
+  libsixel encoding consumed only 0.10 seconds. Stretch/cover visible strips
+  now use Pillow's native BOX area resampler with the same source mapping,
+  background alpha flattening, direct visible-row crop, geometry, fixed Sixel
+  palette, and cache identity. Contain/letterbox regions that may map outside
+  the source retain the explicit reference sampler. A deterministic regression
+  proves Sixel stretch/cover strips never enter the Python pixel loop and that
+  separately rendered visible strips are byte-identical to the corresponding
+  crop of the complete resized raster.
+
+  Quantified result at identical 14x34 physical cell geometry: 30 cold Python
+  Sixel strips improved from 6.935 seconds to 0.198 seconds (35x), with the hot
+  cache still effectively immediate. The real 90x35 Gallery transition
+  improved from 6.625 seconds to 0.853 seconds; C++ measured 0.562 and Rust
+  Release 0.561 seconds in the same PTY. At the user's earlier 107x37 geometry,
+  six precise scroll bursts showed Rust first-output latency of 17-48 ms versus
+  C++ 17-39 ms, with Rust emitting no more data and usually completing the
+  output burst sooner. The exact documented Rust Cargo progress launcher
+  started the cached Release app in 0.916 seconds and its Gallery transition
+  remained 0.561 seconds. This does not reproduce a Rust renderer throughput
+  defect; a debug/stale binary or launch/build time must not be conflated with
+  Release interaction performance.
+
+  Focused Python image/application tests passed 230/230 and the complete Python
+  suite passed 512/512 outside the localhost-restricted sandbox. Python compile
+  checks and `git diff --check` passed, and the direct Python/C++/Rust PTY
+  retained intact screens and bounded Sixel payloads. The task remains open for
+  the user's real-terminal retry of the optimized Python runtime and
+  confirmation of the exact Rust command/build mode; only a reproducible
+  Release interaction gap should trigger a Rust runtime change.
+
+  Refined Rust reproduction from the user on 2026-08-13: the slowdown is
+  specific to continuous mouse-wheel scrolling. Rust begins stuttering after
+  roughly ten seconds of sustained wheel input, while C++ remains immediately
+  responsive even after a minute. The earlier benchmark serialized six wheel
+  events by waiting for each frame to become quiet, so it could not expose an
+  input backlog, redundant per-event rendering, unbounded queued work, or
+  cache/state cost under a real burst. Reproduce with identical high-frequency
+  SGR wheel streams for 10-60 seconds without per-event waits; record sent and
+  consumed event counts, first/last-frame latency, output/payload growth,
+  process CPU/RSS, cache occupancy/bytes, and recovery time after input stops.
+  Audit Rust `terminal.rs` input draining/event dispatch and
+  `core.rs` frame lifecycle against the C++ terminal backend/event loop before
+  changing image encoding or cache policy. The fix must coalesce only
+  semantically equivalent pending wheel deltas at the same scope/target and
+  preserve exact final ScrollView offset, focus, modal routing, and one fully
+  consistent post-event render; never drop arbitrary input or add throttling
+  sleeps.
+
+  Rust mouse-wheel implementation checkpoint on 2026-08-13: the sustained
+  reproduction confirmed an input-dispatch backlog rather than a Sixel encode
+  or image-cache regression. With 24 SGR reports submitted every 20 ms for ten
+  seconds at the same 107x37 cells and 14x34 cell pixels, C++ accepted 9,312
+  reports while remaining continuously productive; Rust accepted only 1,752,
+  blocked 427 writes, and produced no output during two complete seconds. Rust
+  `rust/src/uimd/src/terminal.rs` drained the same bounded input batch as C++
+  but dispatched every wheel report individually through hit testing, state
+  cleanup, and rendering. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp` first coalesces each
+  consecutive wheel run, keeps its latest pointer position, sums and clamps
+  the delta to +/-12, preserves non-wheel boundaries, and discards only an
+  exact net-zero run.
+
+  Rust now uses that C++ algorithm 1:1 before event dispatch. It does not
+  throttle, sleep, drop non-wheel input, or add image-browser logic. A unit
+  regression protects positive/negative clamping, latest-position behavior,
+  net-zero cancellation, and key/mouse boundaries. The existing direct PTY
+  smoke now also sends 400 alternating down/up pairs (800 real SGR reports)
+  followed by Ctrl+C to both release binaries while continuously draining
+  output. Before the fix Rust needed 6.118 seconds to drain this sequence and
+  failed the regression's 4.5-second ceiling; after the fix the rebuilt C++
+  app took 0.547 seconds and Rust took 0.801 seconds. Rust runtime tests passed
+  159/159, Clippy passed with `--all-targets -- -D warnings`, canonical
+  `./tools/rebuild_all.sh` completed and refreshed the artifact manifest, and
+  the focused C++/Rust `image_browser` compare passed 378/378 assertions with
+  `--compare-app-size 90x35`. Python syntax checking and `git diff --check`
+  pass. No new test entry point was added, so command documentation did not
+  require another entry. Keep this aggregate throughput task open only for the
+  user's final real-iTerm retry of the optimized Python renderer and the fixed
+  sustained Rust wheel route.
+
+  Completed on 2026-08-13 after the user confirmed that Python image rendering
+  and sustained Rust scrolling now behave correctly in the real iTerm2 route.
+  The subsequent canonical full test completed all 28 phases successfully,
+  including every platform build, unit/lint suite, direct-terminal smoke,
+  complete example compare, and regression parity compare.
+
+- [x] **Restore Go sustained mouse-wheel responsiveness and C# Sixel raster
+  row parity with C++**. Reported by direct iTerm validation on 2026-08-13
+  after the Rust wheel backlog fix. Go `image_browser`, generated and built in
+  Release-equivalent form with the documented `go build` command, appears to
+  develop the same progressive mouse-wheel stutter that Rust previously had.
+  Reproduce it with the identical high-frequency SGR stream and physical PTY
+  geometry used by the C++/Rust regression, then audit Go input draining,
+  consecutive-wheel coalescing, event dispatch, post-event cleanup, and render
+  cadence in `go/src/uimd/runtime.go` against C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`. Preserve every non-wheel
+  boundary, latest pointer position, bounded accumulated delta, exact final
+  ScrollView state, modal routing, and focus; do not throttle, sleep, discard
+  arbitrary input, or change the example.
+
+  In the same user validation, C# `image_browser` emits only one half of each
+  terminal-cell image row, leaving horizontal black bands, while C++, Rust,
+  Swift, Go, and Python render correctly. Reproduce normal, clipped, scrolled,
+  and modal-preview images with real Sixel at identical terminal cell/pixel
+  dimensions. Audit C# image fit/crop/raster geometry, libsixel encoding,
+  payload splitting, cursor anchoring, cell-pixel height, raw-cell coverage,
+  scroll-margin protection, and terminal frame writes in
+  `csharp/src/Uimd/Runtime/{Elements.cs,Core.cs}` structurally against Python
+  `src/uimd/runtime/{image.py,rendering.py}` and C++
+  `cpp/src/{elements/Image.cpp,terminal/TerminalBuffer.cpp}`. Fix the canonical
+  C# runtime only and preserve source dimensions, fit mode, palette, image
+  quality, cache policy, and layout.
+
+  Required validation: failing-then-passing Go wheel coalescing unit cases and
+  the real PTY sustained burst against C++; deterministic C# raster/payload
+  geometry and terminal-emulator row-coverage regressions that fail on the
+  black-band behavior; regenerated and rebuilt C++, Go, and C# `image_browser`;
+  affected Go/C# runtime tests; focused C++/Go and C++/C# image compares with
+  `--compare-app-size 90x35`; repeated real-Sixel scrolling/modal PTY checks;
+  structural post-fix audits against Python/C++; user real-iTerm retry; and
+  `git diff --check`. Do not accept fallback-cell MCP snapshots alone as proof
+  of correct raw Sixel terminal output.
+
+  Implemented on 2026-08-13. The Go slowdown had the same aggregate-input
+  cause as the repaired Rust path: `runInteractiveTerminal()` dispatched and
+  rendered every parsed wheel report separately, while C++ coalesces each
+  consecutive wheel run before dispatch. Go now mirrors C++ in
+  `go/src/uimd/runtime.go`: it drains at most 16,384 input bytes in 256-byte
+  reads, recognizes only canonical SGR wheel buttons 64/65, combines only
+  consecutive wheel events, retains the latest coordinates, clamps the summed
+  delta to +/-12, removes exact net-zero runs, and preserves every key or
+  non-wheel mouse boundary. Focused unit coverage protects positive/negative
+  clamping, cancellation, boundaries, latest coordinates, and strict SGR
+  parsing. In the real PTY burst of 400 alternating down/up pairs followed by
+  Ctrl+C, Go improved from 4.084 seconds before the fix to 0.647 seconds after
+  it; the same rebuilt C++ binary took 0.480 seconds and Rust took 0.772
+  seconds.
+
+  The C# black bands were not caused by image fitting, cropping, encoding,
+  payload segmentation, raw-cell coverage, or cache behavior. Unlike C++, C#
+  deliberately skipped `TIOCGWINSZ` pixel geometry on macOS; when iTerm2 did
+  not answer the CSI 16t query it therefore used the 8x16 fallback even though
+  the PTY reported 14x34 cells. Each 16-pixel Sixel row occupied only half of
+  one physical 34-pixel terminal cell. `GeneratedWindowRuntime` now uses the
+  same ioctl-first metric order as C++ on every POSIX platform. Darwin calls
+  libc's fixed `__ioctl` entry point because direct P/Invoke of the variadic
+  `ioctl` function corrupts the arm64 call frame; Linux retains the ordinary
+  `ioctl` adapter. This is the smallest OS-primitive exception around the same
+  public geometry behavior. The deterministic real-Sixel PTY regression now
+  observes C++ and C# both emitting exact 34-pixel raster rows; before the fix
+  C# emitted 16 while C++ emitted 34.
+
+  Regenerated C++, Go, and C# outputs and the canonical full rebuild completed,
+  including every C++/C#/Go/Rust/Swift example and the parity artifact
+  manifest. Go runtime tests pass; the C# runtime and all C# examples build in
+  Release with zero warnings/errors; the direct PTY wheel comparison and C#
+  cell-geometry regression pass; and the focused C++/Go `image_browser`
+  compare passes 378/378 assertions with `--compare-app-size 90x35`; the
+  focused C++/C# compare also passes 378/378 assertions with zero failed
+  assertions or steps at the same explicit viewport. Python syntax checking
+  and `git diff --check` pass. No new test entry point was added: the existing
+  direct-terminal smoke command now owns both regressions, so command
+  documentation needs no additional entry. Keep this task open only for the
+  user's real-iTerm retry of Go sustained scrolling and C# image rows.
+
+  Completed on 2026-08-13 after the user confirmed both corrected behaviors in
+  iTerm2. The final canonical full test passed all 28/28 phases, including the
+  updated 35-check direct-terminal smoke, Go runtime tests, all C# and Go
+  examples, complete C++/C# and C++/Go example compares, and all regression
+  parity gates.
+
+- [ ] **Recognize Go as a platform target in aggregate MCP compares and keep
+  `{platform}` fixtures isolated under the correct target name**. While
+  resuming the interrupted Sixel full-test checkpoint on 2026-08-12,
+  `./uimd mcp-test --backend python --headless --all --compare
+  cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35` passed
+  all other scenarios but failed `tests/mcp/text_editor.yaml` step 19 because
+  the Go FileBrowser opened the wrong retained fixture directory. Snapshot:
+  `tests/mcp/snapshots/20260812-195215-888447-step-019-text_editor.json`;
+  viewer: `python3 tools/mcp_snapshot_viewer.py
+  tests/mcp/snapshots/20260812-195215-888447-step-019-text_editor.json`.
+  `src/uimd/testing/mcp_tester.py::_compare_target_name()` explicitly
+  recognizes Python, C++, C#, Swift, and Rust, but not Go, so the aggregate
+  `go/examples` root is labeled `examples` and `{platform}` setup/environment
+  paths use that accidental basename. The focused comparison with explicit
+  final C++ and Go `text_editor` binaries passed 251/251. Audit and fix the
+  general target-name and setup isolation path, add a focused MCP tester unit
+  regression for a Go examples root plus `{platform}` fixtures, then rerun the
+  full C++/Go aggregate compare with `--compare-app-size 90x35`; do not change
+  `text_editor`, FileBrowser runtime behavior, snapshots, or waits.
 
 - [x] **Preserve the real terminal when documented Rust example commands run
   through the Cargo progress launcher**. Reported on 2026-07-28: both
