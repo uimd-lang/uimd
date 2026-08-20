@@ -15,6 +15,7 @@ import tempfile
 import time
 
 from full_test_report import FullTestReporter, default_log_path
+from java_toolchain import java_build_env
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,10 @@ GENERATE_TARGETS = (
 )
 SWIFT_GENERATE_TARGET = ("swift/examples", "swift")
 RUST_GENERATE_TARGET = ("rust/examples", "rust")
+JAVA_EXAMPLES_SOURCE_ROOT = Path("python/examples")
+JAVA_EXAMPLES_ROOT = Path("java/examples")
+JAVA_DIALOGS_SOURCE_ROOT = Path("src/uimd/dialogs")
+JAVA_DIALOGS_OUTPUT_ROOT = Path("java/src/main/java/uimd")
 DEFAULT_COMPARE_APP_SIZE = "90x35"
 REGRESSION_PARITY_ROOT = Path("tests/regressions/uimd/parity")
 REGRESSION_PARITY_PYTHON_ROOT = REGRESSION_PARITY_ROOT / "python"
@@ -47,6 +52,7 @@ REGRESSION_PARITY_CPP_SOURCE_ROOT = REGRESSION_PARITY_ROOT / "cpp"
 REGRESSION_PARITY_MANIFEST = REGRESSION_PARITY_ROOT / "all.yaml"
 GO_REGRESSION_PARITY_ROOT = Path("go/regressions/uimd/parity")
 RUST_REGRESSION_PARITY_ROOT = Path("rust/regressions/uimd/parity")
+JAVA_REGRESSION_PARITY_ROOT = Path("java/regressions/uimd/parity")
 REGRESSION_GENERATE_TARGETS = (
     (REGRESSION_PARITY_PYTHON_ROOT, "python"),
     (REGRESSION_PARITY_CPP_SOURCE_ROOT, "cpp"),
@@ -245,6 +251,18 @@ def dotnet_command() -> str:
     return "dotnet"
 
 
+def gradle_wrapper_command() -> list[str | Path]:
+    if is_windows():
+        wrapper = ROOT / "java/gradlew.bat"
+        if not wrapper.is_file():
+            raise FileNotFoundError("Java Gradle wrapper is missing: java/gradlew.bat")
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/c", wrapper]
+    wrapper = ROOT / "java/gradlew"
+    if not wrapper.is_file():
+        raise FileNotFoundError("Java Gradle wrapper is missing: java/gradlew")
+    return [wrapper]
+
+
 def swift_command() -> str:
     if os.environ.get("SWIFT"):
         return os.environ["SWIFT"]
@@ -296,6 +314,10 @@ def should_validate_swift(args: argparse.Namespace) -> bool:
 
 def should_validate_rust(args: argparse.Namespace) -> bool:
     return not args.no_rust and not is_windows()
+
+
+def should_validate_java(args: argparse.Namespace) -> bool:
+    return not args.no_java
 
 
 def ensure_configured(build_dir: Path, *, configuration: str = PARITY_CONFIGURATION) -> None:
@@ -367,6 +389,28 @@ def rust_regression_binary_path(name: str) -> Path:
     )
 
 
+def java_example_binary_path(name: str) -> Path:
+    executable = f"{name}.bat" if is_windows() else name
+    path = ROOT / JAVA_EXAMPLES_ROOT / name / "build/install" / name / "bin" / executable
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Java parity artifact is missing: {path.relative_to(ROOT)}; "
+            "run ./tools/rebuild_all.sh"
+        )
+    return path
+
+
+def java_regression_binary_path(name: str) -> Path:
+    executable = f"{name}.bat" if is_windows() else name
+    path = ROOT / JAVA_REGRESSION_PARITY_ROOT / name / "build/install" / name / "bin" / executable
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Java regression binary not found for {name!r} under "
+            f"{JAVA_REGRESSION_PARITY_ROOT}"
+        )
+    return path
+
+
 def csharp_example_project_path(name: str) -> Path:
     project = ROOT / "csharp/examples" / name / f"{name}.csproj"
     if project.exists():
@@ -434,6 +478,28 @@ def rust_regression_app_dirs() -> list[Path]:
     )
 
 
+def java_example_app_dirs() -> list[Path]:
+    root = ROOT / JAVA_EXAMPLES_ROOT
+    if not root.exists():
+        return []
+    return sorted(
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir() and (directory / "build.gradle").is_file()
+    )
+
+
+def java_regression_app_dirs() -> list[Path]:
+    root = ROOT / JAVA_REGRESSION_PARITY_ROOT
+    if not root.exists():
+        return []
+    return sorted(
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir() and (directory / "build.gradle").is_file()
+    )
+
+
 def swift_example_packages() -> list[Path]:
     return sorted((ROOT / "swift/examples").glob("*/Package.swift"))
 
@@ -444,7 +510,13 @@ def ensure_native_uimd(build_dir: Path, *, config: str | None = None) -> Path:
     return native_uimd_path(build_dir, config=config)
 
 
-def generate_all(uimd: Path, *, include_swift: bool, include_rust: bool) -> None:
+def generate_all(
+    uimd: Path,
+    *,
+    include_swift: bool,
+    include_rust: bool,
+    include_java: bool,
+) -> None:
     for path, target in GENERATE_TARGETS:
         run([uimd, "generate", path, "--target", target])
     if include_swift:
@@ -453,7 +525,36 @@ def generate_all(uimd: Path, *, include_swift: bool, include_rust: bool) -> None
     if include_rust:
         path, target = RUST_GENERATE_TARGET
         run([uimd, "generate", path, "--target", target])
-    generate_regression_parity_if_available(uimd, include_rust=include_rust)
+    if include_java:
+        run(
+            [
+                uimd,
+                "generate",
+                JAVA_EXAMPLES_SOURCE_ROOT,
+                "--target",
+                "java",
+                "--output-dir",
+                JAVA_EXAMPLES_ROOT,
+            ]
+        )
+        run(
+            [
+                uimd,
+                "generate",
+                JAVA_DIALOGS_SOURCE_ROOT,
+                "--target",
+                "java",
+                "--output-dir",
+                JAVA_DIALOGS_OUTPUT_ROOT,
+                "--java-package",
+                "uimd",
+            ]
+        )
+    generate_regression_parity_if_available(
+        uimd,
+        include_rust=include_rust,
+        include_java=include_java,
+    )
 
 
 def build_csharp_example(name: str, configuration: str = PARITY_CONFIGURATION) -> Path:
@@ -494,6 +595,27 @@ def run_go_tests() -> None:
     if go is None:
         raise FileNotFoundError("go executable was not found on PATH")
     run_with_env([go, "test", "./..."], cwd=ROOT / "go/src/uimd", env=go_build_env())
+
+
+def run_gradle(project_dir: Path, *tasks: str) -> None:
+    run_with_env(
+        [*gradle_wrapper_command(), "-p", project_dir, *tasks, "--console=plain"],
+        env=java_build_env(),
+    )
+
+
+def build_all_java_examples() -> None:
+    app_dirs = java_example_app_dirs()
+    regression_dirs = java_regression_app_dirs()
+    if not app_dirs:
+        raise FileNotFoundError("no Java example apps found under java/examples")
+    run_gradle(Path("java"), "assemble")
+    for app_dir in [*app_dirs, *regression_dirs]:
+        run_gradle(app_dir.relative_to(ROOT), "clean", "installDist")
+
+
+def run_java_tests() -> None:
+    run_gradle(Path("java"), "check")
 
 
 def build_all_rust_examples() -> None:
@@ -572,7 +694,29 @@ def run_rust_mcp_transport_smoke() -> None:
     run([sys.executable, "tools/rust_mcp_transport_smoke.py"])
 
 
-def generate_regression_parity_if_available(uimd: Path, *, include_rust: bool) -> None:
+def run_java_direct_terminal_smoke(build_dir: Path) -> None:
+    run(
+        [
+            sys.executable,
+            "tools/java_direct_terminal_smoke.py",
+            "--cpp-build-dir",
+            build_dir,
+            "--java-examples-dir",
+            JAVA_EXAMPLES_ROOT,
+        ]
+    )
+
+
+def run_java_mcp_transport_smoke() -> None:
+    run([sys.executable, "tools/java_mcp_transport_smoke.py"])
+
+
+def generate_regression_parity_if_available(
+    uimd: Path,
+    *,
+    include_rust: bool,
+    include_java: bool,
+) -> None:
     regression_root = ROOT / REGRESSION_PARITY_ROOT
     if not regression_root.exists():
         emit_line(f"==> skip regression parity generation: {REGRESSION_PARITY_ROOT} does not exist")
@@ -588,6 +732,22 @@ def generate_regression_parity_if_available(uimd: Path, *, include_rust: bool) -
                 f"regression parity generation root is missing: {RUST_REGRESSION_PARITY_ROOT}"
             )
         run([uimd, "generate", RUST_REGRESSION_PARITY_ROOT, "--target", "rust"])
+    if include_java:
+        if not (ROOT / JAVA_REGRESSION_PARITY_ROOT).exists():
+            raise FileNotFoundError(
+                f"regression parity generation root is missing: {JAVA_REGRESSION_PARITY_ROOT}"
+            )
+        run(
+            [
+                uimd,
+                "generate",
+                REGRESSION_PARITY_PYTHON_ROOT,
+                "--target",
+                "java",
+                "--output-dir",
+                JAVA_REGRESSION_PARITY_ROOT,
+            ]
+        )
 
 
 def regression_manifest_scripts() -> list[Path]:
@@ -660,6 +820,7 @@ def parity_artifacts(
     *,
     include_swift: bool,
     include_rust: bool,
+    include_java: bool,
 ) -> tuple[list[dict[str, str]], list[str]]:
     artifacts: list[dict[str, str]] = []
     platforms = ["cpp", "csharp", "go", "python"]
@@ -669,6 +830,7 @@ def parity_artifacts(
     go_root = Path("go/examples")
     rust_root = Path("rust/examples")
     swift_root = Path("swift/examples")
+    java_root = JAVA_EXAMPLES_ROOT
 
     for app_dir in python_example_app_dirs():
         name = app_dir.name
@@ -708,6 +870,18 @@ def parity_artifacts(
             artifacts.append(
                 _artifact("rust", "example", app_dir.name, rust_root, rust_example_binary_path(app_dir.name))
             )
+    if include_java:
+        platforms.append("java")
+        for app_dir in java_example_app_dirs():
+            artifacts.append(
+                _artifact(
+                    "java",
+                    "example",
+                    app_dir.name,
+                    java_root,
+                    java_example_binary_path(app_dir.name),
+                )
+            )
 
     regression_python_root = REGRESSION_PARITY_PYTHON_ROOT
     regression_cpp_root = regression_parity_cpp_build_root(build_dir)
@@ -744,6 +918,16 @@ def parity_artifacts(
                     rust_regression_binary_path(name),
                 )
             )
+        if include_java:
+            artifacts.append(
+                _artifact(
+                    "java",
+                    "regression",
+                    name,
+                    JAVA_REGRESSION_PARITY_ROOT,
+                    java_regression_binary_path(name),
+                )
+            )
     return artifacts, platforms
 
 
@@ -752,11 +936,13 @@ def write_parity_manifest(
     *,
     include_swift: bool,
     include_rust: bool,
+    include_java: bool,
 ) -> Path:
     artifacts, platforms = parity_artifacts(
         build_dir,
         include_swift=include_swift,
         include_rust=include_rust,
+        include_java=include_java,
     )
     path = write_manifest(ROOT, artifacts, platforms=platforms)
     emit_line(f"==> wrote parity artifact manifest: {path.relative_to(ROOT)}")
@@ -767,14 +953,24 @@ def rebuild_all(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     validate_swift = should_validate_swift(args)
     validate_rust = should_validate_rust(args)
+    validate_java = should_validate_java(args)
     remove_manifest(ROOT)
     run(cmake_configure_args(build_dir, configuration=PARITY_CONFIGURATION))
     uimd = ensure_native_uimd(build_dir, config=PARITY_CONFIGURATION)
-    generate_all(uimd, include_swift=validate_swift, include_rust=validate_rust)
+    generate_all(
+        uimd,
+        include_swift=validate_swift,
+        include_rust=validate_rust,
+        include_java=validate_java,
+    )
     run(cmake_configure_args(build_dir, configuration=PARITY_CONFIGURATION))
     run(cmake_build_args(build_dir, config=PARITY_CONFIGURATION))
     build_all_csharp_examples(PARITY_CONFIGURATION)
     build_all_go_examples()
+    if validate_java:
+        build_all_java_examples()
+    else:
+        emit_line("==> skip Java runtime, examples, and regressions: --no-java")
     if validate_rust:
         build_all_rust_examples()
     elif args.no_rust:
@@ -792,6 +988,7 @@ def rebuild_all(args: argparse.Namespace) -> None:
         build_dir,
         include_swift=validate_swift,
         include_rust=validate_rust,
+        include_java=validate_java,
     )
     if args.test:
         run(ctest_args(build_dir, config=PARITY_CONFIGURATION))
@@ -935,6 +1132,30 @@ def run_rust_example_compare(
     run(command)
 
 
+def run_java_example_compare(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+) -> None:
+    command: list[str | Path] = [
+        uimd,
+        "mcp-test",
+        "--backend",
+        "python",
+        "--headless",
+        "--all",
+        "--compare",
+        build_dir / "examples",
+        JAVA_EXAMPLES_ROOT,
+    ]
+    if mcp_fast:
+        command.append("--mcp-fast")
+    command.extend(["--compare-app-size", compare_app_size])
+    run(command)
+
+
 def run_regression_compare_if_available(
     uimd: Path,
     build_dir: Path,
@@ -1064,6 +1285,53 @@ def run_rust_regression_compare_if_available(
     return None
 
 
+def run_java_regression_compare_if_available(
+    uimd: Path,
+    build_dir: Path,
+    *,
+    compare_app_size: str,
+    mcp_fast: bool,
+    config: str | None = None,
+) -> PhaseSkip | None:
+    cpp_root_path = regression_parity_cpp_build_root(build_dir)
+    cpp_root = ROOT / cpp_root_path
+    java_root = ROOT / JAVA_REGRESSION_PARITY_ROOT
+    manifest = ROOT / REGRESSION_PARITY_MANIFEST
+    if not cpp_root.exists() and not java_root.exists() and not manifest.exists():
+        emit_line(
+            f"==> skip Java regression parity compare: "
+            f"{JAVA_REGRESSION_PARITY_ROOT} does not exist"
+        )
+        return PhaseSkip(f"{JAVA_REGRESSION_PARITY_ROOT} does not exist")
+    if not cpp_root.exists() or not java_root.exists() or not manifest.exists():
+        if not cpp_root.exists():
+            missing = cpp_root_path
+        elif not java_root.exists():
+            missing = JAVA_REGRESSION_PARITY_ROOT
+        else:
+            missing = REGRESSION_PARITY_MANIFEST
+        raise FileNotFoundError(f"Java regression parity compare root is missing: {missing}")
+
+    for script in regression_manifest_scripts():
+        app_name = script.stem
+        command: list[str | Path] = [
+            uimd,
+            "mcp-test",
+            "--backend",
+            "python",
+            "--headless",
+            "--compare",
+            regression_cpp_binary_path(app_name, build_dir, config=config),
+            java_regression_binary_path(app_name),
+            script,
+        ]
+        if mcp_fast:
+            command.append("--mcp-fast")
+        command.extend(["--compare-app-size", compare_app_size])
+        run(command)
+    return None
+
+
 def test_all(args: argparse.Namespace) -> None:
     global _full_test_reporter
 
@@ -1085,6 +1353,7 @@ def test_all(args: argparse.Namespace) -> None:
     build_dir = Path(args.build_dir)
     validate_swift = should_validate_swift(args)
     validate_rust = should_validate_rust(args)
+    validate_java = should_validate_java(args)
     try:
         if not args.no_rebuild:
             remove_manifest(ROOT)
@@ -1111,6 +1380,7 @@ def test_all(args: argparse.Namespace) -> None:
                     uimd,
                     include_swift=validate_swift,
                     include_rust=validate_rust,
+                    include_java=validate_java,
                 ),
             )
             run_full_test_phase(
@@ -1124,6 +1394,18 @@ def test_all(args: argparse.Namespace) -> None:
                 lambda: build_all_csharp_examples(PARITY_CONFIGURATION),
             )
             run_full_test_phase(phases, "Build Go runtime, examples, regressions", build_all_go_examples)
+            if validate_java:
+                run_full_test_phase(
+                    phases,
+                    "Build Java runtime, examples, regressions",
+                    build_all_java_examples,
+                )
+            else:
+                record_skipped_phase(
+                    phases,
+                    "Build Java runtime, examples, regressions",
+                    "--no-java",
+                )
             if validate_rust:
                 run_full_test_phase(
                     phases,
@@ -1160,6 +1442,7 @@ def test_all(args: argparse.Namespace) -> None:
                     build_dir,
                     include_swift=validate_swift,
                     include_rust=validate_rust,
+                    include_java=validate_java,
                 ),
             )
         else:
@@ -1168,6 +1451,7 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Build C++ runtime, tools, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build C# runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Build Go runtime, examples, regressions", "--no-rebuild")
+            record_skipped_phase(phases, "Build Java runtime, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build Rust runtime, examples, regressions", "--no-rebuild")
             record_skipped_phase(phases, "Build Swift runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
@@ -1193,6 +1477,15 @@ def test_all(args: argparse.Namespace) -> None:
             report_kind="go",
             continue_on_failure=args.keep_going,
         )
+        if validate_java:
+            run_full_test_phase(
+                phases,
+                "Java runtime tests and Checkstyle",
+                run_java_tests,
+                continue_on_failure=args.keep_going,
+            )
+        else:
+            record_skipped_phase(phases, "Java runtime tests and Checkstyle", "--no-java")
         if validate_rust:
             run_full_test_phase(
                 phases,
@@ -1248,6 +1541,27 @@ def test_all(args: argparse.Namespace) -> None:
                 report_kind="smoke",
                 continue_on_failure=args.keep_going,
             )
+        if validate_java and not is_windows():
+            run_full_test_phase(
+                phases,
+                "Java direct terminal smoke",
+                lambda: run_java_direct_terminal_smoke(build_dir),
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
+            )
+            run_full_test_phase(
+                phases,
+                "Java MCP transport smoke",
+                run_java_mcp_transport_smoke,
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
+            )
+        elif not validate_java:
+            record_skipped_phase(phases, "Java direct terminal smoke", "--no-java")
+            record_skipped_phase(phases, "Java MCP transport smoke", "--no-java")
+        else:
+            record_skipped_phase(phases, "Java direct terminal smoke", "POSIX PTY is required")
+            record_skipped_phase(phases, "Java MCP transport smoke", "POSIX PTY is required")
         if validate_rust:
             run_full_test_phase(
                 phases,
@@ -1322,6 +1636,21 @@ def test_all(args: argparse.Namespace) -> None:
             report_kind="mcp",
             continue_on_failure=args.keep_going,
         )
+        if validate_java:
+            run_full_test_phase(
+                phases,
+                "MCP Java example compare",
+                lambda: run_java_example_compare(
+                    uimd,
+                    build_dir,
+                    compare_app_size=args.compare_app_size,
+                    mcp_fast=not args.no_mcp_fast,
+                ),
+                report_kind="mcp",
+                continue_on_failure=args.keep_going,
+            )
+        else:
+            record_skipped_phase(phases, "MCP Java example compare", "--no-java")
         if validate_rust:
             run_full_test_phase(
                 phases,
@@ -1363,6 +1692,26 @@ def test_all(args: argparse.Namespace) -> None:
             report_kind="mcp",
             continue_on_failure=args.keep_going,
         )
+        if validate_java:
+            run_full_test_phase(
+                phases,
+                "MCP Java regression parity compare",
+                lambda: run_java_regression_compare_if_available(
+                    uimd,
+                    build_dir,
+                    compare_app_size=args.compare_app_size,
+                    mcp_fast=not args.no_mcp_fast,
+                    config=PARITY_CONFIGURATION,
+                ),
+                report_kind="mcp",
+                continue_on_failure=args.keep_going,
+            )
+        else:
+            record_skipped_phase(
+                phases,
+                "MCP Java regression parity compare",
+                "--no-java",
+            )
         if validate_rust:
             run_full_test_phase(
                 phases,
@@ -1514,6 +1863,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     rebuild.add_argument("--csharp-config", default=PARITY_CONFIGURATION, choices=(PARITY_CONFIGURATION,))
     rebuild.add_argument("--no-swift", action="store_true")
     rebuild.add_argument("--no-rust", action="store_true")
+    rebuild.add_argument("--no-java", action="store_true")
     rebuild.add_argument("--test", action="store_true")
     rebuild.set_defaults(func=rebuild_all)
 
@@ -1524,6 +1874,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     all_tests.add_argument("--csharp-config", default=PARITY_CONFIGURATION, choices=(PARITY_CONFIGURATION,))
     all_tests.add_argument("--no-swift", action="store_true")
     all_tests.add_argument("--no-rust", action="store_true")
+    all_tests.add_argument("--no-java", action="store_true")
     all_tests.add_argument("--live-report", action="store_true")
     all_tests.add_argument("--log-file")
     all_tests.add_argument("--keep-going", action="store_true")

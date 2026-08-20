@@ -1,0 +1,221 @@
+#!/bin/sh
+
+# Resolve the Java 17 JDK used by the UIMD Java target. This file is shipped
+# with the SDK target and copied into generated application distributions.
+
+UIMD_REQUIRED_JAVA_MAJOR=17
+UIMD_JAVA_MODE=check
+UIMD_JAVA_OUTPUT_PATH=
+UIMD_JAVA_QUIET=false
+
+uimd_java_usage()
+{
+    cat <<'EOF'
+usage: uimd-java [--check | --java-home | --java-command]
+                 [--write-home <path>] [--quiet]
+
+Resolve the Java 17 JDK used by UIMD. UIMD_JAVA_HOME is the explicit
+toolkit-specific override; JAVA_HOME and normal platform installations are
+discovered automatically.
+EOF
+}
+
+uimd_java_error()
+{
+    if [ "$UIMD_JAVA_QUIET" != true ]; then
+        printf '%s\n' "$*" >&2
+    fi
+}
+
+uimd_java_home_is_valid()
+{
+    uimd_candidate_home=$1
+    [ -x "$uimd_candidate_home/bin/java" ] || return 1
+    [ -x "$uimd_candidate_home/bin/javac" ] || return 1
+    uimd_candidate_version=$("$uimd_candidate_home/bin/javac" -version 2>&1) || return 1
+    case "$uimd_candidate_version" in
+        "javac $UIMD_REQUIRED_JAVA_MAJOR"|\
+        "javac $UIMD_REQUIRED_JAVA_MAJOR."*|\
+        "javac $UIMD_REQUIRED_JAVA_MAJOR-"*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+uimd_java_accept_home()
+{
+    uimd_candidate_home=$1
+    if uimd_java_home_is_valid "$uimd_candidate_home"; then
+        UIMD_RESOLVED_JAVA_HOME=$uimd_candidate_home
+        return 0
+    fi
+    return 1
+}
+
+uimd_java_home_from_command()
+{
+    uimd_java_command=$1
+    uimd_reported_home=$(
+        "$uimd_java_command" -XshowSettings:properties -version 2>&1 |
+            sed -n 's/^[[:space:]]*java\.home = //p' |
+            sed -n '1p'
+    )
+    [ -n "$uimd_reported_home" ] || return 1
+    uimd_java_accept_home "$uimd_reported_home"
+}
+
+uimd_java_home_from_brew()
+{
+    command -v brew >/dev/null 2>&1 || return 1
+    uimd_brew_prefix=$(brew --prefix openjdk@17 2>/dev/null || true)
+    [ -n "$uimd_brew_prefix" ] || return 1
+    if uimd_java_accept_home "$uimd_brew_prefix/libexec/openjdk.jdk/Contents/Home"; then
+        return 0
+    fi
+    uimd_java_accept_home "$uimd_brew_prefix"
+}
+
+uimd_resolve_java_home()
+{
+    UIMD_RESOLVED_JAVA_HOME=
+    uimd_system_name=$(uname -s 2>/dev/null || printf 'unknown')
+
+    if [ -n "${UIMD_JAVA_HOME:-}" ]; then
+        if uimd_java_accept_home "$UIMD_JAVA_HOME"; then
+            return 0
+        fi
+        uimd_java_error "uimd-java: UIMD_JAVA_HOME does not point to a Java $UIMD_REQUIRED_JAVA_MAJOR JDK: $UIMD_JAVA_HOME"
+        return 1
+    fi
+
+    if [ -n "${JAVA_HOME:-}" ] && uimd_java_accept_home "$JAVA_HOME"; then
+        return 0
+    fi
+
+    if command -v java >/dev/null 2>&1; then
+        uimd_path_java=$(command -v java)
+        if [ "$uimd_system_name" = Darwin ] && [ "$uimd_path_java" = /usr/bin/java ]; then
+            : # macOS placeholder; standard JDK locations are checked below.
+        elif uimd_java_home_from_command "$uimd_path_java"; then
+            return 0
+        fi
+    fi
+
+    case "$uimd_system_name" in
+        Darwin)
+            if [ -x /usr/libexec/java_home ]; then
+                uimd_candidate_home=$(/usr/libexec/java_home -v "$UIMD_REQUIRED_JAVA_MAJOR" 2>/dev/null || true)
+                if [ -n "$uimd_candidate_home" ] && uimd_java_accept_home "$uimd_candidate_home"; then
+                    return 0
+                fi
+            fi
+            for uimd_candidate_home in \
+                /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+                /usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+                /Library/Java/JavaVirtualMachines/*/Contents/Home \
+                "${HOME:-}/Library/Java/JavaVirtualMachines"/*/Contents/Home
+            do
+                if uimd_java_accept_home "$uimd_candidate_home"; then
+                    return 0
+                fi
+            done
+            if uimd_java_home_from_brew; then
+                return 0
+            fi
+            ;;
+        Linux)
+            for uimd_candidate_home in \
+                /usr/lib/jvm/java-17-openjdk* \
+                /usr/lib/jvm/temurin-17-* \
+                /usr/lib/jvm/jdk-17* \
+                /usr/lib/jvm/*17* \
+                /usr/java/jdk-17* \
+                "${HOME:-}/.sdkman/candidates/java"/17* \
+                "${HOME:-}/.sdkman/candidates/java"/*17*
+            do
+                if uimd_java_accept_home "$uimd_candidate_home"; then
+                    return 0
+                fi
+            done
+            if uimd_java_home_from_brew; then
+                return 0
+            fi
+            ;;
+    esac
+
+    uimd_java_error "uimd-java: Java $UIMD_REQUIRED_JAVA_MAJOR JDK was not found."
+    case "$uimd_system_name" in
+        Darwin)
+            uimd_java_error "Install it once with: brew install openjdk@17"
+            ;;
+        Linux)
+            uimd_java_error "Install your distribution's OpenJDK 17 development package."
+            ;;
+        *)
+            uimd_java_error "Install a Java $UIMD_REQUIRED_JAVA_MAJOR JDK for this platform."
+            ;;
+    esac
+    uimd_java_error "UIMD discovers standard installations automatically; use UIMD_JAVA_HOME only for a non-standard location."
+    return 1
+}
+
+while [ "$#" -gt 0 ]
+do
+    case "$1" in
+        --check)
+            UIMD_JAVA_MODE=check
+            shift
+            ;;
+        --java-home)
+            UIMD_JAVA_MODE=home
+            shift
+            ;;
+        --java-command)
+            UIMD_JAVA_MODE=command
+            shift
+            ;;
+        --write-home)
+            if [ "$#" -lt 2 ]; then
+                uimd_java_error "uimd-java: --write-home requires a path"
+                exit 2
+            fi
+            UIMD_JAVA_MODE=write
+            UIMD_JAVA_OUTPUT_PATH=$2
+            shift 2
+            ;;
+        --quiet)
+            UIMD_JAVA_QUIET=true
+            shift
+            ;;
+        --help|-h)
+            uimd_java_usage
+            exit 0
+            ;;
+        *)
+            uimd_java_error "uimd-java: unknown option: $1"
+            exit 2
+            ;;
+    esac
+done
+
+if ! uimd_resolve_java_home; then
+    exit 1
+fi
+
+case "$UIMD_JAVA_MODE" in
+    home)
+        printf '%s\n' "$UIMD_RESOLVED_JAVA_HOME"
+        ;;
+    command)
+        printf '%s\n' "$UIMD_RESOLVED_JAVA_HOME/bin/java"
+        ;;
+    write)
+        printf '%s\n' "$UIMD_RESOLVED_JAVA_HOME" > "$UIMD_JAVA_OUTPUT_PATH"
+        ;;
+    check)
+        printf 'Java %s JDK: %s\n' "$UIMD_REQUIRED_JAVA_MAJOR" "$UIMD_RESOLVED_JAVA_HOME"
+        ;;
+esac

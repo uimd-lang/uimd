@@ -1,0 +1,51 @@
+plugins
+{
+    id "java-library"
+    id "checkstyle"
+}
+
+group = "org.uimd"
+version = "0.5.0"
+
+repositories
+{
+    mavenCentral()
+}
+
+java
+{
+    toolchain
+    {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    withSourcesJar()
+}
+
+dependencies
+{
+    implementation "net.java.dev.jna:jna:5.18.1"
+    implementation "com.fasterxml.jackson.core:jackson-databind:2.20.1"
+
+    testImplementation platform("org.junit:junit-bom:6.0.3")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+tasks.withType(JavaCompile).configureEach
+{
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(["-Xlint:all", "-Werror"])
+}
+
+tasks.withType(Test).configureEach
+{
+    useJUnitPlatform()
+}
+
+checkstyle
+{
+    // Checkstyle 13.x requires Java 21; 12.3.1 is the final Java 17 line.
+    toolVersion = "12.3.1"
+    configFile = file("config/checkstyle/checkstyle.xml")
+    maxWarnings = 0
+}

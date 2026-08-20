@@ -10,7 +10,8 @@ use the native UIMD launcher for all generation and run commands.
 
 C++ build outputs are local artifacts under `cpp/build` or `cpp/build-windows`.
 C# build outputs are local artifacts under `csharp/examples/*/bin`. They are
-not committed to Git.
+not committed to Git. Java application distributions are local artifacts under
+`java/examples/*/build/install` and are also not committed.
 
 Python tests require `pytest` in the Python environment used by the `python` or
 `python3` command. Install it once if `python -m pytest ...` reports
@@ -68,18 +69,20 @@ Windows PowerShell only:
 On POSIX, the helper runs the full local gate: regenerate/build all supported
 sources including reported-bug regression corpora, build every compiled
 example in the canonical `parity` profile (Release for C++, C#, Swift, and
-Rust; the standard reproducible Go build),
-is available, compile Python sources, run Python unit tests, run C++ `ctest`,
-run Go and Rust runtime tests plus Rust Clippy, run Swift runtime tests on
-POSIX, run direct Swift, Go, and Rust terminal PTY smoke tests against C++, run
-the Rust MCP transport smoke, run Python/C++, C++/C#, C++/Swift, C++/Go, and
-C++/Rust MCP example compare tests with
+Rust; Java 17 through the checked-in Gradle wrapper; and the standard
+reproducible Go build), compile Python sources, run Python unit tests, run C++
+`ctest`, run Go, Java, and Rust runtime tests plus Java Checkstyle and Rust
+Clippy, run Swift runtime tests on POSIX, run direct Swift, Go, Rust, and Java
+terminal PTY smoke tests against C++, run the Rust and Java MCP transport
+smokes, run Python/C++, C++/C#, C++/Swift, C++/Go, C++/Rust, and C++/Java MCP
+example compare tests with
 `--compare-app-size 90x35`, and run the UIMD regression parity compare corpus
-for Python/C++, C++/Go, and C++/Rust when
+for Python/C++, C++/Go, C++/Rust, and C++/Java when
 `tests/regressions/uimd/parity` exists. Pass
 `--no-swift` to the POSIX helper only when the local Swift toolchain is
-intentionally unavailable, or `--no-rust` only when the local Rust toolchain is
-intentionally unavailable.
+intentionally unavailable, `--no-rust` only when the local Rust toolchain is
+intentionally unavailable, or `--no-java` only when Java 17 is intentionally
+unavailable.
 
 Every successful rebuild writes `.uimd/build-manifest.json` with the exact
 artifact paths plus SHA-256 hashes of the artifacts and all build inputs. The
@@ -143,6 +146,7 @@ Equivalent explicit command sequence:
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
+./java/gradlew -p java check
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml
 python3 tools/cargo_with_progress.py clippy --manifest-path rust/src/uimd/Cargo.toml --all-targets -- -D warnings
 swift test --package-path swift/src/Uimd
@@ -150,16 +154,21 @@ python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
 python3 tools/go_direct_terminal_smoke.py --cpp-build-dir cpp/build --go-examples-dir go/examples
 python3 tools/rust_direct_terminal_smoke.py --cpp-build-dir cpp/build --rust-examples-dir rust/examples
 python3 tools/rust_mcp_transport_smoke.py
+python3 tools/java_direct_terminal_smoke.py --cpp-build-dir cpp/build --java-examples-dir java/examples
+python3 tools/java_mcp_transport_smoke.py
 ./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples java/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples rust/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll rust/regressions/uimd/parity/source_separator_scroll/target/release/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus rust/regressions/uimd/parity/stale_scrollview_focus/target/release/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll java/regressions/uimd/parity/source_separator_scroll/build/install/source_separator_scroll/bin/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus java/regressions/uimd/parity/stale_scrollview_focus/build/install/stale_scrollview_focus/bin/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
 Windows over SSH / cmd.exe:
@@ -517,6 +526,38 @@ This Windows form validates generated source and compilation only. Do not use
 it as an interactive direct-terminal run command until the native Go Windows
 console/ConPTY adapter replaces the current POSIX `stty` terminal setup.
 
+## Java Examples
+
+Java uses the checked-in Gradle wrapper and an automatically discovered Java
+17 JDK. The wrapper and generated distribution launcher share the SDK resolver,
+so a normal JDK installation needs no per-shell `JAVA_HOME` export. Each
+command regenerates from the canonical Python `.uimd` source, builds an
+application distribution, and runs its launcher from the repository root.
+
+```bash
+./uimd generate python/examples/activity_feed --target java --output-dir java/examples/activity_feed && ./java/gradlew -p java/examples/activity_feed installDist --console=plain && ./java/examples/activity_feed/build/install/activity_feed/bin/activity_feed
+./uimd generate python/examples/calculator --target java --output-dir java/examples/calculator && ./java/gradlew -p java/examples/calculator installDist --console=plain && ./java/examples/calculator/build/install/calculator/bin/calculator
+./uimd generate python/examples/cells --target java --output-dir java/examples/cells && ./java/gradlew -p java/examples/cells installDist --console=plain && ./java/examples/cells/build/install/cells/bin/cells
+./uimd generate python/examples/contacts_manager --target java --output-dir java/examples/contacts_manager && ./java/gradlew -p java/examples/contacts_manager installDist --console=plain && ./java/examples/contacts_manager/build/install/contacts_manager/bin/contacts_manager
+./uimd generate python/examples/expense_tracker --target java --output-dir java/examples/expense_tracker && ./java/gradlew -p java/examples/expense_tracker installDist --console=plain && ./java/examples/expense_tracker/build/install/expense_tracker/bin/expense_tracker
+./uimd generate python/examples/formular --target java --output-dir java/examples/formular && ./java/gradlew -p java/examples/formular installDist --console=plain && ./java/examples/formular/build/install/formular/bin/formular
+./uimd generate python/examples/image_browser --target java --output-dir java/examples/image_browser && ./java/gradlew -p java/examples/image_browser installDist --console=plain && ./java/examples/image_browser/build/install/image_browser/bin/image_browser
+./uimd generate python/examples/image_gallery --target java --output-dir java/examples/image_gallery && ./java/gradlew -p java/examples/image_gallery installDist --console=plain && ./java/examples/image_gallery/build/install/image_gallery/bin/image_gallery
+./uimd generate python/examples/markdown_viewer --target java --output-dir java/examples/markdown_viewer && ./java/gradlew -p java/examples/markdown_viewer installDist --console=plain && ./java/examples/markdown_viewer/build/install/markdown_viewer/bin/markdown_viewer
+./uimd generate python/examples/special_elements --target java --output-dir java/examples/special_elements && ./java/gradlew -p java/examples/special_elements installDist --console=plain && ./java/examples/special_elements/build/install/special_elements/bin/special_elements
+./uimd generate python/examples/task_board --target java --output-dir java/examples/task_board && ./java/gradlew -p java/examples/task_board installDist --console=plain && ./java/examples/task_board/build/install/task_board/bin/task_board
+./uimd generate python/examples/text_editor --target java --output-dir java/examples/text_editor && ./java/gradlew -p java/examples/text_editor installDist --console=plain && ./java/examples/text_editor/build/install/text_editor/bin/text_editor
+./uimd generate python/examples/widget_gallery --target java --output-dir java/examples/widget_gallery && ./java/gradlew -p java/examples/widget_gallery installDist --console=plain && ./java/examples/widget_gallery/build/install/widget_gallery/bin/widget_gallery
+```
+
+Windows PowerShell generation and build form:
+
+```powershell
+.\uimd.ps1 generate python\examples --target java --output-dir java\examples
+.\java\gradlew.bat -p java check
+Get-ChildItem java\examples -Directory | ForEach-Object { .\java\gradlew.bat -p $_.FullName clean installDist --console=plain }
+```
+
 ## Rust Toolchain Prerequisite
 
 Rust commands require the official Rust toolchain. `cargo` is Rust's build,
@@ -616,6 +657,9 @@ macOS SwiftPM:
 ./uimd generate csharp/examples --target csharp
 ./uimd generate go/examples --target go
 ./uimd generate go/regressions/uimd/parity --target go
+./uimd generate python/examples --target java --output-dir java/examples
+./uimd generate src/uimd/dialogs --target java --output-dir java/src/main/java/uimd --java-package uimd
+./uimd generate tests/regressions/uimd/parity/python --target java --output-dir java/regressions/uimd/parity
 ./uimd generate rust/examples --target rust
 ./uimd generate rust/regressions/uimd/parity --target rust
 ./uimd generate swift/examples --target swift
@@ -637,6 +681,9 @@ POSIX raw form:
 ./uimd generate csharp/examples --target csharp
 ./uimd generate go/examples --target go
 ./uimd generate go/regressions/uimd/parity --target go
+./uimd generate python/examples --target java --output-dir java/examples
+./uimd generate src/uimd/dialogs --target java --output-dir java/src/main/java/uimd --java-package uimd
+./uimd generate tests/regressions/uimd/parity/python --target java --output-dir java/regressions/uimd/parity
 ./uimd generate rust/examples --target rust
 ./uimd generate rust/regressions/uimd/parity --target rust
 ./uimd generate swift/examples --target swift
@@ -647,6 +694,8 @@ cmake --build cpp/build
 for proj in csharp/examples/*/*.csproj; do dotnet build "$proj" --configuration Release; done
 for dir in go/examples/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
 for dir in go/regressions/uimd/parity/*; do if [ -f "$dir/$(basename "$dir").go" ]; then (cd "$dir" && GOCACHE=/tmp/uimd-go-cache go build -o "$(basename "$dir")" .); fi; done
+./java/gradlew -p java assemble --console=plain
+for dir in java/examples/* java/regressions/uimd/parity/*; do if [ -f "$dir/build.gradle" ]; then ./java/gradlew -p "$dir" clean installDist --console=plain; fi; done
 for manifest in rust/examples/*/Cargo.toml rust/regressions/uimd/parity/*/Cargo.toml; do python3 tools/cargo_with_progress.py build --release --manifest-path "$manifest"; done
 for package in swift/examples/*/Package.swift; do swift build -c release --package-path "$(dirname "$package")"; done
 python3 -m compileall python src tests tools
@@ -664,6 +713,9 @@ Windows raw form:
 .\uimd.ps1 generate csharp\examples --target csharp
 .\uimd.ps1 generate go\examples --target go
 .\uimd.ps1 generate go\regressions\uimd\parity --target go
+.\uimd.ps1 generate python\examples --target java --output-dir java\examples
+.\uimd.ps1 generate src\uimd\dialogs --target java --output-dir java\src\main\java\uimd --java-package uimd
+.\uimd.ps1 generate tests\regressions\uimd\parity\python --target java --output-dir java\regressions\uimd\parity
 .\uimd.ps1 generate tests\regressions\uimd\parity\python --target python
 .\uimd.ps1 generate tests\regressions\uimd\parity\cpp --target cpp
 cmake -S cpp -B cpp\build-windows -G "Visual Studio 17 2022" -A x64
@@ -671,6 +723,8 @@ cmake --build cpp\build-windows --config Release
 Get-ChildItem csharp\examples -Filter *.csproj -Recurse | ForEach-Object { dotnet build $_.FullName --configuration Release }
 Get-ChildItem go\examples -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
 Get-ChildItem go\regressions\uimd\parity -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "$($_.Name).go")) { Push-Location $_.FullName; go build -o "$($_.Name).exe" .; Pop-Location } }
+.\java\gradlew.bat -p java assemble --console=plain
+Get-ChildItem java\examples, java\regressions\uimd\parity -Directory | ForEach-Object { if (Test-Path (Join-Path $_.FullName "build.gradle")) { .\java\gradlew.bat -p $_.FullName clean installDist --console=plain } }
 python -m compileall python src tests tools
 ```
 
@@ -682,6 +736,7 @@ cmake --build cpp/build --target uimd_mcp_tester
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k python_and_cpp_tester_backends_have_small_script_parity
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k target_request_failure_diagnostics_include_exit_code_and_bounded_stderr
+PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k parity_manifest_ignores_gradle_build_outputs
 ```
 
 `./uimd mcp-test` defaults to the C++ tester. Use `--backend python` only when
@@ -731,6 +786,33 @@ Windows PowerShell:
 cmake --build cpp\build-windows --target ui_cpp_tests --config Release
 .\cpp\build-windows\Release\ui_cpp_tests.exe
 ctest --test-dir cpp\build-windows -C Release --output-on-failure
+```
+
+## Java Runtime Tests And Static Checks
+
+```bash
+./java/gradlew -p java check
+python3 -m pytest python/tests/test_java_toolchain.py
+./java/gradlew -p java test --tests uimd.GeneratedDialogsTest
+./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest
+./java/gradlew -p java test --tests uimd.GeneratedWindowStackTest
+./java/gradlew -p java test --tests uimd.ImageTest
+UIMD_FORCE_SIXEL=1 ./java/gradlew -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
+./java/gradlew -p java test --tests uimd.McpControllerTest
+./java/gradlew -p java test --tests uimd.terminal.InputParserTest
+```
+
+Windows PowerShell:
+
+```powershell
+.\java\gradlew.bat -p java check
+.\java\gradlew.bat -p java test --tests uimd.GeneratedDialogsTest
+.\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest
+.\java\gradlew.bat -p java test --tests uimd.GeneratedWindowStackTest
+.\java\gradlew.bat -p java test --tests uimd.ImageTest
+$env:UIMD_FORCE_SIXEL = "1"; .\java\gradlew.bat -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
+.\java\gradlew.bat -p java test --tests uimd.McpControllerTest
+.\java\gradlew.bat -p java test --tests uimd.terminal.InputParserTest
 ```
 
 ## Swift Runtime Tests
@@ -818,6 +900,21 @@ copy notification, standard-dialog Escape flash, bounded image redraw/Sixel
 output, and explicit Quit. The MCP smoke covers stdio, TCP, HTTP,
 batch/notification behavior, generated metadata/app-tool schemas, and clear
 failure for unsupported transports.
+
+## Java Direct Terminal And MCP Transport Smoke Tests
+
+macOS/Linux POSIX terminals:
+
+```bash
+python3 tools/java_direct_terminal_smoke.py --cpp-build-dir cpp/build --java-examples-dir java/examples
+python3 tools/java_mcp_transport_smoke.py
+```
+
+The direct-terminal gate additionally verifies Java Sixel row geometry,
+bounded repeated Sixel scrolling, and the sustained 800-report mouse-wheel
+burst against C++. The transport gate covers Java stdio, TCP, HTTP,
+interactive MCP/terminal concurrency, repeated modal lifecycle, batches,
+notifications, generated app tools, and unsupported-transport diagnostics.
 
 ## Native CLI Smoke Tests
 
@@ -1122,6 +1219,31 @@ POSIX comparisons.
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus rust/regressions/uimd/parity/stale_scrollview_focus/target/release/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
+## C++/Java MCP Compare Tests
+
+Build the Java examples and regressions with `installDist` before running these
+comparisons.
+
+```bash
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples java/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed java/examples/activity_feed/build/install/activity_feed/bin/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator java/examples/calculator/build/install/calculator/bin/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/cells/cells java/examples/cells/build/install/cells/bin/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/contacts_manager/contacts_manager java/examples/contacts_manager/build/install/contacts_manager/bin/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/expense_tracker/expense_tracker java/examples/expense_tracker/build/install/expense_tracker/bin/expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/formular/formular java/examples/formular/build/install/formular/bin/formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_browser/image_browser java/examples/image_browser/build/install/image_browser/bin/image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery java/examples/image_gallery/build/install/image_gallery/bin/image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery java/examples/image_gallery/build/install/image_gallery/bin/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/markdown_viewer/markdown_viewer java/examples/markdown_viewer/build/install/markdown_viewer/bin/markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/special_elements/special_elements java/examples/special_elements/build/install/special_elements/bin/special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/task_board/task_board java/examples/task_board/build/install/task_board/bin/task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/text_editor/text_editor java/examples/text_editor/build/install/text_editor/bin/text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/widget_gallery/widget_gallery java/examples/widget_gallery/build/install/widget_gallery/bin/widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll java/regressions/uimd/parity/source_separator_scroll/build/install/source_separator_scroll/bin/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus java/regressions/uimd/parity/stale_scrollview_focus/build/install/stale_scrollview_focus/bin/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
+```
+
 ## Compare MCP Tests
 
 Recommended cross-platform helper commands:
@@ -1197,6 +1319,8 @@ Raw POSIX form:
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll java/regressions/uimd/parity/source_separator_scroll/build/install/source_separator_scroll/bin/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus java/regressions/uimd/parity/stale_scrollview_focus/build/install/stale_scrollview_focus/bin/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/calculator/calculator.py cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/cells/cells.py cpp/build/examples/cells/cells tests/mcp/cells.yaml --compare-app-size 90x35 --mcp-fast
@@ -1220,10 +1344,13 @@ Raw Windows PowerShell form:
 .\uimd.ps1 mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples java\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe java\regressions\uimd\parity\source_separator_scroll\build\install\source_separator_scroll\bin\source_separator_scroll.bat tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe java\regressions\uimd\parity\stale_scrollview_focus\build\install\stale_scrollview_focus\bin\stale_scrollview_focus.bat tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
@@ -1234,10 +1361,13 @@ Raw Windows cmd.exe form:
 .\uimd.cmd mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples java\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe java\regressions\uimd\parity\source_separator_scroll\build\install\source_separator_scroll\bin\source_separator_scroll.bat tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe java\regressions\uimd\parity\stale_scrollview_focus\build\install\stale_scrollview_focus\bin\stale_scrollview_focus.bat tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
 ```
 

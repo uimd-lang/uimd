@@ -437,7 +437,7 @@ cancel_btn:
     role_label->setCursorStyle(makeStyle({{"background", "#b8d7ff"}, {"color", "#000000"}}));
     role_listbox = &static_cast<ui::ListBox&>(addElement<ui::ListBox>("role_listbox", std::vector<std::string>{"Developer", "Designer", "Manager", "QA", "DevOps", "Tester", "Hacker"}));
     role_listbox->setMultiple(true);
-    role_listbox->setSelectedIndex(0);
+    role_listbox->setSelectedValues(std::vector<std::string>{"Developer"});
     role_listbox->setStyle(makeStyle({{"background", "#0d1524"}, {"color", "#cbd5e1"}}));
     role_listbox->setFocusStyle(makeStyle({{"background", "#1d2f4d"}, {"color", "#ffffff"}}));
     role_listbox->setEditStyle(makeStyle({{"background", "#243a5c"}, {"color", "#cbd5e1"}}));

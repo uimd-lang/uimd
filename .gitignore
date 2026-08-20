@@ -17,6 +17,8 @@ csharp/**/bin/
 csharp/**/obj/
 swift/**/.build/
 rust/**/target/
+java/**/.gradle/
+java/**/build/
 CMakeFiles/
 CMakeCache.txt
 

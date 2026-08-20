@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import signal
@@ -65,6 +66,17 @@ except ModuleNotFoundError:
 SPLIT_SEQUENCE_DELAY_SECONDS = 0.03
 DIALOG_FLASH_CAPTURE_SECONDS = 0.08
 IDLE_CAPTURE_SECONDS = 0.7
+ANIMATION_IDLE_CAPTURE_SECONDS = 0.45
+ANIMATION_IDLE_SAMPLE_COUNT = 2
+
+
+@dataclass(frozen=True)
+class DirectTerminalTarget:
+    display_name: str
+    title_suffix: str
+
+
+RUST_TARGET = DirectTerminalTarget("Rust", "rust")
 
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -94,27 +106,40 @@ def check_binaries(cpp_build_dir: Path, rust_examples_dir: Path) -> None:
         raise FileNotFoundError(f"missing Rust direct-terminal smoke binary:\n{details}")
 
 
-def run_title_ctrl_c_and_teardown(command: list[str]) -> None:
+def run_title_ctrl_c_and_teardown(
+    command: list[str],
+    target: DirectTerminalTarget,
+) -> None:
     with PtyApp(command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
         deadline = time.monotonic() + DEFAULT_TITLE_SECONDS
-        while not app.screen.title.endswith(" [rust]") and time.monotonic() < deadline:
-            app.drain(total_seconds=DEFAULT_QUIET_SECONDS)
-        if not app.screen.title.endswith(" [rust]"):
-            raise AssertionError(f"Rust terminal title is {app.screen.title!r}")
-        output = bytes(app.output)
-        for sequence in (
+        expected_suffix = f" [{target.title_suffix}]"
+        startup_sequences = (
             b"\x1b[?1049h",
             b"\x1b[?1006h",
             b"\x1b[?2004h",
             b"\x1b[>4;2m",
             b"\x1b[16t",
             b"\x1b[14t",
-        ):
+        )
+        while time.monotonic() < deadline:
+            output = bytes(app.output)
+            if (app.screen.title.endswith(expected_suffix)
+                    and all(sequence in output for sequence in startup_sequences)):
+                break
+            app.drain(total_seconds=DEFAULT_QUIET_SECONDS)
+        if not app.screen.title.endswith(expected_suffix):
+            raise AssertionError(
+                f"{target.display_name} terminal title is {app.screen.title!r}"
+            )
+        output = bytes(app.output)
+        for sequence in startup_sequences:
             if sequence not in output:
-                raise AssertionError(f"Rust terminal startup output missing {sequence!r}")
+                raise AssertionError(
+                    f"{target.display_name} terminal startup output missing {sequence!r}"
+                )
         app.send(b"\x03")
         if app.process is None:
-            raise AssertionError("Rust process did not start")
+            raise AssertionError(f"{target.display_name} process did not start")
         app.process.wait(timeout=DEFAULT_STOP_SECONDS)
         app.drain(total_seconds=DEFAULT_QUIET_SECONDS)
         output = bytes(app.output)
@@ -125,16 +150,23 @@ def run_title_ctrl_c_and_teardown(command: list[str]) -> None:
             b"\x1b[?1049l",
         ):
             if sequence not in output:
-                raise AssertionError(f"Rust terminal teardown output missing {sequence!r}")
-    print("PASS Rust title, Ctrl+C, terminal modes, and teardown", flush=True)
+                raise AssertionError(
+                    f"{target.display_name} terminal teardown output missing {sequence!r}"
+                )
+    print(
+        f"PASS {target.display_name} title, Ctrl+C, terminal modes, and teardown",
+        flush=True,
+    )
 
 
-def run_signal_teardown(command: list[str]) -> None:
+def run_signal_teardown(command: list[str], target: DirectTerminalTarget) -> None:
     for caught_signal in (signal.SIGTERM, signal.SIGHUP):
         with PtyApp(command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
             wait_for_screen_text(app, "AC")
             if app.process is None:
-                raise AssertionError("Rust signal test process did not start")
+                raise AssertionError(
+                    f"{target.display_name} signal test process did not start"
+                )
             os.killpg(app.process.pid, caught_signal)
             app.drain(total_seconds=DEFAULT_QUIET_SECONDS)
             app.process.wait(timeout=DEFAULT_STOP_SECONDS)
@@ -142,43 +174,62 @@ def run_signal_teardown(command: list[str]) -> None:
             for sequence in (b"\x1b[>4;0m", b"\x1b[?1006l", b"\x1b[?1049l"):
                 if sequence not in output:
                     raise AssertionError(
-                        f"Rust {caught_signal.name} teardown output missing {sequence!r}"
+                        f"{target.display_name} {caught_signal.name} teardown output "
+                        f"missing {sequence!r}"
                     )
-    print("PASS Rust SIGTERM/SIGHUP restore terminal state", flush=True)
+    print(
+        f"PASS {target.display_name} SIGTERM/SIGHUP restore terminal state",
+        flush=True,
+    )
 
 
-def run_calculator_parity(cpp_command: list[str], rust_command: list[str]) -> None:
+def run_calculator_parity(
+    cpp_command: list[str],
+    target_command: list[str],
+    target: DirectTerminalTarget,
+) -> None:
     def exercise(app: PtyApp) -> None:
         wait_for_screen_text(app, "AC")
         app.send(b"1+2\r")
         wait_for_screen_text(app, "3")
 
     cpp_screen = run_dynamic_screen(cpp_command, ROOT, exercise)
-    rust_screen = run_dynamic_screen(rust_command, ROOT, exercise)
-    assert_equal_screen("calculator raw-key screen", cpp_screen, rust_screen)
+    target_screen = run_dynamic_screen(target_command, ROOT, exercise)
+    assert_equal_screen(
+        "calculator raw-key screen",
+        cpp_screen,
+        target_screen,
+        target.display_name,
+    )
 
-    with PtyApp(rust_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
+    with PtyApp(target_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
         wait_for_screen_text(app, "AC")
         app.send(b"\x1b")
         if app.process is None or app.process.poll() is not None:
-            raise AssertionError("root Escape terminated the Rust application")
+            raise AssertionError(
+                f"root Escape terminated the {target.display_name} application"
+            )
         row, col = wait_for_screen_text(app, " 1 ")
         app.send(sgr_click(col + 1, row))
         wait_for_screen_text(app, "1")
-    print("PASS Rust root Escape and SGR button press/release", flush=True)
+    print(
+        f"PASS {target.display_name} root Escape and SGR button press/release",
+        flush=True,
+    )
 
 
 def run_formular_input_cases(
     cpp_command: list[str],
-    rust_command: list[str],
+    target_command: list[str],
+    target: DirectTerminalTarget,
 ) -> None:
-    with PtyApp(rust_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
+    with PtyApp(target_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
         app.send(b"\t" * 4 + b"\r")
         app.send(b"\x1b[200~split paste\nvalue\x1b[201~")
         wait_for_screen_text(app, "Description      split paste")
         wait_for_screen_text(app, "                  value")
 
-    with PtyApp(rust_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
+    with PtyApp(target_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
         app.send(b"\t")
         send_split_escape_sequence(app, b"\x1b[B")
         send_split_escape_sequence(app, b"\x1b[A")
@@ -186,7 +237,7 @@ def run_formular_input_cases(
         app.send(b"\r" + b"split navigation")
         wait_for_screen_text(app, "Email            split navigation")
 
-    with PtyApp(rust_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
+    with PtyApp(target_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
         app.send(b"\t" * 4 + b"\r" + b"ab\r" + b"cd")
         for sequence in (b"\x1b[A", b"\x1b[D", b"\x1b[C", b"\x1b[B", b"\x1bOA"):
             send_split_escape_sequence(app, sequence)
@@ -205,8 +256,13 @@ def run_formular_input_cases(
         wait_for_screen_text_absent(app, "Copied to clipboard")
 
     cpp_screen = run_dynamic_screen(cpp_command, ROOT, exercise_shift_selection)
-    rust_screen = run_dynamic_screen(rust_command, ROOT, exercise_shift_selection)
-    assert_equal_screen("formular TextArea multi-character selection", cpp_screen, rust_screen)
+    target_screen = run_dynamic_screen(target_command, ROOT, exercise_shift_selection)
+    assert_equal_screen(
+        "formular TextArea multi-character selection",
+        cpp_screen,
+        target_screen,
+        target.display_name,
+    )
 
     def exercise_multiline_selection(app: PtyApp) -> None:
         app.send(b"\t" * 4 + b"\r" + b"abc\rdef")
@@ -215,8 +271,13 @@ def run_formular_input_cases(
         wait_for_screen_text(app, "Description      abcX")
 
     cpp_screen = run_dynamic_screen(cpp_command, ROOT, exercise_multiline_selection)
-    rust_screen = run_dynamic_screen(rust_command, ROOT, exercise_multiline_selection)
-    assert_equal_screen("formular TextArea multiline selection", cpp_screen, rust_screen)
+    target_screen = run_dynamic_screen(target_command, ROOT, exercise_multiline_selection)
+    assert_equal_screen(
+        "formular TextArea multiline selection",
+        cpp_screen,
+        target_screen,
+        target.display_name,
+    )
 
     for action, tab_count in (("save", 9), ("cancel", 10)):
         def exercise_action(app: PtyApp, *, expected_action: str = action, tabs: int = tab_count) -> None:
@@ -225,17 +286,100 @@ def run_formular_input_cases(
             wait_for_screen_text(app, "form:")
 
         cpp_screen = run_dynamic_screen(cpp_command, ROOT, exercise_action)
-        rust_screen = run_dynamic_screen(rust_command, ROOT, exercise_action)
-        assert_equal_screen(f"formular {action} output", cpp_screen, rust_screen)
+        target_screen = run_dynamic_screen(target_command, ROOT, exercise_action)
+        assert_equal_screen(
+            f"formular {action} output",
+            cpp_screen,
+            target_screen,
+            target.display_name,
+        )
     print(
-        "PASS Rust formular input, Save/Cancel close, and terminal YAML output",
+        f"PASS {target.display_name} formular input, Save/Cancel close, "
+        "and terminal YAML output",
+        flush=True,
+    )
+
+
+def run_listbox_mouse_selection(
+    cpp_contacts_command: list[str],
+    target_contacts_command: list[str],
+    cpp_formular_command: list[str],
+    target_formular_command: list[str],
+    target: DirectTerminalTarget,
+) -> None:
+    def exercise_contacts(app: PtyApp) -> None:
+        row, col = wait_for_screen_text(app, "Martin Hrasko")
+        app.send(sgr_click(col + 1, row))
+        wait_for_screen_text(app, "martin.hrasko@example.com")
+
+    cpp_contacts_screen = run_dynamic_screen(
+        cpp_contacts_command,
+        ROOT,
+        exercise_contacts,
+    )
+    target_contacts_screen = run_dynamic_screen(
+        target_contacts_command,
+        ROOT,
+        exercise_contacts,
+    )
+    assert_equal_screen(
+        "contacts_manager single-select ListBox SGR click",
+        cpp_contacts_screen,
+        target_contacts_screen,
+        target.display_name,
+    )
+
+    def exercise_formular(app: PtyApp) -> None:
+        row, col = wait_for_screen_text(app, "Designer")
+        app.send(sgr_click(col + 1, row))
+
+    cpp_formular_screen = run_dynamic_screen(
+        cpp_formular_command,
+        ROOT,
+        exercise_formular,
+    )
+    target_formular_screen = run_dynamic_screen(
+        target_formular_command,
+        ROOT,
+        exercise_formular,
+    )
+    assert_equal_screen(
+        "formular multiple-select ListBox SGR click",
+        cpp_formular_screen,
+        target_formular_screen,
+        target.display_name,
+    )
+
+
+def run_idle_text_gradient_animation(
+    cpp_command: list[str],
+    target_command: list[str],
+    target: DirectTerminalTarget,
+) -> None:
+    def require_idle_updates(command: list[str], platform_name: str) -> None:
+        with PtyApp(command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
+            wait_for_screen_text(app, "Special UI Elements")
+            for sample in range(ANIMATION_IDLE_SAMPLE_COUNT):
+                output_start = len(app.output)
+                app.drain(total_seconds=ANIMATION_IDLE_CAPTURE_SECONDS)
+                if len(app.output) == output_start:
+                    raise AssertionError(
+                        f"{platform_name} animated gradient emitted no terminal update "
+                        f"during idle sample {sample + 1}"
+                    )
+
+    require_idle_updates(cpp_command, "C++")
+    require_idle_updates(target_command, target.display_name)
+    print(
+        f"PASS {target.display_name} animated gradients advance without terminal input",
         flush=True,
     )
 
 
 def run_mouse_selection(
     cpp_command: list[str],
-    rust_command: list[str],
+    target_command: list[str],
+    target: DirectTerminalTarget,
 ) -> None:
     def exercise(app: PtyApp) -> None:
         wait_for_screen_text(app, "Widget Gallery")
@@ -249,11 +393,19 @@ def run_mouse_selection(
         wait_for_screen_text_absent(app, "Copied to clipboard")
 
     cpp_screen = run_dynamic_screen(cpp_command, ROOT, exercise)
-    rust_screen = run_dynamic_screen(rust_command, ROOT, exercise)
-    assert_equal_screen("widget_gallery mouse drag/copy", cpp_screen, rust_screen)
+    target_screen = run_dynamic_screen(target_command, ROOT, exercise)
+    assert_equal_screen(
+        "widget_gallery mouse drag/copy",
+        cpp_screen,
+        target_screen,
+        target.display_name,
+    )
 
 
-def run_dialog_escape_flash(command: list[str]) -> None:
+def run_dialog_escape_flash(
+    command: list[str],
+    target: DirectTerminalTarget,
+) -> None:
     with PtyApp(command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
         row, col = wait_for_screen_text(app, "Clear board")
         app.send(sgr_click(col + 1, row))
@@ -264,17 +416,22 @@ def run_dialog_escape_flash(command: list[str]) -> None:
         app.drain(total_seconds=DIALOG_FLASH_CAPTURE_SECONDS)
         if not focused_button_visible(app, "No"):
             raise AssertionError(
-                "Rust dialog Escape did not render the semantic negative action\n"
+                f"{target.display_name} dialog Escape did not render the semantic "
+                "negative action\n"
                 + app.screen.text()
             )
         wait_for_screen_text(app, "Action canceled.")
         wait_for_screen_text_absent(app, "Delete every task from the board?")
-    print("PASS Rust dialog Escape negative-button flash", flush=True)
+    print(
+        f"PASS {target.display_name} dialog Escape negative-button flash",
+        flush=True,
+    )
 
 
 def run_image_diff_and_quit(
     browser_command: list[str],
     gallery_command: list[str],
+    target: DirectTerminalTarget,
 ) -> None:
     with PtyApp(browser_command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
         wait_for_screen_text(app, "Image items")
@@ -288,7 +445,7 @@ def run_image_diff_and_quit(
         app.drain(total_seconds=IDLE_CAPTURE_SECONDS)
         if app.output[idle_start:]:
             raise AssertionError(
-                "idle Rust image_browser emitted redundant terminal output: "
+                f"idle {target.display_name} image_browser emitted redundant terminal output: "
                 f"{len(app.output) - idle_start} bytes"
             )
         output_start = len(app.output)
@@ -310,9 +467,13 @@ def run_image_diff_and_quit(
         row, col = wait_for_screen_text(app, "Quit")
         app.send(sgr_click(col + 1, row))
         if app.process is None:
-            raise AssertionError("Rust image_gallery did not start")
+            raise AssertionError(f"{target.display_name} image_gallery did not start")
         app.process.wait(timeout=DEFAULT_STOP_SECONDS)
-    print("PASS Rust image diff scheduling, bounded output, and explicit Quit", flush=True)
+    print(
+        f"PASS {target.display_name} image diff scheduling, bounded output, "
+        "and explicit Quit",
+        flush=True,
+    )
 
 
 def documented_cargo_run_command(example: str) -> list[str]:
@@ -402,13 +563,13 @@ def main() -> int:
     ]
 
     run_documented_cargo_launcher_cases()
-    run_title_ctrl_c_and_teardown(rust_calculator)
-    run_signal_teardown(rust_calculator)
-    run_calculator_parity(cpp_calculator, rust_calculator)
-    run_formular_input_cases(cpp_formular, rust_formular)
-    run_mouse_selection(cpp_widget_gallery, rust_widget_gallery)
-    run_dialog_escape_flash(rust_task_board)
-    run_image_diff_and_quit(rust_image_browser, rust_image_gallery)
+    run_title_ctrl_c_and_teardown(rust_calculator, RUST_TARGET)
+    run_signal_teardown(rust_calculator, RUST_TARGET)
+    run_calculator_parity(cpp_calculator, rust_calculator, RUST_TARGET)
+    run_formular_input_cases(cpp_formular, rust_formular, RUST_TARGET)
+    run_mouse_selection(cpp_widget_gallery, rust_widget_gallery, RUST_TARGET)
+    run_dialog_escape_flash(rust_task_board, RUST_TARGET)
+    run_image_diff_and_quit(rust_image_browser, rust_image_gallery, RUST_TARGET)
     print("PASS Rust direct terminal smoke: 8/8 groups passed", flush=True)
     return 0
 

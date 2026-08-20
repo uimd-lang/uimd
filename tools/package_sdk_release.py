@@ -32,6 +32,7 @@ SUPPORTED_PLATFORMS = {
 
 IGNORED_DIR_NAMES = {
     ".build",
+    ".gradle",
     ".git",
     ".mypy_cache",
     ".pytest_cache",
@@ -749,6 +750,22 @@ def package_release(
     )
     copy_file(root / "LICENSE", rust_target / "LICENSE")
 
+    java_target = payload_dir / "targets" / "java"
+    copy_file(root / "java" / "build.gradle", java_target / "build.gradle")
+    copy_file(root / "java" / "settings.gradle", java_target / "settings.gradle")
+    copy_file(root / "java" / "gradlew", java_target / "gradlew", executable=True)
+    copy_file(root / "java" / "gradlew.bat", java_target / "gradlew.bat")
+    copy_file(root / "java" / "uimd-java", java_target / "uimd-java", executable=True)
+    copy_file(root / "java" / "uimd-java.bat", java_target / "uimd-java.bat")
+    copy_file(
+        root / "java" / "uimd-java-launchers.gradle",
+        java_target / "uimd-java-launchers.gradle",
+    )
+    copy_tree(root / "java" / "gradle", java_target / "gradle")
+    copy_tree(root / "java" / "config", java_target / "config")
+    copy_tree(root / "java" / "src" / "main", java_target / "src" / "main")
+    copy_file(root / "LICENSE", java_target / "LICENSE")
+
     examples_target = payload_dir / "examples"
     copy_tree(root / "python" / "examples", examples_target / "python")
     copy_tree(root / "cpp" / "examples", examples_target / "cpp")
@@ -761,6 +778,7 @@ def package_release(
         excluded_relative_paths=go_example_binary_paths(go_examples),
     )
     copy_tree(root / "rust" / "examples", examples_target / "rust")
+    copy_tree(root / "java" / "examples", examples_target / "java")
     copy_tree(root / "shared", examples_target / "shared")
 
     manifest_path = write_manifest(release_dir, version, payload_dir)

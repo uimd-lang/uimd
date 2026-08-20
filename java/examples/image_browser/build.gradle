@@ -1,0 +1,47 @@
+plugins
+{
+    id "application"
+}
+
+apply from: new File(gradle.ext.uimdRuntimeRoot, "uimd-java-launchers.gradle")
+
+repositories
+{
+    mavenCentral()
+}
+
+java
+{
+    toolchain
+    {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+dependencies
+{
+    implementation "org.uimd:uimd:0.5.0"
+}
+
+application
+{
+    mainClass = "ImageBrowser"
+}
+
+sourceSets
+{
+    main
+    {
+        java
+        {
+            srcDirs = ["."]
+            exclude "build/**"
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach
+{
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(["-Xlint:all", "-Werror"])
+}

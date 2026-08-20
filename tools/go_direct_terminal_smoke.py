@@ -374,16 +374,23 @@ def run_dynamic_screen(command: list[str], cwd: Path, exercise: Callable[[PtyApp
         return app.screen.text()
 
 
-def assert_equal_screen(name: str, cpp_screen: str, go_screen: str) -> None:
-    if cpp_screen == go_screen:
+def assert_equal_screen(
+    name: str,
+    cpp_screen: str,
+    target_screen: str,
+    target_name: str = "Go",
+) -> None:
+    if cpp_screen == target_screen:
         print(f"PASS {name}", flush=True)
         return
     print(f"FAIL {name}", flush=True)
     print("--- C++ ---", flush=True)
     print(cpp_screen, flush=True)
-    print("--- Go ---", flush=True)
-    print(go_screen, flush=True)
-    raise AssertionError(f"{name}: Go direct terminal screen differs from C++")
+    print(f"--- {target_name} ---", flush=True)
+    print(target_screen, flush=True)
+    raise AssertionError(
+        f"{name}: {target_name} direct terminal screen differs from C++"
+    )
 
 
 def run_title_and_teardown(go_command: list[str]) -> None:

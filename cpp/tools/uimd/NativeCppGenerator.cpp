@@ -3121,7 +3121,7 @@ std::string generateSource(
             {
                 lines.push_back("    " + name + "->setMultiple(true);");
             }
-            if (member.selectedValues.size() > 1)
+            if (member.multiple && !member.selectedValues.empty())
             {
                 std::string selectedList;
                 for (std::size_t index = 0;

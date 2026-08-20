@@ -71,8 +71,8 @@ uimd self update
 ```
 
 When an installed project command needs a missing target such as `cpp`,
-`csharp`, or `go`, the launcher auto-installs it from release assets unless
-offline mode is enabled.
+`csharp`, `swift`, `go`, `rust`, or `java`, the launcher auto-installs it from
+release assets unless offline mode is enabled.
 `UIMD_RELEASE_ROOT` and `UIMD_RELEASE_BASE_URL` are development/CI overrides,
 not the normal user path.
 
@@ -127,6 +127,31 @@ That does not make the final C++ executable depend on the Python runtime. The
 generated C++ code links against the UIMD C++ runtime through CMake. The
 generated `CMakeLists.txt` first tries an installed CMake package, then a local
 sibling checkout, then the official GitHub release tag through `FetchContent`.
+
+## Java Projects
+
+Java generation requires a Java 17 JDK. The runtime and generated applications
+build through the checked-in Gradle wrapper; a system Gradle installation is
+not required. UIMD's SDK-shipped resolver selects Java 17 from, in order, an
+explicit `UIMD_JAVA_HOME`, a valid `JAVA_HOME`, `PATH`, and standard macOS,
+Linux, or Windows JDK locations. It recognizes Homebrew's keg-only
+`openjdk@17`, so `brew install openjdk@17` is sufficient and does not require a
+shell export on every launch.
+
+```bash
+uimd new hello --target java
+/path/to/targets/java/gradlew -p . installDist --console=plain
+./build/install/hello/bin/hello
+```
+
+In a source checkout, use `./java/gradlew` and pass the generated project
+directory through `-p`. Generated `settings.gradle` selects
+`UIMD_SDK_JAVA_TARGET` in an installed SDK and otherwise uses the local source
+runtime. Both the Gradle wrapper and the resulting
+`build/install/<app>/bin/<app>` launcher use the same resolver. Run
+`uimd doctor` to inspect the selected JDK. Set `UIMD_JAVA_HOME` persistently
+only when the JDK is installed in a location UIMD cannot discover. Java support
+is terminal-only; it does not add an Android or desktop GUI backend.
 
 ## Image And Sixel Support
 
@@ -190,7 +215,10 @@ Store:
 ~/.uimd/sdk/0.4.0/targets/python/
 ~/.uimd/sdk/0.4.0/targets/cpp/
 ~/.uimd/sdk/0.4.0/targets/csharp/
+~/.uimd/sdk/0.4.0/targets/swift/
 ~/.uimd/sdk/0.4.0/targets/go/
+~/.uimd/sdk/0.4.0/targets/rust/
+~/.uimd/sdk/0.4.0/targets/java/
 ```
 
 On Windows the SDK Store lives under:

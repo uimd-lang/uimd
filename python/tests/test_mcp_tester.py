@@ -547,6 +547,11 @@ class TestMcpTesterConfig(unittest.TestCase):
                 ("swift", "swift/examples", "swift/examples/demo/.build/release/demo"),
                 ("go", "go/examples", "go/examples/demo/demo"),
                 ("rust", "rust/examples", "rust/examples/demo/target/release/demo"),
+                (
+                    "java",
+                    "java/examples",
+                    "java/examples/demo/build/install/demo/bin/demo",
+                ),
             )
             artifacts = []
             expected = {}
@@ -571,6 +576,34 @@ class TestMcpTesterConfig(unittest.TestCase):
                 with self.subTest(examples_root=examples_root):
                     self.assertEqual(resolve_artifact(root, root / examples_root, "demo"), artifact_path)
                     validate_artifact_paths(root, [root / examples_root])
+
+    def test_parity_manifest_ignores_gradle_build_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary_root:
+            root = Path(temporary_root)
+            source = root / "java/src/main/java/uimd/Runtime.java"
+            artifact = root / "java/examples/demo/build/install/demo/bin/demo"
+            transient_output = root / "java/build/reports/tests/index.html"
+            source.parent.mkdir(parents=True)
+            artifact.parent.mkdir(parents=True)
+            transient_output.parent.mkdir(parents=True)
+            source.write_text("runtime source\n", encoding="utf-8")
+            artifact.write_text("launcher\n", encoding="utf-8")
+            transient_output.write_text("before\n", encoding="utf-8")
+            write_manifest(
+                root,
+                [{
+                    "kind": "example",
+                    "platform": "java",
+                    "name": "demo",
+                    "root": "java/examples",
+                    "path": "java/examples/demo/build/install/demo/bin/demo",
+                }],
+                platforms=["java"],
+            )
+
+            transient_output.write_text("after\n", encoding="utf-8")
+
+            validate_artifact_paths(root, [artifact])
 
     def test_parity_manifest_rejects_source_changes_after_rebuild(self):
         with tempfile.TemporaryDirectory() as temporary_root:

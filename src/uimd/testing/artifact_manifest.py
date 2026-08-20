@@ -22,11 +22,13 @@ MANAGED_ROOT_PREFIXES = (
     Path("swift/examples"),
     Path("go/examples"),
     Path("rust/examples"),
+    Path("java/examples"),
     Path("tests/regressions/uimd/parity/python"),
     Path("cpp/build/regressions/uimd/parity"),
     Path("cpp/build-windows/regressions/uimd/parity"),
     Path("go/regressions/uimd/parity"),
     Path("rust/regressions/uimd/parity"),
+    Path("java/regressions/uimd/parity"),
 )
 SOURCE_INPUTS = (
     Path("src"),
@@ -49,6 +51,7 @@ SOURCE_INPUTS = (
     Path("rust/src"),
     Path("rust/examples"),
     Path("rust/regressions"),
+    Path("java"),
     Path("tests/regressions/uimd/parity"),
     Path("tools/uimd_dev.py"),
     Path("tools/rebuild_all.sh"),
@@ -57,10 +60,12 @@ SOURCE_INPUTS = (
 )
 EXCLUDED_DIRECTORY_NAMES = {
     ".build",
+    ".gradle",
     ".pytest_cache",
     ".swiftpm",
     "__pycache__",
     "bin",
+    "build",
     "obj",
     "target",
 }

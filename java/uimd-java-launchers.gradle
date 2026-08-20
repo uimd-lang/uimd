@@ -1,0 +1,67 @@
+def uimdRuntimeRoot = gradle.ext.uimdRuntimeRoot as File
+def uimdJavaResolver = new File(uimdRuntimeRoot, "uimd-java")
+def uimdJavaResolverBat = new File(uimdRuntimeRoot, "uimd-java.bat")
+
+if (!uimdJavaResolver.isFile() || !uimdJavaResolverBat.isFile())
+{
+    throw new GradleException(
+        "UIMD Java toolchain resolver is missing from ${uimdRuntimeRoot}"
+    )
+}
+
+distributions
+{
+    main
+    {
+        contents
+        {
+            from(uimdJavaResolver)
+            {
+                into "bin"
+            }
+            from(uimdJavaResolverBat)
+            {
+                into "bin"
+            }
+        }
+    }
+}
+
+tasks.named("startScripts").configure
+{
+    inputs.file(new File(uimdRuntimeRoot, "uimd-java-launchers.gradle"))
+    doLast
+    {
+        def unixMarker = "# Determine the Java command to use to start the JVM."
+        def unixBootstrap = '''# Resolve UIMD's Java 17 JDK without requiring shell configuration.
+JAVA_HOME=$(sh "$APP_HOME/bin/uimd-java" --java-home) || exit $?
+export JAVA_HOME
+
+'''
+        def unixText = unixScript.getText("UTF-8")
+        if (!unixText.contains(unixMarker))
+        {
+            throw new GradleException("Gradle POSIX start-script marker was not found")
+        }
+        unixScript.setText(
+            unixText.replace(unixMarker, unixBootstrap + unixMarker),
+            "UTF-8"
+        )
+
+        def windowsMarker = "@rem Find java.exe"
+        def windowsBootstrap = '''@rem Resolve UIMD's Java 17 JDK without requiring user environment changes.
+call "%APP_HOME%\\bin\\uimd-java.bat" --set-env
+if errorlevel 1 exit /b %ERRORLEVEL%
+
+'''
+        def windowsText = windowsScript.getText("UTF-8")
+        if (!windowsText.contains(windowsMarker))
+        {
+            throw new GradleException("Gradle Windows start-script marker was not found")
+        }
+        windowsScript.setText(
+            windowsText.replace(windowsMarker, windowsBootstrap + windowsMarker),
+            "UTF-8"
+        )
+    }
+}

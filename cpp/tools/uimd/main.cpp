@@ -2,6 +2,7 @@
 #include "NativeCSharpGenerator.hpp"
 #include "NativeCppGenerator.hpp"
 #include "NativeGoGenerator.hpp"
+#include "NativeJavaGenerator.hpp"
 #include "NativePythonGenerator.hpp"
 #include "NativeRustGenerator.hpp"
 #include "NativeSwiftGenerator.hpp"
@@ -45,6 +46,7 @@ namespace
 constexpr int EXIT_OK = 0;
 constexpr int EXIT_USAGE = 2;
 constexpr int EXIT_ERROR = 1;
+constexpr int REQUIRED_JAVA_MAJOR = 17;
 constexpr std::size_t SDK_PRUNE_PATCH_RETENTION = 2;
 
 const std::filesystem::path SOURCE_CHECKOUT_MARKER{"cpp/tools/uimd/main.cpp"};
@@ -54,6 +56,7 @@ const std::filesystem::path SDK_BIN_DIR{"bin"};
 const std::filesystem::path SDK_TARGETS_DIR{"targets"};
 const std::filesystem::path SDK_PYTHON_TARGET_DIR{"python"};
 const std::filesystem::path SDK_GO_TARGET_DIR{"go"};
+const std::filesystem::path SDK_JAVA_TARGET_DIR{"java"};
 const std::filesystem::path SDK_RUST_TARGET_DIR{"rust"};
 const std::filesystem::path SDK_EXAMPLES_DIR{"examples"};
 const std::string SDK_VERSION_METADATA_KEY = "sdk-version";
@@ -64,7 +67,9 @@ const std::string RELEASE_BASE_URL_ENV = "UIMD_RELEASE_BASE_URL";
 const std::string SDK_PATH_ENV = "UIMD_SDK_PATH";
 const std::string SDK_PYTHON_TARGET_ENV = "UIMD_SDK_PYTHON_TARGET";
 const std::string SDK_GO_TARGET_ENV = "UIMD_SDK_GO_TARGET";
+const std::string SDK_JAVA_TARGET_ENV = "UIMD_SDK_JAVA_TARGET";
 const std::string SDK_RUST_TARGET_ENV = "UIMD_SDK_RUST_TARGET";
+const std::string JAVA_HOME_OVERRIDE_ENV = "UIMD_JAVA_HOME";
 const std::string RELEASE_PUBLIC_KEY_ENV = "UIMD_RELEASE_PUBLIC_KEY";
 const std::string LIBSIXEL_PATH_ENV = "UIMD_LIBSIXEL_PATH";
 const std::string LIBSIXEL_DIR_ENV = "UIMD_LIBSIXEL_DIR";
@@ -76,7 +81,7 @@ const std::string RELEASE_SIGNATURE_FILE{"checksums.txt.minisig"};
 const std::string RELEASE_PUBLIC_KEY{"RWR71aDOUx1vHQeAYhBjmL71qWnPzCp3kXGe2HLHPORARHbM2Al77AsD"};
 const std::string RELEASE_MANIFEST_PREFIX = "uimd-sdk-";
 const std::string RELEASE_MANIFEST_SUFFIX = ".manifest";
-const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp", "swift", "go", "rust"};
+const std::vector<std::string> SUPPORTED_SDK_TARGETS{"python", "cpp", "csharp", "swift", "go", "rust", "java"};
 
 struct GlobalOptions
 {
@@ -126,6 +131,13 @@ struct SixelDoctorInfo
     std::string configuredLibraryPath;
     std::string configuredLibraryDirectories;
     std::vector<std::string> cppLibraryNames;
+};
+
+struct JavaDoctorInfo
+{
+    bool available = false;
+    std::filesystem::path home;
+    std::filesystem::path resolver;
 };
 
 std::string runtimeVersion()
@@ -2842,6 +2854,17 @@ std::filesystem::path installedSdkRustTargetFromExecutable(const std::filesystem
     return std::filesystem::is_regular_file(targetRoot / "Cargo.toml") ? targetRoot : std::filesystem::path{};
 }
 
+std::filesystem::path installedSdkJavaTargetFromExecutable(const std::filesystem::path& executablePath)
+{
+    const std::filesystem::path versionRoot = installedSdkVersionRootFromExecutable(executablePath);
+    if (versionRoot.empty())
+    {
+        return {};
+    }
+    const std::filesystem::path targetRoot = versionRoot / SDK_TARGETS_DIR / SDK_JAVA_TARGET_DIR;
+    return std::filesystem::is_regular_file(targetRoot / "settings.gradle") ? targetRoot : std::filesystem::path{};
+}
+
 void configureRuntimeEnvironment(const std::filesystem::path& executablePath = {})
 {
     std::vector<std::filesystem::path> pythonPaths;
@@ -2862,6 +2885,11 @@ void configureRuntimeEnvironment(const std::filesystem::path& executablePath = {
     if (!installedRustTarget.empty())
     {
         setEnvironment(SDK_RUST_TARGET_ENV, pathString(installedRustTarget));
+    }
+    const std::filesystem::path installedJavaTarget = installedSdkJavaTargetFromExecutable(executablePath);
+    if (!installedJavaTarget.empty())
+    {
+        setEnvironment(SDK_JAVA_TARGET_ENV, pathString(installedJavaTarget));
     }
 
     const std::filesystem::path root = sourceRoot();
@@ -3162,6 +3190,93 @@ int printIssueReportHelp()
     return EXIT_OK;
 }
 
+std::filesystem::path javaResolverPath(
+    const std::filesystem::path& sourceRootPath,
+    const std::filesystem::path& installedTargetPath)
+{
+#ifdef _WIN32
+    const std::filesystem::path resolverName{"uimd-java.bat"};
+#else
+    const std::filesystem::path resolverName{"uimd-java"};
+#endif
+    if (!sourceRootPath.empty())
+    {
+        const std::filesystem::path sourceResolver = sourceRootPath / "java" / resolverName;
+        if (std::filesystem::is_regular_file(sourceResolver))
+        {
+            return sourceResolver;
+        }
+    }
+    if (!installedTargetPath.empty())
+    {
+        const std::filesystem::path installedResolver = installedTargetPath / resolverName;
+        if (std::filesystem::is_regular_file(installedResolver))
+        {
+            return installedResolver;
+        }
+    }
+    return {};
+}
+
+JavaDoctorInfo javaDoctorInfo(
+    const std::filesystem::path& sourceRootPath,
+    const std::filesystem::path& installedTargetPath)
+{
+    JavaDoctorInfo info;
+    info.resolver = javaResolverPath(sourceRootPath, installedTargetPath);
+    if (info.resolver.empty())
+    {
+        return info;
+    }
+
+#ifdef _WIN32
+    const long processId = static_cast<long>(_getpid());
+#else
+    const long processId = static_cast<long>(getpid());
+#endif
+    const std::filesystem::path outputPath = std::filesystem::temp_directory_path() /
+        ("uimd-java-home-" + std::to_string(processId) + ".txt");
+    std::error_code removeError;
+    std::filesystem::remove(outputPath, removeError);
+
+    std::vector<std::string> command;
+#ifdef _WIN32
+    const std::string commandInterpreter = envValue("COMSPEC");
+    command = {
+        commandInterpreter.empty() ? "cmd.exe" : commandInterpreter,
+        "/c",
+        pathString(info.resolver),
+        "--write-home",
+        pathString(outputPath),
+        "--quiet",
+    };
+#else
+    command = {
+        "/bin/sh",
+        pathString(info.resolver),
+        "--write-home",
+        pathString(outputPath),
+        "--quiet",
+    };
+#endif
+    const int result = runProcess(command);
+    if (result == EXIT_OK && std::filesystem::is_regular_file(outputPath))
+    {
+        std::ifstream stream(outputPath);
+        std::string home;
+        std::getline(stream, home);
+        info.home = std::filesystem::path{home};
+#ifdef _WIN32
+        const std::filesystem::path javaExecutable = info.home / "bin" / "java.exe";
+#else
+        const std::filesystem::path javaExecutable = info.home / "bin" / "java";
+#endif
+        info.available = !home.empty() && std::filesystem::is_regular_file(javaExecutable);
+    }
+    std::filesystem::remove(outputPath, removeError);
+    return info;
+}
+
 std::string jsonEscape(const std::string& text)
 {
     std::string escaped;
@@ -3187,7 +3302,9 @@ std::string jsonEscape(const std::string& text)
     return escaped;
 }
 
-int runDoctor(const std::vector<std::string>& args)
+int runDoctor(
+    const std::vector<std::string>& args,
+    const std::filesystem::path& executablePath)
 {
     bool json = false;
     for (const std::string& arg : args)
@@ -3211,6 +3328,7 @@ int runDoctor(const std::vector<std::string>& args)
     const std::filesystem::path sdkLauncherPath = launcherPath(sdkHomePath);
     const std::filesystem::path currentBinaryPath = currentVersion.empty() ? std::filesystem::path{} : sdkVersionBinary(sdkHomePath, currentVersion);
     const std::filesystem::path currentPythonTargetPath = currentVersion.empty() ? std::filesystem::path{} : sdkTargetRoot(sdkHomePath, currentVersion, SDK_PYTHON_TARGET_DIR.string());
+    const std::filesystem::path currentJavaTargetPath = currentVersion.empty() ? std::filesystem::path{} : sdkTargetRoot(sdkHomePath, currentVersion, SDK_JAVA_TARGET_DIR.string());
     const bool launcherExists = std::filesystem::is_regular_file(sdkLauncherPath);
     const bool currentBinaryExists = !currentBinaryPath.empty() && std::filesystem::is_regular_file(currentBinaryPath);
     const bool currentPythonTargetExists = !currentPythonTargetPath.empty() && std::filesystem::is_directory(currentPythonTargetPath);
@@ -3218,6 +3336,10 @@ int runDoctor(const std::vector<std::string>& args)
     const bool ok = sourceCheckoutAvailable || sdkUsable;
     const std::vector<std::string> currentTargets = currentVersion.empty() ? std::vector<std::string>{} : installedSdkTargets(sdkHomePath, currentVersion);
     const SixelDoctorInfo sixelInfo = sixelDoctorInfo();
+    const std::filesystem::path executableJavaTarget = installedSdkJavaTargetFromExecutable(executablePath);
+    const JavaDoctorInfo javaInfo = javaDoctorInfo(
+        root,
+        executableJavaTarget.empty() ? currentJavaTargetPath : executableJavaTarget);
     const std::string pythonInstallSixelCommand = pythonExecutable() + " -m pip install libsixel-python";
     const std::string pythonVerifySixelCommand = pythonExecutable() + " -c \"import libsixel; print('python libsixel ok')\"";
     const std::string pythonNativeLibraryNote = "libsixel-python also needs a native sixel/libsixel library; UIMD apps can use UIMD_LIBSIXEL_PATH or UIMD_LIBSIXEL_DIR";
@@ -3281,7 +3403,17 @@ int runDoctor(const std::vector<std::string>& args)
             << versionJson
             << ",\"status\":\""
             << (sdkUsable ? "ok" : "incomplete")
-            << "\"},\"images\":{\"sixel\":{\"disabled\":"
+            << "\"},\"toolchains\":{\"java\":{\"required_major\":"
+            << REQUIRED_JAVA_MAJOR
+            << ",\"available\":"
+            << (javaInfo.available ? "true" : "false")
+            << ",\"home\":\""
+            << jsonEscape(javaInfo.available ? pathString(javaInfo.home) : "")
+            << "\",\"resolver\":\""
+            << jsonEscape(javaInfo.resolver.empty() ? std::string{} : pathString(javaInfo.resolver))
+            << "\",\"override_env\":\""
+            << JAVA_HOME_OVERRIDE_ENV
+            << "\"}},\"images\":{\"sixel\":{\"disabled\":"
             << (sixelInfo.sixelDisabled ? "true" : "false")
             << ",\"cpp\":{\"available\":"
             << (sixelInfo.cppLibraryAvailable ? "true" : "false")
@@ -3358,6 +3490,18 @@ int runDoctor(const std::vector<std::string>& args)
         }
         std::cout << "\n\n";
     }
+    std::cout << "Toolchains:\n";
+    std::cout << "  Java requirement: JDK " << REQUIRED_JAVA_MAJOR << "\n";
+    std::cout << "  Java JDK: " << (javaInfo.available ? "found" : "missing") << "\n";
+    if (javaInfo.available)
+    {
+        std::cout << "  Java home: " << pathString(javaInfo.home) << "\n";
+    }
+    if (!javaInfo.resolver.empty())
+    {
+        std::cout << "  Java resolver: " << pathString(javaInfo.resolver) << "\n";
+    }
+    std::cout << "  Java override: " << JAVA_HOME_OVERRIDE_ENV << " (only for non-standard JDK locations)\n\n";
     std::cout << "Images:\n";
     std::cout << "  Sixel rendering: " << (sixelInfo.sixelDisabled ? "disabled by environment" : "enabled when required") << "\n";
     std::cout << "  C++ libsixel: " << (sixelInfo.cppLibraryAvailable ? "found" : "missing") << "\n";
@@ -3515,7 +3659,7 @@ int runSdk(const std::vector<std::string>& args, const std::filesystem::path& ex
         }
         if (!isSdkTargetNameSafe(target) || !isSupportedSdkTarget(target))
         {
-            std::cerr << "error: supported SDK targets are: python, cpp, csharp, swift, go, rust\n";
+            std::cerr << "error: supported SDK targets are: python, cpp, csharp, swift, go, rust, java\n";
             return EXIT_USAGE;
         }
         if (version.empty())
@@ -4395,9 +4539,9 @@ int runNew(const std::vector<std::string>& args, const std::filesystem::path& ex
         std::cerr << "error: application name cannot be empty\n";
         return EXIT_ERROR;
     }
-    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go" && target != "rust")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go" && target != "rust" && target != "java")
     {
-        std::cerr << "error: --target must be python, cpp, csharp, swift, go, or rust\n";
+        std::cerr << "error: --target must be python, cpp, csharp, swift, go, rust, or java\n";
         return EXIT_USAGE;
     }
 
@@ -4471,6 +4615,17 @@ int runNew(const std::vector<std::string>& args, const std::filesystem::path& ex
         files.emplace_back(project + ".rs", uimd::tool::rustAppTemplate(klass + "UI"));
         files.emplace_back("Cargo.toml", uimd::tool::rustCargoManifest(project, runtimeReference));
     }
+    else if (target == "java")
+    {
+        configureRuntimeEnvironment(executablePath);
+        const std::string installedTarget = envValue(SDK_JAVA_TARGET_ENV.c_str());
+        const std::string runtimeReference = installedTarget.empty()
+            ? "../uimd/java"
+            : std::filesystem::path{installedTarget}.generic_string();
+        files.emplace_back(klass + ".java", uimd::tool::javaAppTemplate(klass + "UI"));
+        files.emplace_back("build.gradle", uimd::tool::javaBuildFile(project));
+        files.emplace_back("settings.gradle", uimd::tool::javaSettingsFile(project, runtimeReference));
+    }
     else
     {
         files.emplace_back(project + ".py", applyTemplate(pythonAppTemplate(), values));
@@ -4520,6 +4675,7 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
     std::string path;
     uimd::tool::NativeGenerateOptions options;
     bool generateAppStub = false;
+    std::string javaPackage;
 
     for (std::size_t index = 0; index < args.size(); ++index)
     {
@@ -4559,6 +4715,15 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
         {
             generateAppStub = true;
         }
+        else if (arg == "--java-package")
+        {
+            if (index + 1 >= args.size())
+            {
+                std::cerr << "error: --java-package requires a value\n";
+                return EXIT_USAGE;
+            }
+            javaPackage = args[++index];
+        }
         else if (path.empty())
         {
             path = arg;
@@ -4575,9 +4740,14 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
         std::cerr << "error: generate path is required\n";
         return EXIT_USAGE;
     }
-    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go" && target != "rust")
+    if (target != "python" && target != "cpp" && target != "csharp" && target != "swift" && target != "go" && target != "rust" && target != "java")
     {
-        std::cerr << "error: --target must be python, cpp, csharp, swift, go, or rust\n";
+        std::cerr << "error: --target must be python, cpp, csharp, swift, go, rust, or java\n";
+        return EXIT_USAGE;
+    }
+    if (!javaPackage.empty() && target != "java")
+    {
+        std::cerr << "error: --java-package is only valid with --target java\n";
         return EXIT_USAGE;
     }
 
@@ -4636,6 +4806,16 @@ int runGenerate(const std::vector<std::string>& args, const std::filesystem::pat
             rustOptions.generateAppStub = generateAppStub;
             rustOptions.mcpEnabled = options.mcpEnabled;
             generated = uimd::tool::generateRustSources(sourcePath, rustOptions);
+        }
+        else if (target == "java")
+        {
+            uimd::tool::NativeJavaGenerateOptions javaOptions;
+            javaOptions.outputDir = options.outputDir;
+            javaOptions.hasOutputDir = options.hasOutputDir;
+            javaOptions.generateAppStub = generateAppStub;
+            javaOptions.mcpEnabled = options.mcpEnabled;
+            javaOptions.packageName = javaPackage;
+            generated = uimd::tool::generateJavaSources(sourcePath, javaOptions);
         }
         else
         {
@@ -5002,7 +5182,7 @@ int main(int argc, char** argv)
 
     if (command == "doctor")
     {
-        return runDoctor(args);
+        return runDoctor(args, executable);
     }
     if (command == "new")
     {

@@ -512,6 +512,13 @@ def wait_for_screen_text(app: PtyApp, needle: str, timeout_seconds: float = DEFA
         except AssertionError as exc:
             last_error = exc
             app.drain(total_seconds=DEFAULT_QUIET_SECONDS)
+            if app.process is not None and app.process.poll() is not None:
+                output_tail = bytes(app.output[-4096:]).decode("utf-8", errors="replace").strip()
+                command = " ".join(app.command)
+                raise AssertionError(
+                    f"{command} exited with code {app.process.returncode} before "
+                    f"screen text {needle!r} appeared; output: {output_tail!r}"
+                ) from exc
     if last_error is not None:
         raise last_error
     raise AssertionError(f"screen text not found: {needle!r}")
@@ -572,6 +579,7 @@ def image_browser_runtime_specs() -> list[tuple[str, list[str], Path]]:
         ("Swift", "swift/examples"),
         ("Go", "go/examples"),
         ("Rust", "rust/examples"),
+        ("Java", "java/examples"),
     )
     paths = {
         platform: Path(resolve_artifact(ROOT, examples_root, "image_browser") or "")
@@ -588,6 +596,7 @@ def image_browser_runtime_specs() -> list[tuple[str, list[str], Path]]:
         ("Swift", [str(paths["Swift"])], ROOT),
         ("Go", [str(paths["Go"])], ROOT),
         ("Rust", [str(paths["Rust"])], ROOT),
+        ("Java", [str(paths["Java"])], ROOT),
     ]
 
 
@@ -1021,7 +1030,10 @@ def run_image_browser_repeated_sixel_scroll_case(
 
     expected = ["Image Browser", "Render", "Gallery", "Image items"]
     for platform, command, cwd in image_browser_runtime_specs():
-        byte_counts, payload_counts, screen = capture(command, cwd)
+        try:
+            byte_counts, payload_counts, screen = capture(command, cwd)
+        except Exception as exc:
+            raise AssertionError(f"{name}: {platform} launch failed: {exc}") from exc
         assert_bounded(platform, byte_counts, payload_counts)
         assert_contains(f"{name} {platform}", screen, expected)
     print(f"PASS {name}", flush=True)
@@ -1041,6 +1053,7 @@ def run_image_browser_mouse_wheel_burst_case(name: str) -> None:
             ("C++", "cpp/build/examples"),
             ("Go", "go/examples"),
             ("Rust", "rust/examples"),
+            ("Java", "java/examples"),
         )
     }
     validate_artifact_paths(ROOT, list(paths.values()))
@@ -1103,13 +1116,13 @@ def run_image_browser_mouse_wheel_burst_case(name: str) -> None:
 
     measurements = {
         platform: exit_seconds(platform, [str(paths[platform])])
-        for platform in ("C++", "Go", "Rust")
+        for platform in ("C++", "Go", "Rust", "Java")
     }
     target_limit = max(
         IMAGE_BROWSER_WHEEL_BURST_MAX_RESPONSE_SECONDS,
         measurements["C++"] * IMAGE_BROWSER_WHEEL_BURST_CPP_FACTOR,
     )
-    for platform in ("Go", "Rust"):
+    for platform in ("Go", "Rust", "Java"):
         if measurements[platform] > target_limit:
             raise AssertionError(
                 f"{name}: {platform} burst drain took {measurements[platform]:.3f}s "
@@ -1118,15 +1131,20 @@ def run_image_browser_mouse_wheel_burst_case(name: str) -> None:
             )
     summary = ", ".join(
         f"{platform} {measurements[platform]:.3f}s"
-        for platform in ("C++", "Go", "Rust")
+        for platform in ("C++", "Go", "Rust", "Java")
     )
     print(f"PASS {name}: {summary}", flush=True)
 
 
-def run_csharp_image_browser_sixel_cell_geometry_case(name: str) -> None:
+def run_image_browser_sixel_cell_geometry_case(
+    name: str,
+    target_platform: str,
+    target_examples_root: str,
+    target_command_prefix: list[str] | None = None,
+) -> None:
     env = {
         "TERM_PROGRAM": "iTerm.app",
-        "ITERM_SESSION_ID": "uimd-csharp-cell-geometry",
+        "ITERM_SESSION_ID": f"uimd-{target_platform.lower()}-cell-geometry",
         "LC_TERMINAL": "iTerm2",
         "UIMD_FORCE_SIXEL": "1",
         "UIMD_DISABLE_SIXEL": "",
@@ -1135,17 +1153,13 @@ def run_csharp_image_browser_sixel_cell_geometry_case(name: str) -> None:
         platform: Path(resolve_artifact(ROOT, examples_root, "image_browser") or "")
         for platform, examples_root in (
             ("C++", "cpp/build/examples"),
-            ("C#", "csharp/examples"),
+            (target_platform, target_examples_root),
         )
     }
     validate_artifact_paths(ROOT, list(paths.values()))
-    dotnet = shutil.which("dotnet")
-    if dotnet is None:
-        raise FileNotFoundError("dotnet is required for the C# Sixel geometry check")
-
     commands = {
         "C++": [str(paths["C++"])],
-        "C#": [dotnet, str(paths["C#"])],
+        target_platform: [*(target_command_prefix or []), str(paths[target_platform])],
     }
 
     def raster_heights(platform: str) -> set[int]:
@@ -1175,18 +1189,30 @@ def run_csharp_image_browser_sixel_cell_geometry_case(name: str) -> None:
             return heights
 
     cpp_heights = raster_heights("C++")
-    csharp_heights = raster_heights("C#")
+    target_heights = raster_heights(target_platform)
     expected = {DIRECT_TERMINAL_CELL_PIXEL_HEIGHT}
     if cpp_heights != expected:
         raise AssertionError(
             f"{name}: C++ raster heights {sorted(cpp_heights)!r}, expected {sorted(expected)!r}"
         )
-    if csharp_heights != cpp_heights:
+    if target_heights != cpp_heights:
         raise AssertionError(
-            f"{name}: C# raster heights {sorted(csharp_heights)!r} differ from "
+            f"{name}: {target_platform} raster heights {sorted(target_heights)!r} differ from "
             f"C++ {sorted(cpp_heights)!r}"
         )
     print(f"PASS {name}: one physical cell is {DIRECT_TERMINAL_CELL_PIXEL_HEIGHT}px", flush=True)
+
+
+def run_csharp_image_browser_sixel_cell_geometry_case(name: str) -> None:
+    dotnet = shutil.which("dotnet")
+    if dotnet is None:
+        raise FileNotFoundError("dotnet is required for the C# Sixel geometry check")
+    run_image_browser_sixel_cell_geometry_case(
+        name,
+        "C#",
+        "csharp/examples",
+        [dotnet],
+    )
 
 
 def assert_idle_output_grows(name: str, command: list[str], cwd: Path, rows: int, cols: int, env: dict[str, str]) -> None:

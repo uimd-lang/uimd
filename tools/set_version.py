@@ -23,7 +23,7 @@ class Replacement:
 
 
 def _replacement_plan(version: str) -> list[Replacement]:
-    return [
+    replacements = [
         Replacement(
             "pyproject.toml",
             r'(?m)^version\s*=\s*"[^"]+"',
@@ -46,6 +46,18 @@ def _replacement_plan(version: str) -> list[Replacement]:
             count=1,
         ),
         Replacement(
+            "java/build.gradle",
+            r'(?m)^version\s*=\s*"[^"]+"',
+            f'version = "{version}"',
+            count=1,
+        ),
+        Replacement(
+            "java/src/main/java/uimd/Version.java",
+            r'(?m)^    private static final String RUNTIME_VERSION\s*=\s*"[^"]+";',
+            f'    private static final String RUNTIME_VERSION = "{version}";',
+            count=1,
+        ),
+        Replacement(
             "CHANGELOG.md",
             r"(?m)^## \d+\.\d+\.\d+ - Unreleased",
             f"## {version} - Unreleased",
@@ -57,6 +69,19 @@ def _replacement_plan(version: str) -> list[Replacement]:
             f"GIT_TAG v{version}",
         ),
     ]
+    for path in sorted((ROOT / "java").glob("**/build.gradle")):
+        relative = path.relative_to(ROOT).as_posix()
+        if relative == "java/build.gradle":
+            continue
+        replacements.append(
+            Replacement(
+                relative,
+                r'implementation\s+"org\.uimd:uimd:[^"]+"',
+                f'implementation "org.uimd:uimd:{version}"',
+                count=1,
+            )
+        )
+    return replacements
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,6 +152,7 @@ def _apply_replacements(version: str, *, check: bool) -> list[str]:
 def _check_dynamic_surfaces() -> None:
     required_snippets = {
         "cpp/tools/uimd/NativeCppGenerator.cpp": 'GIT_TAG v" + std::string{UIMD_VERSION}',
+        "cpp/tools/uimd/NativeJavaGenerator.cpp": '"org.uimd:uimd:" UIMD_VERSION',
         "cpp/tools/uimd/main.cpp": '"@VERSION@", runtimeVersion()',
         "cpp/CMakeLists.txt": 'VERSION ${PROJECT_VERSION}',
         "cpp/src/core/Version.cpp": "return UIMD_VERSION;",

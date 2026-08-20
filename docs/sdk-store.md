@@ -17,7 +17,10 @@ uimd sdk install 0.x.y --from /path/to/uimd
 uimd sdk install 0.x.y --release-root /path/to/releases
 uimd sdk install-target cpp
 uimd sdk install-target csharp
+uimd sdk install-target swift
 uimd sdk install-target go
+uimd sdk install-target rust
+uimd sdk install-target java
 uimd sdk use 0.x.y
 uimd sdk list
 uimd sdk list --json
@@ -73,6 +76,9 @@ The intended layout is:
         ├── targets/cpp/
         ├── targets/csharp/
         ├── targets/go/
+        ├── targets/swift/
+        ├── targets/rust/
+        ├── targets/java/       # Gradle runtime plus Java 17 resolver assets
         └── examples/
 ```
 
@@ -96,6 +102,7 @@ file targets/python/runtime.txt <sha256> payload/targets/python/runtime.txt
 file targets/cpp/runtime.txt <sha256> payload/targets/cpp/runtime.txt
 file targets/csharp/runtime.txt <sha256> payload/targets/csharp/runtime.txt
 file targets/go/runtime.txt <sha256> payload/targets/go/runtime.txt
+file targets/java/runtime.txt <sha256> payload/targets/java/runtime.txt
 ```
 
 Each `file` entry is copied under `sdk/<version>/...` after SHA-256
@@ -132,6 +139,9 @@ dist/sdk-release/
 │       ├── targets/cpp/
 │       ├── targets/csharp/
 │       ├── targets/go/
+│       ├── targets/swift/
+│       ├── targets/rust/
+│       ├── targets/java/
 │       └── examples/
 ├── checksums.txt
 ├── checksums.txt.minisig
@@ -214,8 +224,8 @@ Current implementation status:
   `current` SDK.
 - Before delegation, `generate --target <target>`, `new --target <target>`, and
   `run` verify that the selected SDK has the needed target. Missing supported
-  targets (`python`, `cpp`, or `csharp`) are installed from release assets when
-  offline mode is not enabled.
+  targets (`python`, `cpp`, `csharp`, `swift`, `go`, `rust`, or `java`) are
+  installed from release assets when offline mode is not enabled.
 - `UIMD_SDK_PATH` bypasses SDK Store version selection for project commands and
   delegates directly to a configured local SDK binary/path during development.
 - `python3 tools/native_uimd_parity.py` smoke-checks the native tool without

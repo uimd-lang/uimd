@@ -1,0 +1,49 @@
+name: Java
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Python runtime and test helpers
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Build native Java generator
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build cpp/build --target uimd --parallel
+
+      - name: Generate Java dialogs, examples, and regressions
+        run: |
+          ./uimd generate src/uimd/dialogs --target java --output-dir java/src/main/java/uimd --java-package uimd
+          ./uimd generate python/examples --target java --output-dir java/examples
+          ./uimd generate tests/regressions/uimd/parity/python --target java --output-dir java/regressions/uimd/parity
+
+      - name: Run Java runtime tests and Checkstyle
+        run: ./java/gradlew -p java check --console=plain
+
+      - name: Build Java examples and regressions
+        run: PYTHONPATH=tools python3 -c 'from uimd_dev import build_all_java_examples; build_all_java_examples()'
+
+      - name: Run Java MCP transport smoke
+        run: python3 tools/java_mcp_transport_smoke.py

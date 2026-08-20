@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.4.26 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.5.0 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -118,6 +118,7 @@ add_executable(uimd
     tools/uimd/NativeCSharpGenerator.cpp
     tools/uimd/NativeCppGenerator.cpp
     tools/uimd/NativeGoGenerator.cpp
+    tools/uimd/NativeJavaGenerator.cpp
     tools/uimd/NativeModel.cpp
     tools/uimd/NativePythonGenerator.cpp
     tools/uimd/NativeRustGenerator.cpp

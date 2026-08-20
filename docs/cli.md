@@ -30,6 +30,17 @@ uimd generate hello.uimd --target cpp
 Generate C++ UI source files. For a single `.uimd` source, this also creates missing `hello.cpp` and `CMakeLists.txt` bootstrap files without overwriting existing ones.
 
 ```bash
+uimd generate hello.uimd --target java --app-stub
+```
+
+Generate `HelloUI.java` plus the missing `Hello.java`, `build.gradle`, and
+`settings.gradle` scaffold files. Use `--java-package <package>` when generated
+UI classes belong to a named package. Java targets use Java 17 and the Gradle
+wrapper shipped in `targets/java`. That wrapper and generated application
+launchers automatically resolve a Java 17 JDK; `UIMD_JAVA_HOME` is available
+only as an explicit override for non-standard installations.
+
+```bash
 uimd run hello.uimd
 ```
 
@@ -50,8 +61,9 @@ privacy options.
 uimd doctor
 ```
 
-Inspect the native tool, source checkout, and local SDK Store. Use
-`uimd doctor --json` for agent-readable diagnostics.
+Inspect the native tool, source checkout, local SDK Store, automatically
+selected Java 17 JDK, and image dependencies. Use `uimd doctor --json` for
+agent-readable diagnostics.
 
 ```bash
 uimd sdk home
@@ -59,7 +71,10 @@ uimd sdk install 0.x.y
 uimd sdk install 0.x.y --release-root /path/to/releases
 uimd sdk install-target cpp
 uimd sdk install-target csharp
+uimd sdk install-target swift
 uimd sdk install-target go
+uimd sdk install-target rust
+uimd sdk install-target java
 uimd sdk use 0.x.y
 uimd sdk list --json
 uimd sdk remove 0.x.y

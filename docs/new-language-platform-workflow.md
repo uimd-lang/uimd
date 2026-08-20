@@ -210,13 +210,21 @@ Use compare tests as the main correctness gate.
 4. Direct-terminal behavior needs direct PTY or platform terminal coverage:
    raw keys, SGR mouse press/release/drag, `Ctrl+C`, teardown bytes, title
    sequences, alternate screen, autowrap restoration, and full-frame writes.
+   Exercise the physical SGR path for every stateful control family rather
+   than treating MCP `activate_element` or `click_element` as a substitute.
+   In particular, click nonzero rows in both single- and multiple-selection
+   ListBoxes and verify the selected value plus its change callback.
 5. Full-surface snapshots should include modal backdrops and background state,
    not only the foreground dialog.
 6. Image checks should compare stable render metadata and coarse signatures
    before relying on pixel-perfect snapshots.
 7. Performance checks should use stable counters, cache-hit signals, or bounded
    rerender metrics instead of brittle wall-clock-only assertions.
-8. If a compare fails, inspect the snapshot. Do not change tests, masks, waits,
+8. Animated rendering needs a real idle-loop gate: after the initial frame,
+   observe at least two terminal updates while sending no keyboard, mouse, or
+   MCP input. Deterministic MCP `snapshot_time_ms` checks validate gradient
+   math, but they do not prove that the interactive loop schedules frames.
+9. If a compare fails, inspect the snapshot. Do not change tests, masks, waits,
    or examples until the relevant runtime/generator implementations have been
    audited.
 

@@ -142,7 +142,10 @@ The implementation currently supports the local/offline foundation:
 ./uimd sdk install 0.x.y --release-root /path/to/releases
 ./uimd sdk install-target cpp
 ./uimd sdk install-target csharp
+./uimd sdk install-target swift
 ./uimd sdk install-target go
+./uimd sdk install-target rust
+./uimd sdk install-target java
 ./uimd sdk use 0.x.y
 ./uimd sdk list --json
 ./uimd sdk update --json
@@ -154,8 +157,8 @@ UIMD_HOME=/tmp/uimd-home ./uimd self uninstall --json
 These commands are available from the native binary, but public release assets
 and package-manager installation are not available yet. Installed launchers can
 also use `uimd self update`; `uimd sdk update`, missing project SDK versions,
-and missing `python`/`cpp`/`csharp`/`go` targets download from release assets by
-default before project command delegation. Release downloads verify signed
+and missing `python`/`cpp`/`csharp`/`swift`/`go`/`rust`/`java` targets download
+from release assets by default before project command delegation. Release downloads verify signed
 `checksums.txt.minisig` files before SHA-256 asset checks. See
 `docs/sdk-store.md` for the current implementation status.
 
@@ -166,6 +169,7 @@ default before project command delegation. Release downloads verify signed
 ./uimd generate hello.uimd
 ./uimd run hello.uimd
 ./uimd generate hello.uimd --target cpp
+./uimd generate hello.uimd --target java --app-stub
 ./uimd mcp-test hello.py tests/mcp/hello.yaml
 ./uimd issue-report hello.uimd "Short problem summary" --output issue.md
 ./uimd doctor
@@ -249,6 +253,29 @@ The repository currently keeps the C++ backend under `cpp/`. The generated
 CMake GitHub `FetchContent` fallback depends on a future public release tag;
 until then, use a local source checkout or installed CMake package.
 
+## Java
+
+Java is a terminal-only generated target with the same UIMD layout, controls,
+dialogs, images, ScrollView behavior, and MCP contract as Python/C++. It uses a
+Java 17 JDK and the checked-in Gradle wrapper:
+
+```bash
+mkdir hello-java && cd hello-java
+../uimd new hello --target java
+../java/gradlew -p . installDist --console=plain
+./build/install/hello/bin/hello
+```
+
+`new` and `generate --app-stub` emit `Hello.java`, `HelloUI.java`,
+`build.gradle`, and `settings.gradle`. Generated projects resolve the runtime
+from the sibling source checkout or from `targets/java` in an installed SDK.
+The SDK wrapper and generated application launchers automatically discover a
+Java 17 JDK from `UIMD_JAVA_HOME`, a valid `JAVA_HOME`, `PATH`, and standard
+platform installation locations, including Homebrew's keg-only `openjdk@17`.
+After installing JDK 17 once, no per-terminal export is required. Use
+`uimd doctor` to see the selected JDK; reserve `UIMD_JAVA_HOME` for a
+non-standard installation location.
+
 ## Repository
 
 Official source:
@@ -262,6 +289,7 @@ Main directories:
 ```text
 src/uimd/       Python runtime package, dialogs, testing helpers, specs, and themes
 cpp/            C++ runtime, generator support, examples, and tests
+java/           Java 17 terminal runtime, generated examples, and tests
 shared/         Cross-backend themes, IR notes, and specs
 docs/           User and maintainer documentation
 tests/          Cross-project and MCP scenarios
@@ -282,6 +310,13 @@ Build and test C++:
 cmake -S cpp -B cpp/build
 cmake --build cpp/build
 ctest --test-dir cpp/build --output-on-failure
+```
+
+Build and test Java:
+
+```bash
+./java/gradlew -p java check --console=plain
+PYTHONPATH=tools python3 -c 'from uimd_dev import build_all_java_examples; build_all_java_examples()'
 ```
 
 This GitHub repository uses `main` as the stable public snapshot branch and
