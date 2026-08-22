@@ -11,6 +11,20 @@
         element_id: status
       assert:
         value: "overview.markdown - 47 blocks - arrows preview"
+    - tool: press_key
+      arguments:
+        key: Escape
+    - tool: press_key
+      arguments:
+        key: Tab
+    - tool: get_focused_element
+      assert:
+        id: up_btn
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "buttons scroll the viewer; Right focuses viewer"
     - tool: enter_edit_mode
       arguments:
         element_id: docs

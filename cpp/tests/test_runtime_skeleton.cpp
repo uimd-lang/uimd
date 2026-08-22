@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -226,6 +227,77 @@ public:
     ui::ReusableElement* card = nullptr;
 };
 
+class ScopedReusableFocusHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    ScopedReusableFocusHostWindow()
+        : ui::GeneratedWindowBase("ScopedReusableFocusHostWindow")
+    {
+        ui::Style windowStyle;
+        windowStyle.background = kReusableFocusParentBackground;
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+
+        items = &addElement<ui::ScrollView>("items");
+        auto actionWindow = std::make_unique<ReusableFocusChildWindow>(ui::Color::transparent());
+        action = &items->addChild<ui::ReusableElement>("action", std::move(actionWindow));
+        ui::Style focusStyle;
+        focusStyle.background = kReusableFocusBackground;
+        action->setFocusStyle(focusStyle);
+
+        setGeneratedLayout({
+            fixedEntry(
+                "items",
+                "scrollview",
+                ui::Rect{0, 0, kReusableFocusCellSize, kReusableFocusCellSize}),
+        });
+    }
+
+    ui::ScrollView* items = nullptr;
+    ui::ReusableElement* action = nullptr;
+};
+
+class ActivatingReusableFocusChildWindow : public ReusableFocusChildWindow
+{
+public:
+    explicit ActivatingReusableFocusChildWindow(int& activationCount)
+        : ReusableFocusChildWindow(ui::Color::transparent()), activationCount_(activationCount)
+    {
+    }
+
+    bool activateGeneratedControl() override
+    {
+        ++activationCount_;
+        return true;
+    }
+
+private:
+    int& activationCount_;
+};
+
+class ScopedReusableActivationHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    explicit ScopedReusableActivationHostWindow(int& activationCount)
+        : ui::GeneratedWindowBase("ScopedReusableActivationHostWindow")
+    {
+        items = &addElement<ui::ScrollView>("items");
+        action = &items->addChild<ui::ReusableElement>(
+            "action",
+            std::make_unique<ActivatingReusableFocusChildWindow>(activationCount));
+        setGeneratedLayout({
+            fixedEntry(
+                "items",
+                "scrollview",
+                ui::Rect{0, 0, kReusableFocusCellSize, kReusableFocusCellSize}),
+        });
+    }
+
+    ui::ScrollView* items = nullptr;
+    ui::ReusableElement* action = nullptr;
+};
+
 [[nodiscard]] ui::Color renderedReusableFocusBackground(const ui::Color& childCellBackground)
 {
     ReusableFocusHostWindow window{childCellBackground};
@@ -237,6 +309,54 @@ public:
     assert(!rendered.front().empty());
     assert(rendered.front().front().background.has_value());
     return *rendered.front().front().background;
+}
+
+[[nodiscard]] ui::Color renderedScopedReusableFocusBackground()
+{
+    ScopedReusableFocusHostWindow window;
+    const ui::RenderedContent rendered = ui::renderGeneratedWindowContent(
+        window,
+        ui::Size{kReusableFocusCellSize, kReusableFocusCellSize},
+        1,
+        false,
+        window.items);
+    assert(!rendered.empty());
+    assert(!rendered.front().empty());
+    assert(rendered.front().front().background.has_value());
+    return *rendered.front().front().background;
+}
+
+[[nodiscard]] int scopedReusableMcpActivationCount()
+{
+    int activationCount = 0;
+    ScopedReusableActivationHostWindow window{activationCount};
+    ui::GeneratedWindowRuntimeOptions options;
+    options.initialFocusName = "items";
+
+    std::istringstream requests{
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"press_key\",\"params\":{\"key\":\" \"}}\n"};
+    std::ostringstream responses;
+    std::streambuf* previousInput = std::cin.rdbuf(requests.rdbuf());
+    std::streambuf* previousOutput = std::cout.rdbuf(responses.rdbuf());
+    std::cin.clear();
+    std::cout.clear();
+
+    char executable[] = "ui_cpp_tests";
+    char mcpServer[] = "--mcp-server";
+    char headless[] = "--headless";
+    char fast[] = "--mcp-fast";
+    char* arguments[] = {executable, mcpServer, headless, fast};
+    const int result = ui::runGeneratedWindow(window, std::move(options), 4, arguments);
+
+    std::cin.rdbuf(previousInput);
+    std::cout.rdbuf(previousOutput);
+    std::cin.clear();
+    std::cout.clear();
+    assert(result == 0);
+    assert(!responses.str().empty());
+    return activationCount;
 }
 
 [[nodiscard]] bool renderedContentHasBackground(const ui::RenderedContent& content, const ui::Color& color)
@@ -645,6 +765,14 @@ int main() {
     }
     assert(transparentChildFocus == twoReusableFocusLayers);
     assert(opaqueChildFocus == oneReusableFocusLayer);
+    if (renderedScopedReusableFocusBackground() != twoReusableFocusLayers)
+    {
+        return failCheck("active ScrollView omitted its direct reusable focus target");
+    }
+    if (scopedReusableMcpActivationCount() != 2)
+    {
+        return failCheck("active ScrollView reusable focus target did not activate exactly once per key");
+    }
 
     StaleScopeHostWindow staleScopeWindow;
     (void)ui::renderGeneratedWindowContent(

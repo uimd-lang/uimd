@@ -1261,10 +1261,16 @@ func (state *runtimeState) activateReusableScrollScopeFocused(focused Element, k
 		state.editMode = true
 		return true
 	case *ReusableElement:
+		if activateReusableControl(element) {
+			return true
+		}
 		if state.enterReusableScrollScope(element) {
 			return true
 		}
 	case *ViewHost:
+		if activateReusableControl(&element.ReusableElement) {
+			return true
+		}
 		if state.enterReusableScrollScope(element) {
 			return true
 		}

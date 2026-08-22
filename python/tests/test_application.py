@@ -2253,7 +2253,7 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertEqual(child._window_height, 2)
         self.assertEqual(lines[:2], ["abcd", "ghij"])
 
-    def _window_with_active_scrollview_child(self, elem):
+    def _window_with_active_scrollview_child(self, elem, *, begin_child_edit=True):
         window = UIWindow()
         window._focused_element = elem
         window._edit_mode = True
@@ -2261,7 +2261,8 @@ class TestUIApplicationSizing(unittest.TestCase):
             "proxy": Label(text="items"),
             "scrollview": PlainScrollView(width=20, height=3),
         }
-        window._begin_scoped_child_edit(elem)
+        if begin_child_edit:
+            window._begin_scoped_child_edit(elem)
         return window
 
     def test_scrollview_scoped_combobox_escape_closes_child_menu_only(self):
@@ -2305,6 +2306,32 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertIsNotNone(window._active_scrollview_scope)
         self.assertFalse(area._edit_mode)
         self.assertEqual(area.value, "new")
+
+    def test_scrollview_scoped_reusable_control_activates_with_enter_and_space(self):
+        """Scoped keyboard activation should reach a focusable reusable child exactly once."""
+        class ActivatableChild(UIWindow):
+            def __init__(self):
+                super().__init__()
+                self.focusable = True
+                self.activation_count = 0
+
+            def activate(self):
+                self.activation_count += 1
+                return True
+
+        for key in ("Enter", " "):
+            with self.subTest(key=key):
+                reusable = UIWindow().create_element("row", "uielement")
+                child = ActivatableChild()
+                reusable._child_instance = child
+                child.parent = reusable
+                window = self._window_with_active_scrollview_child(reusable, begin_child_edit=False)
+
+                self.assertTrue(window._handle_scrollview_scope_key(key))
+
+                self.assertEqual(child.activation_count, 1)
+                self.assertIsNotNone(window._active_scrollview_scope)
+                self.assertTrue(window._edit_mode)
 
     def test_direct_nested_scrollview_focus_preserves_navigation_scope(self):
         """Direct focus should keep arrow navigation inside the containing ScrollView."""

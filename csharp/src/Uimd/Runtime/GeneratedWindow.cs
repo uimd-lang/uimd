@@ -994,7 +994,18 @@ public static class GeneratedWindowRuntime
                     if (childView.Element is ReusableElement childReusable && childReusable.Child is not null)
                     {
                         SyncReusableChildFrames(childReusable, childView.Element.Frame);
-                        result.AddRange(FocusableElements(childReusable.Child, activeScrollView));
+                        List<Element> childFocusable = FocusableElements(childReusable.Child, activeScrollView);
+                        if (childFocusable.Count == 0 &&
+                            IsFocusable(childReusable) &&
+                            childReusable.Child.GeneratedFocusable &&
+                            childReusable is not ViewHost)
+                        {
+                            result.Add(childReusable);
+                        }
+                        else
+                        {
+                            result.AddRange(childFocusable);
+                        }
                         continue;
                     }
                     if (IsFocusable(childView.Element))
@@ -6508,10 +6519,6 @@ public sealed class McpController
             : GeneratedWindowRuntime.FocusableElements(frame.Window);
         int index = element is null ? -1 : focusable.IndexOf(element);
         Element? previous = FocusedElement(frame);
-        if (previous is not null && previous != element)
-        {
-            frame.Options.OnFocusChanged?.Invoke(previous.Name, false);
-        }
         frame.FocusedIndex = index;
         frame.FocusedElementRef = index >= 0 ? focusable[index] : null;
         frame.EditMode = false;
@@ -6522,9 +6529,22 @@ public sealed class McpController
         frame.ActiveScrollViewFresh = false;
         frame.SuppressActiveScrollViewScopeVisuals = false;
         frame.EditSnapshot = null;
-        if (index >= 0)
+        NotifyFocusTransition(frame, previous, frame.FocusedElementRef);
+    }
+
+    private static void NotifyFocusTransition(RuntimeFrame frame, Element? previous, Element? focused)
+    {
+        if (ReferenceEquals(previous, focused))
         {
-            frame.Options.OnFocusChanged?.Invoke(focusable[index].Name, true);
+            return;
+        }
+        if (previous is not null)
+        {
+            frame.Options.OnFocusChanged?.Invoke(previous.Name, false);
+        }
+        if (focused is not null)
+        {
+            frame.Options.OnFocusChanged?.Invoke(focused.Name, true);
         }
     }
 
@@ -7425,10 +7445,6 @@ public sealed class McpController
         if (index >= 0)
         {
             Element? previous = FocusedElement();
-            if (previous is not null && previous != element)
-            {
-                Current.Options.OnFocusChanged?.Invoke(previous.Name, false);
-            }
             Current.FocusedIndex = index;
             Current.FocusedElementRef = focusable[index];
             Current.EditMode = false;
@@ -7436,7 +7452,7 @@ public sealed class McpController
             Current.ActiveScrollView = scrollContext?.ScrollView;
             Current.ActiveScrollViewProxy = scrollContext?.Proxy;
             Current.ActiveScrollViewFresh = false;
-            Current.Options.OnFocusChanged?.Invoke(element.Name, true);
+            NotifyFocusTransition(Current, previous, Current.FocusedElementRef);
         }
         return Snapshot(element);
     }
@@ -7472,6 +7488,7 @@ public sealed class McpController
 
     private bool EnterScrollViewScope(Element focused)
     {
+        Element? previous = FocusedElement();
         if (focused is ReusableElement reusable && reusable.Child is GeneratedScrollViewBase generatedScrollView)
         {
             Current.EditMode = true;
@@ -7483,6 +7500,7 @@ public sealed class McpController
             Current.SuppressActiveScrollViewScopeVisuals = false;
             Current.EditSnapshot = null;
             FocusFirstScrollViewScopeElement(Current, reusable, generatedScrollView.ScrollView());
+            NotifyFocusTransition(Current, previous, FocusedElement());
             return true;
         }
         if (focused is ScrollView scrollView)
@@ -7496,6 +7514,7 @@ public sealed class McpController
             Current.SuppressActiveScrollViewScopeVisuals = false;
             Current.EditSnapshot = null;
             FocusFirstScrollViewScopeElement(Current, null, scrollView);
+            NotifyFocusTransition(Current, previous, FocusedElement());
             return true;
         }
         Current.ActiveScrollView = null;
@@ -8218,6 +8237,9 @@ public sealed class McpController
                 {
                     OptionsFor(focused).OnButton?.Invoke(focused.Name);
                 }
+                else if (ActivateReusableControl(focused))
+                {
+                }
                 else if (focused is not null && IsImmediateInput(focused))
                 {
                     int previousSelectionIndex = SelectedIndexOf(focused);
@@ -8437,10 +8459,6 @@ public sealed class McpController
     private void MoveFocusLinear(List<Element> focusable, int delta)
     {
         Element? focused = FocusedElement();
-        if (focused is not null)
-        {
-            Current.Options.OnFocusChanged?.Invoke(focused.Name, false);
-        }
         int currentIndex = focused is null ? Current.FocusedIndex : focusable.IndexOf(focused);
         Current.FocusedIndex = (currentIndex + delta + focusable.Count) % focusable.Count;
         Current.FocusedElementRef = focusable[Current.FocusedIndex];
@@ -8452,11 +8470,11 @@ public sealed class McpController
         Current.ActiveScrollViewFresh = false;
         Current.SuppressActiveScrollViewScopeVisuals = false;
         Current.EditSnapshot = null;
-        Current.Options.OnFocusChanged?.Invoke(focusable[Current.FocusedIndex].Name, true);
+        NotifyFocusTransition(Current, focused, Current.FocusedElementRef);
         GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, focusable[Current.FocusedIndex]);
     }
 
-    private static void ExitScrollViewScope(RuntimeFrame frame)
+    private void ExitScrollViewScope(RuntimeFrame frame)
     {
         if (frame.ActiveScrollView is null)
         {
@@ -8465,6 +8483,7 @@ public sealed class McpController
             return;
         }
 
+        Element? previous = FocusedElement(frame);
         ScrollView scrollView = frame.ActiveScrollView;
         List<Element> activeFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window, scrollView);
         List<Element> scoped = ScrollViewScopeFocusableElements(frame, scrollView);
@@ -8489,6 +8508,7 @@ public sealed class McpController
         List<Element> navigationFocusable = GeneratedWindowRuntime.FocusableElements(frame.Window);
         frame.FocusedIndex = navigationFocusable.IndexOf(scopeRoot);
         frame.FocusedElementRef = frame.FocusedIndex >= 0 ? navigationFocusable[frame.FocusedIndex] : null;
+        NotifyFocusTransition(frame, previous, frame.FocusedElementRef);
     }
 
     private bool MoveScrollViewScopeFocus(string key)
@@ -8522,6 +8542,7 @@ public sealed class McpController
                 Current.ScrollViewLastDescendant[scrollView] = target;
                 GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, target);
                 Current.ActiveScrollViewFresh = false;
+                NotifyFocusTransition(Current, current, target);
                 return true;
             }
         }
@@ -8561,6 +8582,7 @@ public sealed class McpController
             Current.FocusedElementRef = target;
             Current.ScrollViewLastDescendant[scrollView] = target;
             GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, target);
+            NotifyFocusTransition(Current, current, target);
         }
         Current.ActiveScrollViewFresh = false;
         return true;
@@ -8637,11 +8659,13 @@ public sealed class McpController
 
     private void MoveFocusDirection(string direction)
     {
+        Element? previous = FocusedElement();
         List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
         if (focusable.Count == 0)
         {
             Current.FocusedIndex = -1;
             Current.FocusedElementRef = null;
+            NotifyFocusTransition(Current, previous, null);
             return;
         }
         if (Current.FocusedElementRef is not null)
@@ -8660,6 +8684,7 @@ public sealed class McpController
         {
             Current.FocusedIndex = 0;
             Current.FocusedElementRef = focusable[0];
+            NotifyFocusTransition(Current, previous, Current.FocusedElementRef);
             return;
         }
 
@@ -8711,6 +8736,7 @@ public sealed class McpController
             Current.FocusedIndex = bestIndex;
             Current.FocusedElementRef = focusable[bestIndex];
             GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, focusable[bestIndex]);
+            NotifyFocusTransition(Current, previous, Current.FocusedElementRef);
         }
     }
 

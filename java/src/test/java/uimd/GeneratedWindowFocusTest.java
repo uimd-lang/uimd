@@ -59,6 +59,53 @@ final class GeneratedWindowFocusTest
     }
 
     @Test
+    void keyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements()
+    {
+        GeneratedWindowBase window = new GeneratedWindowBase("Focus callbacks");
+        window.addElement(new Button("first", "First"));
+        window.addElement(new Button("second", "Second"));
+        window.setGeneratedLayout(List.of(
+            layout("first", 0, 1),
+            layout("second", 2, 1)));
+        GeneratedWindowRuntimeOptions options = window.runtimeOptions();
+        options.setInitialFocusName("first");
+        List<String> changes = new ArrayList<>();
+        options.setOnFocusChanged((name, focused) -> changes.add(name + ":" + focused));
+        GeneratedWindowStackFrame frame = GeneratedWindowRuntime.createFrame(window, options);
+
+        GeneratedWindowRuntime.dispatchFrameEvent(frame, Event.key("Tab"));
+        assertEquals(List.of("first:false", "second:true"), changes);
+        changes.clear();
+        GeneratedWindowRuntime.dispatchFrameEvent(frame, Event.key("Right"));
+        assertTrue(changes.isEmpty());
+    }
+
+    @Test
+    void scrollViewScopedReusableControlActivatesWithEnterAndSpace()
+    {
+        ActivatingControlWindow actionWindow = new ActivatingControlWindow();
+        ReusableElement action = new ReusableElement("action", actionWindow);
+        TestScrollWindow scrollWindow = new TestScrollWindow();
+        scrollWindow.scrollView().addChild(action);
+        ReusableElement host = new ReusableElement("items", scrollWindow);
+        GeneratedWindowBase root = new GeneratedWindowBase("Root");
+        root.setGeneratedLayout(List.of(layout("items", 0, CONTENT_SIZE.height())));
+        root.addElement(host);
+        GeneratedWindowRuntimeOptions options = root.runtimeOptions();
+        options.setInitialFocusName("items");
+        GeneratedWindowStack stack = new GeneratedWindowStack();
+        GeneratedWindowStackFrame frame = stack.push(root, options);
+        renderFrame(root, frame);
+
+        GeneratedWindowRuntime.dispatchWindowStackEvent(stack, Event.key("Enter"));
+        assertSame(action, focusedElement(root, frame));
+        GeneratedWindowRuntime.dispatchWindowStackEvent(stack, Event.key("Enter"));
+        assertEquals(1, actionWindow.activationCount);
+        GeneratedWindowRuntime.dispatchWindowStackEvent(stack, Event.key(" "));
+        assertEquals(2, actionWindow.activationCount);
+    }
+
+    @Test
     void explicitDescendantFocusKeepsTheScrollScopeButEndsItsEditVisuals()
     {
         FocusFixture fixture = new FocusFixture();
@@ -565,6 +612,24 @@ final class GeneratedWindowFocusTest
             ScrollView scrollView = addElement(new ScrollView("__scrollview"));
             setGeneratedScrollView(scrollView);
             setGeneratedLayout(List.of(layout("__scrollview", 0, CONTENT_SIZE.height())));
+        }
+    }
+
+    private static final class ActivatingControlWindow extends GeneratedWindowBase
+    {
+        private int activationCount;
+
+        ActivatingControlWindow()
+        {
+            super("Action");
+            setGeneratedFocusable(true);
+        }
+
+        @Override
+        public boolean activateGeneratedControl()
+        {
+            ++activationCount;
+            return true;
         }
     }
 

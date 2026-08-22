@@ -2720,6 +2720,10 @@ impl RuntimeState
                 self.scope_dim_element = Some(element);
                 self.edit_mode = true;
             }
+            ElementKind::Reusable | ElementKind::ViewHost =>
+            {
+                let _ = activate_reusable_control(app, self, options, &element);
+            }
             _ => {}
         }
     }
@@ -3788,17 +3792,26 @@ fn focusable_descendants(window: &GeneratedWindow) -> Vec<ElementRef>
     )
     {
         let value = element.borrow();
+        let child_focusable = value.child_window().map(focusable_descendants);
+        let generated_control_focusable = matches!(value.kind(), ElementKind::Reusable)
+            && value.enabled
+            && value.focusable
+            && value.child_window().is_some_and(|child|
+            {
+                child.generated_focusable()
+                    && child_focusable.as_ref().is_some_and(Vec::is_empty)
+            });
         if include_element
             && value.enabled
             && value.focusable
-            && is_focusable_type(&value.kind())
+            && (is_focusable_type(&value.kind()) || generated_control_focusable)
         {
             result.push(element.clone());
         }
         let children = value.children.clone();
-        if let Some(child) = value.child_window()
+        if let Some(child_focusable) = child_focusable
         {
-            result.extend(focusable_descendants(child));
+            result.extend(child_focusable);
         }
         drop(value);
         for child in children
@@ -7624,6 +7637,66 @@ mod tests
     }
 
     #[test]
+    fn scroll_view_scoped_reusable_control_activates_with_enter_and_space()
+    {
+        struct ReusableApp
+        {
+            window: GeneratedWindow,
+            activation_count: usize,
+        }
+
+        impl GeneratedApplication for ReusableApp
+        {
+            fn window(&self) -> &GeneratedWindow { &self.window }
+            fn window_mut(&mut self) -> &mut GeneratedWindow { &mut self.window }
+            fn handle_generated_button(&mut self, _name: &str) -> bool
+            {
+                self.activation_count += 1;
+                true
+            }
+        }
+
+        let mut child = GeneratedWindow::new("action");
+        child.set_generated_focusable(true);
+        child.set_generated_control_activation("run");
+        let action = new_reusable_element("action", "Action");
+        action.borrow_mut().set_child_window(child);
+        action.borrow_mut().frame =
+            Rect { row: 0, col: 0, width: 12, height: 1 };
+        let scroll = GeneratedWindow::new_scroll_view("items");
+        scroll.add_child(action.clone());
+        let host = new_reusable_element("items", "Items");
+        host.borrow_mut().set_child_window(scroll);
+        host.borrow_mut().frame =
+            Rect { row: 0, col: 0, width: 12, height: 1 };
+        let mut app = ReusableApp
+        {
+            window: GeneratedWindow::new("test"),
+            activation_count: 0,
+        };
+        app.window.add_element(host);
+        let options = GeneratedWindowRuntimeOptions
+        {
+            initial_focus_name: "items".to_string(),
+            ..Default::default()
+        };
+        let mut state = RuntimeState::new(
+            &app.window,
+            &options,
+            Size { width: 12, height: 3 },
+        );
+
+        assert!(state.handle_key(&mut app, &options, "Enter"));
+        assert!(state
+            .focused_element(&app.window)
+            .is_some_and(|focused| Rc::ptr_eq(&focused, &action)));
+        assert!(state.handle_key(&mut app, &options, "Enter"));
+        assert_eq!(app.activation_count, 1);
+        assert!(state.handle_key(&mut app, &options, " "));
+        assert_eq!(app.activation_count, 2);
+    }
+
+    #[test]
     fn root_initial_edit_requires_an_editable_element_and_notifies_once_like_cpp()
     {
         let events = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
@@ -7829,6 +7902,55 @@ mod tests
         assert!(state.handle_key(&mut app, &options, "Enter"));
         assert_eq!(modal_events.borrow().as_slice(), ["confirm"]);
         assert!(!root_events.borrow().iter().any(|event| event == "button:confirm"));
+    }
+
+    #[test]
+    fn keyboard_focus_movement_notifies_only_actual_previous_and_next_elements()
+    {
+        let events = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let callback_events = events.clone();
+        let options = GeneratedWindowRuntimeOptions
+        {
+            initial_focus_name: "first".to_string(),
+            on_focus_changed: Some(Rc::new(move |name, focused|
+            {
+                callback_events
+                    .borrow_mut()
+                    .push(format!("{name}:{focused}"));
+            })),
+            ..Default::default()
+        };
+        let mut app = App { window: GeneratedWindow::new("test"), activated: false };
+        let first = new_button("first", "First");
+        first.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: 8,
+            height: 1,
+        });
+        let second = new_button("second", "Second");
+        second.borrow_mut().set_frame(Rect
+        {
+            row: 2,
+            col: 0,
+            width: 8,
+            height: 1,
+        });
+        app.window.add_element(first);
+        app.window.add_element(second);
+        let mut state = RuntimeState::new(
+            &app.window,
+            &options,
+            Size { width: 20, height: 6 },
+        );
+
+        assert!(state.handle_key(&mut app, &options, "Tab"));
+        assert_eq!(events.borrow().as_slice(), ["first:false", "second:true"]);
+        events.borrow_mut().clear();
+
+        let _ = state.handle_key(&mut app, &options, "Right");
+        assert!(events.borrow().is_empty());
     }
 
     #[test]

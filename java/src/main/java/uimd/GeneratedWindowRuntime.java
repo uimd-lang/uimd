@@ -5673,15 +5673,7 @@ public final class GeneratedWindowRuntime
                     {
                         continue;
                     }
-                    if (child instanceof ReusableElement reusable && reusable.child() != null)
-                    {
-                        syncReusableChildFrames(reusable);
-                        output.addAll(focusableElements(reusable.child(), activeScrollView));
-                    }
-                    else if (isFocusable(child))
-                    {
-                        output.add(child);
-                    }
+                    addFocusableElements(child, activeScrollView, output);
                 }
             }
             return;

@@ -748,6 +748,7 @@ explicitly running the Python tester implementation.
 PYTHONPATH=python:src python3 -m pytest python/tests
 PYTHONPATH=python:src python3 -m pytest python/tests/test_activity_feed.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_reusable_control_activates_with_enter_and_space
 PYTHONPATH=python:src python3 -m pytest python/tests/test_calculator.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_dialogs.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py
@@ -795,6 +796,8 @@ ctest --test-dir cpp\build-windows -C Release --output-on-failure
 python3 -m pytest python/tests/test_java_toolchain.py
 ./java/gradlew -p java test --tests uimd.GeneratedDialogsTest
 ./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest
+./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest.keyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements
+./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest.scrollViewScopedReusableControlActivatesWithEnterAndSpace
 ./java/gradlew -p java test --tests uimd.GeneratedWindowStackTest
 ./java/gradlew -p java test --tests uimd.ImageTest
 UIMD_FORCE_SIXEL=1 ./java/gradlew -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
@@ -808,6 +811,8 @@ Windows PowerShell:
 .\java\gradlew.bat -p java check
 .\java\gradlew.bat -p java test --tests uimd.GeneratedDialogsTest
 .\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest
+.\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest.keyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements
+.\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest.scrollViewScopedReusableControlActivatesWithEnterAndSpace
 .\java\gradlew.bat -p java test --tests uimd.GeneratedWindowStackTest
 .\java\gradlew.bat -p java test --tests uimd.ImageTest
 $env:UIMD_FORCE_SIXEL = "1"; .\java\gradlew.bat -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
@@ -827,6 +832,8 @@ swift test --package-path swift/src/Uimd
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd vet ./...
 ```
 
@@ -836,6 +843,8 @@ Windows PowerShell:
 go -C go\src\uimd test ./...
 go -C go\src\uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
 go -C go\src\uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
+go -C go\src\uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
+go -C go\src\uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
 go -C go\src\uimd vet ./...
 ```
 
@@ -850,9 +859,11 @@ python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.to
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::headless_tcp_accepts_a_later_client_while_the_first_request_is_delayed -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::modal_button_uses_the_app_owned_frame_hook_before_dialog_behavior -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::generated_scroll_view_is_the_single_canonical_element_and_child_owner -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::keyboard_focus_movement_notifies_only_actual_previous_and_next_elements -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::modal_close_reactivates_a_live_invoking_scroll_scope_like_cpp -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_modal_opening_uses_one_flat_root_window_stack -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_scroll_combo_box_overlay_has_no_ancestor_local_ghost -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::scroll_view_scoped_reusable_control_activates_with_enter_and_space -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml terminal::tests::non_tty_input_keeps_the_terminal_lifecycle_available_for_gui_mcp -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml tests::public_runtime_version_is_the_cargo_package_version -- --exact
 python3 tools/cargo_with_progress.py clippy --manifest-path rust/src/uimd/Cargo.toml --all-targets -- -D warnings

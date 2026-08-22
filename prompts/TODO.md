@@ -4,6 +4,153 @@
 
 Date: 2026-06-21
 
+- [x] **Allow related bug fixes to share one expensive full-validation gate.**
+  Requested on 2026-08-22 because the complete multi-platform test suite can
+  take hours. Added a durable `AGENTS.md` rule and a Related Bug-Fix Batches
+  section to `docs/cross-platform-bug-fix-workflow.md`. A batch must share a
+  canonical owner, subsystem, state transition, generated surface, or focused
+  test set; every bug retains its own reproduction and regression; focused
+  validation still runs after each repair; and the expensive full supported-
+  platform gate runs once after the complete batch is green. Unrelated or
+  diagnostically ambiguous changes must be split. Parity decision:
+  documentation/process only; runtime behavior is unaffected.
+
+- [x] **Fix GitHub issues #10 and #13 as one keyboard focus/activation routing
+  batch.** Selected by Codex with user authorization on 2026-08-22 because both
+  reports traverse the generated runtime's keyboard routing and active
+  ScrollView focus scope, so they can share the port audit and one final
+  validation gate while retaining separate regressions.
+
+  - [x] [#10: C++ keyboard focus movement does not fire `onFocusChanged`](https://github.com/uimd-lang/uimd/issues/10).
+    Reproduce Tab/Shift+Tab/spatial movement versus mouse focus, preserve the
+    required previous-focus `false` then next-focus `true` callback order, and
+    cover terminal, MCP, modal-frame, and relevant language-port paths.
+  - [x] [#13: Enter/Space does not activate a focused reusable control inside
+    an active ScrollView](https://github.com/uimd-lang/uimd/issues/13).
+    Reproduce activation inside the active scope, route it through the owning
+    reusable child exactly once, and cover terminal, MCP, stack-frame, Python
+    reference, and every relevant language port.
+
+  **Shared batch boundary:** keyboard dispatch after the active window and
+  focused element are resolved, through focus movement or reusable activation,
+  owner-aware callback dispatch, ScrollView-scope synchronization, and
+  post-event cleanup. Do not include edit-confirm/rebuild issues #8/#9 or
+  public identity API issue #14 in this batch because they require different
+  state/API design.
+
+  **Validation policy:** add one focused regression per issue and run the
+  affected port's focused tests immediately after each repair. After both
+  issues and the complete port parity matrix are green, regenerate/build the
+  affected examples and run their focused compares/direct-terminal gates.
+  Consolidate any required full supported-platform validation into one final
+  run for this batch.
+
+  **Intended shared contract and callback order:** a runtime-managed keyboard
+  focus change emits the previous logical focused element with `false`, then
+  the new logical focused element with `true`, and emits nothing when the
+  logical element did not change. This applies to linear and spatial movement
+  plus entering, moving within, and leaving a ScrollView focus scope. Enter or
+  Space on a reusable element that is the focused descendant of an active
+  ScrollView first invokes the same owner-aware reusable-control activation as
+  ordinary focus; it runs exactly once and only falls back to entering a
+  nested scope or edit session when the reusable child did not consume it.
+  State normalization and rendering observe the completed callback/activation
+  transition.
+
+  **Issue #10 port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/UIBase.py::set_focus` | Its public focus hook already runs from the canonical focus transition, but Python has no generated-runtime `onFocusChanged` option matching this issue's callback surface. | **Unaffected:** preserve the semantic focus transition; use it as the event-order reference. | Existing Python focus tests plus the #13 regression below. |
+  | C++ runtime | `cpp/src/generated/GeneratedWindowRuntime.cpp::{moveFocus,moveFocusSpatial,enterScrollViewScope,moveScrollViewScopeFocus,exitScrollViewScope,notifyFocusChanged}` | Mouse/explicit MCP focus notifies, but keyboard terminal, MCP, and stack-frame movement omits some or all previous/next callbacks. | **Fix:** notify once around every successful logical keyboard focus transition, before rendering or MCP state capture. | Focused C++ generated-runtime tests and keyboard MCP regression at `90x35`. |
+  | C# runtime | `csharp/src/Uimd/Runtime/GeneratedWindow.cs::{MoveFocusLinear,MoveFocusDirection,EnterScrollViewScope,MoveScrollViewScopeFocus,ExitScrollViewScope}` | Linear movement notifies even on a self-wrap; spatial and ScrollView-scope transitions do not notify consistently. | **Fix:** centralize actual-change-only previous-false/next-true notification across every movement path. | Focused C#/C++ keyboard MCP regression at `90x35`. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift::{focusedName,setFocusedElement}` | `focusedName` already emits previous `false` then next `true` only when the name changes, and movement paths use that setter. | **Verify:** preserve implementation and cover it through the shared keyboard regression. | Focused C++/Swift MCP compare at `90x35`. |
+  | Go runtime | `go/src/uimd/runtime.go::{notifyFocusTransition,moveFocusLinear,moveFocusSpatial}` | Already captures the previous logical focus and notifies after movement. | **Verify:** preserve implementation and add/extend focused runtime coverage. | `go -C go/src/uimd test` focused by the new test name. |
+  | Rust runtime | `rust/src/uimd/src/runtime.rs::handle_key` | The public key wrapper captures previous/next logical focus and dispatches the correct pair. | **Verify:** preserve implementation and add/extend focused runtime coverage. | `cargo test` focused by the new test name. |
+  | Java runtime | `java/src/main/java/uimd/GeneratedWindowRuntime.java::changeFocus` | Movement paths use one transition helper which emits previous `false` then next `true`. | **Verify:** preserve implementation and add focused JUnit coverage. | Gradle focused `GeneratedWindowFocusTest`. |
+  | Generator/public API | Native emitters and generated runtime options | The callback surface already exists where supported; no emitted layout or API change is required. | **Unaffected:** do not regenerate APIs for a runtime-routing defect. | Existing generator/API checks. |
+  | Terminal/MCP adapters | Per-port terminal parsers and MCP transports | They already deliver the relevant key names; the defect occurs after input resolution. | **Unaffected:** keep raw input/transport code unchanged. | Shared MCP keyboard regression plus existing direct-terminal smoke in the final gate. |
+
+  **Issue #13 port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/UIBase.py::{_handle_scrollview_scope_key,_activate_reusable_element,_activate_element}` | Ordinary activation supports reusable children, but the active ScrollView Enter/Space branch skips `uielement`. | **Fix:** invoke the canonical reusable activation before nested-scope/edit fallback. | New focused `python/tests/test_application.py` regression. |
+  | C++ runtime | `cpp/src/generated/GeneratedWindowRuntime.cpp::{focusableElements,activateReusableControl}` and active-scope key branches | Stack-frame routing activates reusable controls, while root terminal and MCP active-scope branches omit activation; active-scope enumeration also drops a direct focusable reusable child when its generated child has no inner focus target. | **Fix:** enumerate that reusable wrapper and use the same activation-first ordering in all three routes. | Focused `ui_cpp_tests` stdio-MCP regression plus MCP compare at `90x35`. |
+  | C# runtime | `csharp/src/Uimd/Runtime/GeneratedWindow.cs::{AddFocusableElements,ActivateReusableControl,HandleKey}` | General activation is correct; active ScrollView routing omits it and active-scope enumeration drops the direct reusable wrapper. | **Fix:** enumerate the wrapper and use the same activation-first ordering in the active scope. | Focused C# stdio-MCP probe plus C#/C++ MCP regression at `90x35`. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift::{handleActiveScrollViewKey,performActivateElement}` | Active-scope and general paths both route reusable IDs through the generated button/host callback contract. | **Verify:** preserve the Swift adapter and cover it through the shared regression. | Focused C++/Swift MCP compare at `90x35`. |
+  | Go runtime | `go/src/uimd/runtime.go::{activateFocused,activateReusableScrollScopeFocused}` | General activation calls the reusable child; active-scope handling only attempts nested scope entry for reusable/view-host elements. | **Fix:** activate once first, then fall back to nested scope entry. | New focused Go runtime test. |
+  | Rust runtime | `rust/src/uimd/src/runtime.rs::{focusable_descendants,activate_focused,activate_scope_focused}` | General activation calls the reusable child; active-scope enumeration and activation both omit a direct focusable reusable wrapper. | **Fix:** enumerate that wrapper and port the same activation-first branch. | New focused Rust runtime test. |
+  | Java runtime | `java/src/main/java/uimd/GeneratedWindowRuntime.java::{addFocusableElements,activate,activateReusableControl}` | Active ScrollView Enter/Space delegates to the correct generic activation helper, but its child enumeration bypasses the reusable-wrapper fallback. | **Fix:** recurse through the canonical reusable enumeration helper and add focused JUnit coverage. | Gradle focused `GeneratedWindowFocusTest`. |
+  | Generator/public API | Native emitters and generated reusable hooks | Existing generated reusable ownership/activation hooks are sufficient. | **Unaffected:** no emitter or generated source change. | Existing generator/API checks. |
+  | Terminal/MCP adapters | Per-port terminal parsers and MCP transports | Enter/Space arrives correctly; the missing branch is shared runtime dispatch. | **Unaffected:** keep raw input/transport code unchanged. | Shared MCP regression and final direct-terminal smoke. |
+
+  **Focused validation completed before the final batch gate:** Python's new
+  scoped reusable regression passes; the C++ monolithic runtime test now drives
+  headless stdio MCP through scope entry plus Enter and Space and observes
+  exactly two activations; an equivalent temporary C# stdio-MCP probe exits 0
+  after exactly two activations; focused Go and Rust tests pass; Java's two new
+  JUnit regressions and the complete Gradle `check` pass; Swift's existing
+  transition path is unchanged and `swift test` passes. The shared
+  `markdown_viewer.yaml` keyboard regression passes with 75/75 assertions and
+  no failed steps for C++ against C#, Swift, Go, Rust, and Java at `90x35`.
+
+  **Completed on 2026-08-22.** The final full regeneration/build completed
+  successfully for every supported target and rewrote the parity artifact
+  manifest. The one consolidated final batch gate
+  `./tools/test_all.sh --live-report --keep-going` passed all 34/34 phases:
+  Python 518/518, CTest 26/26, Rust 161/161, Swift 12/12, every language build,
+  lint, direct-terminal and MCP transport phase, Python/C++ 1044/1044 example
+  assertions/steps, C#/Swift/Go/Java/Rust 1980/1980 example
+  assertions/steps each, and all Python, Go, Java, and Rust regression parity
+  phases. Full log:
+  `.uimd/test-logs/test-all-20260822-181358-157918.log`. Final parity decision:
+  Python, C++, C#, Go, Rust, and Java received the same reusable-scope
+  activation/focus-target contract where affected; C++ and C# received the
+  missing actual-transition callback routing; Swift's existing transition and
+  activation behavior was verified unchanged. No example-specific workaround,
+  generated API change, or platform exception was introduced.
+
+- [x] **Document and require the cross-platform bug-fix workflow.** Requested
+  on 2026-08-22. Add a durable workflow under `docs/` that defines issue
+  intake, canonical-source ownership, reproduction, per-port parity mapping,
+  implementation order, focused and full validation, generated-output rules,
+  GitHub issue handling, and completion criteria for substantive fixes. Link
+  it from `AGENTS.md` with a mandatory trigger for requested bug fixes,
+  regressions, failing tests, and selected GitHub issues. Confirm and preserve
+  the existing mandatory link to `docs/new-language-platform-workflow.md` for
+  new language/platform work. Parity decision: documentation and agent process
+  only; no compiler, runtime, generated API, example, or test behavior changes.
+  Completed on 2026-08-22. Added the mandatory 305-line workflow at
+  `docs/cross-platform-bug-fix-workflow.md`, linked it bidirectionally with the
+  new-language workflow, and added normal plus post-compaction triggers to
+  `AGENTS.md`. The workflow covers intake authorization, reproduction,
+  canonical ownership, a required per-port parity matrix, shared-fix design,
+  reference-first implementation, focused validation, blast-radius-aware
+  regeneration/build gates, final validation, GitHub/commit handling, stop
+  conditions, and completion criteria. Validation: required files and links
+  exist, all required workflow sections are present, no trailing whitespace was
+  found, and `git diff --check` passes.
+
+- [x] **Triage the currently reported GitHub bugs #6 through #15 against the
+  current `sdk-work` sources.** Requested on 2026-08-22. Review each open issue
+  read-only, verify its stated runtime/test path against the local canonical
+  implementations, identify overlap and likely fix order, and report whether
+  each issue is confirmed, related to another report, or already addressed.
+  Do not implement fixes, change issue state, or comment on GitHub in this
+  triage task. Parity decision: analysis only; no runtime, generator, API,
+  example, snapshot, or test behavior is changed.
+  Completed on 2026-08-22. All ten issues remain open and have no comments.
+  Source audit result: #6 is already implemented on `sdk-work`; #7, #8, #10,
+  #11, #12, and #14 are confirmed in current sources; #9 is a confirmed focus
+  identity/rebuild symptom closely related to #8; #13 is implemented for stack
+  frames but still missing from the main terminal, MCP, and Python ScrollView
+  key paths; #15 is strongly supported by the missing previous-raw-image
+  cleanup in `TerminalBuffer`, but still requires a direct PTY reproduction.
+  Several reports described as C++ defects expose shared Python/C++ behavior or
+  public API contracts, so their eventual fixes require the parity gate rather
+  than isolated C++ patches.
+
 - [ ] **Implement Java as the next complete generated terminal language target.**
   Approved by the user on 2026-08-13 after the cross-platform Sixel and
   sustained-wheel fixes were validated, committed as `7a4c570`, and pushed to

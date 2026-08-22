@@ -1461,7 +1461,15 @@ void syncReusableChildFrames(ReusableElement& reusable, Rect frame) {
                         reusable != nullptr && reusable->child() != nullptr) {
                         syncReusableChildFrames(*reusable, childView.element->frame());
                         std::vector<Element*> childFocusable = focusableElements(*reusable->child(), activeScrollView);
-                        elements.insert(elements.end(), childFocusable.begin(), childFocusable.end());
+                        if (childFocusable.empty() &&
+                            reusable->enabled() &&
+                            reusable->focusable() &&
+                            reusable->child()->generatedFocusable() &&
+                            dynamic_cast<ViewHost*>(reusable) == nullptr) {
+                            elements.push_back(reusable);
+                        } else {
+                            elements.insert(elements.end(), childFocusable.begin(), childFocusable.end());
+                        }
                         continue;
                     }
                     if (isFocusable(*childView.element)) {
@@ -1480,6 +1488,15 @@ void syncReusableChildFrames(ReusableElement& reusable, Rect frame) {
 
 [[nodiscard]] bool hasMultipleFocusableElements(GeneratedWindowBase& window, Element* activeScrollView = nullptr) {
     return focusableElements(window, activeScrollView).size() > 1;
+}
+
+[[nodiscard]] Element* focusedElementAt(GeneratedWindowBase& window,
+                                        int focusedIndex,
+                                        Element* activeScrollView = nullptr) {
+    const std::vector<Element*> focusable = focusableElements(window, activeScrollView);
+    return focusedIndex >= 0 && focusedIndex < static_cast<int>(focusable.size())
+        ? focusable[static_cast<std::size_t>(focusedIndex)]
+        : nullptr;
 }
 
 [[nodiscard]] std::vector<Element*> mouseTargetElements(GeneratedWindowBase& window, Element* activeScrollView) {
@@ -4751,6 +4768,15 @@ void notifyFocusChanged(const GeneratedWindowFrameOptions& options, Element* ele
     }
 }
 
+template <typename Options>
+void notifyFocusTransition(const Options& options, Element* previous, Element* focused) {
+    if (previous == focused) {
+        return;
+    }
+    notifyFocusChanged(options, previous, false);
+    notifyFocusChanged(options, focused, true);
+}
+
 void notifyOwnerAwareButton(GeneratedWindowBase& window,
                             const GeneratedWindowRuntimeOptions& options,
                             Element* element) {
@@ -4986,8 +5012,11 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
                 frame.activeScrollViewEditElement = nullptr;
                 return true;
             }
+            Element* previousFocused = focused;
             exitScrollViewScope(*frame.window, frame.focusedIndex, frame.editMode,
                                 frame.activeScrollView, frame.scrollViewLastDescendant);
+            notifyFocusTransition(frame.options, previousFocused,
+                                  focusedElementAt(*frame.window, frame.focusedIndex, frame.activeScrollView));
             return true;
         }
         escapeElementEdit(focused, frame.editSnapshot, frame.editMode);
@@ -5038,8 +5067,11 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
                 return true;
             }
             if (isArrowKey(key)) {
+                Element* previousFocused = focused;
                 (void)moveScrollViewScopeFocus(*frame.window, frame.focusedIndex, frame.activeScrollView,
                                                frame.scrollViewLastDescendant, key);
+                notifyFocusTransition(frame.options, previousFocused,
+                                      focusedElementAt(*frame.window, frame.focusedIndex, frame.activeScrollView));
                 return true;
             }
             if (key == "Enter" || key == " ") {
@@ -5118,14 +5150,20 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
     }
     if (key == "Tab") {
         moveFocus(frame.focusedIndex, focusable, 1);
+        notifyFocusTransition(frame.options, focused,
+                              focusedElementAt(*frame.window, frame.focusedIndex, frame.activeScrollView));
         return true;
     }
     if (key == "Shift+Tab") {
         moveFocus(frame.focusedIndex, focusable, -1);
+        notifyFocusTransition(frame.options, focused,
+                              focusedElementAt(*frame.window, frame.focusedIndex, frame.activeScrollView));
         return true;
     }
     if (isArrowKey(key)) {
         moveFocusSpatial(frame.focusedIndex, focusable, key);
+        notifyFocusTransition(frame.options, focused,
+                              focusedElementAt(*frame.window, frame.focusedIndex, frame.activeScrollView));
         return true;
     }
     if (focused == nullptr) {
@@ -5154,6 +5192,8 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             } else {
                 frame.activeScrollViewEditElement = nullptr;
                 frame.editSnapshot.reset();
+                notifyFocusTransition(frame.options, focused,
+                                      focusedElementAt(*frame.window, frame.focusedIndex, frame.activeScrollView));
             }
         }
         return true;
@@ -6808,6 +6848,14 @@ private:
         notifyFocusChanged(options_, element, focused);
     }
 
+    void notifyActiveFrameFocusTransition(GeneratedWindowBase& window, Element* previous, Element* focused) {
+        if (previous == focused) {
+            return;
+        }
+        notifyActiveFrameFocusChanged(window, previous, false);
+        notifyActiveFrameFocusChanged(window, focused, true);
+    }
+
     void clearFocusIfElementRemoved(GeneratedWindowBase& window, FocusIdentity previous) {
         if (previous.element == nullptr) {
             return;
@@ -7835,12 +7883,17 @@ private:
                     windowEditSnapshot.reset();
                     windowActiveScrollViewEditElement = nullptr;
                 } else {
+                    Element* previousFocused = focused;
                     exitScrollViewScope(
                         window,
                         focusedIndex,
                         editMode,
                         windowActiveScrollView,
                         windowScrollViewLastDescendant);
+                    notifyActiveFrameFocusTransition(
+                        window,
+                        previousFocused,
+                        focusedElementAt(window, focusedIndex, windowActiveScrollView));
                 }
             } else {
                 escapeElementEdit(focused, windowEditSnapshot, editMode);
@@ -7850,6 +7903,7 @@ private:
             return toolGetState();
         }
         if (!editMode && key == "Escape" && windowActiveScrollView != nullptr) {
+            Element* previousFocused = focused;
             exitScrollViewScope(
                 window,
                 focusedIndex,
@@ -7857,6 +7911,10 @@ private:
                 windowActiveScrollView,
                 windowScrollViewLastDescendant);
             windowActiveScrollViewEditElement = nullptr;
+            notifyActiveFrameFocusTransition(
+                window,
+                previousFocused,
+                focusedElementAt(window, focusedIndex, windowActiveScrollView));
             syncBaseActiveScrollViewState(window);
             state_.fullRedrawRequested = true;
             return toolGetState();
@@ -7893,12 +7951,17 @@ private:
         }
         if (windowActiveScrollView != nullptr && windowActiveScrollViewEditElement == nullptr && focused != nullptr) {
             if (isArrowKey(key)) {
+                Element* previousFocused = focused;
                 (void)moveScrollViewScopeFocus(
                     window,
                     focusedIndex,
                     windowActiveScrollView,
                     windowScrollViewLastDescendant,
                     key);
+                notifyActiveFrameFocusTransition(
+                    window,
+                    previousFocused,
+                    focusedElementAt(window, focusedIndex, windowActiveScrollView));
                 syncBaseActiveScrollViewState(window);
                 state_.fullRedrawRequested = true;
                 return toolGetState();
@@ -7915,6 +7978,7 @@ private:
                     } else {
                         (void)handleActiveFrameButton(focused->name());
                     }
+                } else if (activateReusableControl(focused)) {
                 } else if (focused != nullptr && isImmediateInput(*focused)) {
                     const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                     (void)handleElementKey(*focused, key);
@@ -8005,10 +8069,22 @@ private:
         } else if (handleActiveFrameKey(key)) {
         } else if (key == "Tab") {
             moveFocus(focusedIndex, focusable, 1);
+            notifyActiveFrameFocusTransition(
+                window,
+                focused,
+                focusedElementAt(window, focusedIndex, windowActiveScrollView));
         } else if (key == "Shift+Tab") {
             moveFocus(focusedIndex, focusable, -1);
+            notifyActiveFrameFocusTransition(
+                window,
+                focused,
+                focusedElementAt(window, focusedIndex, windowActiveScrollView));
         } else if (isArrowKey(key)) {
             moveFocusSpatial(focusedIndex, focusable, key);
+            notifyActiveFrameFocusTransition(
+                window,
+                focused,
+                focusedElementAt(window, focusedIndex, windowActiveScrollView));
         } else if (focused != nullptr && (key == "Enter" || key == " ")) {
             const bool hadActiveStackFrame = isButton(*focused) && activeStackFrame() != nullptr;
             const BackgroundFocusCleanupContext cleanupContext = captureBackgroundFocusCleanupContext();
@@ -8041,6 +8117,10 @@ private:
                 } else {
                     windowActiveScrollViewEditElement = nullptr;
                     windowEditSnapshot.reset();
+                    notifyActiveFrameFocusTransition(
+                        window,
+                        focused,
+                        focusedElementAt(window, focusedIndex, windowActiveScrollView));
                 }
             }
         } else if (focused != nullptr && isImmediateInput(*focused)) {
@@ -10617,7 +10697,12 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                         editSnapshot.reset();
                         activeScrollViewEditElement = nullptr;
                     } else {
+                        Element* previousFocused = focused;
                         exitScrollViewScope(window, focusedIndex, editMode, activeScrollView, scrollViewLastDescendant);
+                        notifyFocusTransition(
+                            options,
+                            previousFocused,
+                            focusedElementAt(window, focusedIndex, activeScrollView));
                     }
                 } else {
                     escapeElementEdit(focused, editSnapshot, editMode);
@@ -10631,8 +10716,13 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                 continue;
             }
             if (!editMode && key == "Escape" && activeScrollView != nullptr) {
+                Element* previousFocused = focused;
                 exitScrollViewScope(window, focusedIndex, editMode, activeScrollView, scrollViewLastDescendant);
                 activeScrollViewEditElement = nullptr;
+                notifyFocusTransition(
+                    options,
+                    previousFocused,
+                    focusedElementAt(window, focusedIndex, activeScrollView));
                 continue;
             }
             if (key == "Escape" &&
@@ -10665,12 +10755,17 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
             }
             if (activeScrollView != nullptr && activeScrollViewEditElement == nullptr && focused != nullptr) {
                 if (isArrowKey(key)) {
+                    Element* previousFocused = focused;
                     (void)moveScrollViewScopeFocus(
                         window,
                         focusedIndex,
                         activeScrollView,
                         scrollViewLastDescendant,
                         key);
+                    notifyFocusTransition(
+                        options,
+                        previousFocused,
+                        focusedElementAt(window, focusedIndex, activeScrollView));
                     continue;
                 }
                 if (key == "Enter" || key == " ") {
@@ -10680,6 +10775,7 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                         : nullptr;
                     if (focused != nullptr && (isButton(*focused) || isClickableImage(*focused))) {
                         notifyOwnerAwareButton(window, options, focused);
+                    } else if (activateReusableControl(focused)) {
                     } else if (focused != nullptr && isImmediateInput(*focused)) {
                         const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                         (void)handleElementKey(*focused, key);
@@ -10778,14 +10874,17 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
             }
             if (key == "Tab") {
                 moveFocus(focusedIndex, focusable, 1);
+                notifyFocusTransition(options, focused, focusedElementAt(window, focusedIndex, activeScrollView));
                 continue;
             }
             if (key == "Shift+Tab") {
                 moveFocus(focusedIndex, focusable, -1);
+                notifyFocusTransition(options, focused, focusedElementAt(window, focusedIndex, activeScrollView));
                 continue;
             }
             if (isArrowKey(key)) {
                 moveFocusSpatial(focusedIndex, focusable, key);
+                notifyFocusTransition(options, focused, focusedElementAt(window, focusedIndex, activeScrollView));
                 continue;
             }
             if (focused == nullptr) {
@@ -10808,6 +10907,10 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                     } else {
                         activeScrollViewEditElement = nullptr;
                         editSnapshot.reset();
+                        notifyFocusTransition(
+                            options,
+                            focused,
+                            focusedElementAt(window, focusedIndex, activeScrollView));
                     }
                 }
                 continue;

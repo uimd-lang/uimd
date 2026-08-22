@@ -1811,6 +1811,8 @@ class UIBase(UIInstance):
             if elem_type == "image":
                 self._dispatch_element_changed_for(elem, True)
                 return True
+            if elem_type == "uielement" and self._activate_reusable_element(elem):
+                return True
             if elem_type in ("textinput", "textarea", "numberinput", "combobox", "listbox"):
                 self._begin_scoped_child_edit(elem)
                 return True

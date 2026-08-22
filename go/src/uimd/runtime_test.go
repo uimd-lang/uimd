@@ -14,6 +14,16 @@ type standardToolInterceptProvider struct {
 	called bool
 }
 
+type activatingGeneratedControl struct {
+	*GeneratedWindowBase
+	activationCount int
+}
+
+func (control *activatingGeneratedControl) ActivateGeneratedControl() bool {
+	control.activationCount++
+	return true
+}
+
 type customElementWithoutCommitMode struct {
 	name  string
 	frame Rect
@@ -559,6 +569,36 @@ func newFocusedRuntimeForTest(elements ...Element) (*GeneratedWindowBase, *runti
 	return window, newRuntimeState(window, options)
 }
 
+func TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements(t *testing.T) {
+	first := NewButton("first", "First")
+	first.SetFrame(Rect{Row: 0, Col: 0, Width: 8, Height: 1})
+	second := NewButton("second", "Second")
+	second.SetFrame(Rect{Row: 2, Col: 0, Width: 8, Height: 1})
+	events := []string{}
+	window := NewGeneratedWindowBase("Test")
+	window.AddElement(first)
+	window.AddElement(second)
+	state := newRuntimeState(window, GeneratedWindowRuntimeOptions{
+		InitialFocusName: "first",
+		OnFocusChanged: func(name string, focused bool) {
+			events = append(events, fmt.Sprintf("%s:%t", name, focused))
+		},
+	})
+
+	if !state.handleKey("Tab") {
+		t.Fatal("Tab was not handled")
+	}
+	if got, want := events, []string{"first:false", "second:true"}; !slices.Equal(got, want) {
+		t.Fatalf("focus events after Tab = %v, want %v", got, want)
+	}
+	events = events[:0]
+
+	state.handleKey("Right")
+	if len(events) != 0 {
+		t.Fatalf("no-op spatial movement emitted focus events: %v", events)
+	}
+}
+
 func TestEditableEntryMovesCaretToEndAndClearsSelection(t *testing.T) {
 	textInput := NewTextInput("text_input", "alpha", 0)
 	textArea := NewTextArea("text_area", "alpha\nbeta")
@@ -990,6 +1030,39 @@ func TestReusableScrollScopeVerticalNavigationReachesAdjacentComboBox(t *testing
 	state.handleKey("Escape")
 	if state.scopeDimElement != nil || state.editMode || state.focusedElement() != host {
 		t.Fatal("second Escape should leave the ScrollView scope and focus its host")
+	}
+}
+
+func TestScrollViewScopedReusableControlActivatesWithEnterAndSpace(t *testing.T) {
+	child := &activatingGeneratedControl{GeneratedWindowBase: NewGeneratedWindowBase("Child")}
+	child.SetGeneratedFocusable(true)
+	reusable := NewReusableElement("action", "child")
+	reusable.SetChild(child)
+	reusable.SetFrame(Rect{Width: 12, Height: 1})
+	panel := NewScrollView("panel", 0)
+	panel.SetFrame(Rect{Row: 0, Col: 0, Width: 12, Height: 1})
+	panel.AddChild(reusable)
+	scrollWindow := NewGeneratedScrollViewBase("Items")
+	scrollWindow.AddElement(panel)
+	host := NewReusableElement("items", "items")
+	host.SetChild(scrollWindow)
+	host.SetFrame(Rect{Row: 0, Col: 0, Width: 12, Height: 1})
+	window := NewGeneratedWindowBase("Test")
+	window.AddElement(host)
+	state := newRuntimeState(window, GeneratedWindowRuntimeOptions{InitialFocusName: "items"})
+	syncScrollViewChildFrames(panel, panel.ElementFrame())
+
+	state.handleKey("Enter")
+	if state.focusedElement() != reusable {
+		t.Fatalf("focused ScrollView descendant = %v, want reusable control", state.focusedElement())
+	}
+	state.handleKey("Enter")
+	if child.activationCount != 1 {
+		t.Fatalf("activation count after Enter = %d, want 1", child.activationCount)
+	}
+	state.handleKey(" ")
+	if child.activationCount != 2 {
+		t.Fatalf("activation count after Space = %d, want 2", child.activationCount)
 	}
 }
 

@@ -5,6 +5,9 @@ platform backend, or full example set. It captures the C# implementation
 approach in a repeatable form: shared sources, structural parity, small vertical
 slices, compare-driven validation, and no example-specific fixes.
 
+When an individual defect, regression, or failing test is discovered during
+the port, also follow `docs/cross-platform-bug-fix-workflow.md` for that fix.
+
 ## Core Rule
 
 The new target is a port of the existing UIMD behavior, not a new design. Python
