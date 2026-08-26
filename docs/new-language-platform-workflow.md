@@ -148,6 +148,29 @@ The generator must emit a public API equivalent to Python and C++.
 8. Regenerate outputs after every generator change and inspect representative
    diffs before testing.
 
+## Existing-Application Compatibility Gate
+
+Adding or extending a target must not break applications already using any
+existing documented UIMD target. For every existing platform affected by a
+shared runtime, compiler, generator, CLI, SDK, packaging, or public-API change:
+
+1. Keep a fixture application and generated outputs created by the immediately
+   preceding version.
+2. Do not edit or regenerate that fixture.
+3. Compile it against the updated library or installed SDK with its original
+   documented build command.
+4. Run it and exercise the affected startup and interaction path.
+5. Add the exact compatibility command to `docs/example_cli_commands.md` and
+   the appropriate aggregate test runner.
+
+Regenerating and rebuilding all current examples validates the new target and
+new generator output, but it cannot prove compatibility with an existing app.
+Required public fields, reordered positional fields or parameters, removed or
+renamed symbols, changed imports, generated hooks, callback contracts, and MCP
+schemas are breaking changes when an ordinary existing app must be edited or
+regenerated. Stop and obtain explicit user approval plus a migration/version
+plan before implementing such a change.
+
 ## Example Implementation
 
 Examples prove the target works; they must not compensate for runtime bugs.
@@ -322,6 +345,8 @@ complete for a slice only when:
 - the runtime implements the same public behavior as Python/C++
 - examples use identical UI sources and contain only domain logic
 - generated public APIs match the established event/member model
+- preceding-version applications and generated outputs for every affected
+  existing target compile and run without source edits or regeneration
 - SDK install/packaging paths know the target when applicable
 - documented commands exist
 - compare and direct-terminal tests cover the behavior exercised by users

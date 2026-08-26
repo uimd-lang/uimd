@@ -4,6 +4,27 @@
 
 Date: 2026-06-21
 
+- [x] **Guarantee backward compatibility for existing documented UIMD
+  applications.** Requested on 2026-08-27. Add a strict `AGENTS.md` rule and
+  mandatory development/bug-fix workflow gates requiring an application and
+  previously generated outputs from the preceding version to compile and run
+  against the updated library without source edits or regeneration. Ordinary
+  patch updates must preserve documented public APIs, generated inheritance
+  hooks, callbacks, option construction, imports, schemas, and runtime
+  behavior except for the explicitly corrected defect. Any unavoidable
+  breaking change requires explicit user approval before implementation.
+  Parity decision: process and compatibility-test policy only; no compiler,
+  runtime, generated API, or application behavior changes in this task.
+  Completed on 2026-08-27. `AGENTS.md` now makes compile-and-run compatibility
+  of documented existing applications a strict patch-release rule, including
+  previously generated sources and language-specific option construction.
+  Both the cross-platform bug-fix and new-language/platform workflows now
+  require retained immediately-preceding-version fixtures to compile and run
+  against the updated library without source edits or regeneration, document
+  the exact aggregate command, and stop for explicit approval plus a migration
+  and non-patch version plan if the gate fails. Validation confirmed all three
+  mandatory rule/gate anchors are present and `git diff --check` passes.
+
 - [x] **Fix GitHub issues #8 and #9 as one ScrollView confirm/rebuild focus
   batch.** Selected by the user on 2026-08-23. Both reports cross the same
   runtime boundary: Enter confirms an editable descendant of an active

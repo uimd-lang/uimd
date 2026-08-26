@@ -194,6 +194,14 @@ old callback or method working while adding the stable identity or richer
 context required by the fix, unless the user explicitly approves a breaking
 change.
 
+Additive syntax alone is not sufficient proof of compatibility. A new required
+field can break exhaustive Rust struct literals, and inserting a field into a
+C++ aggregate can break positional initialization even when every repository
+example regenerates successfully. Preserve every previously documented
+construction pattern and previously generated source. A patch-level bug fix
+may change the reported defective behavior only; it must not require an
+ordinary application author to edit or regenerate an existing app.
+
 For generated code, edit the canonical emitter or shared model. Do not hand
 edit multiple generated outputs as independent implementations.
 
@@ -255,6 +263,29 @@ Use `./tools/rebuild_all.sh` or the documented explicit commands when the full
 regeneration/build gate is required. Do not confuse a successful build with a
 behavioral test pass.
 
+## Backward Compatibility Gate
+
+For every change that can affect a library, runtime, compiler, generator, CLI,
+SDK, generated public API, or documented application contract:
+
+1. Retain or create a fixture application and generated outputs produced by
+   the immediately preceding version.
+2. Do not edit or regenerate that fixture during validation.
+3. Compile it against the updated library or SDK using its original documented
+   build command.
+4. Run it and exercise the affected startup and interaction path. Compilation
+   alone is not sufficient.
+5. Repeat the gate for every affected supported language. Classify a language
+   as unaffected only with a concrete ownership reason in `prompts/TODO.md`.
+6. Keep a regression command for this compatibility fixture in
+   `docs/example_cli_commands.md` and the appropriate aggregate test runner.
+
+Current examples regenerated from the new emitter prove current generation,
+not backward compatibility. They never replace this gate. If the preceding
+version's documented app or generated output does not compile and run without
+source changes, stop: the change is breaking and cannot ship as a patch unless
+the user explicitly approves the break and its migration/version plan.
+
 ## Phase 9: Final Validation
 
 Before reporting a fix complete:
@@ -263,17 +294,19 @@ Before reporting a fix complete:
 2. Run the new regression test and prove it would have caught the old defect.
 3. Run all focused unit, compare, and direct-terminal gates recorded in the
    parity matrix.
-4. Run the full supported-platform gate when required by blast radius or task
+4. Run the backward compatibility gate for every affected platform without
+   editing or regenerating the preceding-version fixtures.
+5. Run the full supported-platform gate when required by blast radius or task
    duration. The repository entry point is `./tools/test_all.sh`; use its
    documented keep-going/live-report options when a complete failure inventory
    is needed.
-5. Inspect the final one-line recap and the complete log. Do not report success
+6. Inspect the final one-line recap and the complete log. Do not report success
    merely because an intermediate phase passed.
-6. Run `git diff --check` and inspect `git status --short --branch`.
-7. Review the final diff for example-specific workarounds, duplicated behavior,
+7. Run `git diff --check` and inspect `git status --short --branch`.
+8. Review the final diff for example-specific workarounds, duplicated behavior,
    generated-file-only edits, accidental platform divergence, unrelated user
    changes, and missing documentation.
-8. Update the active TODO entry with the final parity decision, exact tests,
+9. Update the active TODO entry with the final parity decision, exact tests,
    skipped gates, and remaining caveats, then mark it complete only when no
    required work remains.
 
@@ -323,6 +356,9 @@ A bug is complete only when:
 - every supported port is classified in the parity matrix;
 - all affected ports implement the same public behavior and state transition;
 - generated outputs come from the canonical generator and `.uimd` sources;
+- a preceding-version documented application and its generated outputs compile
+  and run against the update without source edits or regeneration for every
+  affected platform;
 - focused regression coverage proves the behavior;
 - required compare and direct-terminal gates pass;
 - regeneration/build coverage matches the change blast radius;
