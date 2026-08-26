@@ -8279,10 +8279,7 @@ public sealed class McpController
                         {
                             return Snapshot(Current.ActiveScrollViewEditElement);
                         }
-                        DispatchConfirmed(Current.ActiveScrollViewEditElement);
-                        CommitEdit(Current.ActiveScrollViewEditElement);
-                        Current.EditSnapshot = null;
-                        Current.ActiveScrollViewEditElement = null;
+                        ConfirmActiveScrollViewElement();
                     }
                     else
                     {
@@ -8308,8 +8305,8 @@ public sealed class McpController
                 }
                 else
                 {
-                    DispatchConfirmed(focused);
                     CommitEdit(focused);
+                    DispatchConfirmed(focused);
                     Current.EditMode = Current.Options.KeepEditModeAfterConfirm && IsEditableElement(focused);
                     if (Current.EditMode)
                     {
@@ -8337,8 +8334,8 @@ public sealed class McpController
                 List<string>? previousSelectionValues = SelectionValuesForChange(focused);
                 focused.HandleKey(key);
                 DispatchChangedAfterHandledKey(focused, previousSelectionIndex, previousSelectionValues);
-                DispatchConfirmed(focused);
                 CommitEdit(focused);
+                DispatchConfirmed(focused);
                 Current.EditMode = Current.Options.KeepEditModeAfterConfirm && IsEditableElement(focused);
                 if (Current.EditMode)
                 {
@@ -9790,6 +9787,61 @@ public sealed class McpController
             return;
         }
         OptionsFor(element).OnTextConfirmed?.Invoke(element.Name, TextValueOf(element));
+    }
+
+    private void ConfirmActiveScrollViewElement()
+    {
+        RuntimeFrame frame = Current;
+        Element? confirmed = frame.ActiveScrollViewEditElement;
+        ScrollView? activeScrollView = frame.ActiveScrollView;
+        if (confirmed is null || activeScrollView is null)
+        {
+            return;
+        }
+
+        CommitEdit(confirmed);
+        frame.EditSnapshot = null;
+        frame.ActiveScrollViewEditElement = null;
+        DispatchConfirmed(confirmed);
+        if (!frames.Contains(frame) ||
+            !GeneratedWindowRuntime.WindowContainsElement(frame.Window, activeScrollView))
+        {
+            frame.FocusedIndex = -1;
+            frame.FocusedElementRef = null;
+            frame.EditMode = false;
+            frame.EditScopeOwner = null;
+            frame.ActiveScrollView = null;
+            frame.ActiveScrollViewProxy = null;
+            frame.ActiveScrollViewEditElement = null;
+            frame.EditSnapshot = null;
+            return;
+        }
+
+        List<Element> focusable = GeneratedWindowRuntime.FocusableElements(frame.Window, activeScrollView);
+        int retainedIndex = focusable.FindIndex(candidate => ReferenceEquals(candidate, confirmed));
+        if (retainedIndex < 0)
+        {
+            frame.ScrollViewLastDescendant.Remove(activeScrollView);
+            frame.FocusedIndex = -1;
+            frame.FocusedElementRef = null;
+            FocusFirstScrollViewScopeElement(frame, frame.ActiveScrollViewProxy, activeScrollView);
+            return;
+        }
+
+        frame.FocusedIndex = retainedIndex;
+        frame.FocusedElementRef = confirmed;
+        frame.ScrollViewLastDescendant[activeScrollView] = confirmed;
+        GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(frame.Window, confirmed);
+        if (!frame.Options.KeepEditModeAfterConfirm || !IsEditableElement(confirmed))
+        {
+            return;
+        }
+
+        frame.EditSnapshot = CaptureSnapshot(confirmed);
+        BeginElementEdit(confirmed);
+        frame.ActiveScrollViewEditElement = confirmed;
+        frame.EditMode = true;
+        frame.Options.OnEditStarted?.Invoke(confirmed.Name);
     }
 
     private static string TextValueOf(Element element)

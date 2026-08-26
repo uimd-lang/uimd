@@ -53,6 +53,8 @@ constexpr int kStaleScopeProxyWidth = 8;
 constexpr int kStaleScopeProxyHeight = 3;
 constexpr int kStaleScopeTabWidth = 6;
 constexpr int kReusableFocusCellSize = 1;
+constexpr int kScopedConfirmWidth = 12;
+constexpr int kScopedConfirmHeight = 3;
 
 const ui::Color kReusableFocusParentBackground{"#172033"};
 const ui::Color kReusableFocusBackground{"#ffffff14"};
@@ -297,6 +299,135 @@ public:
     ui::ScrollView* items = nullptr;
     ui::ReusableElement* action = nullptr;
 };
+
+class ScopedConfirmHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    ScopedConfirmHostWindow()
+        : ui::GeneratedWindowBase("ScopedConfirmHostWindow")
+    {
+        items = &addElement<ui::ScrollView>("items");
+        leading = &items->addChild<ui::Button>("leading", "Leading");
+        filter = &items->addChild<ui::TextInput>("filter", "", 0);
+        trailing = &items->addChild<ui::Button>("trailing", "Trailing");
+        setGeneratedLayout({
+            fixedEntry(
+                "items",
+                "scrollview",
+                ui::Rect{0, 0, kScopedConfirmWidth, kScopedConfirmHeight}),
+        });
+    }
+
+    ui::ScrollView* items = nullptr;
+    ui::Button* leading = nullptr;
+    ui::TextInput* filter = nullptr;
+    ui::Button* trailing = nullptr;
+};
+
+struct ScopedConfirmMcpResult
+{
+    int confirmedCount = 0;
+    int editStartedCount = 0;
+    int trailingActivationCount = 0;
+    std::string filterValue;
+};
+
+[[nodiscard]] ScopedConfirmMcpResult runScopedConfirmMcpCase(bool keepEditModeAfterConfirm,
+                                                             bool useStackFrame,
+                                                             bool testFreshSnapshot)
+{
+    ScopedConfirmMcpResult result;
+    ScopedConfirmHostWindow window;
+    ui::GeneratedWindowBase root{"ScopedConfirmRoot"};
+    ui::GeneratedWindowStack stack;
+
+    auto onTextConfirmed = [&](std::string_view name, std::string_view)
+    {
+        if (name == "filter")
+        {
+            ++result.confirmedCount;
+            window.leading->setEnabled(false);
+        }
+    };
+    auto onEditStarted = [&](std::string_view name)
+    {
+        if (name == "filter")
+        {
+            ++result.editStartedCount;
+        }
+    };
+    auto onButton = [&](std::string_view name)
+    {
+        if (name == "trailing")
+        {
+            ++result.trailingActivationCount;
+        }
+    };
+
+    ui::GeneratedWindowRuntimeOptions options;
+    ui::GeneratedWindowBase* runtimeWindow = &window;
+    if (useStackFrame)
+    {
+        ui::GeneratedWindowFrameOptions frame;
+        frame.initialFocusName = "items";
+        frame.keepEditModeAfterConfirm = keepEditModeAfterConfirm;
+        frame.onTextConfirmed = onTextConfirmed;
+        frame.onEditStarted = onEditStarted;
+        frame.onButton = onButton;
+        stack.push(window, std::move(frame));
+        options.windowStack = &stack;
+        runtimeWindow = &root;
+    }
+    else
+    {
+        options.initialFocusName = "items";
+        options.keepEditModeAfterConfirm = keepEditModeAfterConfirm;
+        options.onTextConfirmed = onTextConfirmed;
+        options.onEditStarted = onEditStarted;
+        options.onButton = onButton;
+    }
+
+    std::string requests =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"press_key\",\"params\":{\"key\":\"Down\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"press_key\",\"params\":{\"key\":\"a\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n";
+    if (testFreshSnapshot)
+    {
+        requests +=
+            "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"press_key\",\"params\":{\"key\":\"b\"}}\n"
+            "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"press_key\",\"params\":{\"key\":\"Escape\"}}\n";
+    }
+    else
+    {
+        requests +=
+            "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n";
+    }
+
+    std::istringstream input{requests};
+    std::ostringstream output;
+    std::streambuf* previousInput = std::cin.rdbuf(input.rdbuf());
+    std::streambuf* previousOutput = std::cout.rdbuf(output.rdbuf());
+    std::cin.clear();
+    std::cout.clear();
+
+    char executable[] = "ui_cpp_tests";
+    char mcpServer[] = "--mcp-server";
+    char headless[] = "--headless";
+    char fast[] = "--mcp-fast";
+    char* arguments[] = {executable, mcpServer, headless, fast};
+    const int exitCode = ui::runGeneratedWindow(*runtimeWindow, std::move(options), 4, arguments);
+
+    std::cin.rdbuf(previousInput);
+    std::cout.rdbuf(previousOutput);
+    std::cin.clear();
+    std::cout.clear();
+    assert(exitCode == 0);
+    assert(!output.str().empty());
+    result.filterValue = window.filter->value();
+    return result;
+}
 
 [[nodiscard]] ui::Color renderedReusableFocusBackground(const ui::Color& childCellBackground)
 {
@@ -772,6 +903,27 @@ int main() {
     if (scopedReusableMcpActivationCount() != 2)
     {
         return failCheck("active ScrollView reusable focus target did not activate exactly once per key");
+    }
+
+    for (const bool useStackFrame : {false, true})
+    {
+        const ScopedConfirmMcpResult rebuilt = runScopedConfirmMcpCase(false, useStackFrame, false);
+        if (rebuilt.confirmedCount != 1 ||
+            rebuilt.editStartedCount != 2 ||
+            rebuilt.trailingActivationCount != 0 ||
+            rebuilt.filterValue != "a")
+        {
+            return failCheck("scoped confirm followed a stale focus index after the focusable set changed");
+        }
+
+        const ScopedConfirmMcpResult kept = runScopedConfirmMcpCase(true, useStackFrame, true);
+        if (kept.confirmedCount != 1 ||
+            kept.editStartedCount != 2 ||
+            kept.trailingActivationCount != 0 ||
+            kept.filterValue != "a")
+        {
+            return failCheck("scoped confirm did not retain a fresh edit session on the same live input");
+        }
     }
 
     StaleScopeHostWindow staleScopeWindow;

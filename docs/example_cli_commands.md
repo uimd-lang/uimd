@@ -71,7 +71,7 @@ sources including reported-bug regression corpora, build every compiled
 example in the canonical `parity` profile (Release for C++, C#, Swift, and
 Rust; Java 17 through the checked-in Gradle wrapper; and the standard
 reproducible Go build), compile Python sources, run Python unit tests, run C++
-`ctest`, run Go, Java, and Rust runtime tests plus Java Checkstyle and Rust
+`ctest`, run C#, Go, Java, and Rust runtime tests plus Java Checkstyle and Rust
 Clippy, run Swift runtime tests on POSIX, run direct Swift, Go, Rust, and Java
 terminal PTY smoke tests against C++, run the Rust and Java MCP transport
 smokes, run Python/C++, C++/C#, C++/Swift, C++/Go, C++/Rust, and C++/Java MCP
@@ -145,6 +145,7 @@ Equivalent explicit command sequence:
 ./tools/rebuild_all.sh
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
+dotnet run --project csharp/tests/UimdRuntimeTests/UimdRuntimeTests.csproj --configuration Release
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
 ./java/gradlew -p java check
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml
@@ -748,6 +749,7 @@ explicitly running the Python tester implementation.
 PYTHONPATH=python:src python3 -m pytest python/tests
 PYTHONPATH=python:src python3 -m pytest python/tests/test_activity_feed.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_confirm_keeps_same_focus_after_callback_changes_focusables
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_reusable_control_activates_with_enter_and_space
 PYTHONPATH=python:src python3 -m pytest python/tests/test_calculator.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_dialogs.py
@@ -789,6 +791,20 @@ cmake --build cpp\build-windows --target ui_cpp_tests --config Release
 ctest --test-dir cpp\build-windows -C Release --output-on-failure
 ```
 
+## C# Runtime Tests
+
+POSIX:
+
+```bash
+dotnet run --project csharp/tests/UimdRuntimeTests/UimdRuntimeTests.csproj --configuration Release
+```
+
+Windows PowerShell:
+
+```powershell
+dotnet run --project csharp\tests\UimdRuntimeTests\UimdRuntimeTests.csproj --configuration Release
+```
+
 ## Java Runtime Tests And Static Checks
 
 ```bash
@@ -797,6 +813,7 @@ python3 -m pytest python/tests/test_java_toolchain.py
 ./java/gradlew -p java test --tests uimd.GeneratedDialogsTest
 ./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest
 ./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest.keyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements
+./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest.scopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation
 ./java/gradlew -p java test --tests uimd.GeneratedWindowFocusTest.scrollViewScopedReusableControlActivatesWithEnterAndSpace
 ./java/gradlew -p java test --tests uimd.GeneratedWindowStackTest
 ./java/gradlew -p java test --tests uimd.ImageTest
@@ -812,6 +829,7 @@ Windows PowerShell:
 .\java\gradlew.bat -p java test --tests uimd.GeneratedDialogsTest
 .\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest
 .\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest.keyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements
+.\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest.scopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation
 .\java\gradlew.bat -p java test --tests uimd.GeneratedWindowFocusTest.scrollViewScopedReusableControlActivatesWithEnterAndSpace
 .\java\gradlew.bat -p java test --tests uimd.GeneratedWindowStackTest
 .\java\gradlew.bat -p java test --tests uimd.ImageTest
@@ -833,6 +851,7 @@ env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestScrollViewScopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd vet ./...
 ```
@@ -844,6 +863,7 @@ go -C go\src\uimd test ./...
 go -C go\src\uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
 go -C go\src\uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
 go -C go\src\uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
+go -C go\src\uimd test -run '^TestScrollViewScopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation$'
 go -C go\src\uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
 go -C go\src\uimd vet ./...
 ```
@@ -863,6 +883,7 @@ python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.to
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::modal_close_reactivates_a_live_invoking_scroll_scope_like_cpp -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_modal_opening_uses_one_flat_root_window_stack -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_scroll_combo_box_overlay_has_no_ancestor_local_ghost -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::scoped_confirm_retains_live_input_and_rebases_focus_after_mutation -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::scroll_view_scoped_reusable_control_activates_with_enter_and_space -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml terminal::tests::non_tty_input_keeps_the_terminal_lifecycle_available_for_gui_mcp -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml tests::public_runtime_version_is_the_cargo_package_version -- --exact

@@ -106,6 +106,38 @@ final class GeneratedWindowFocusTest
     }
 
     @Test
+    void scopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation()
+    {
+        ConfirmFixture keepFixture = new ConfirmFixture(true);
+        for (String key : List.of("Enter", "a", "Enter"))
+        {
+            GeneratedWindowRuntime.dispatchWindowStackEvent(keepFixture.stack, Event.key(key));
+        }
+        assertFalse(keepFixture.scrollWindow.row.leading.enabled());
+        assertSame(keepFixture.scrollWindow.row.input, focusedElement(keepFixture.root, keepFixture.frame));
+        assertSame(keepFixture.scrollWindow.row.input, keepFixture.frame.activeScrollViewEditElement());
+        GeneratedWindowRuntime.dispatchWindowStackEvent(keepFixture.stack, Event.key("b"));
+        assertEquals("ab", keepFixture.scrollWindow.row.input.value());
+        GeneratedWindowRuntime.dispatchWindowStackEvent(keepFixture.stack, Event.key("Escape"));
+        assertEquals("a", keepFixture.scrollWindow.row.input.value());
+
+        ConfirmFixture navigationFixture = new ConfirmFixture(false);
+        for (String key : List.of("Enter", "a", "Enter"))
+        {
+            GeneratedWindowRuntime.dispatchWindowStackEvent(navigationFixture.stack, Event.key(key));
+        }
+        assertSame(
+            navigationFixture.scrollWindow.row.input,
+            focusedElement(navigationFixture.root, navigationFixture.frame));
+        assertNull(navigationFixture.frame.activeScrollViewEditElement());
+        GeneratedWindowRuntime.dispatchWindowStackEvent(navigationFixture.stack, Event.key("Enter"));
+        assertSame(
+            navigationFixture.scrollWindow.row.input,
+            navigationFixture.frame.activeScrollViewEditElement());
+        assertEquals(0, navigationFixture.scrollWindow.row.trailingActivations);
+    }
+
+    @Test
     void explicitDescendantFocusKeepsTheScrollScopeButEndsItsEditVisuals()
     {
         FocusFixture fixture = new FocusFixture();
@@ -612,6 +644,75 @@ final class GeneratedWindowFocusTest
             ScrollView scrollView = addElement(new ScrollView("__scrollview"));
             setGeneratedScrollView(scrollView);
             setGeneratedLayout(List.of(layout("__scrollview", 0, CONTENT_SIZE.height())));
+        }
+    }
+
+    private static final class ConfirmFixture
+    {
+        private final GeneratedWindowBase root = new GeneratedWindowBase("Root");
+        private final ConfirmScrollWindow scrollWindow = new ConfirmScrollWindow();
+        private final GeneratedWindowStack stack = new GeneratedWindowStack();
+        private final GeneratedWindowStackFrame frame;
+
+        ConfirmFixture(boolean keepEditModeAfterConfirm)
+        {
+            root.addElement(new ReusableElement("items", scrollWindow));
+            root.setGeneratedLayout(List.of(layout("items", 0, CONTENT_SIZE.height())));
+            GeneratedWindowRuntimeOptions options = root.runtimeOptions();
+            options.setInitialFocusName("items");
+            options.setKeepEditModeAfterConfirm(keepEditModeAfterConfirm);
+            frame = stack.push(root, options);
+            renderFrame(root, frame);
+            GeneratedWindowRuntime.focusFrameElement(frame, scrollWindow.row.input);
+            assertSame(scrollWindow.scrollView(), frame.activeScrollView());
+        }
+    }
+
+    private static final class ConfirmScrollWindow extends GeneratedScrollViewBase
+    {
+        private final ConfirmRowWindow row = new ConfirmRowWindow();
+
+        ConfirmScrollWindow()
+        {
+            ScrollView scrollView = addElement(new ScrollView("__scrollview"));
+            setGeneratedScrollView(scrollView);
+            setGeneratedLayout(List.of(layout("__scrollview", 0, CONTENT_SIZE.height())));
+            scrollView.addChild(new ReusableElement("row", row));
+        }
+    }
+
+    private static final class ConfirmRowWindow extends GeneratedWindowBase
+    {
+        private final Button leading;
+        private final TextInput input;
+        private int trailingActivations;
+
+        ConfirmRowWindow()
+        {
+            leading = addElement(new Button("leading", "Leading"));
+            input = addElement(new TextInput("filter", "", 0));
+            addElement(new Button("trailing", "Trailing"));
+            setGeneratedLayout(List.of(
+                layout("leading", 0, 1),
+                layout("filter", 1, 1),
+                layout("trailing", 2, 1)));
+        }
+
+        @Override
+        public boolean handleGeneratedTextConfirmed(String name, String value)
+        {
+            leading.setEnabled(false);
+            return true;
+        }
+
+        @Override
+        public boolean handleGeneratedButton(String name)
+        {
+            if ("trailing".equals(name))
+            {
+                ++trailingActivations;
+            }
+            return true;
         }
     }
 

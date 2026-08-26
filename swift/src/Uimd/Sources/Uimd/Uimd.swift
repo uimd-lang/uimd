@@ -10291,9 +10291,9 @@ private final class GeneratedRuntimeController
                     editSnapshot = nil
                     return
                 }
-                _ = options.onTextConfirmed?(currentFocusedName, listBox.selectedValues.first ?? "")
                 commitEdit(element)
                 editSnapshot = nil
+                _ = options.onTextConfirmed?(currentFocusedName, listBox.selectedValues.first ?? "")
                 if element.parentFocusHostId != nil
                 {
                     restoreDynamicScopeAfterElementEdit(element)
@@ -10319,12 +10319,12 @@ private final class GeneratedRuntimeController
                 let before = element.valueForSnapshot
                 _ = element.handleKey(key)
                 notifyValueChange(element, before: before)
+                commitEdit(element)
+                editSnapshot = nil
                 if let input = element as? TextInput
                 {
                     _ = options.onTextConfirmed?(currentFocusedName, input.value)
                 }
-                commitEdit(element)
-                editSnapshot = nil
                 if element.parentFocusHostId != nil
                 {
                     restoreDynamicScopeAfterElementEdit(element)
@@ -10980,14 +10980,6 @@ private final class GeneratedRuntimeController
                 {
                     return true
                 }
-                if let input = edited as? TextInput
-                {
-                    _ = options.onTextConfirmed?(editedId, input.value)
-                }
-                else if let listBox = edited as? ListBox
-                {
-                    _ = options.onTextConfirmed?(editedId, listBox.selectedValues.first ?? "")
-                }
                 commitEdit(edited)
                 editSnapshot = nil
                 activeScrollViewEditElement = nil
@@ -10995,6 +10987,14 @@ private final class GeneratedRuntimeController
                 {
                     let scopeRoot = generatedScrollViewProxy(in: window, for: scrollView) ?? scrollView
                     activeDynamicEditName = runtimeElementId(scopeRoot)
+                }
+                if let input = edited as? TextInput
+                {
+                    _ = options.onTextConfirmed?(editedId, input.value)
+                }
+                else if let listBox = edited as? ListBox
+                {
+                    _ = options.onTextConfirmed?(editedId, listBox.selectedValues.first ?? "")
                 }
                 return true
             }

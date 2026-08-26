@@ -597,6 +597,19 @@ def run_go_tests() -> None:
     run_with_env([go, "test", "./..."], cwd=ROOT / "go/src/uimd", env=go_build_env())
 
 
+def run_csharp_tests() -> None:
+    run(
+        [
+            dotnet_command(),
+            "run",
+            "--project",
+            "csharp/tests/UimdRuntimeTests/UimdRuntimeTests.csproj",
+            "--configuration",
+            PARITY_CONFIGURATION,
+        ]
+    )
+
+
 def run_gradle(project_dir: Path, *tasks: str) -> None:
     run_with_env(
         [*gradle_wrapper_command(), "-p", project_dir, *tasks, "--console=plain"],
@@ -1468,6 +1481,13 @@ def test_all(args: argparse.Namespace) -> None:
             "CTest",
             lambda: run(ctest_args(build_dir, config=PARITY_CONFIGURATION)),
             report_kind="ctest",
+            continue_on_failure=args.keep_going,
+        )
+        run_full_test_phase(
+            phases,
+            "C# runtime tests",
+            run_csharp_tests,
+            report_kind="smoke",
             continue_on_failure=args.keep_going,
         )
         run_full_test_phase(

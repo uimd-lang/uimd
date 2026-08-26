@@ -330,6 +330,8 @@ pub struct GeneratedWindowFrameOptions
     pub class_name: String,
     pub initial_focus_name: String,
     pub start_in_edit_mode: bool,
+    pub keep_edit_mode_after_confirm: bool,
+    pub keep_edit_mode_after_escape: bool,
     pub dim_background: bool,
     pub on_button: Option<ButtonCallback>,
     pub on_key_before_focused_element: Option<KeyBeforeFocusedElementCallback>,
@@ -354,6 +356,8 @@ impl Default for GeneratedWindowFrameOptions
             class_name: String::new(),
             initial_focus_name: String::new(),
             start_in_edit_mode: false,
+            keep_edit_mode_after_confirm: false,
+            keep_edit_mode_after_escape: false,
             dim_background: true,
             on_button: None,
             on_key_before_focused_element: None,
@@ -380,6 +384,8 @@ impl std::fmt::Debug for GeneratedWindowFrameOptions
             .field("class_name", &self.class_name)
             .field("initial_focus_name", &self.initial_focus_name)
             .field("start_in_edit_mode", &self.start_in_edit_mode)
+            .field("keep_edit_mode_after_confirm", &self.keep_edit_mode_after_confirm)
+            .field("keep_edit_mode_after_escape", &self.keep_edit_mode_after_escape)
             .field("dim_background", &self.dim_background)
             .finish_non_exhaustive()
     }
@@ -395,6 +401,8 @@ impl GeneratedWindowFrameOptions
             class_name: window.metadata.class_name.clone(),
             initial_focus_name: runtime.initial_focus_name,
             start_in_edit_mode: runtime.start_in_edit_mode,
+            keep_edit_mode_after_confirm: runtime.keep_edit_mode_after_confirm,
+            keep_edit_mode_after_escape: runtime.keep_edit_mode_after_escape,
             dim_background: true,
             on_button: runtime.on_button,
             on_key_before_focused_element: runtime.on_key_before_focused_element,
@@ -417,6 +425,8 @@ impl GeneratedWindowFrameOptions
         {
             initial_focus_name: self.initial_focus_name.clone(),
             start_in_edit_mode: self.start_in_edit_mode,
+            keep_edit_mode_after_confirm: self.keep_edit_mode_after_confirm,
+            keep_edit_mode_after_escape: self.keep_edit_mode_after_escape,
             on_button: self.on_button.clone(),
             on_key_before_focused_element: self.on_key_before_focused_element.clone(),
             on_key_before_focused: self.on_key_before_focused.clone(),
@@ -2259,9 +2269,13 @@ impl RuntimeState
                 let handled = inner.borrow_mut().handle_key(key);
                 if key == "Enter"
                 {
-                    self.end_element_edit(&inner, true);
-                    dispatch_confirm(app, self, options, &inner);
-                    self.scope_dim_element = None;
+                    dispatch_change_if_needed(app, self, options, &inner, before);
+                    if inner.borrow().kind() == ElementKind::ListBox
+                        && inner.borrow().multiple()
+                    {
+                        return true;
+                    }
+                    self.confirm_scope_element(app, options, &inner);
                     return true;
                 }
                 if handled
@@ -2683,6 +2697,80 @@ impl RuntimeState
             self.focus_element(window, &focused);
             self.remember_scope_descendant(&scope, &focused);
             ensure_focused_visible_in_scroll(&scope, &focused);
+        }
+    }
+
+    fn confirm_scope_element<A: GeneratedApplication>(
+        &mut self,
+        app: &mut A,
+        options: &GeneratedWindowRuntimeOptions,
+        confirmed: &ElementRef,
+    )
+    {
+        let scope = self.scope_edit_element.clone();
+        self.end_element_edit(confirmed, true);
+        self.scope_dim_element = None;
+        dispatch_confirm(app, self, options, confirmed);
+
+        let Some(scope) = scope else { return };
+        let scope_is_live = self
+            .scope_edit_element
+            .as_ref()
+            .is_some_and(|current| Rc::ptr_eq(current, &scope))
+            && window_contains_element(app.active_window(), &scope);
+        if !scope_is_live
+        {
+            self.focused_index = -1;
+            self.edit_mode = false;
+            self.scope_edit_element = None;
+            self.scope_dim_element = None;
+            self.edit_snapshot = None;
+            return;
+        }
+
+        let descendants = focusable_scope_descendants(&scope);
+        let retained = descendants
+            .iter()
+            .find(|candidate| Rc::ptr_eq(candidate, confirmed))
+            .cloned();
+        let Some(retained) = retained else
+        {
+            self.scroll_view_last_descendant.remove(&scope.borrow().identity);
+            if let Some(fallback) = descendants.first()
+            {
+                self.focus_element(app.active_window(), fallback);
+                self.remember_scope_descendant(&scope, fallback);
+                ensure_focused_visible_in_scroll(&scope, fallback);
+            }
+            else
+            {
+                self.focused_index = -1;
+            }
+            return;
+        };
+
+        self.focus_element(app.active_window(), &retained);
+        self.remember_scope_descendant(&scope, &retained);
+        ensure_focused_visible_in_scroll(&scope, &retained);
+        let editable = matches!(
+            retained.borrow().kind(),
+            ElementKind::TextInput
+                | ElementKind::TextArea
+                | ElementKind::NumberInput
+                | ElementKind::ComboBox
+                | ElementKind::ListBox
+        );
+        if !options.keep_edit_mode_after_confirm || !editable
+        {
+            return;
+        }
+
+        self.begin_element_edit(&retained);
+        self.scope_dim_element = Some(retained.clone());
+        self.edit_mode = true;
+        if let Some(id) = app.active_window().element_id(&retained)
+        {
+            dispatch_edit_started(app, options, &id);
         }
     }
 
@@ -7586,6 +7674,126 @@ mod tests
         assert!(state
             .focused_element(&app.window)
             .is_some_and(|focused| Rc::ptr_eq(&focused, &name)));
+    }
+
+    #[test]
+    fn scoped_confirm_retains_live_input_and_rebases_focus_after_mutation()
+    {
+        struct ConfirmApp
+        {
+            window: GeneratedWindow,
+            leading: ElementRef,
+            trailing_activations: usize,
+        }
+
+        impl GeneratedApplication for ConfirmApp
+        {
+            fn window(&self) -> &GeneratedWindow { &self.window }
+            fn window_mut(&mut self) -> &mut GeneratedWindow { &mut self.window }
+            fn handle_generated_text_confirmed(&mut self, _name: &str, _value: &str) -> bool
+            {
+                self.leading.borrow_mut().set_enabled(false);
+                true
+            }
+            fn handle_generated_button(&mut self, name: &str) -> bool
+            {
+                if name.ends_with("trailing")
+                {
+                    self.trailing_activations += 1;
+                }
+                true
+            }
+        }
+
+        let fixture = |keep_edit_mode_after_confirm|
+        {
+            let mut scroll = GeneratedWindow::new_scroll_view("items");
+            let leading = scroll.add_element(new_button("leading", "Leading"));
+            leading.borrow_mut().set_frame(Rect
+            {
+                row: 0,
+                col: 0,
+                width: 12,
+                height: 1,
+            });
+            let input = scroll.add_element(new_text_input("filter", "", 0));
+            input.borrow_mut().set_frame(Rect
+            {
+                row: 1,
+                col: 0,
+                width: 12,
+                height: 1,
+            });
+            let trailing = scroll.add_element(new_button("trailing", "Trailing"));
+            trailing.borrow_mut().set_frame(Rect
+            {
+                row: 2,
+                col: 0,
+                width: 12,
+                height: 1,
+            });
+            let host: ElementRef = new_reusable_element("items", "Items").into();
+            host.borrow_mut().set_child_window(scroll);
+            let mut window = GeneratedWindow::new("test");
+            window.add_element(host.clone());
+            let app = ConfirmApp
+            {
+                window,
+                leading: leading.clone(),
+                trailing_activations: 0,
+            };
+            let options = GeneratedWindowRuntimeOptions
+            {
+                initial_focus_name: "items".to_string(),
+                keep_edit_mode_after_confirm,
+                ..Default::default()
+            };
+            let mut state = RuntimeState::new(
+                &app.window,
+                &options,
+                Size { width: 16, height: 5 },
+            );
+            state.scope_edit_element = Some(host);
+            assert!(state.focus_element(&app.window, &input));
+            (app, state, options, leading, input, trailing)
+        };
+
+        let (mut app, mut state, options, leading, input, _) = fixture(true);
+        for key in ["Enter", "a", "Enter"]
+        {
+            assert!(state.handle_key(&mut app, &options, key));
+        }
+        assert!(!leading.borrow().enabled());
+        assert!(state
+            .focused_element(&app.window)
+            .is_some_and(|focused| Rc::ptr_eq(&focused, &input)));
+        assert!(state.scope_dim_element.as_ref().is_some_and(|editing|
+        {
+            Rc::ptr_eq(editing, &input)
+        }));
+        assert!(state.edit_snapshot.as_ref().is_some_and(|snapshot|
+        {
+            Rc::ptr_eq(&snapshot.element, &input)
+        }));
+        assert!(state.handle_key(&mut app, &options, "b"));
+        assert!(state.handle_key(&mut app, &options, "Escape"));
+        assert_eq!(input.borrow().value(), "a");
+
+        let (mut app, mut state, options, _, input, _) = fixture(false);
+        for key in ["Enter", "a", "Enter"]
+        {
+            assert!(state.handle_key(&mut app, &options, key));
+        }
+        assert!(state.scope_dim_element.is_none());
+        assert!(state
+            .focused_element(&app.window)
+            .is_some_and(|focused| Rc::ptr_eq(&focused, &input)));
+        assert!(state.handle_key(&mut app, &options, "Enter"));
+        assert!(state.scope_dim_element.as_ref().is_some_and(|editing|
+        {
+            Rc::ptr_eq(editing, &input)
+        }));
+        assert_eq!(app.trailing_activations, 0);
     }
 
     #[test]

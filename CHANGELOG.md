@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 - Unreleased
+## 0.5.2 - Unreleased
 
 - Add the terminal-only Go target, including native generation, runtime,
   examples, SDK packaging, direct-terminal smoke coverage, and parity tests.

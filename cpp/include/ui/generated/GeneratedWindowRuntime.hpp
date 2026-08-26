@@ -20,6 +20,8 @@ struct GeneratedWindowFrameOptions {
     std::string className;
     std::string initialFocusName;
     bool startInEditMode = false;
+    bool keepEditModeAfterConfirm = false;
+    bool keepEditModeAfterEscape = false;
     bool dimBackground = true;
     std::function<void(std::string_view)> onButton;
     std::function<bool(std::string_view, std::string_view, bool)> onKeyBeforeFocusedElement;

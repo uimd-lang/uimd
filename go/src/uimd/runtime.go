@@ -1222,21 +1222,96 @@ func (state *runtimeState) handleReusableScrollScopeKey(key string, focused Elem
 	}
 	before := valueForElement(focused)
 	handled := focused.HandleKey(key)
-	if key == "Enter" && !handled {
-		state.endElementEdit(focused, true)
-		state.scopeEditElement = nil
+	if key == "Enter" {
+		state.dispatchChangeIfNeeded(focused, before)
+		if listBox, ok := focused.(*ListBox); ok && listBox.Multi {
+			return handled
+		}
+		state.confirmReusableScrollScopeElement(focused)
 		return true
 	}
 	if handled {
 		state.dispatchChangeIfNeeded(focused, before)
-		if key == "Enter" {
-			if listBox, ok := focused.(*ListBox); ok && !listBox.Multi {
-				state.endElementEdit(focused, true)
-				state.scopeEditElement = nil
-			}
-		}
 	}
 	return handled
+}
+
+func (state *runtimeState) confirmReusableScrollScopeElement(confirmed Element) {
+	if state == nil || confirmed == nil {
+		return
+	}
+	commitRuntimeElementEdit(confirmed)
+	state.editSnapshot = nil
+	state.scopeEditElement = nil
+	state.dispatchConfirm(confirmed)
+
+	retained := state.reconcileReusableScrollScopeConfirmedElement(confirmed)
+	if retained == nil || !state.options.KeepEditModeAfterConfirm || !isRuntimeEditableElement(retained) {
+		return
+	}
+	state.beginElementEdit(retained)
+	state.scopeEditElement = retained
+	state.editMode = true
+}
+
+func (state *runtimeState) reconcileReusableScrollScopeConfirmedElement(confirmed Element) Element {
+	if state == nil || state.scopeDimElement == nil ||
+		!elementInWindow(state.window, state.scopeDimElement) {
+		state.focusedIndex = -1
+		state.focusedOverride = nil
+		state.scopeDimElement = nil
+		state.scopeEditElement = nil
+		state.editMode = false
+		return nil
+	}
+	host := state.scopeDimElement
+	child := childWindowForElement(host)
+	focusable := focusableDescendantsInWindow(child)
+	for index, candidate := range focusable {
+		if candidate != confirmed {
+			continue
+		}
+		state.focusedIndex = -1
+		state.focusedOverride = confirmed
+		if state.scopeLastFocus == nil {
+			state.scopeLastFocus = map[Element]Element{}
+		}
+		if state.scopeLastIndex == nil {
+			state.scopeLastIndex = map[Element]int{}
+		}
+		state.scopeLastFocus[host] = confirmed
+		state.scopeLastIndex[host] = index
+		ensureElementVisibleInScrollViews(child, confirmed)
+		return confirmed
+	}
+
+	delete(state.scopeLastFocus, host)
+	delete(state.scopeLastIndex, host)
+	state.focusedOverride = nil
+	if fallback := state.reusableScrollScopeEntryTarget(host); fallback != nil {
+		state.focusedIndex = -1
+		state.focusedOverride = fallback
+		state.rememberReusableScrollScopeFocus()
+		ensureElementVisibleInScrollViews(child, fallback)
+		return nil
+	}
+	state.focusedIndex = -1
+	for index, candidate := range focusableElements(state.window) {
+		if candidate == host {
+			state.focusedIndex = index
+			break
+		}
+	}
+	return nil
+}
+
+func isRuntimeEditableElement(element Element) bool {
+	switch element.(type) {
+	case *NumberInput, *TextInput, *TextArea, *ComboBox, *ListBox:
+		return true
+	default:
+		return false
+	}
 }
 
 func (state *runtimeState) activateReusableScrollScopeFocused(focused Element, key string) bool {

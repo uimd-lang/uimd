@@ -24,6 +24,16 @@ func (control *activatingGeneratedControl) ActivateGeneratedControl() bool {
 	return true
 }
 
+type scopedConfirmGeneratedScrollView struct {
+	*GeneratedWindowBase
+	leading *Button
+}
+
+func (window *scopedConfirmGeneratedScrollView) HandleGeneratedTextConfirmed(string, string) bool {
+	window.leading.SetEnabled(false)
+	return true
+}
+
 type customElementWithoutCommitMode struct {
 	name  string
 	frame Rect
@@ -1479,6 +1489,86 @@ func TestFileBrowserMouseClickEntersDirectoryAndOnlySelectsFile(t *testing.T) {
 	if browser.Closed() {
 		t.Fatal("file click closed FileBrowser")
 	}
+}
+
+func TestScrollViewScopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation(t *testing.T) {
+	newFixture := func(keep bool) (*runtimeState, *Button, *TextInput, *Button, *int) {
+		panel := NewScrollView("panel", 0)
+		panel.SetFrame(Rect{Row: 0, Col: 0, Width: 12, Height: 3})
+		leading := NewButton("leading", "Leading")
+		leading.SetFrame(Rect{Width: 12, Height: 1})
+		input := NewTextInput("filter", "", 0)
+		input.SetFrame(Rect{Width: 12, Height: 1})
+		trailing := NewButton("trailing", "Trailing")
+		trailing.SetFrame(Rect{Width: 12, Height: 1})
+		panel.AddChild(leading)
+		panel.AddChild(input)
+		panel.AddChild(trailing)
+		scrollWindow := NewGeneratedScrollViewBase("Items")
+		scrollWindow.AddElement(panel)
+		scrollOwner := &scopedConfirmGeneratedScrollView{
+			GeneratedWindowBase: scrollWindow,
+			leading:             leading,
+		}
+		host := NewReusableElement("items", "items")
+		host.SetChild(scrollOwner)
+		host.SetFrame(Rect{Width: 12, Height: 3})
+		window := NewGeneratedWindowBase("Scoped confirm")
+		window.AddElement(host)
+		trailingActivations := 0
+		options := GeneratedWindowRuntimeOptions{
+			InitialFocusName:         "items",
+			KeepEditModeAfterConfirm: keep,
+			OnButton: func(name string) {
+				if name == "trailing" {
+					trailingActivations++
+				}
+			},
+		}
+		state := newRuntimeState(window, options)
+		syncScrollViewChildFrames(panel, panel.ElementFrame())
+		return state, leading, input, trailing, &trailingActivations
+	}
+
+	t.Run("keep edit mode captures a fresh snapshot", func(t *testing.T) {
+		state, leading, input, _, _ := newFixture(true)
+		focusElementForMcp(state, state.window, input, false)
+		for _, key := range []string{"Enter", "a", "Enter"} {
+			state.handleKey(key)
+		}
+		if leading.IsEnabled() {
+			t.Fatal("confirm callback did not mutate the focusable set")
+		}
+		if state.focusedElement() != input || state.scopeEditElement != input {
+			t.Fatal("keep-after-confirm did not retain the same live scoped input")
+		}
+		if state.editSnapshot == nil || state.editSnapshot.element != input {
+			t.Fatal("keep-after-confirm did not capture a fresh scoped edit snapshot")
+		}
+		state.handleKey("b")
+		state.handleKey("Escape")
+		if input.Value != "a" {
+			t.Fatalf("Escape restored %q, want freshly committed value a", input.Value)
+		}
+	})
+
+	t.Run("navigation focus follows the submitted element instead of the old index", func(t *testing.T) {
+		state, _, input, _, trailingActivations := newFixture(false)
+		focusElementForMcp(state, state.window, input, false)
+		for _, key := range []string{"Enter", "a", "Enter"} {
+			state.handleKey(key)
+		}
+		if state.focusedElement() != input || state.scopeEditElement != nil {
+			t.Fatal("confirm callback rebased focus away from the submitted input")
+		}
+		state.handleKey("Enter")
+		if state.scopeEditElement != input {
+			t.Fatal("Enter after confirm did not reopen the submitted input")
+		}
+		if *trailingActivations != 0 {
+			t.Fatalf("trailing control activated %d times through a stale focus index", *trailingActivations)
+		}
+	})
 }
 
 func TestModalCloseRestoresRebuiltScrollScopeFocusAndOffset(t *testing.T) {

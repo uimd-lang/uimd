@@ -2307,6 +2307,34 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertFalse(area._edit_mode)
         self.assertEqual(area.value, "new")
 
+    def test_scrollview_scoped_confirm_keeps_same_focus_after_callback_changes_focusables(self):
+        """A submit callback must observe committed state without rebasing object focus."""
+        leading = Button(name="leading", title="Leading")
+        submitted = TextInput(name="filter", value="query")
+        trailing = Button(name="trailing", title="Trailing")
+        window = self._window_with_active_scrollview_child(submitted)
+        window._elements = {
+            leading.name: leading,
+            submitted.name: submitted,
+            trailing.name: trailing,
+        }
+        callback_state = []
+
+        def on_confirmed(element, value):
+            callback_state.append((element, value, element._edit_mode, window._edit_snapshot))
+            leading.enabled = False
+
+        window._dispatch_confirmed_for = on_confirmed
+
+        self.assertTrue(window._handle_scrollview_scope_key("Enter"))
+
+        self.assertEqual(callback_state, [(submitted, "query", False, None)])
+        self.assertIs(window._focused_element, submitted)
+        self.assertTrue(window._edit_mode)
+        self.assertFalse(submitted._edit_mode)
+        self.assertFalse(leading.enabled)
+        self.assertIn(submitted, window.get_focusable_elements())
+
     def test_scrollview_scoped_reusable_control_activates_with_enter_and_space(self):
         """Scoped keyboard activation should reach a focusable reusable child exactly once."""
         class ActivatableChild(UIWindow):

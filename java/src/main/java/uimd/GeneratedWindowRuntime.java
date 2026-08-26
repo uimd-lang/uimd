@@ -1807,15 +1807,34 @@ public final class GeneratedWindowRuntime
         {
             return;
         }
-        dispatchConfirmed(window, options, focused);
         commitEdit(focused);
         if (state.activeScrollView != null)
         {
-            state.activeScrollViewEditElement = null;
+            long confirmedIdentity = focused.identity();
             state.editSnapshot = null;
+            state.activeScrollViewEditElement = null;
+            dispatchConfirmed(window, options, focused);
             state.editMode = true;
+            Element retained = reconcileScopedConfirmedElement(
+                window,
+                state,
+                focused,
+                confirmedIdentity);
+            if (retained != null
+                && options.keepEditModeAfterConfirm()
+                && isEditableElement(retained))
+            {
+                state.editSnapshot = captureSnapshot(retained);
+                beginElementEdit(retained);
+                state.activeScrollViewEditElement = retained;
+                if (options.onEditStarted() != null)
+                {
+                    options.onEditStarted().accept(retained.name());
+                }
+            }
             return;
         }
+        dispatchConfirmed(window, options, focused);
         state.editMode = options.keepEditModeAfterConfirm() && isEditableElement(focused);
         if (state.editMode)
         {
@@ -1830,6 +1849,52 @@ public final class GeneratedWindowRuntime
         {
             state.editSnapshot = null;
         }
+    }
+
+    private static Element reconcileScopedConfirmedElement(
+        GeneratedWindowBase window,
+        RuntimeState state,
+        Element confirmed,
+        long confirmedIdentity)
+    {
+        ScrollView scrollView = state.activeScrollView;
+        if (scrollView == null || !windowContainsElement(window, scrollView))
+        {
+            state.focusedIndex = -1;
+            state.editMode = false;
+            state.activeScrollView = null;
+            state.activeScrollViewEditElement = null;
+            state.editSnapshot = null;
+            return null;
+        }
+
+        List<Element> focusable = focusableElements(window, scrollView);
+        for (int index = 0; index < focusable.size(); ++index)
+        {
+            Element candidate = focusable.get(index);
+            if (candidate == confirmed && candidate.identity() == confirmedIdentity)
+            {
+                state.focusedIndex = index;
+                rememberScrollViewDescendant(state, candidate);
+                ensureElementVisibleInScrollView(scrollView, candidate);
+                return candidate;
+            }
+        }
+
+        state.scrollViewLastDescendant.remove(scrollView);
+        Element fallback = firstFocusableDescendantInScrollView(window, scrollView, state);
+        if (fallback != null)
+        {
+            state.focusedIndex = focusable.indexOf(fallback);
+            rememberScrollViewDescendant(state, fallback);
+            ensureElementVisibleInScrollView(scrollView, fallback);
+        }
+        else
+        {
+            Element scopeRoot = generatedScrollViewProxyFor(window, scrollView);
+            state.focusedIndex = focusable.indexOf(scopeRoot == null ? scrollView : scopeRoot);
+        }
+        return null;
     }
 
     private static void escapeEdit(

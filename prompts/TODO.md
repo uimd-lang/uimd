@@ -4,6 +4,108 @@
 
 Date: 2026-06-21
 
+- [x] **Fix GitHub issues #8 and #9 as one ScrollView confirm/rebuild focus
+  batch.** Selected by the user on 2026-08-23. Both reports cross the same
+  runtime boundary: Enter confirms an editable descendant of an active
+  ScrollView, the owner-aware submit callback may rebuild dynamic ScrollView
+  children, and the runtime must reconcile the active edit target and logical
+  focus before rendering.
+
+  - [x] [#8: C++ ScrollView Enter confirm ignores `keepEditModeAfterConfirm`](https://github.com/uimd-lang/uimd/issues/8).
+    Reproduce Enter on a ScrollView-scoped TextInput with the option enabled;
+    the same live logical element must remain the active edit target with a
+    fresh edit snapshot after its confirm callback completes.
+  - [x] [#9: C++ focus moves to adjacent controls after scrollview row content is rebuilt from TextInput submit](https://github.com/uimd-lang/uimd/issues/9).
+    Reproduce a submit callback that replaces dynamic ScrollView rows while
+    the submitted TextInput remains present; focus must stay on that logical
+    input rather than following a stale numeric focus index to a neighbour.
+
+  **Shared batch boundary:** key dispatch from the resolved active ScrollView
+  edit target through text confirmation, owner-aware callback mutation,
+  liveness/stable-identity reconciliation, edit snapshot refresh, remembered
+  ScrollView descendant restoration, and post-event normalization. Do not
+  include issue #14's public identity-aware key callback API because it is a
+  separate backward-compatible API design task.
+
+  **Validation policy:** retain one deterministic regression for each issue;
+  run the affected port's focused test after each repair; run cross-language
+  MCP comparison at `--compare-app-size 90x35` when the state is externally
+  observable; rebuild the affected examples and regressions; then consolidate
+  the expensive complete supported-platform gate into one final run after the
+  whole batch is green.
+
+  **Shared confirm/rebuild contract (recorded before implementation):** Enter
+  first applies the edited control's local key handling and value-change
+  notification, then commits the control and clears the old child-edit
+  snapshot/target before invoking the owner-aware confirmed callback. The
+  runtime captures the submitted element's live identity before that callback.
+  After the callback may mutate the ScrollView contents, it recomputes the
+  active focusable collection and restores the numeric focus/index only to the
+  same still-live, enabled, focusable element. It must not reuse the old index
+  or match a destroyed/recreated element by an ambiguous local name. If
+  `keepEditModeAfterConfirm` is enabled and that same element remains live,
+  the runtime captures a fresh snapshot, begins a new edit session, restores
+  it as the active scoped edit target, and emits `onEditStarted`; otherwise it
+  remains only in ScrollView navigation scope. All of this completes before a
+  render, MCP response, or terminal frame can inspect the state.
+
+  **Port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/UIBase.py::{_handle_scrollview_scope_key,_end_scoped_child_edit}` | Ends/commits the child edit before dispatching confirmation and retains focus by object reference. It has no generated-runtime `keepEditModeAfterConfirm` option. | **Verify #9 / unaffected #8:** preserve the object-reference focus contract and add a callback-mutation regression; do not invent a Python-only option surface. | Focused `python/tests/test_application.py` test. |
+  | C++ runtime | `cpp/src/generated/GeneratedWindowRuntime.cpp::{handleStackFrameKey,McpController::toolPressKey,runGeneratedWindow}` plus `focusableElements` | All three scoped-confirm routes commit but clear the edit target unconditionally; after a callback mutates children they retain a stale numeric focus index. Stack-frame options also omit the keep flag. | **Fix #8 and #9:** use one identity-checked post-callback reconciliation algorithm in terminal, MCP, and modal-frame routes; add the missing additive frame option. | Focused `ui_cpp_tests` root and stack-backed stdio-MCP regressions. |
+  | C# runtime | `csharp/src/Uimd/Runtime/GeneratedWindow.cs::McpController.ToolPressKey` and `RuntimeFrame.FocusedElementRef` | Stable object focus already rebases the index, but scoped confirmation ignores the keep flag and invokes the callback before commit. | **Fix #8 / verify #9:** commit before callback, re-resolve the retained object through the current focusable collection, and start a fresh scoped edit only when requested. | Retained C# runtime console regression plus existing stale-focus compare. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift::GeneratedRuntimeController.handleActiveScrollViewKey` and `focusedName` | Stable full runtime IDs already survive sibling rebuilds; this port does not expose the C++ keep-after-confirm option, but it invokes confirmation before commit. | **Verify #9 / fix shared ordering / unaffected #8:** commit and clear the old child edit before callback, then keep the same represented full ID in navigation scope. | Swift package test plus existing stale-focus compare. |
+  | Go runtime | `go/src/uimd/runtime.go::{handleReusableScrollScopeKey,endElementEdit}` and `focusedOverride` | Commit already precedes callback and stable object focus survives sibling changes, but scoped confirmation always clears the edit target even when the keep flag is enabled. Frame options already carry both keep flags. | **Fix #8 / verify #9:** re-resolve the focused live object after callback and begin a fresh scoped edit when requested. | Focused `go -C go/src/uimd test` regression. |
+  | Rust runtime | `rust/src/uimd/src/runtime.rs::{RuntimeState::handle_key,dispatch_confirm,repair_live_interaction_with_ids}` | Confirmation already commits first and repairs interaction by full runtime ID, but the scoped branch clears the repaired edit target and ignores the keep flag. Modal frame options omit both keep flags. | **Fix #8 / verify #9:** use the repaired live focused element for fresh scoped edit, preserve navigation-only state otherwise, and add the frame-option mapping. | Focused Rust runtime test plus existing stale-focus compare. |
+  | Java runtime | `java/src/main/java/uimd/GeneratedWindowRuntime.java::{handleEditKey,normalizeState}` | Scoped confirmation ignores the keep flag, invokes callback before commit, and retains only a stale numeric focus index after the focusable set changes. | **Fix #8 and #9:** port the identity-checked commit/callback/reindex/re-enter sequence. | Focused `GeneratedWindowFocusTest` regressions. |
+  | Generator/generated API | Native emitters and representative generated classes | The root runtime keep option is hand-written and already exposed by affected generated targets; no `.uimd` layout or event-hook emission is involved. | **Unaffected:** keep emitters/generated outputs unchanged; only additive runtime frame-option parity is required where currently missing. | Existing generator/API gates in the final full run. |
+  | Terminal/MCP adapters | Per-port key parsers and MCP transports | Enter is already delivered correctly; the defect begins after active scoped edit resolution. | **Unaffected:** do not change transport, key parsing, delays, examples, or snapshots. | Focused runtime/MCP regressions and final direct-terminal/MCP gates. |
+
+  **Completed on 2026-08-23.** C++, C#, Go, Rust, and Java now use the same
+  identity-checked scoped-confirm sequence: commit and clear the old edit
+  session before the callback, recompute current focusables after callback
+  mutation, retain only the same live object, rebase its numeric index, and
+  create a fresh edit snapshot/session only when
+  `keepEditModeAfterConfirm` is enabled. Swift now follows the same
+  commit-before-callback ordering and retains its stable full runtime ID;
+  Python's existing object-reference behavior was preserved and covered by a
+  callback-mutation regression. C++ stack frames and Rust modal frames gained
+  their missing additive keep-option mapping. No example, `.uimd` source,
+  snapshot, transport, delay, or generator workaround was introduced.
+
+  Focused validation passed: C++ `ui_cpp_tests` covers root and stack-backed
+  stdio MCP with both keep-option branches and proves the pre-fix assertions;
+  the new C# console runtime suite passed 2/2 and is a first-class
+  `tools/test_all.sh` phase; Python's focused application regression plus the
+  report tests passed 15 tests; Go's focused runtime regression plus the full
+  package and `vet` passed; Java's focused
+  `GeneratedWindowFocusTest.scopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation`
+  plus the complete Gradle `check` passed; Rust's focused
+  `runtime::tests::scoped_confirm_retains_live_input_and_rebases_focus_after_mutation`
+  plus clippy passed; and Swift's complete package suite passed 12/12.
+  C#/Swift do not own standalone `stale_scrollview_focus` regression apps, so
+  their shared behavior is covered by the C# console regression and Swift
+  package tests rather than an invented duplicate app.
+
+  The focused parity corpus passed Python/C++ 14/14, C++/Go stale-focus
+  25/25, C++/Rust stale-focus 25/25, and C++/Java stale-focus 25/25 at
+  `--compare-app-size 90x35`. `./tools/rebuild_all.sh` regenerated and built
+  every supported platform and refreshed `.uimd/build-manifest.json`; that
+  required rebuild also synchronized all tracked Rust lockfiles from the
+  previous `0.4.26` dependency reference to the current `0.5.1` runtime.
+  The consolidated final command
+  `./tools/test_all.sh --live-report --keep-going` passed all 35/35 phases:
+  Python 519/519, CTest 26/26, C# 2/2, Rust 162/162, Swift 12/12, every build,
+  lint, direct-terminal and MCP transport gate, Python/C++ examples 1044/1044,
+  C#/Swift/Go/Java/Rust examples 1980/1980 each, base regressions 14/14, and
+  Go/Java/Rust regressions 29/29 each. Full log:
+  `.uimd/test-logs/test-all-20260823-020429-492797.log`. Final parity decision:
+  all affected ports implement the same public behavior and cleanup order;
+  Python and Swift retain only their documented existing option-surface
+  differences, with no platform-specific behavior exception.
+
 - [x] **Allow related bug fixes to share one expensive full-validation gate.**
   Requested on 2026-08-22 because the complete multi-platform test suite can
   take hours. Added a durable `AGENTS.md` rule and a Related Bug-Fix Batches

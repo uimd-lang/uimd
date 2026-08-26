@@ -4515,6 +4515,92 @@ void commitEdit(Element* element) {
     }
 }
 
+[[nodiscard]] Element* reconcileScopedConfirmedElement(
+    GeneratedWindowBase& window,
+    int& focusedIndex,
+    bool& editMode,
+    Element*& activeScrollView,
+    ScrollViewLastDescendantMap& remembered,
+    FocusIdentity confirmedIdentity
+) {
+    if (!activeScrollViewRepresentedInCurrentLayout(window, activeScrollView)) {
+        remembered.erase(activeScrollView);
+        activeScrollView = nullptr;
+        focusedIndex = -1;
+        editMode = false;
+        return nullptr;
+    }
+
+    std::vector<Element*> focusable = focusableElements(window, activeScrollView);
+    for (std::size_t index = 0; index < focusable.size(); ++index) {
+        Element* candidate = focusable[index];
+        if (candidate == confirmedIdentity.element && candidate->identity() == confirmedIdentity.identity) {
+            focusedIndex = static_cast<int>(index);
+            rememberScrollViewDescendant(remembered, activeScrollView, candidate);
+            ensureElementVisibleInParentScrollView(candidate);
+            return candidate;
+        }
+    }
+
+    auto* scrollView = dynamic_cast<ScrollView*>(activeScrollView);
+    Element* fallback = scrollView == nullptr
+        ? nullptr
+        : firstFocusableDescendantInScrollView(window, *scrollView, remembered);
+    if (fallback != nullptr) {
+        focusedIndex = indexOfElement(focusable, fallback);
+        rememberScrollViewDescendant(remembered, activeScrollView, fallback);
+        ensureElementVisibleInParentScrollView(fallback);
+    } else {
+        Element* scopeRoot = generatedScrollViewProxyFor(window, scrollView);
+        focusedIndex = indexOfElement(focusable, scopeRoot == nullptr ? activeScrollView : scopeRoot);
+    }
+    return nullptr;
+}
+
+void confirmScopedElement(
+    GeneratedWindowBase& window,
+    int& focusedIndex,
+    bool& editMode,
+    Element*& activeScrollView,
+    Element*& activeScrollViewEditElement,
+    ScrollViewLastDescendantMap& remembered,
+    std::optional<EditSnapshot>& editSnapshot,
+    bool keepEditModeAfterConfirm,
+    const std::function<void(Element*)>& notifyConfirmed,
+    const std::function<void(Element*)>& notifyStarted
+) {
+    Element* confirmedElement = activeScrollViewEditElement;
+    if (confirmedElement == nullptr) {
+        return;
+    }
+    const FocusIdentity confirmedIdentity{
+        .element = confirmedElement,
+        .identity = confirmedElement->identity(),
+    };
+    commitEdit(confirmedElement);
+    editSnapshot.reset();
+    activeScrollViewEditElement = nullptr;
+    notifyConfirmed(confirmedElement);
+
+    Element* retainedElement = reconcileScopedConfirmedElement(
+        window,
+        focusedIndex,
+        editMode,
+        activeScrollView,
+        remembered,
+        confirmedIdentity);
+    if (retainedElement == nullptr ||
+        !keepEditModeAfterConfirm ||
+        !isEditableElement(*retainedElement)) {
+        return;
+    }
+    editSnapshot = captureSnapshot(retainedElement);
+    beginElementEdit(retainedElement);
+    activeScrollViewEditElement = retainedElement;
+    editMode = true;
+    notifyStarted(retainedElement);
+}
+
 [[nodiscard]] bool closeComboBoxOnOutsideClick(Element* focusedElement, bool& editMode,
                                                std::optional<EditSnapshot>& editSnapshot, Element* target) {
     if (editMode && dynamic_cast<ComboBox*>(focusedElement) != nullptr && target == nullptr) {
@@ -4874,6 +4960,8 @@ void notifyOwnerAwareValueChangedAfterHandledKey(GeneratedWindowBase& window,
 
 [[nodiscard]] GeneratedWindowRuntimeOptions runtimeOptionsForFrame(const GeneratedWindowFrameOptions& frameOptions) {
     GeneratedWindowRuntimeOptions options;
+    options.keepEditModeAfterConfirm = frameOptions.keepEditModeAfterConfirm;
+    options.keepEditModeAfterEscape = frameOptions.keepEditModeAfterEscape;
     options.onButton = frameOptions.onButton;
     options.onMousePressBeforeFocused = frameOptions.onMousePressBeforeFocused;
     options.onMouseWheelBeforeFocused = frameOptions.onMouseWheelBeforeFocused;
@@ -5044,11 +5132,21 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
                         listBox != nullptr && listBox->multiple()) {
                         return true;
                     }
-                    Element* confirmedElement = frame.activeScrollViewEditElement;
-                    commitEdit(confirmedElement);
-                    frame.editSnapshot.reset();
-                    frame.activeScrollViewEditElement = nullptr;
-                    notifyOwnerAwareTextConfirmed(*frame.window, notifyOptions, confirmedElement);
+                    confirmScopedElement(
+                        *frame.window,
+                        frame.focusedIndex,
+                        frame.editMode,
+                        frame.activeScrollView,
+                        frame.activeScrollViewEditElement,
+                        frame.scrollViewLastDescendant,
+                        frame.editSnapshot,
+                        frame.options.keepEditModeAfterConfirm,
+                        [&](Element* confirmedElement) {
+                            notifyOwnerAwareTextConfirmed(*frame.window, notifyOptions, confirmedElement);
+                        },
+                        [&](Element* retainedElement) {
+                            notifyEditStarted(frame.options, retainedElement);
+                        });
                     return true;
                 }
                 if (isArrowKey(key)) {
@@ -8010,11 +8108,25 @@ private:
                             state_.fullRedrawRequested = true;
                             return toolGetState();
                         }
-                        Element* confirmedElement = windowActiveScrollViewEditElement;
-                        commitEdit(confirmedElement);
-                        windowEditSnapshot.reset();
-                        windowActiveScrollViewEditElement = nullptr;
-                        notifyActiveFrameTextConfirmed(confirmedElement);
+                        const GeneratedWindowStackFrame* activeFrame = activeStackFrame();
+                        const bool keepEditModeAfterConfirm = activeFrame != nullptr
+                            ? activeFrame->options.keepEditModeAfterConfirm
+                            : options_.keepEditModeAfterConfirm;
+                        confirmScopedElement(
+                            window,
+                            focusedIndex,
+                            editMode,
+                            windowActiveScrollView,
+                            windowActiveScrollViewEditElement,
+                            windowScrollViewLastDescendant,
+                            windowEditSnapshot,
+                            keepEditModeAfterConfirm,
+                            [&](Element* confirmedElement) {
+                                notifyActiveFrameTextConfirmed(confirmedElement);
+                            },
+                            [&](Element* retainedElement) {
+                                notifyMcpEditStarted(retainedElement);
+                            });
                     } else if (isArrowKey(key)) {
                         const SelectionChangeSnapshot previousSelection =
                             selectionChangeSnapshot(windowActiveScrollViewEditElement);
@@ -10802,11 +10914,21 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                                 listBox != nullptr && listBox->multiple()) {
                                 continue;
                             }
-                            Element* confirmedElement = activeScrollViewEditElement;
-                            commitEdit(confirmedElement);
-                            editSnapshot.reset();
-                            activeScrollViewEditElement = nullptr;
-                            notifyOwnerAwareTextConfirmed(window, options, confirmedElement);
+                            confirmScopedElement(
+                                window,
+                                focusedIndex,
+                                editMode,
+                                activeScrollView,
+                                activeScrollViewEditElement,
+                                scrollViewLastDescendant,
+                                editSnapshot,
+                                options.keepEditModeAfterConfirm,
+                                [&](Element* confirmedElement) {
+                                    notifyOwnerAwareTextConfirmed(window, options, confirmedElement);
+                                },
+                                [&](Element* retainedElement) {
+                                    notifyEditStarted(options, retainedElement);
+                                });
                         } else if (isArrowKey(key)) {
                             const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement);
                             (void)handleElementKey(*activeScrollViewEditElement, key);
