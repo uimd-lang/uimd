@@ -1,0 +1,61 @@
+# UIMD 0.5.3 Compatibility Application
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: regression
+description: "Retained generated application for patch-level runtime compatibility."
+tags: [compatibility]
+```
+
+## Definition
+
+```yaml
+uses:
+  - compat_scroll
+```
+
+## Members
+
+```yaml
+aligned_input:
+  type: textinput
+  value: "abc"
+  maxlength: 16
+
+choice:
+  type: combobox
+  options: [one, two, three, four, five, six, seven, eight]
+  selected_item: one
+
+scroller:
+  type: compat_scroll
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#303545"
+@aligned_input:
+  text-align: right
+@scroller:
+  background: "#303545"
+  focus-background: "#ffffff14"
+```
+
+## User Interface
+
+```ui
++--------------------------------+
+|aligned_input...................|
+|choice..........................|
+|................................|
+|scroller........................|
+|................................|
++--------------------------------+
+```

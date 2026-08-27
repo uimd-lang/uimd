@@ -3,7 +3,6 @@ import Foundation
 import CUimdImageDecoder
 
 private let kComboBoxClosedRows = 1
-private let kComboBoxDropdownRows = 6
 private let kCommitModeStandard = "standard"
 private let kCommitModeLeave = "leave"
 private let kTextTabWidth = 4
@@ -1644,9 +1643,27 @@ open class TextInput: UIElement
 
     open func cursorForPoint(row: Int, col: Int, size: Size) -> Int
     {
+        cursorForPoint(row: row, col: col, size: size, state: ElementRenderState())
+    }
+
+    open func cursorForPoint(
+        row: Int,
+        col: Int,
+        size: Size,
+        state: ElementRenderState
+    ) -> Int
+    {
         _ = row
-        _ = size
-        return clamped(columnScrollOffset + col, lower: 0, upper: value.count)
+        let width = safeWidth(size.width, value)
+        let textWidth = value.count
+        let alignmentOffset = columnScrollOffset == 0 && textWidth <= width
+            ? alignedTextOffset(contentWidth: textWidth, width: width, align: effectiveStyle(state).textAlign)
+            : 0
+        return clamped(
+            columnScrollOffset + max(0, col - alignmentOffset),
+            lower: 0,
+            upper: value.count
+        )
     }
 
     fileprivate func deleteSelection()
@@ -1871,6 +1888,9 @@ open class TextInput: UIElement
                 columnScrollOffset = max(0, cursor - width + 1)
             }
         }
+        let alignmentOffset = columnScrollOffset == 0 && textWidth <= width
+            ? alignedTextOffset(contentWidth: textWidth, width: width, align: base.textAlign)
+            : 0
 
         let visibleEnd = min(textWidth, columnScrollOffset + width)
         let visible: String
@@ -1882,14 +1902,19 @@ open class TextInput: UIElement
         {
             visible = ""
         }
-        var row = renderPlainText(visible, width: width, height: 1, style: base)[0]
+        var visibleStyle = base
+        if alignmentOffset == 0
+        {
+            visibleStyle.textAlign = "left"
+        }
+        var row = renderPlainText(visible, width: width, height: 1, style: visibleStyle)[0]
         let selection = selectionBounds()
         let cursorEffectiveStyle = base.merged(cursorStyle)
         if state.editMode, let selection
         {
             for col in 0..<width
             {
-                let sourceIndex = columnScrollOffset + col
+                let sourceIndex = columnScrollOffset + col - alignmentOffset
                 if sourceIndex >= selection.start && sourceIndex < selection.end
                 {
                     row[col].foreground = cursorEffectiveStyle.color
@@ -1903,7 +1928,10 @@ open class TextInput: UIElement
         }
         else if state.editMode && selection == nil && width > 0
         {
-            let visibleCol = max(0, min(width - 1, cursor - columnScrollOffset))
+            let visibleCol = max(
+                0,
+                min(width - 1, alignmentOffset + cursor - columnScrollOffset)
+            )
             row[visibleCol].foreground = cursorEffectiveStyle.color
             row[visibleCol].background = cursorEffectiveStyle.background
         }
@@ -2121,6 +2149,17 @@ open class TextArea: TextInput
 
     open override func cursorForPoint(row: Int, col: Int, size: Size) -> Int
     {
+        cursorForPoint(row: row, col: col, size: size, state: ElementRenderState())
+    }
+
+    open override func cursorForPoint(
+        row: Int,
+        col: Int,
+        size: Size,
+        state: ElementRenderState
+    ) -> Int
+    {
+        _ = state
         let rows = visualRows(width: safeWidth(size.width, value))
         let targetRow = clamped(row, lower: 0, upper: max(0, safeHeight(size.height) - 1)) + rowScrollOffset
         guard targetRow >= 0 && targetRow < rows.count else
@@ -3604,7 +3643,8 @@ open class ViewHost: UIElement
             : kNoActiveDynamicEditName
         let childOwnsActiveScrollView = activeScrollView != nil &&
             ownerWindowForElement(child, activeScrollView) != nil
-        let childActiveScrollViewFocusBackground =
+        var childActiveScrollViewFocusBackground =
+            !child.suppressActiveContainerScopeVisuals &&
             childOwnsActiveScrollView &&
             reusableFocusStyleAppliesToChild(
                 self,
@@ -3615,9 +3655,11 @@ open class ViewHost: UIElement
                 ? focusStyle?.background
                 : nil
         let previousGeneratedWindowStyle = child.generatedWindowStyle
+        let previousGeneratedScrollViewStyle = child.generatedScrollView()?.style
+        let previousGeneratedScrollViewFocusStyle = child.generatedScrollView()?.focusStyle
+        var directFocusUnderlay: GeneratedScrollViewFocusUnderlay?
         let directFocusBackground: Color?
         if state.focused,
-           child.generatedScrollView() == nil,
            reusableFocusStyleAppliesToChild(
                self,
                child: child,
@@ -3627,8 +3669,28 @@ open class ViewHost: UIElement
            let focusStyle,
            let background = focusStyle.background
         {
-            child.generatedWindowStyle = child.generatedWindowStyle.merged(focusStyle)
-            directFocusBackground = background
+            if child.generatedScrollView() == nil
+            {
+                child.generatedWindowStyle = child.generatedWindowStyle.merged(focusStyle)
+                directFocusBackground = background
+            }
+            else
+            {
+                directFocusUnderlay = applyDirectReusableFocusUnderlayToGeneratedScrollView(
+                    element: self,
+                    child: child,
+                    directFocus: true,
+                    parentBackground: state.parentBackground
+                )
+                directFocusBackground = nil
+                if directFocusUnderlay != nil
+                {
+                    childActiveScrollViewFocusBackground = childOwnsActiveScrollView
+                        ? nil
+                        : child.generatedScrollView()?.descendantFocusStyle?.background
+                            ?? child.generatedScrollView()?.focusStyle?.background
+                }
+            }
         }
         else
         {
@@ -3647,7 +3709,13 @@ open class ViewHost: UIElement
         )
         child.suppressActiveContainerDim = previousSuppressDim
         child.activeEditFocusName = previousActiveEditFocusName
+        directFocusUnderlay?.applyToStructuralBackgrounds(&rendered)
         child.generatedWindowStyle = previousGeneratedWindowStyle
+        if directFocusUnderlay != nil
+        {
+            child.generatedScrollView()?.style = previousGeneratedScrollViewStyle ?? Style()
+            child.generatedScrollView()?.focusStyle = previousGeneratedScrollViewFocusStyle
+        }
         if let directFocusBackground
         {
             var descendantBackgrounds: [Color] = []
@@ -3663,7 +3731,7 @@ open class ViewHost: UIElement
                 baseBackground: style.background ?? state.parentBackground
             )
         }
-        else if state.focused && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
+        else if state.focused && directFocusUnderlay == nil && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
            let focusBackground = generatedChildFocusBackground(
             for: self,
             child: child,
@@ -3721,7 +3789,8 @@ open class ReusableElement: UIElement
             : kNoActiveDynamicEditName
         let childOwnsActiveScrollView = activeScrollView != nil &&
             ownerWindowForElement(child, activeScrollView) != nil
-        let childActiveScrollViewFocusBackground =
+        var childActiveScrollViewFocusBackground =
+            !child.suppressActiveContainerScopeVisuals &&
             childOwnsActiveScrollView &&
             reusableFocusStyleAppliesToChild(
                 self,
@@ -3732,9 +3801,11 @@ open class ReusableElement: UIElement
                 ? focusStyle?.background
                 : nil
         let previousGeneratedWindowStyle = child.generatedWindowStyle
+        let previousGeneratedScrollViewStyle = child.generatedScrollView()?.style
+        let previousGeneratedScrollViewFocusStyle = child.generatedScrollView()?.focusStyle
+        var directFocusUnderlay: GeneratedScrollViewFocusUnderlay?
         let directFocusBackground: Color?
         if state.focused,
-           child.generatedScrollView() == nil,
            reusableFocusStyleAppliesToChild(
                self,
                child: child,
@@ -3744,8 +3815,28 @@ open class ReusableElement: UIElement
            let focusStyle,
            let background = focusStyle.background
         {
-            child.generatedWindowStyle = child.generatedWindowStyle.merged(focusStyle)
-            directFocusBackground = background
+            if child.generatedScrollView() == nil
+            {
+                child.generatedWindowStyle = child.generatedWindowStyle.merged(focusStyle)
+                directFocusBackground = background
+            }
+            else
+            {
+                directFocusUnderlay = applyDirectReusableFocusUnderlayToGeneratedScrollView(
+                    element: self,
+                    child: child,
+                    directFocus: true,
+                    parentBackground: state.parentBackground
+                )
+                directFocusBackground = nil
+                if directFocusUnderlay != nil
+                {
+                    childActiveScrollViewFocusBackground = childOwnsActiveScrollView
+                        ? nil
+                        : child.generatedScrollView()?.descendantFocusStyle?.background
+                            ?? child.generatedScrollView()?.focusStyle?.background
+                }
+            }
         }
         else
         {
@@ -3762,7 +3853,13 @@ open class ReusableElement: UIElement
             clipBottom: state.clipBottom
         )
         child.activeEditFocusName = previousActiveEditFocusName
+        directFocusUnderlay?.applyToStructuralBackgrounds(&rendered)
         child.generatedWindowStyle = previousGeneratedWindowStyle
+        if directFocusUnderlay != nil
+        {
+            child.generatedScrollView()?.style = previousGeneratedScrollViewStyle ?? Style()
+            child.generatedScrollView()?.focusStyle = previousGeneratedScrollViewFocusStyle
+        }
         if let directFocusBackground
         {
             var descendantBackgrounds: [Color] = []
@@ -3778,7 +3875,7 @@ open class ReusableElement: UIElement
                 baseBackground: style.background ?? state.parentBackground
             )
         }
-        else if state.focused && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
+        else if state.focused && directFocusUnderlay == nil && !childOwnsActiveScrollView && !child.suppressActiveContainerScopeVisuals,
            let focusBackground = generatedChildFocusBackground(
             for: self,
             child: child,
@@ -4691,9 +4788,13 @@ open class GeneratedWindowBase
                     (activeScrollViewEditElement != nil &&
                      elementTreeContains(scrollView, activeScrollViewEditElement))
                  } ?? false))
-            let scrollViewSelfFocused = element is ScrollView && focusedName == entry.name && !activeScrollViewFocused
+            let suppressElementFocus = suppressActiveContainerScopeVisuals &&
+                (element is ReusableElement || element is ScrollView)
+            let elementFocused = focusedName == entry.name && !suppressElementFocus
+            let scrollViewSelfFocused = !suppressActiveContainerScopeVisuals &&
+                element is ScrollView && elementFocused && !activeScrollViewFocused
             let state = ElementRenderState(
-                focused: focusedName == entry.name && !scrollViewSelfFocused && !activeScrollViewFocused,
+                focused: elementFocused && !scrollViewSelfFocused && !activeScrollViewFocused,
                 editMode: elementEditMode && !activeScrollViewFocused,
                 parentBackground: parentBackground,
                 clipTop: elementClipTop,
@@ -4842,7 +4943,10 @@ open class GeneratedWindowBase
                             let childDirectFocus = (focusedName.map
                             {
                                 $0 == child.name || $0 == child.mcpElementId
-                            } ?? false) || child === focusedElementBeforeRender
+                            } ?? false) ||
+                                child === focusedElementBeforeRender ||
+                                (focusedElementBeforeRender != nil &&
+                                 reusableGeneratedScrollView === focusedElementBeforeRender)
                             let childOwnsActiveScrollView = activeScrollView != nil &&
                                 ownerWindowForElement(generated, activeScrollView) != nil
                             let childOwnsActiveScrollViewEditElement = activeScrollViewEditElement != nil &&
@@ -4872,6 +4976,9 @@ open class GeneratedWindowBase
                             var childDescendantFocusBackground: Color?
                             let previousActiveEditFocusName = generated.activeEditFocusName
                             let previousGeneratedWindowStyle = generated.generatedWindowStyle
+                            let previousGeneratedScrollViewStyle = reusableGeneratedScrollView?.style
+                            let previousGeneratedScrollViewFocusStyle = reusableGeneratedScrollView?.focusStyle
+                            var directFocusUnderlay: GeneratedScrollViewFocusUnderlay?
                             generated.activeEditFocusName = effectiveChildEditMode ? (localFocus ?? activeEditFocusName) : kNoActiveDynamicEditName
                             if reusableWholeChildFocus
                             {
@@ -4887,7 +4994,17 @@ open class GeneratedWindowBase
                                     {
                                         generated.generatedWindowStyle = generated.generatedWindowStyle.merged(reusable.focusStyle)
                                     }
-                                    if let background = reusable.focusStyle?.background
+                                    else
+                                    {
+                                        directFocusUnderlay = applyDirectReusableFocusUnderlayToGeneratedScrollView(
+                                            element: reusable,
+                                            child: generated,
+                                            directFocus: childDirectFocus,
+                                            parentBackground: childParentBackground
+                                        )
+                                    }
+                                    if directFocusUnderlay == nil,
+                                       let background = reusable.focusStyle?.background
                                     {
                                         childActiveScrollViewFocusBackground = background
                                     }
@@ -4924,7 +5041,13 @@ open class GeneratedWindowBase
                                 useHostViewportForRootScrollViewIndicators: false
                             )
                             generated.activeEditFocusName = previousActiveEditFocusName
+                            directFocusUnderlay?.applyToStructuralBackgrounds(&renderedChild)
                             generated.generatedWindowStyle = previousGeneratedWindowStyle
+                            if directFocusUnderlay != nil
+                            {
+                                reusableGeneratedScrollView?.style = previousGeneratedScrollViewStyle ?? Style()
+                                reusableGeneratedScrollView?.focusStyle = previousGeneratedScrollViewFocusStyle
+                            }
                             if let focusBackground = childDescendantFocusBackground,
                                reusableGeneratedScrollView == nil
                             {
@@ -5009,7 +5132,13 @@ open class GeneratedWindowBase
                             )
                         }
                     }
-                    if activeScrollViewFocused || scrollViewSelfFocused
+                    let generatedScrollViewProxyFocused =
+                        !suppressActiveContainerScopeVisuals &&
+                        activeScrollViewFocusBackground != nil &&
+                        self.generatedScrollView() === scrollView &&
+                        !activeScrollViewFocused &&
+                        !scrollViewSelfFocused
+                    if activeScrollViewFocused || scrollViewSelfFocused || generatedScrollViewProxyFocused
                     {
                         applyScrollableHostFocusBackground(
                             buffer: &buffer,
@@ -6823,7 +6952,7 @@ fileprivate struct EditSnapshot
     var selectedValues: [String] = []
 }
 
-private final class GeneratedRuntimeController
+final class GeneratedRuntimeController
 {
     private let rootWindow: GeneratedWindowBase
     private let rootOptions: GeneratedWindowRuntimeOptions
@@ -7401,7 +7530,7 @@ private final class GeneratedRuntimeController
         }
     }
 
-    private func handleRequest(_ request: [String: Any]) throws -> Any
+    func handleRequest(_ request: [String: Any]) throws -> Any
     {
         let method = request["method"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
@@ -9772,7 +9901,8 @@ private final class GeneratedRuntimeController
         let cursor = textInput.cursorForPoint(
             row: content.row - frame.row,
             col: content.col - frame.col,
-            size: Size(width: frame.width, height: frame.height)
+            size: Size(width: frame.width, height: frame.height),
+            state: ElementRenderState(focused: true, editMode: true)
         )
         textInput.selectRange(start: terminalMouseSelectionAnchor, end: cursor)
         if release
@@ -9845,7 +9975,8 @@ private final class GeneratedRuntimeController
             let cursor = textInput.cursorForPoint(
                 row: localRow,
                 col: localCol,
-                size: Size(width: element.frame.width, height: element.frame.height)
+                size: Size(width: element.frame.width, height: element.frame.height),
+                state: ElementRenderState(focused: true, editMode: true)
             )
             textInput.selectRange(start: cursor, end: cursor)
             terminalMouseSelectionElement = textInput
@@ -15649,7 +15780,7 @@ private func rectContains(_ rect: Rect, row: Int, col: Int) -> Bool
 
 private func comboBoxDropdownFrame(_ comboBox: ComboBox) -> Rect
 {
-    let optionRows = min(kComboBoxDropdownRows, kComboBoxClosedRows + comboBox.options.count)
+    let optionRows = kComboBoxClosedRows + comboBox.options.count
     return Rect(
         row: comboBox.frame.row,
         col: comboBox.frame.col,
@@ -15969,19 +16100,11 @@ private func renderGlyphRow(_ glyphs: [VisualGlyph], width: Int, style: Style) -
 {
     let clipped = Array(glyphs.prefix(width))
     let contentWidth = clipped.count
-    let offset: Int
-    if style.textAlign == "center"
-    {
-        offset = max(0, (width - contentWidth) / 2)
-    }
-    else if style.textAlign == "right"
-    {
-        offset = max(0, width - contentWidth)
-    }
-    else
-    {
-        offset = 0
-    }
+    let offset = alignedTextOffset(
+        contentWidth: contentWidth,
+        width: width,
+        align: style.textAlign
+    )
 
     var row: [TerminalCell] = []
     row.reserveCapacity(width)
@@ -16010,6 +16133,20 @@ private func renderGlyphRow(_ glyphs: [VisualGlyph], width: Int, style: Style) -
         row.append(TerminalCell(" ", foreground: style.color, background: style.background))
     }
     return row
+}
+
+private func alignedTextOffset(contentWidth: Int, width: Int, align: String) -> Int
+{
+    let padding = max(0, width - contentWidth)
+    if align == "center"
+    {
+        return padding / 2
+    }
+    if align == "right"
+    {
+        return padding
+    }
+    return 0
 }
 
 private func renderPlainText(_ text: String, width: Int, height: Int, style: Style) -> [[TerminalCell]]
@@ -16823,11 +16960,70 @@ private func reusableFocusStyleAppliesToChild(
     {
         return true
     }
-    if child.generatedScrollView() != nil
-    {
-        return false
-    }
     return directFocus || !descendantOnlyFocus
+}
+
+private struct GeneratedScrollViewFocusUnderlay
+{
+    let structuralBackground: Color?
+    let focusBackground: Color
+
+    func applyToStructuralBackgrounds(_ content: inout [[TerminalCell]])
+    {
+        guard let structuralBackground else
+        {
+            return
+        }
+        let focusedBackground = focusBackground.blended(over: structuralBackground) ?? focusBackground
+        for row in content.indices
+        {
+            for col in content[row].indices
+            {
+                let background = content[row][col].background
+                if background == nil || background?.snapshotValue == structuralBackground.snapshotValue
+                {
+                    content[row][col].background = focusedBackground
+                }
+            }
+        }
+    }
+}
+
+private func applyDirectReusableFocusUnderlayToGeneratedScrollView(
+    element: UIElement,
+    child: GeneratedWindowBase,
+    directFocus: Bool,
+    parentBackground: Color?
+) -> GeneratedScrollViewFocusUnderlay?
+{
+    guard directFocus,
+          let scrollView = child.generatedScrollView(),
+          let focusBackground = element.focusStyle?.background,
+          hasPartialAlpha(focusBackground)
+    else
+    {
+        return nil
+    }
+
+    if var childFocusStyle = scrollView.focusStyle,
+       childFocusStyle.background?.snapshotValue == focusBackground.snapshotValue
+    {
+        childFocusStyle.background = nil
+        scrollView.focusStyle = childFocusStyle
+    }
+
+    let structuralBackground =
+        scrollView.style.background ??
+        child.generatedWindowStyle.background ??
+        element.style.background ??
+        parentBackground
+    let focusedBackground = focusBackground.blended(over: structuralBackground) ?? focusBackground
+    child.generatedWindowStyle.background = focusedBackground
+    scrollView.style.background = focusedBackground
+    return GeneratedScrollViewFocusUnderlay(
+        structuralBackground: structuralBackground,
+        focusBackground: focusBackground
+    )
 }
 
 private func generatedChildFocusBackground(

@@ -2690,7 +2690,16 @@ fn perform_mouse_press_at_active_point<A: GeneratedApplication>(
             );
             return;
         }
-        let cursor = element_value.cursor_for_point(y - frame.row, x - frame.col);
+        let cursor = element_value.cursor_for_point_with_state(
+            y - frame.row,
+            x - frame.col,
+            crate::ElementRenderState
+            {
+                focused: true,
+                edit_mode: true,
+                ..Default::default()
+            },
+        );
         element_value.select_range(cursor, cursor);
         state.mouse_selection_anchor = element_value.cursor();
         drop(element_value);
@@ -2810,7 +2819,27 @@ pub(crate) fn perform_mouse_move<A: GeneratedApplication>(
             }
         }
     }
-    let cursor = element.borrow().cursor_for_point(local_row, x - frame.col);
+    let pointer_state = if matches!(
+        element.borrow().kind(),
+        ElementKind::TextInput | ElementKind::TextArea
+    )
+    {
+        crate::ElementRenderState
+        {
+            focused: true,
+            edit_mode: true,
+            ..Default::default()
+        }
+    }
+    else
+    {
+        crate::ElementRenderState::default()
+    };
+    let cursor = element.borrow().cursor_for_point_with_state(
+        local_row,
+        x - frame.col,
+        pointer_state,
+    );
     element
         .borrow_mut()
         .select_range(state.mouse_selection_anchor, cursor);
@@ -6923,7 +6952,7 @@ mod tests
         let mut scroll = crate::GeneratedWindow::new_scroll_view("items");
         let category = scroll.add_element(crate::new_combo_box(
             "category",
-            vec!["Food".to_string(), "Transport".to_string()],
+            (0..8).map(|index| format!("Option {index}")).collect(),
         ));
         category.borrow_mut().frame = Rect { row: 1, col: 1, width: 10, height: 1 };
         let host = crate::new_reusable_element("items", "Expenses");
@@ -6952,9 +6981,9 @@ mod tests
             &mut state,
             &options,
             2,
-            3,
+            8,
         ));
-        assert_eq!(category.borrow().selected_index(), 1);
+        assert_eq!(category.borrow().selected_index(), 6);
         assert!(!state.edit_mode);
         assert!(state.scope_edit_element.is_none());
         assert!(state.scope_dim_element.is_none());

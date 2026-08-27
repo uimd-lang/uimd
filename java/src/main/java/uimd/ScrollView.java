@@ -700,7 +700,24 @@ public class ScrollView extends Element
                 {
                     continue;
                 }
-                canvas.get(targetRow).set(targetCol, source.get(sourceCol).copy());
+                TerminalCell existing = canvas.get(targetRow).get(targetCol);
+                TerminalCell rendered = source.get(sourceCol).copy();
+                Color background = rendered.background();
+                if (transparentColor(background))
+                {
+                    rendered.setBackground(existing.background());
+                }
+                else if (background.rgba().isPresent()
+                    && background.rgba().orElseThrow().alpha() < 255
+                    && existing.background() != null)
+                {
+                    rendered.setBackground(background.blendOver(existing.background()));
+                }
+                if (transparentColor(rendered.foreground()))
+                {
+                    rendered.setForeground(existing.foreground());
+                }
+                canvas.get(targetRow).set(targetCol, rendered);
             }
         }
     }

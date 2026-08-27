@@ -117,14 +117,23 @@ thread_local std::optional<std::int64_t> renderTimeOverrideMs;
     return styledCell(std::string(1, ch), style, std::move(foreground), std::move(background));
 }
 
+[[nodiscard]] int alignedTextOffset(int contentWidth, int width, const Style& style) {
+    const int padding = std::max(0, width - contentWidth);
+    if (style.textAlign == "center") {
+        return padding / 2;
+    }
+    if (style.textAlign == "right") {
+        return padding;
+    }
+    return 0;
+}
+
 [[nodiscard]] RenderedRow renderGlyphRow(std::vector<VisualGlyph> glyphs, int width, const Style& style) {
     if (static_cast<int>(glyphs.size()) > width) {
         glyphs.resize(static_cast<std::size_t>(width));
     }
     const int contentWidth = static_cast<int>(glyphs.size());
-    const int offset = style.textAlign == "center"
-        ? std::max(0, (width - contentWidth) / 2)
-        : (style.textAlign == "right" ? std::max(0, width - contentWidth) : 0);
+    const int offset = alignedTextOffset(contentWidth, width, style);
     RenderedRow row;
     row.reserve(static_cast<std::size_t>(width));
     for (int col = 0; col < offset && col < width; ++col) {
@@ -401,9 +410,7 @@ int Label::textPositionFromPoint(int localRow, int localCol, Size size) const {
         const std::size_t segmentEnd = newline == std::string::npos ? text_.size() : newline;
         LabelVisualRow visible = makeLabelVisualRow(0, visualGlyphs(std::string_view(text_.data(), segmentEnd), 0, 0));
         const Style style = effectiveStyle(false, false);
-        const int offset = style.textAlign == "center"
-            ? std::max(0, (width - visualWidthForRow(visible)) / 2)
-            : (style.textAlign == "right" ? std::max(0, width - visualWidthForRow(visible)) : 0);
+        const int offset = alignedTextOffset(visualWidthForRow(visible), width, style);
         return std::max(0, std::min(textLen, rawIndexForLabelVisualColumn(visible, localCol - offset)));
     }
     const auto rows = buildLabelVisualRows(text_, width);
@@ -418,9 +425,7 @@ int Label::textPositionFromPoint(int localRow, int localCol, Size size) const {
     }
     const LabelVisualRow& row = rows[static_cast<std::size_t>(localRow)];
     const Style style = effectiveStyle(false, false);
-    const int offset = style.textAlign == "center"
-        ? std::max(0, (width - visualWidthForRow(row)) / 2)
-        : (style.textAlign == "right" ? std::max(0, width - visualWidthForRow(row)) : 0);
+    const int offset = alignedTextOffset(visualWidthForRow(row), width, style);
     return std::min(textLen, rawIndexForLabelVisualColumn(row, localCol - offset));
 }
 
@@ -738,11 +743,22 @@ std::string TextInput::selectedText() const {
 }
 
 int TextInput::cursorForPoint(int row, int col, Size size) const {
+    return cursorForPoint(row, col, size, ElementRenderState{});
+}
+
+int TextInput::cursorForPoint(int row, int col, Size size, ElementRenderState state) const {
     if (!multiline_) {
         (void)row;
-        (void)size;
+        const int width = safeWidth(size, value_);
         const VisualTextRow visualRow = makeVisualTextRow(0, visualGlyphs(value_));
-        return clampIndex(rawIndexForVisualColumn(visualRow, colScrollOffset_ + col), 0, static_cast<int>(value_.size()));
+        const int textWidth = static_cast<int>(visualRow.cells.size());
+        const int offset = colScrollOffset_ == 0 && textWidth <= width
+            ? alignedTextOffset(textWidth, width, effectiveStyle(state.focused, state.editMode))
+            : 0;
+        return clampIndex(
+            rawIndexForVisualColumn(visualRow, colScrollOffset_ + std::max(0, col - offset)),
+            0,
+            static_cast<int>(value_.size()));
     }
     const int height = safeHeight(size);
     const int width = safeWidth(size, value_);
@@ -967,6 +983,9 @@ RenderedContent TextInput::render(Size size, ElementRenderState state) const {
                 scrollOffset = std::max(0, cursorVisualCol - width + 1);
             }
         }
+        const int alignmentOffset = scrollOffset == 0 && textWidth <= width
+            ? alignedTextOffset(textWidth, width, base)
+            : 0;
         std::vector<VisualGlyph> visibleCells;
         if (scrollOffset < textWidth) {
             const int end = std::min(textWidth, scrollOffset + width);
@@ -974,6 +993,9 @@ RenderedContent TextInput::render(Size size, ElementRenderState state) const {
         }
         RenderedRow renderedRow;
         renderedRow.reserve(static_cast<std::size_t>(width));
+        for (int col = 0; col < alignmentOffset; ++col) {
+            renderedRow.push_back(styledCell(" ", base));
+        }
         for (const VisualGlyph& glyph : visibleCells) {
             renderedRow.push_back(styledCell(glyph.text, base));
         }
@@ -986,8 +1008,9 @@ RenderedContent TextInput::render(Size size, ElementRenderState state) const {
         rendered.push_back(std::move(renderedRow));
         if (state.editMode && hasSelection()) {
             for (int col = 0; col < width; ++col) {
-                const int source = col < static_cast<int>(visibleCells.size())
-                    ? visibleCells[static_cast<std::size_t>(col)].sourceStart
+                const int visibleIndex = col - alignmentOffset;
+                const int source = visibleIndex >= 0 && visibleIndex < static_cast<int>(visibleCells.size())
+                    ? visibleCells[static_cast<std::size_t>(visibleIndex)].sourceStart
                     : -1;
                 if (source >= selectionStart() && source < selectionEnd()) {
                     rendered[0][static_cast<std::size_t>(col)].foreground = cursor.color;
@@ -995,7 +1018,7 @@ RenderedContent TextInput::render(Size size, ElementRenderState state) const {
                 }
             }
         } else if (state.editMode) {
-            const int visibleCol = clampIndex(cursorVisualCol - scrollOffset, 0, width - 1);
+            const int visibleCol = clampIndex(alignmentOffset + cursorVisualCol - scrollOffset, 0, width - 1);
             rendered[0][static_cast<std::size_t>(visibleCol)].foreground = cursor.color;
             rendered[0][static_cast<std::size_t>(visibleCol)].background = cursor.background;
         }

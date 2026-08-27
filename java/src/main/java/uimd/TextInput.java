@@ -152,14 +152,26 @@ public class TextInput extends Element
 
     public int cursorForPoint(int row, int col, Size size)
     {
+        return cursorForPoint(row, col, size, new ElementRenderState());
+    }
+
+    public int cursorForPoint(int row, int col, Size size, ElementRenderState state)
+    {
         int width = safeWidth(size);
         if (!multiline)
         {
             RenderHelpers.LabelVisualRow visualRow = makeVisualTextRow(
                 0,
                 RenderHelpers.visualGlyphs(value, 0, 0));
+            ElementRenderState effectiveState = state == null ? new ElementRenderState() : state;
+            Style style = effectiveStyle(effectiveState.focused(), effectiveState.editMode());
+            int alignmentOffset = colScrollOffset == 0 && visualRow.cells().size() <= width
+                ? RenderHelpers.alignedTextOffset(visualRow.cells().size(), width, style.textAlign())
+                : 0;
             return clamp(
-                RenderHelpers.rawIndexForLabelVisualColumn(visualRow, colScrollOffset + col),
+                RenderHelpers.rawIndexForLabelVisualColumn(
+                    visualRow,
+                    colScrollOffset + Math.max(0, col - alignmentOffset)),
                 0,
                 value.length());
         }
@@ -411,13 +423,16 @@ public class TextInput extends Element
             }
         }
 
+        int alignmentOffset = colScrollOffset == 0 && textWidth <= width
+            ? RenderHelpers.alignedTextOffset(textWidth, width, style.textAlign())
+            : 0;
         List<VisualGlyph> visible = new ArrayList<>();
         if (colScrollOffset < textWidth)
         {
             int end = Math.min(textWidth, colScrollOffset + width);
             visible.addAll(visualRow.cells().subList(colScrollOffset, end));
         }
-        List<TerminalCell> renderedRow = glyphRow(visible, width, style);
+        List<TerminalCell> renderedRow = glyphRow(visible, width, style, alignmentOffset);
         if (!state.editMode() && textWidth > colScrollOffset + width)
         {
             renderedRow.get(width - 1).setText(">");
@@ -433,13 +448,16 @@ public class TextInput extends Element
                 int source = visible.get(col).sourceStart();
                 if (source >= low && source < high)
                 {
-                    applyStyle(result.get(0).get(col), cursorStyleValue);
+                    applyStyle(result.get(0).get(alignmentOffset + col), cursorStyleValue);
                 }
             }
         }
         else if (state.editMode())
         {
-            int visibleCol = clamp(cursorVisualCol - colScrollOffset, 0, width - 1);
+            int visibleCol = clamp(
+                alignmentOffset + cursorVisualCol - colScrollOffset,
+                0,
+                width - 1);
             applyStyle(result.get(0).get(visibleCol), cursorStyleValue);
         }
         return result;
@@ -476,7 +494,7 @@ public class TextInput extends Element
             RenderHelpers.LabelVisualRow visualRow = hasVisualRow
                 ? rows.get(rowIndex)
                 : new RenderHelpers.LabelVisualRow(0, 0, new ArrayList<>());
-            List<TerminalCell> renderedRow = glyphRow(visualRow.cells(), width, style);
+            List<TerminalCell> renderedRow = glyphRow(visualRow.cells(), width, style, 0);
             result.add(renderedRow);
 
             int cursorCol = state.editMode() && hasVisualRow
@@ -664,10 +682,15 @@ public class TextInput extends Element
     private static List<TerminalCell> glyphRow(
         List<VisualGlyph> glyphs,
         int width,
-        Style style)
+        Style style,
+        int alignmentOffset)
     {
         List<TerminalCell> row = new ArrayList<>(width);
-        for (int index = 0; index < Math.min(width, glyphs.size()); ++index)
+        while (row.size() < alignmentOffset)
+        {
+            row.add(RenderHelpers.styledCell(" ", style, null, null));
+        }
+        for (int index = 0; index < glyphs.size() && row.size() < width; ++index)
         {
             row.add(RenderHelpers.styledCell(glyphs.get(index).text(), style, null, null));
         }

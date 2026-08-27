@@ -271,6 +271,46 @@ final class ControlsTest
     }
 
     @Test
+    void textInputAlignmentUsesOneRenderAndMouseOffset()
+    {
+        TextInput input = new TextInput("field", "abc", 10);
+        input.setStyle(Style.fromProperties("text-align", "right"));
+        input.setCursorStyle(Style.fromProperties("background", "#facc15"));
+
+        List<List<TerminalCell>> rendered = input.render(
+            new Size(6, 1),
+            new ElementRenderState());
+        assertEquals("   abc", RenderHelpers.renderedText(rendered).get(0));
+
+        input.setCursor(1);
+        ElementRenderState editState = new ElementRenderState();
+        editState.setFocused(true);
+        editState.setEditMode(true);
+        rendered = input.render(
+            new Size(6, 1),
+            editState);
+        assertEquals("#facc15", rendered.get(0).get(4).background().toString());
+
+        input.selectRange(0, 2);
+        rendered = input.render(
+            new Size(6, 1),
+            editState);
+        assertEquals("#facc15", rendered.get(0).get(3).background().toString());
+        assertEquals("#facc15", rendered.get(0).get(4).background().toString());
+        Color unselectedBackground = rendered.get(0).get(5).background();
+        assertNotEquals(
+            "#facc15",
+            unselectedBackground == null ? null : unselectedBackground.toString());
+        assertEquals(0, input.cursorForPoint(0, 0, new Size(6, 1)));
+        assertEquals(1, input.cursorForPoint(0, 4, new Size(6, 1)));
+
+        input.setValue("abcdefgh");
+        input.setCursor(8);
+        rendered = input.render(new Size(6, 1), editState);
+        assertEquals("defgh ", RenderHelpers.renderedText(rendered).get(0));
+    }
+
+    @Test
     void geometryAndTextVisualHelpersExposeTheCanonicalPublicContract()
     {
         Rect rect = new Rect(2, 3, 4, 5);
@@ -711,6 +751,87 @@ final class ControlsTest
 
         assertEquals(new Color("#030712"), unfocused);
         assertEquals(new Color("#1e3a5f"), focused);
+    }
+
+    @Test
+    void reusableGeneratedScrollViewFocusUnderlaysAlphaDescendantBackground()
+    {
+        Color parentBackground = new Color("#303545");
+        Color focusBackground = new Color("#ffffff14");
+        Color descendantBackground = new Color("#252a36cc");
+        GeneratedScrollViewBase child = new GeneratedScrollViewBase("Alpha focus scroll");
+        child.setGeneratedFocusable(true);
+        child.setGeneratedWindowStyle(Style.fromProperties(
+            "background", parentBackground.text()));
+        ScrollView scrollView = child.addElement(new ScrollView("__scrollview"));
+        scrollView.setStyle(Style.fromProperties(
+            "background", parentBackground.text()));
+        scrollView.setFocusStyle(Style.fromProperties(
+            "background", focusBackground.text()));
+        Label row = scrollView.addChild(new Label("row", " "));
+        row.setStyle(Style.fromProperties(
+            "background", descendantBackground.text()));
+        child.setGeneratedScrollView(scrollView);
+        child.setGeneratedLayout(List.of(
+            new GeneratedLayoutEntry()
+                .setName("__scrollview")
+                .setRelative(new Rect(0, 0, 1, 2))
+                .setSourceCell(new Rect(0, 0, 1, 2))
+                .setWidth(AxisDimension.fixed(1))
+                .setHeight(AxisDimension.fixed(2))
+                .setCellWidth(AxisDimension.fixed(1))
+                .setCellHeight(AxisDimension.fixed(2))
+                .setCharsSize(new Size(1, 2))
+                .setCellCharsSize(new Size(1, 2))
+                .setCellStyle(Style.fromProperties(
+                    "background", parentBackground.text()))));
+
+        GeneratedWindowBase host = new GeneratedWindowBase("Host");
+        host.setGeneratedWindowStyle(Style.fromProperties(
+            "background", parentBackground.text()));
+        ReusableElement reusable = host.addElement(new ReusableElement("card", child));
+        reusable.setStyle(Style.fromProperties(
+            "background", parentBackground.text()));
+        reusable.setFocusStyle(Style.fromProperties(
+            "background", focusBackground.text()));
+        host.setGeneratedLayout(List.of(
+            new GeneratedLayoutEntry()
+                .setName("card")
+                .setRelative(new Rect(0, 0, 1, 2))
+                .setSourceCell(new Rect(0, 0, 1, 2))
+                .setWidth(AxisDimension.fixed(1))
+                .setHeight(AxisDimension.fixed(2))
+                .setCellWidth(AxisDimension.fixed(1))
+                .setCellHeight(AxisDimension.fixed(2))
+                .setCharsSize(new Size(1, 2))
+                .setCellCharsSize(new Size(1, 2))
+                .setCellStyle(Style.fromProperties(
+                    "background", parentBackground.text()))));
+
+        Color unfocused = GeneratedWindowRuntime.renderGeneratedWindowContent(
+            host,
+            new Size(1, 2),
+            -1).get(0).get(0).background();
+        List<List<TerminalCell>> focusedContent = GeneratedWindowRuntime.renderGeneratedWindowContent(
+            host,
+            new Size(1, 2),
+            0);
+        Color focused = focusedContent.get(0).get(0).background();
+        ElementRenderState directFocusState = new ElementRenderState();
+        directFocusState.setFocused(true);
+        Color directlyRendered = reusable.render(
+            new Size(1, 1),
+            directFocusState).get(0).get(0).background();
+        assertEquals(descendantBackground.blendOver(parentBackground), unfocused);
+        assertEquals(
+            descendantBackground.blendOver(focusBackground.blendOver(parentBackground)),
+            directlyRendered);
+        assertEquals(
+            descendantBackground.blendOver(focusBackground.blendOver(parentBackground)),
+            focused);
+        assertEquals(
+            focusBackground.blendOver(parentBackground),
+            focusedContent.get(1).get(0).background());
     }
 
     @Test

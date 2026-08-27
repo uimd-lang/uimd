@@ -687,6 +687,38 @@ func TestOpenComboBoxConsumesMousePressAndReleaseAboveBackgroundControl(t *testi
 	}
 }
 
+func TestOpenComboBoxMouseSelectsEveryRenderedOptionRow(t *testing.T) {
+	options := []string{"Option 0", "Option 1", "Option 2", "Option 3", "Option 4", "Option 5", "Option 6", "Option 7"}
+	comboBox := NewComboBox("choice", options)
+	comboBox.SetFrame(Rect{Row: 0, Col: 0, Width: 12, Height: 1})
+	window := NewGeneratedWindowBase("Test")
+	window.AddElement(comboBox)
+	selectionChanges := 0
+	state := newRuntimeState(window, GeneratedWindowRuntimeOptions{
+		InitialFocusName: "choice",
+		OnSelectionChanged: func(string, []string) {
+			selectionChanges++
+		},
+	})
+	config := &mcpRuntimeConfig{ViewportWidth: 20, ViewportHeight: 12}
+
+	if !state.handleKey("Enter") {
+		t.Fatal("Enter did not open the ComboBox")
+	}
+	if _, err := callMcpTool(window, state, "mouse_press", map[string]any{"x": 1, "y": 7}, config); err != nil {
+		t.Fatalf("mouse_press failed: %v", err)
+	}
+	if comboBox.SelectedIndex != 6 {
+		t.Fatalf("selected ComboBox index = %d, want 6", comboBox.SelectedIndex)
+	}
+	if selectionChanges != 1 {
+		t.Fatalf("selection changes = %d, want 1", selectionChanges)
+	}
+	if state.editMode {
+		t.Fatal("ComboBox remained open after selecting a lower option")
+	}
+}
+
 func TestClosedComboBoxOpensOnMousePressAndStaysOpenOnRelease(t *testing.T) {
 	comboBox := NewComboBox("choice", []string{"First", "Second", "Third"})
 	comboBox.SetFrame(Rect{Row: 0, Col: 0, Width: 12, Height: 1})
@@ -907,6 +939,105 @@ func TestReusablePartialFocusBackgroundMatchesReferenceChildComposition(t *testi
 	}
 }
 
+func TestReusableGeneratedScrollViewFocusUnderlaysAlphaDescendantBackground(t *testing.T) {
+	parentBackground := NewColor("#303545")
+	focusBackground := NewColor("#ffffff14")
+	descendantBackground := NewColor("#252a36cc")
+	child := NewGeneratedScrollViewBase("Alpha focus scroll")
+	child.SetGeneratedFocusable(true)
+	child.SetGeneratedWindowStyle(Style{Background: parentBackground})
+	child.SetGeneratedLayout([]LayoutItem{
+		{Row: 0, Col: 0, CellRow: 0, CellCol: 0, CellCharsWidth: 1, CellCharsHeight: 3, CellName: "items", CellWidth: 1, CellHeight: 3, Width: 1, Height: 3, CharsWidth: 1, CharsHeight: 3, Content: "items"},
+	})
+	items := NewScrollView("items", 0)
+	items.SetStyle(Style{Background: parentBackground})
+	items.SetFocusStyle(Style{Background: focusBackground})
+	alphaRow := NewLabel("alpha_row", " ")
+	alphaRow.SetStyle(Style{Background: descendantBackground})
+	opaqueRow := NewLabel("opaque_row", " ")
+	opaqueRow.SetStyle(Style{Background: parentBackground})
+	items.AddChild(alphaRow)
+	items.AddChild(opaqueRow)
+	child.AddElement(items)
+
+	reusable := NewReusableElement("card", "alpha_focus_scroll")
+	reusable.SetChild(child)
+	reusable.SetStyle(Style{Background: parentBackground})
+	reusable.SetFocusStyle(Style{Background: focusBackground})
+	window := NewGeneratedWindowBase("Root")
+	window.SetGeneratedWindowStyle(Style{Background: parentBackground})
+	window.SetGeneratedLayout([]LayoutItem{
+		{Row: 0, Col: 0, CellRow: 0, CellCol: 0, CellCharsWidth: 1, CellCharsHeight: 3, CellName: "card", CellWidth: 1, CellHeight: 3, Width: 1, Height: 3, CharsWidth: 1, CharsHeight: 3, Content: "card", CellStyle: Style{Background: parentBackground}},
+	})
+	window.AddElement(reusable)
+
+	unfocusedState := newRuntimeState(window, GeneratedWindowRuntimeOptions{})
+	unfocused := RenderGeneratedRuntimeContent(unfocusedState, Size{Width: 1, Height: 3})
+	focusedState := newRuntimeState(window, GeneratedWindowRuntimeOptions{InitialFocusName: "card"})
+	focused := RenderGeneratedRuntimeContent(focusedState, Size{Width: 1, Height: 3})
+	expectedUnfocused := descendantBackground.BlendOver(parentBackground)
+	expectedFocused := descendantBackground.BlendOver(focusBackground.BlendOver(parentBackground))
+	if got := unfocused.Cell(0, 0).Background.String(); got != expectedUnfocused.String() {
+		t.Fatalf("unfocused alpha descendant background = %q, want %q", got, expectedUnfocused.String())
+	}
+	if got := focused.Cell(0, 0).Background.String(); got != expectedFocused.String() {
+		t.Fatalf("focused alpha descendant background = %q, want %q", got, expectedFocused.String())
+	}
+	expectedDirectFocus := focusBackground.BlendOver(parentBackground)
+	if got := focused.Cell(1, 0).Background.String(); got != expectedDirectFocus.String() {
+		t.Fatalf("focused opaque structural descendant background = %q, want %q", got, expectedDirectFocus.String())
+	}
+	if got := focused.Cell(2, 0).Background.String(); got != expectedDirectFocus.String() {
+		t.Fatalf("focused structural gap background = %q, want %q", got, expectedDirectFocus.String())
+	}
+
+	partialChildFocus := NewColor("#00ff0014")
+	items.SetFocusStyle(Style{Background: partialChildFocus})
+	focused = RenderGeneratedRuntimeContent(focusedState, Size{Width: 1, Height: 3})
+	expectedStackedFocus := partialChildFocus.BlendOver(focusBackground.BlendOver(parentBackground))
+	if got := focused.Cell(1, 0).Background.String(); got != expectedStackedFocus.String() {
+		t.Fatalf("partial child scroll focus background = %q, want %q", got, expectedStackedFocus.String())
+	}
+
+	// A generated panel may repaint the same structural background before the
+	// root ScrollView focus pass. That structural-equivalent surface must still
+	// participate in the rendered and interactive focus geometry.
+	child.SetGeneratedLayout([]LayoutItem{
+		{Row: 0, Col: 0, CellRow: 0, CellCol: 0, CellCharsWidth: 1, CellCharsHeight: 3, CellName: "items", CellWidth: 1, CellHeight: 3, Width: 1, Height: 3, CharsWidth: 1, CharsHeight: 3, Content: "items", CellStyle: Style{Background: parentBackground}},
+	})
+	opaqueChildFocus := NewColor("#1e3a5f")
+	items.SetFocusStyle(Style{Background: opaqueChildFocus})
+	focused = RenderGeneratedRuntimeContent(focusedState, Size{Width: 1, Height: 3})
+	if got := focused.Cell(1, 0).Background.String(); got != opaqueChildFocus.String() {
+		t.Fatalf("opaque child scroll focus background = %q, want %q", got, opaqueChildFocus.String())
+	}
+	if got := focused.Cell(2, 0).Background.String(); got != opaqueChildFocus.String() {
+		t.Fatalf("opaque child scroll focus gap = %q, want %q", got, opaqueChildFocus.String())
+	}
+
+	// Transparent generated child content must inherit the focused ScrollView
+	// surface. Replacing a ScrollView row outright would discard this underlay
+	// and reproduce the MarkdownViewer edit-state mismatch.
+	transparentChild := NewGeneratedWindowBase("Transparent child")
+	transparentChild.SetGeneratedWindowStyle(Style{Background: NewColor("#00000000")})
+	transparentChild.SetGeneratedLayout([]LayoutItem{
+		{Row: 0, Col: 0, CellRow: 0, CellCol: 0, CellCharsWidth: 1, CellCharsHeight: 1, CellName: "text", CellWidth: 1, CellHeight: 1, Width: 1, Height: 1, CharsWidth: 1, CharsHeight: 1, Content: "text", CellStyle: Style{Background: NewColor("#00000000")}},
+	})
+	transparentText := NewLabel("text", " ")
+	transparentText.SetStyle(Style{Background: NewColor("#00000000")})
+	transparentChild.AddElement(transparentText)
+	transparentRow := NewReusableElement("transparent_row", "transparent_child")
+	transparentRow.SetChild(transparentChild)
+	transparentRow.SetStyle(Style{Background: NewColor("#00000000")})
+	items.ClearChildren()
+	items.AddChild(transparentRow)
+	items.SetFocusStyle(Style{Background: focusBackground})
+	focused = RenderGeneratedRuntimeContent(focusedState, Size{Width: 1, Height: 3})
+	if got := focused.Cell(0, 0).Background.String(); got != expectedDirectFocus.String() {
+		t.Fatalf("transparent generated child focused surface = %q, want %q", got, expectedDirectFocus.String())
+	}
+}
+
 func TestSameRenderedColorIncludesAlpha(t *testing.T) {
 	if sameRenderedColor(NewColor("#ffffff14"), NewColor("#ffffff18")) {
 		t.Fatal("rendered colors with different alpha channels compared equal")
@@ -1083,6 +1214,54 @@ func TestTextAreaMousePlacementUsesWrappedVisualRows(t *testing.T) {
 
 	if cursor := textInputCursorAtPoint(&area.TextInput, Point{Row: 1, Col: 1}, frame); cursor != 4 {
 		t.Fatalf("cursor on second wrapped row = %d, want 4", cursor)
+	}
+}
+
+func TestTextInputAlignmentUsesOneRenderAndMouseOffset(t *testing.T) {
+	input := NewTextInput("field", "abc", 10)
+	input.SetStyle(Style{TextAlign: "right"})
+	input.SetCursorStyle(Style{Background: NewColor("#facc15")})
+	input.SetFrame(Rect{Width: 6, Height: 1})
+
+	rendered := input.Render(Size{Width: 6, Height: 1}, ElementRenderState{})
+	text := ""
+	for _, cell := range rendered[0] {
+		text += cell.Text
+	}
+	if text != "   abc" {
+		t.Fatalf("right-aligned text = %q, want %q", text, "   abc")
+	}
+
+	input.SetCursor(1)
+	rendered = input.Render(Size{Width: 6, Height: 1}, ElementRenderState{EditMode: true})
+	if background := rendered[0][4].Background.String(); background != "#facc15" {
+		t.Fatalf("cursor background at aligned column = %q, want #facc15", background)
+	}
+
+	input.SetSelection(0, 2)
+	rendered = input.Render(Size{Width: 6, Height: 1}, ElementRenderState{EditMode: true})
+	if rendered[0][3].Background.String() != "#facc15" || rendered[0][4].Background.String() != "#facc15" {
+		t.Fatal("selection did not use the text alignment offset")
+	}
+	if rendered[0][5].Background.String() == "#facc15" {
+		t.Fatal("selection extended past its source range")
+	}
+	if cursor := textInputCursorAtPoint(input, Point{Row: 0, Col: 0}, input.ElementFrame()); cursor != 0 {
+		t.Fatalf("cursor in leading padding = %d, want 0", cursor)
+	}
+	if cursor := textInputCursorAtPoint(input, Point{Row: 0, Col: 4}, input.ElementFrame()); cursor != 1 {
+		t.Fatalf("cursor over aligned text = %d, want 1", cursor)
+	}
+
+	input.SetValue("abcdefgh")
+	input.SetCursor(8)
+	rendered = input.Render(Size{Width: 6, Height: 1}, ElementRenderState{EditMode: true})
+	text = ""
+	for _, cell := range rendered[0] {
+		text += cell.Text
+	}
+	if text != "defgh " {
+		t.Fatalf("overflowing right-aligned text = %q, want %q", text, "defgh ")
 	}
 }
 

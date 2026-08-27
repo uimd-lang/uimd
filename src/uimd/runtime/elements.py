@@ -466,13 +466,8 @@ def _raw_index_for_visual_col(row, col):
 
 def _align_visual_cells(cells, width, align):
     cells = _slice_visual_cells(cells, width)
+    left = _aligned_text_offset(len(cells), width, align)
     padding = max(0, int(width) - len(cells))
-    if align == "center":
-        left = padding // 2
-    elif align == "right":
-        left = padding
-    else:
-        left = 0
     right = padding - left
     return (
         [_VisualTextCell(" ") for _ in range(left)]
@@ -485,6 +480,15 @@ def _align_text(text, width, align):
     """Pad/align text to width: left, center, or right."""
     cells = _align_visual_cells(_visual_cells_for_segment(str(text or "")), width, align)
     return _visual_cells_text(cells)
+
+
+def _aligned_text_offset(text_width, width, align):
+    padding = max(0, int(width) - int(text_width))
+    if align == "center":
+        return padding // 2
+    if align == "right":
+        return padding
+    return 0
 
 
 def _build_visual_rows(text, w):
@@ -576,11 +580,7 @@ class Label(UIElement):
     @staticmethod
     def _aligned_text_offset(text, width, align):
         text_width = int(text) if isinstance(text, int) else _visual_width(text)
-        if align == "center":
-            return max(0, (width - text_width) // 2)
-        if align == "right":
-            return max(0, width - text_width)
-        return 0
+        return _aligned_text_offset(text_width, width, align)
 
     def _selection_bounds(self):
         if self._selection_start is None or self._selection_end is None:
@@ -1444,6 +1444,15 @@ class TextInput(UIElement):
         rstart, rtext = row
         return rstart + min(col, len(rtext))
 
+    def _single_line_alignment_offset(self, content_width, width):
+        if self.MULTILINE or int(getattr(self, "_scroll_offset", 0)) != 0:
+            return 0
+        if int(content_width) > int(width):
+            return 0
+        style = self.get_style()
+        align = style.text_align if style and style.text_align else "left"
+        return _aligned_text_offset(content_width, width, align)
+
     def cursor_position_from_point(self, rel_row, rel_col):
         width = max(1, int(self.width or len(self._value) + 1))
         rel_row = max(0, int(rel_row))
@@ -1459,9 +1468,17 @@ class TextInput(UIElement):
             return min(len(self._value), rstart + min(rel_col, len(rtext)))
         if _text_needs_visual_mapping(self._value):
             row = _VisualTextRow(0, len(self._value), _visual_cells_for_segment(self._value))
-            visible = _VisualTextRow(row.start, row.end, row.cells[int(getattr(self, "_scroll_offset", 0)):])
-            return min(len(self._value), _raw_index_for_visual_col(visible, rel_col))
-        return min(len(self._value), int(getattr(self, "_scroll_offset", 0)) + rel_col)
+            scroll = int(getattr(self, "_scroll_offset", 0))
+            align_offset = self._single_line_alignment_offset(len(row.cells), width)
+            visible = _VisualTextRow(row.start, row.end, row.cells[scroll:])
+            return min(len(self._value), _raw_index_for_visual_col(
+                visible, max(0, rel_col - align_offset),
+            ))
+        align_offset = self._single_line_alignment_offset(len(self._value), width)
+        return min(
+            len(self._value),
+            int(getattr(self, "_scroll_offset", 0)) + max(0, rel_col - align_offset),
+        )
 
     def copy_selection(self):
         if self._selected_text():
@@ -1535,7 +1552,11 @@ class TextInput(UIElement):
                 elif cursor_col >= self._scroll_offset + width:
                     self._scroll_offset = max(0, cursor_col - width + 1)
             scroll = int(self._scroll_offset)
-            visible_cells = row.cells[scroll:scroll + width]
+            align_offset = self._single_line_alignment_offset(total_width, width)
+            visible_cells = (
+                [_VisualTextCell(" ") for _ in range(align_offset)]
+                + row.cells[scroll:scroll + width - align_offset]
+            )
             visible_row = _VisualTextRow(row.start, row.end, visible_cells)
             indicator = None
             if not self._edit_mode and total_width > scroll + width and width > 0:
@@ -1543,7 +1564,7 @@ class TextInput(UIElement):
             cur_col = None
             sel_lo = sel_hi = None
             if self._edit_mode:
-                cur_col = max(0, min(width - 1, cursor_col - scroll))
+                cur_col = max(0, min(width - 1, align_offset + cursor_col - scroll))
                 has_sel = self._selection_start is not None and self._selection_start != self.cursor_pos
                 if has_sel:
                     sel_lo = min(self._selection_start, self.cursor_pos)
@@ -1629,21 +1650,23 @@ class TextInput(UIElement):
                     self._scroll_offset = max(0, self.cursor_pos - w + 1)
 
             visible = display_value[self._scroll_offset:self._scroll_offset + w]
+            align_offset = self._single_line_alignment_offset(len(display_value), w)
 
             if not self._edit_mode:
                 if len(display_value) > self._scroll_offset + w and w > 0:
                     visible = visible[:max(0, w - 1)] + ">"
-                lines.append(_styled_cells(visible.ljust(w), fg, bg, parent_bg, parent_fg=self._get_cell_color()))
+                text = (" " * align_offset + visible).ljust(w)[:w]
+                lines.append(_styled_cells(text, fg, bg, parent_bg, parent_fg=self._get_cell_color()))
             else:
-                cur_vis = max(0, min(self.cursor_pos - self._scroll_offset, w - 1))
+                cur_vis = max(0, min(align_offset + self.cursor_pos - self._scroll_offset, w - 1))
                 has_sel = self._selection_start is not None and self._selection_start != self.cursor_pos
                 sel_a = sel_b = None
                 if has_sel:
-                    raw_a = min(self._selection_start, self.cursor_pos) - self._scroll_offset
-                    raw_b = max(self._selection_start, self.cursor_pos) - self._scroll_offset
+                    raw_a = align_offset + min(self._selection_start, self.cursor_pos) - self._scroll_offset
+                    raw_b = align_offset + max(self._selection_start, self.cursor_pos) - self._scroll_offset
                     sel_a = max(0, raw_a)
                     sel_b = min(w, raw_b)
-                text = visible.ljust(w)[:w]
+                text = (" " * align_offset + visible).ljust(w)[:w]
                 lines.append(self._render_edit_line_cells(text, w, cur_vis, sel_a, sel_b,
                                                           fg, bg, cur_fg, cur_bg, parent_bg))
         else:
@@ -2774,6 +2797,11 @@ class UIElementReusable(UIElement):
         if child is None:
             return None
 
+        # The wrapper surface is the generated child's structural parent.
+        # Apply it before layout/open so descendant cell backgrounds are
+        # resolved against the same parent that will be used for rendering.
+        self._apply_style_to_child(child)
+
         width = self.width
         height = self.height
         if width is not None and height is not None:
@@ -2782,8 +2810,11 @@ class UIElementReusable(UIElement):
         if open_child and not self._child_opened:
             child.open()
             self._child_opened = True
-
-        self._apply_style_to_child(child)
+            # Older generated children may restore their original window
+            # style while opening.  The reusable wrapper remains the
+            # structural owner, so reapply its compatible root style after
+            # open without removing the pre-open layout propagation above.
+            self._apply_style_to_child(child)
         return child
 
     def _apply_style_to_child(self, child):
@@ -2854,6 +2885,16 @@ class UIElementReusable(UIElement):
         fill_bg = None
         state_style = self.edit_style if self._edit_mode and self.edit_style is not None else self.focus_style
         state_background = getattr(state_style, "background", None) if state_style is not None else None
+        direct_scrollview_focus_background = (
+            state_background
+            if (
+                scrollview_child
+                and self._focused
+                and state_background is not None
+                and getattr(state_background, "alpha", 1.0) < 1.0
+            )
+            else None
+        )
         if (
             child is not None
             and hasattr(child, "child_view_entries")
@@ -2902,7 +2943,32 @@ class UIElementReusable(UIElement):
                 if render_clip is not None:
                     child._render_cell_clip = previous_clip
 
-        if child is not None and hasattr(child, "style") and apply_state and state_style is not None:
+        if (
+            child is not None
+            and hasattr(child, "style")
+            and direct_scrollview_focus_background is not None
+        ):
+            from .UIBase import UIBase
+
+            previous_style = child.style
+            focused_style = child.style.copy()
+            structural_background = focused_style.background or self._get_cell_background()
+            focused_style.background = UIBase._blend_color_over(
+                direct_scrollview_focus_background,
+                structural_background,
+            )
+            child.style = focused_style
+            try:
+                if getattr(child, "_layout", None):
+                    child._resolve_layout_geometry()
+                rendered = render_child_cells()
+                fill_fg = getattr(child.style, "color", None)
+                fill_bg = getattr(child.style, "background", None)
+            finally:
+                child.style = previous_style
+                if getattr(child, "_layout", None):
+                    child._resolve_layout_geometry()
+        elif child is not None and hasattr(child, "style") and apply_state and state_style is not None:
             previous_style = child.style
             focused_style = child.style.copy()
             original_bg = focused_style.background

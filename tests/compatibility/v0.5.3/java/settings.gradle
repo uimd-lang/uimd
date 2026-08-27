@@ -1,0 +1,11 @@
+rootProject.name = "compatibility"
+
+def installedRuntime = System.getenv("UIMD_SDK_JAVA_TARGET")
+def localRuntime = file("../../../../java")
+def runtimeRoot = installedRuntime ? file(installedRuntime) : localRuntime
+if (!new File(runtimeRoot, "settings.gradle").isFile())
+{
+    throw new GradleException("UIMD Java runtime was not found. Set UIMD_SDK_JAVA_TARGET or keep the source runtime available.")
+}
+gradle.ext.uimdRuntimeRoot = runtimeRoot.canonicalFile
+includeBuild(runtimeRoot)

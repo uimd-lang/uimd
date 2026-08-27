@@ -238,12 +238,10 @@ public class Label : Element
                 glyphs.Count == 0 ? 0 : glyphs[0].SourceStart,
                 glyphs.Count == 0 ? 0 : glyphs[^1].SourceEnd,
                 glyphs);
-            int offset = style.TextAlign switch
-            {
-                "center" => Math.Max(0, (width - RenderHelpers.VisualWidthForLabelRow(visible)) / 2),
-                "right" => Math.Max(0, width - RenderHelpers.VisualWidthForLabelRow(visible)),
-                _ => 0,
-            };
+            int offset = RenderHelpers.AlignedTextOffset(
+                RenderHelpers.VisualWidthForLabelRow(visible),
+                width,
+                style.TextAlign);
             int raw = RenderHelpers.RawIndexForLabelVisualColumn(visible, localCol - offset);
             return Math.Clamp(raw, 0, textLength);
         }
@@ -258,12 +256,10 @@ public class Label : Element
             return textLength;
         }
         RenderHelpers.LabelVisualRow row = rows[localRow];
-        int rowOffset = style.TextAlign switch
-        {
-            "center" => Math.Max(0, (width - RenderHelpers.VisualWidthForLabelRow(row)) / 2),
-            "right" => Math.Max(0, width - RenderHelpers.VisualWidthForLabelRow(row)),
-            _ => 0,
-        };
+        int rowOffset = RenderHelpers.AlignedTextOffset(
+            RenderHelpers.VisualWidthForLabelRow(row),
+            width,
+            style.TextAlign);
         int rowRaw = RenderHelpers.RawIndexForLabelVisualColumn(row, localCol - rowOffset);
         return Math.Min(textLength, rowRaw);
     }
@@ -2715,12 +2711,24 @@ public class TextInput : Element
 
     public int CursorForPoint(int row, int col, Size size)
     {
+        return CursorForPoint(row, col, size, new ElementRenderState());
+    }
+
+    public int CursorForPoint(int row, int col, Size size, ElementRenderState state)
+    {
         int width = SafeWidth(size, Value);
         if (!Multiline)
         {
             RenderHelpers.LabelVisualRow inputVisualRow = MakeVisualTextRow(0, RenderHelpers.VisualGlyphs(Value, 0, 0));
+            int textWidth = inputVisualRow.Cells.Count;
+            int alignmentOffset = colScrollOffset == 0 && textWidth <= width
+                ? RenderHelpers.AlignedTextOffset(
+                    textWidth,
+                    width,
+                    EffectiveStyle(state.Focused, state.EditMode).TextAlign)
+                : 0;
             return Math.Clamp(
-                RawIndexForVisualColumn(inputVisualRow, colScrollOffset + col),
+                RawIndexForVisualColumn(inputVisualRow, colScrollOffset + Math.Max(0, col - alignmentOffset)),
                 0,
                 Value.Length);
         }
@@ -3045,13 +3053,17 @@ public class TextInput : Element
                 }
             }
 
+            int alignmentOffset = colScrollOffset == 0 && textWidth <= width
+                ? RenderHelpers.AlignedTextOffset(textWidth, width, style.TextAlign)
+                : 0;
+
             List<RenderHelpers.VisualGlyph> visibleCells = new();
             if (colScrollOffset < textWidth)
             {
                 int end = Math.Min(textWidth, colScrollOffset + width);
                 visibleCells = inputVisualRow.Cells.GetRange(colScrollOffset, end - colScrollOffset);
             }
-            List<TerminalCell> renderedRow = GlyphRow(visibleCells, width, style);
+            List<TerminalCell> renderedRow = GlyphRow(visibleCells, width, style, alignmentOffset);
             if (!state.EditMode && width > 0 && textWidth > colScrollOffset + width)
             {
                 renderedRow[width - 1].Text = ">";
@@ -3063,7 +3075,10 @@ public class TextInput : Element
                 int singleSelectionHigh = SelectionHigh();
                 for (int col = 0; col < width; ++col)
                 {
-                    int source = col < visibleCells.Count ? visibleCells[col].SourceStart : -1;
+                    int visibleIndex = col - alignmentOffset;
+                    int source = visibleIndex >= 0 && visibleIndex < visibleCells.Count
+                        ? visibleCells[visibleIndex].SourceStart
+                        : -1;
                     if (source >= singleSelectionLow && source < singleSelectionHigh)
                     {
                         single[0][col].Foreground = cursorStyle.Color;
@@ -3073,7 +3088,10 @@ public class TextInput : Element
             }
             else if (state.EditMode)
             {
-                int visibleCol = Math.Clamp(cursorVisualCol - colScrollOffset, 0, width - 1);
+                int visibleCol = Math.Clamp(
+                    alignmentOffset + cursorVisualCol - colScrollOffset,
+                    0,
+                    width - 1);
                 single[0][visibleCol].Foreground = cursorStyle.Color;
                 single[0][visibleCol].Background = cursorStyle.Background;
             }
@@ -3242,10 +3260,15 @@ public class TextInput : Element
     private static List<TerminalCell> GlyphRow(
         List<RenderHelpers.VisualGlyph> glyphs,
         int width,
-        Style style)
+        Style style,
+        int alignmentOffset = 0)
     {
         List<TerminalCell> row = new(width);
-        for (int index = 0; index < Math.Min(width, glyphs.Count); ++index)
+        for (int col = 0; col < alignmentOffset && col < width; ++col)
+        {
+            row.Add(StyledCell(" ", style));
+        }
+        for (int index = 0; index < glyphs.Count && row.Count < width; ++index)
         {
             row.Add(StyledCell(glyphs[index].Text, style));
         }

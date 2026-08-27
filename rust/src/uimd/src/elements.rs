@@ -1526,11 +1526,17 @@ impl TextInputState
         self.selection_anchor = None;
     }
 
-    fn cursor_for_point(&self, local_row: i32, local_col: i32, size: crate::Size) -> usize
+    fn cursor_for_point_with_alignment(
+        &self,
+        local_row: i32,
+        local_col: i32,
+        size: crate::Size,
+        alignment_offset: usize,
+    ) -> usize
     {
         let length = self.value.len();
         let width = max(1, size.width) as usize;
-        let column = local_col.max(0) as usize;
+        let column = (local_col.max(0) as usize).saturating_sub(alignment_offset);
         if !self.multiline
         {
             let row = single_visual_text_row(&self.value);
@@ -3387,6 +3393,20 @@ impl Element
 
     pub fn cursor_for_point(&self, local_row: i32, local_col: i32) -> usize
     {
+        self.cursor_for_point_with_state(
+            local_row,
+            local_col,
+            ElementRenderState::default(),
+        )
+    }
+
+    pub fn cursor_for_point_with_state(
+        &self,
+        local_row: i32,
+        local_col: i32,
+        render_state: ElementRenderState,
+    ) -> usize
+    {
         let width = max(1, self.frame.width) as usize;
         if matches!(
             self.kind(),
@@ -3399,10 +3419,11 @@ impl Element
             {
                 let segment = text.split_once('\n').map_or(text, |(first, _)| first);
                 let row = single_visual_text_row(segment);
+                let style = self.effective_style(render_state);
                 let offset = aligned_col(
                     width as i32,
                     row.cells.len() as i32,
-                    self.style.text_align.as_deref().unwrap_or_default(),
+                    style.text_align.as_deref().unwrap_or_default(),
                 );
                 let visual_col = max(0, local_col - offset) as usize;
                 return raw_index_for_visual_column(&row, visual_col).min(length);
@@ -3416,17 +3437,39 @@ impl Element
             {
                 return length;
             };
+            let style = self.effective_style(render_state);
             let offset = aligned_col(
                 width as i32,
                 row.cells.len() as i32,
-                self.style.text_align.as_deref().unwrap_or_default(),
+                style.text_align.as_deref().unwrap_or_default(),
             );
             let visual_col = max(0, local_col - offset) as usize;
             return raw_index_for_visual_column(row, visual_col).min(length);
         }
         if let Some(state) = self.text_input()
         {
-            return state.cursor_for_point(
+            let alignment_offset = if !state.multiline && state.col_scroll_offset.get() == 0
+            {
+                let row = single_visual_text_row(&state.value);
+                if row.cells.len() <= width
+                {
+                    let style = self.effective_style(render_state);
+                    aligned_col(
+                        width as i32,
+                        row.cells.len() as i32,
+                        style.text_align.as_deref().unwrap_or_default(),
+                    ) as usize
+                }
+                else
+                {
+                    0
+                }
+            }
+            else
+            {
+                0
+            };
+            return state.cursor_for_point_with_alignment(
                 local_row,
                 local_col,
                 crate::Size
@@ -3434,6 +3477,7 @@ impl Element
                     width: self.frame.width,
                     height: self.frame.height,
                 },
+                alignment_offset,
             );
         }
         0
@@ -5976,9 +6020,22 @@ fn render_text_input(buffer: &mut TerminalBuffer, element: &Element, style: &Sty
         }
     }
     state.col_scroll_offset.set(offset as i32);
+    let alignment_offset = if offset == 0 && text_width <= visible_width
+    {
+        aligned_col(
+            visible_width as i32,
+            text_width as i32,
+            style.text_align.as_deref().unwrap_or_default(),
+        ) as usize
+    }
+    else
+    {
+        0
+    };
+    let available_width = visible_width.saturating_sub(alignment_offset);
     let visible_cells = if offset < text_width
     {
-        &row.cells[offset..min(text_width, offset + visible_width)]
+        &row.cells[offset..min(text_width, offset + available_width)]
     }
     else
     {
@@ -5988,7 +6045,7 @@ fn render_text_input(buffer: &mut TerminalBuffer, element: &Element, style: &Sty
     {
         buffer.draw_text(
             0,
-            column as i32,
+            (alignment_offset + column) as i32,
             &cell.ch.to_string(),
             &foreground,
             &background,
@@ -6025,7 +6082,7 @@ fn render_text_input(buffer: &mut TerminalBuffer, element: &Element, style: &Sty
             }
             buffer.draw_text(
                 0,
-                column as i32,
+                (alignment_offset + column) as i32,
                 &cell.ch.to_string(),
                 &selected_foreground,
                 &selected_background,
@@ -6035,15 +6092,19 @@ fn render_text_input(buffer: &mut TerminalBuffer, element: &Element, style: &Sty
     }
     else if edit_mode
     {
-        let cursor_col = min(
+        let source_cursor_col = min(
             cursor_column.saturating_sub(offset),
+            visible_width.saturating_sub(1),
+        );
+        let cursor_col = min(
+            alignment_offset + source_cursor_col,
             visible_width.saturating_sub(1),
         );
         let mut cursor_style = style.clone();
         merge_optional_element_state_style(&mut cursor_style, &element.cursor_style);
         let (cursor_foreground, cursor_background) = style_colors(&cursor_style);
         let cursor_char = visible_cells
-            .get(cursor_col)
+            .get(source_cursor_col)
             .map_or(' ', |cell| cell.ch);
         buffer.draw_text(
             0,
@@ -7061,6 +7122,68 @@ mod tests
             assert_eq!(rendered.height, 1);
         }
         assert!(button.borrow().render(12, 5, false, false).plain_text().contains("Show"));
+    }
+
+    #[test]
+    fn text_input_alignment_uses_one_render_and_mouse_offset()
+    {
+        let input = new_text_input("field", "abc", 10);
+        {
+            let mut value = input.borrow_mut();
+            value.frame = Rect { row: 0, col: 0, width: 6, height: 1 };
+            value.style.text_align = Some("right".to_string());
+            value.set_cursor_style(Style
+            {
+                background: Some(Color::new("#facc15")),
+                ..Style::default()
+            });
+        }
+
+        let rendered = input.borrow().render(6, 1, false, false);
+        let rendered_text = (0..6)
+            .filter_map(|column| rendered.cell(0, column))
+            .map(|cell| cell.text.as_str())
+            .collect::<String>();
+        assert_eq!(rendered_text, "   abc");
+
+        input.set_cursor(1);
+        let rendered = input.borrow().render(6, 1, true, true);
+        assert_eq!(
+            rendered.cell(0, 4).map(|cell| cell.background.normalized()),
+            Some("#facc15".to_string()),
+        );
+
+        input.select_range(0, 2);
+        let rendered = input.borrow().render(6, 1, true, true);
+        assert_eq!(
+            rendered.cell(0, 3).map(|cell| cell.background.normalized()),
+            Some("#facc15".to_string()),
+        );
+        assert_eq!(
+            rendered.cell(0, 4).map(|cell| cell.background.normalized()),
+            Some("#facc15".to_string()),
+        );
+        assert_ne!(
+            rendered.cell(0, 5).map(|cell| cell.background.normalized()),
+            Some("#facc15".to_string()),
+        );
+        assert_eq!(
+            input.cursor_for_point(0, 0, crate::Size { width: 6, height: 1 }),
+            0,
+        );
+        assert_eq!(
+            input.cursor_for_point(0, 4, crate::Size { width: 6, height: 1 }),
+            1,
+        );
+
+        input.set_value("abcdefgh");
+        input.set_cursor(8);
+        let rendered = input.borrow().render(6, 1, true, true);
+        let rendered_text = (0..6)
+            .filter_map(|column| rendered.cell(0, column))
+            .map(|cell| cell.text.as_str())
+            .collect::<String>();
+        assert_eq!(rendered_text, "defgh ");
     }
 
     #[test]

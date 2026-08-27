@@ -53,11 +53,14 @@ constexpr int kStaleScopeProxyWidth = 8;
 constexpr int kStaleScopeProxyHeight = 3;
 constexpr int kStaleScopeTabWidth = 6;
 constexpr int kReusableFocusCellSize = 1;
+constexpr int kAlphaFocusScrollSize = 3;
 constexpr int kScopedConfirmWidth = 12;
 constexpr int kScopedConfirmHeight = 3;
 
 const ui::Color kReusableFocusParentBackground{"#172033"};
 const ui::Color kReusableFocusBackground{"#ffffff14"};
+const ui::Color kAlphaScrollParentBackground{"#303545"};
+const ui::Color kAlphaScrollDescendantBackground{"#252a36cc"};
 
 [[nodiscard]] ui::GeneratedLayoutEntry fixedEntry(std::string name, std::string type, ui::Rect rect)
 {
@@ -229,6 +232,81 @@ public:
     ui::ReusableElement* card = nullptr;
 };
 
+class AlphaFocusScrollWindow : public ui::GeneratedScrollViewBase
+{
+public:
+    AlphaFocusScrollWindow()
+        : ui::GeneratedScrollViewBase("AlphaFocusScrollWindow")
+    {
+        ui::Style windowStyle;
+        windowStyle.background = kAlphaScrollParentBackground;
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+        setGeneratedFocusable(true);
+
+        items = &addElement<ui::ScrollView>("items");
+        ui::Style itemsStyle;
+        itemsStyle.background = kAlphaScrollParentBackground;
+        items->setStyle(itemsStyle);
+        ui::Style itemsFocusStyle;
+        itemsFocusStyle.background = kReusableFocusBackground;
+        items->setFocusStyle(itemsFocusStyle);
+        setGeneratedScrollView(*items);
+
+        row = &items->addChild<ui::Label>("row", " ");
+        ui::Style rowStyle;
+        rowStyle.background = kAlphaScrollDescendantBackground;
+        row->setStyle(rowStyle);
+
+        opaqueRow = &items->addChild<ui::Label>("opaque_row", " ");
+        ui::Style opaqueRowStyle;
+        opaqueRowStyle.background = kAlphaScrollParentBackground;
+        opaqueRow->setStyle(opaqueRowStyle);
+
+        setGeneratedLayout({
+            fixedEntry(
+                "items",
+                "scrollview",
+                ui::Rect{0, 0, kAlphaFocusScrollSize, kAlphaFocusScrollSize}),
+        });
+    }
+
+    ui::ScrollView* items = nullptr;
+    ui::Label* row = nullptr;
+    ui::Label* opaqueRow = nullptr;
+};
+
+class AlphaFocusScrollHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    AlphaFocusScrollHostWindow()
+        : ui::GeneratedWindowBase("AlphaFocusScrollHostWindow")
+    {
+        ui::Style windowStyle;
+        windowStyle.background = kAlphaScrollParentBackground;
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+
+        card = &addElement<ui::ReusableElement>(
+            "card",
+            std::make_unique<AlphaFocusScrollWindow>());
+        ui::Style focusStyle;
+        focusStyle.background = kReusableFocusBackground;
+        card->setFocusStyle(focusStyle);
+
+        ui::GeneratedLayoutEntry entry = fixedEntry(
+            "card",
+            "uielement",
+            ui::Rect{0, 0, kAlphaFocusScrollSize, kAlphaFocusScrollSize});
+        entry.cellStyle.background = kAlphaScrollParentBackground;
+        setGeneratedLayout({std::move(entry)});
+    }
+
+    ui::ReusableElement* card = nullptr;
+};
+
 class ScopedReusableFocusHostWindow : public ui::GeneratedWindowBase
 {
 public:
@@ -323,6 +401,91 @@ public:
     ui::TextInput* filter = nullptr;
     ui::Button* trailing = nullptr;
 };
+
+class ComboBoxMouseHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    ComboBoxMouseHostWindow()
+        : ui::GeneratedWindowBase("ComboBoxMouseHostWindow")
+    {
+        ui::Style windowStyle;
+        windowStyle.borderWidthHorizontal = 0;
+        windowStyle.borderWidthVertical = 0;
+        setGeneratedWindowStyle(windowStyle);
+        choice = &addElement<ui::ComboBox>(
+            "choice",
+            std::vector<std::string>{
+                "Option 0",
+                "Option 1",
+                "Option 2",
+                "Option 3",
+                "Option 4",
+                "Option 5",
+                "Option 6",
+                "Option 7",
+            });
+        ui::GeneratedLayoutEntry entry = fixedEntry(
+            "choice",
+            "combobox",
+            ui::Rect{0, 0, kScopedConfirmWidth, 1});
+        entry.cellWidth = ui::AxisDimension::expanded();
+        entry.cellHeight = ui::AxisDimension::expanded();
+        setGeneratedLayout({std::move(entry)});
+    }
+
+    ui::ComboBox* choice = nullptr;
+};
+
+struct ComboBoxMouseMcpResult
+{
+    int selectedIndex = -1;
+    int selectionChangedCount = 0;
+};
+
+[[nodiscard]] ComboBoxMouseMcpResult runComboBoxMouseMcpCase()
+{
+    ComboBoxMouseMcpResult result;
+    ComboBoxMouseHostWindow window;
+    ui::GeneratedWindowRuntimeOptions options;
+    options.initialFocusName = "choice";
+    options.onSelectionChanged = [&](std::string_view name, std::vector<std::string>)
+    {
+        if (name == "choice")
+        {
+            ++result.selectionChangedCount;
+        }
+    };
+
+    std::istringstream requests{
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"mouse_press\",\"params\":{\"x\":1,\"y\":7}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"press_key\",\"params\":{\"key\":\"Down\"}}\n"};
+    std::ostringstream responses;
+    std::streambuf* previousInput = std::cin.rdbuf(requests.rdbuf());
+    std::streambuf* previousOutput = std::cout.rdbuf(responses.rdbuf());
+    std::cin.clear();
+    std::cout.clear();
+
+    char executable[] = "ui_cpp_tests";
+    char mcpServer[] = "--mcp-server";
+    char headless[] = "--headless";
+    char fast[] = "--mcp-fast";
+    char viewport[] = "--viewport";
+    char viewportValue[] = "0,0,12,12";
+    char* arguments[] = {executable, mcpServer, headless, fast, viewport, viewportValue};
+    const int exitCode = ui::runGeneratedWindow(window, std::move(options), 6, arguments);
+
+    std::cin.rdbuf(previousInput);
+    std::cout.rdbuf(previousOutput);
+    std::cin.clear();
+    std::cout.clear();
+    if (exitCode != 0 || responses.str().empty())
+    {
+        return result;
+    }
+    result.selectedIndex = window.choice->selectedIndex();
+    return result;
+}
 
 struct ScopedConfirmMcpResult
 {
@@ -455,6 +618,19 @@ struct ScopedConfirmMcpResult
     assert(!rendered.front().empty());
     assert(rendered.front().front().background.has_value());
     return *rendered.front().front().background;
+}
+
+[[nodiscard]] ui::Color renderedAlphaScrollBackground(int focusedIndex, int row)
+{
+    AlphaFocusScrollHostWindow window;
+    const ui::RenderedContent rendered = ui::renderGeneratedWindowContent(
+        window,
+        ui::Size{kAlphaFocusScrollSize, kAlphaFocusScrollSize},
+        focusedIndex);
+    assert(row >= 0 && row < static_cast<int>(rendered.size()));
+    assert(!rendered[static_cast<std::size_t>(row)].empty());
+    assert(rendered[static_cast<std::size_t>(row)].front().background.has_value());
+    return *rendered[static_cast<std::size_t>(row)].front().background;
 }
 
 [[nodiscard]] int scopedReusableMcpActivationCount()
@@ -900,9 +1076,46 @@ int main() {
     {
         return failCheck("active ScrollView omitted its direct reusable focus target");
     }
+    const ui::Color alphaScrollUnfocused =
+        kAlphaScrollDescendantBackground.blendOver(kAlphaScrollParentBackground);
+    const ui::Color alphaScrollFocused = kAlphaScrollDescendantBackground.blendOver(
+        kReusableFocusBackground.blendOver(kAlphaScrollParentBackground));
+    const ui::Color alphaScrollOpaqueFocused =
+        kReusableFocusBackground.blendOver(kAlphaScrollParentBackground);
+    const ui::Color renderedAlphaScrollUnfocused = renderedAlphaScrollBackground(-1, 0);
+    const ui::Color renderedAlphaScrollFocused = renderedAlphaScrollBackground(0, 0);
+    const ui::Color renderedAlphaScrollOpaqueUnfocused = renderedAlphaScrollBackground(-1, 1);
+    const ui::Color renderedAlphaScrollOpaqueFocused = renderedAlphaScrollBackground(0, 1);
+    const ui::Color renderedAlphaScrollGapUnfocused = renderedAlphaScrollBackground(-1, 2);
+    const ui::Color renderedAlphaScrollGapFocused = renderedAlphaScrollBackground(0, 2);
+    if (renderedAlphaScrollUnfocused != alphaScrollUnfocused ||
+        renderedAlphaScrollFocused != alphaScrollFocused ||
+        renderedAlphaScrollOpaqueUnfocused != kAlphaScrollParentBackground ||
+        renderedAlphaScrollOpaqueFocused != alphaScrollOpaqueFocused ||
+        renderedAlphaScrollGapUnfocused != kAlphaScrollParentBackground ||
+        renderedAlphaScrollGapFocused !=
+            kReusableFocusBackground.blendOver(kAlphaScrollParentBackground))
+    {
+        return failCheck(
+            "reusable generated ScrollView focus did not underlay alpha descendant backgrounds: unfocused " +
+            renderedAlphaScrollUnfocused.toString() + " expected " + alphaScrollUnfocused.toString() +
+            ", focused " + renderedAlphaScrollFocused.toString() + " expected " + alphaScrollFocused.toString() +
+            ", opaque unfocused " + renderedAlphaScrollOpaqueUnfocused.toString() + " expected " +
+            kAlphaScrollParentBackground.toString() + ", opaque focused " +
+            renderedAlphaScrollOpaqueFocused.toString() + " expected " + alphaScrollOpaqueFocused.toString() +
+            ", gap unfocused " + renderedAlphaScrollGapUnfocused.toString() + " expected " +
+            kAlphaScrollParentBackground.toString() + ", gap focused " +
+            renderedAlphaScrollGapFocused.toString() + " expected " +
+            kReusableFocusBackground.blendOver(kAlphaScrollParentBackground).toString());
+    }
     if (scopedReusableMcpActivationCount() != 2)
     {
         return failCheck("active ScrollView reusable focus target did not activate exactly once per key");
+    }
+    const ComboBoxMouseMcpResult comboMouse = runComboBoxMouseMcpCase();
+    if (comboMouse.selectedIndex != 6 || comboMouse.selectionChangedCount != 1)
+    {
+        return failCheck("ComboBox mouse hit geometry omitted a rendered option below row six");
     }
 
     for (const bool useStackFrame : {false, true})
@@ -1396,6 +1609,56 @@ int main() {
     const ui::RenderedContent editInput = input.render(ui::Size{5, 1}, ui::ElementRenderState{.editMode = true});
     assert(ui::renderedText(editInput)[0] == "abc  ");
     assert(editInput[0][1].background == cursorStyle.background);
+
+    ui::Style rightInputStyle = widgetStyle;
+    rightInputStyle.textAlign = "right";
+    ui::TextInput alignedInput{"aligned_input", "abc", 10};
+    alignedInput.setStyle(rightInputStyle);
+    alignedInput.setCursorStyle(cursorStyle);
+    const auto requireAlignedInput = [](bool condition, std::string_view message)
+    {
+        if (!condition)
+        {
+            std::cerr << "TextInput alignment regression: " << message << '\n';
+            std::exit(EXIT_FAILURE);
+        }
+    };
+    requireAlignedInput(
+        ui::renderedText(alignedInput.render(ui::Size{6, 1}))[0] == "   abc",
+        "right-aligned text did not use the expected offset");
+    alignedInput.setCursor(1);
+    const ui::RenderedContent alignedEdit = alignedInput.render(
+        ui::Size{6, 1}, ui::ElementRenderState{.editMode = true});
+    requireAlignedInput(
+        alignedEdit[0][4].background == cursorStyle.background,
+        "cursor did not use the text alignment offset");
+    alignedInput.selectRange(0, 2);
+    const ui::RenderedContent alignedSelection = alignedInput.render(
+        ui::Size{6, 1}, ui::ElementRenderState{.editMode = true});
+    requireAlignedInput(
+        alignedSelection[0][3].background == cursorStyle.background &&
+            alignedSelection[0][4].background == cursorStyle.background &&
+            alignedSelection[0][5].background != cursorStyle.background,
+        "selection did not use the text alignment offset");
+    requireAlignedInput(
+        alignedInput.cursorForPoint(0, 0, ui::Size{6, 1}) == 0 &&
+            alignedInput.cursorForPoint(0, 4, ui::Size{6, 1}) == 1,
+        "mouse mapping did not use the text alignment offset");
+
+    ui::Style centerInputStyle = widgetStyle;
+    centerInputStyle.textAlign = "center";
+    alignedInput.setStyle(centerInputStyle);
+    requireAlignedInput(
+        ui::renderedText(alignedInput.render(ui::Size{6, 1}))[0] == " abc  ",
+        "center-aligned text did not use the expected offset");
+    alignedInput.setStyle(rightInputStyle);
+    alignedInput.setValue("abcdefgh");
+    alignedInput.setCursor(8);
+    requireAlignedInput(
+        ui::renderedText(alignedInput.render(
+            ui::Size{6, 1}, ui::ElementRenderState{.editMode = true}))[0] == "defgh ",
+        "overflowing text unexpectedly retained its alignment offset");
+
     assert(input.handleKey("X"));
     assert(input.value() == "aXbc");
     input.selectRange(1, 3);

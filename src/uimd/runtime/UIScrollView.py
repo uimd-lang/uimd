@@ -1422,11 +1422,31 @@ class UIScrollView(UIControl):
         proxy_focus_style = getattr(proxy, "focus_style", None)
         self_focus_style = getattr(self, "focus_style", None)
         own_style = getattr(self, "style", None)
+        self_focus_background = (
+            getattr(self_focus_style, "background", None)
+            if self_focus_style is not None
+            else None
+        )
+        proxy_focus_background = (
+            getattr(proxy_focus_style, "background", None)
+            if proxy_focus_style is not None
+            else None
+        )
         has_explicit_self_focus_style = (
             getattr(own_style, "focus_background", None) is not None
             or getattr(own_style, "focus_color", None) is not None
         )
-        if self_focused and has_explicit_self_focus_style and self_focus_style is not None:
+        uses_self_focus_style = bool(
+            (self_focused or proxy_focused)
+            and has_explicit_self_focus_style
+            and self_focus_style is not None
+            and (
+                (self_focused and not proxy_focused)
+                or self._color_key(self_focus_background)
+                != self._color_key(proxy_focus_background)
+            )
+        )
+        if uses_self_focus_style:
             focus_style = self_focus_style
         elif (proxy_focused or self_focused) and proxy_focus_style is not None:
             focus_style = proxy_focus_style
@@ -1438,16 +1458,43 @@ class UIScrollView(UIControl):
         focused = bool(self_focused or proxy_focused)
         if not focused or focus_background is None:
             return rendered
-        if proxy_focused and not self_focused and getattr(focus_background, "alpha", 1.0) < 1.0:
+
+        structural_viewport_background = self._viewport_cell_background()
+        viewport_background = (
+            getattr(own_style, "background", None)
+            or structural_viewport_background
+        )
+        proxy_focus_already_applied = bool(
+            proxy_focused
+            and not uses_self_focus_style
+            and getattr(focus_background, "alpha", 1.0) < 1.0
+            and self._color_key(viewport_background)
+            != self._color_key(structural_viewport_background)
+        )
+        if (
+            proxy_focused
+            and not uses_self_focus_style
+            and getattr(focus_background, "alpha", 1.0) < 1.0
+            and not proxy_focus_already_applied
+        ):
             return rendered
 
-        viewport_background = self._viewport_cell_background()
         focused_viewport_background = (
-            self._blend_color_over_exact_alpha(focus_background, viewport_background)
+            viewport_background
+            if proxy_focus_already_applied
+            else self._blend_color_over_exact_alpha(focus_background, viewport_background)
             if viewport_background is not None
             else None
         )
         viewport_background_key = self._color_key(viewport_background)
+        structural_viewport_background_key = self._color_key(
+            structural_viewport_background
+        )
+        viewport_background_keys = {
+            viewport_background_key,
+            structural_viewport_background_key,
+        }
+        viewport_background_keys.discard(None)
         focused_viewport_background_key = self._color_key(focused_viewport_background)
         focused_descendant_background_map = {}
         unfocused_descendant_background_keys = set()
@@ -1503,13 +1550,13 @@ class UIScrollView(UIControl):
                 if (
                     cell.background is not None
                     and background_key in unfocused_descendant_background_keys
-                    and background_key != viewport_background_key
+                    and background_key not in viewport_background_keys
                 ):
                     next_row.append(cell)
                     continue
                 matches_base_background = (
                     cell.background is None
-                    or background_key == viewport_background_key
+                    or background_key in viewport_background_keys
                     or (
                         focused_viewport_background is not None
                         and background_key == focused_viewport_background_key
@@ -1518,7 +1565,7 @@ class UIScrollView(UIControl):
                 if (
                     content_start_col is not None
                     and col_index >= content_start_col
-                    and background_key != viewport_background_key
+                    and background_key not in viewport_background_keys
                 ):
                     next_row.append(cell)
                     continue
@@ -1534,7 +1581,15 @@ class UIScrollView(UIControl):
                 next_row.append(TerminalCell(
                     cell.text,
                     cell.foreground,
-                    self._blend_color_over_exact_alpha(focus_background, background),
+                    viewport_background
+                    if proxy_focus_already_applied
+                    and background_key == structural_viewport_background_key
+                    else self._blend_color_over_exact_alpha(
+                        focus_background,
+                        viewport_background
+                        if background_key == structural_viewport_background_key
+                        else background,
+                    ),
                     cell.raw,
                     cell.raw_width,
                     cell.raw_height,

@@ -72,7 +72,9 @@ example in the canonical `parity` profile (Release for C++, C#, Swift, and
 Rust; Java 17 through the checked-in Gradle wrapper; and the standard
 reproducible Go build), compile Python sources, run Python unit tests, run C++
 `ctest`, run C#, Go, Java, and Rust runtime tests plus Java Checkstyle and Rust
-Clippy, run Swift runtime tests on POSIX, run direct Swift, Go, Rust, and Java
+Clippy, compile and exercise frozen previous-version applications against the
+current runtime for every enabled language, run Swift runtime tests on POSIX,
+run direct Swift, Go, Rust, and Java
 terminal PTY smoke tests against C++, run the Rust and Java MCP transport
 smokes, run Python/C++, C++/C#, C++/Swift, C++/Go, C++/Rust, and C++/Java MCP
 example compare tests with
@@ -143,6 +145,7 @@ Equivalent explicit command sequence:
 
 ```bash
 ./tools/rebuild_all.sh
+python3 tools/previous_version_compatibility.py
 python3 -m pytest python/tests
 ctest --test-dir cpp/build --output-on-failure
 dotnet run --project csharp/tests/UimdRuntimeTests/UimdRuntimeTests.csproj --configuration Release

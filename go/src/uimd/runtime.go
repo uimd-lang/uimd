@@ -5502,7 +5502,17 @@ func updateMouseTextSelection(window *GeneratedWindowBase, element Element, poin
 func textInputCursorAtPoint(input *TextInput, point Point, frame Rect) int {
 	localCol := clampInt(point.Col-frame.Col, 0, maxInt(0, frame.Width))
 	if !input.Multiline {
-		return clampInt(localCol+input.colScrollOffset, 0, len([]rune(input.Value)))
+		textWidth := len(visualGlyphs(input.Value, 0, 0))
+		alignmentOffset := 0
+		if input.colScrollOffset == 0 && textWidth <= frame.Width {
+			style := input.EffectiveStyle(true, true)
+			alignmentOffset = textAlignmentOffset(textWidth, frame.Width, style.TextAlign)
+		}
+		return clampInt(
+			maxInt(0, localCol-alignmentOffset)+input.colScrollOffset,
+			0,
+			len([]rune(input.Value)),
+		)
 	}
 	rows := buildWrappedTextRows(input.Value, maxInt(minimumRenderableSize, frame.Width))
 	if len(rows) == 0 {

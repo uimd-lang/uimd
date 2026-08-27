@@ -1,0 +1,48 @@
+# UIMD 0.5.3 Compatibility Scroll
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: regression
+description: "Retained generated ScrollView input for the 0.5.3 patch-compatibility gate."
+tags: [compatibility]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+```
+
+## Members
+
+```yaml
+alpha_row:
+  type: label
+  text: "legacy alpha row"
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#303545"
+@panel:
+  background: "#303545"
+  padding: 0
+@alpha_row:
+  background: "#252a36cc"
+```
+
+## User Interface
+
+```ui
++-panel-**----------------------+
+|alpha_row.....................|
+|..............................|
++------------------------------+
+```

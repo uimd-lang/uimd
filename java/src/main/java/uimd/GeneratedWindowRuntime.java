@@ -24,7 +24,6 @@ public final class GeneratedWindowRuntime
     private static final int EXIT_SUCCESS = 0;
     private static final int EXIT_FAILURE = 1;
     private static final int COMBO_BOX_CLOSED_ROWS = 1;
-    private static final int COMBO_BOX_DROPDOWN_ROWS = 6;
     private static final String ORIENTATION_HORIZONTAL = "horizontal";
     private static final String ORIENTATION_VERTICAL = "vertical";
     private static final String SCROLL_INDICATOR_ABOVE = "^";
@@ -1596,10 +1595,14 @@ public final class GeneratedWindowRuntime
                 if (target instanceof TextInput input)
                 {
                     Point point = event.position();
+                    ElementRenderState pointerState = new ElementRenderState();
+                    pointerState.setFocused(true);
+                    pointerState.setEditMode(true);
                     input.setCursor(input.cursorForPoint(
                         point.row() - target.frame().row(),
                         point.col() - target.frame().col(),
-                        new Size(target.frame().width(), target.frame().height())));
+                        new Size(target.frame().width(), target.frame().height()),
+                        pointerState));
                 }
             }
             return;
@@ -2122,10 +2125,14 @@ public final class GeneratedWindowRuntime
                     localRow = frame.height() - 1;
                 }
             }
+            ElementRenderState pointerState = new ElementRenderState();
+            pointerState.setFocused(true);
+            pointerState.setEditMode(true);
             int cursor = input.cursorForPoint(
                 localRow,
                 localCol,
-                new Size(frame.width(), frame.height()));
+                new Size(frame.width(), frame.height()),
+                pointerState);
             input.selectRange(mouseSelectionAnchor, cursor);
             return true;
         }
@@ -2452,9 +2459,7 @@ public final class GeneratedWindowRuntime
         if (editMode && dropdown instanceof ComboBox comboBox)
         {
             Rect frame = comboBox.frame();
-            int visibleRows = Math.min(
-                COMBO_BOX_DROPDOWN_ROWS,
-                COMBO_BOX_CLOSED_ROWS + comboBox.options().size());
+            int visibleRows = COMBO_BOX_CLOSED_ROWS + comboBox.options().size();
             Rect dropdownFrame = new Rect(
                 frame.row(),
                 frame.col(),
@@ -4016,9 +4021,8 @@ public final class GeneratedWindowRuntime
         if (elementEditActive && element instanceof ComboBox comboBox)
         {
             int dropdownRows = COMBO_BOX_CLOSED_ROWS + comboBox.options().size();
-            int visibleRows = Math.min(COMBO_BOX_DROPDOWN_ROWS, dropdownRows);
             int height = Math.min(
-                visibleRows,
+                dropdownRows,
                 Math.max(resolvedSize.height(), buffer.height() - row));
             resolvedSize = new Size(resolvedSize.width(), height);
             row = renderRowFor(window.generatedLayout(), entry, cell);

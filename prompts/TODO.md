@@ -4,6 +4,378 @@
 
 Date: 2026-06-21
 
+- [x] **Fix GitHub issues #7, #12, and #11 as one shared element-rendering
+  and interaction-geometry batch, in the user-selected order.** Selected by
+  the user on 2026-08-27. The batch is limited to shared TextInput alignment,
+  ComboBox rendered-versus-interactive dropdown geometry, and reusable /
+  generated ScrollView focus-background compositing. Each issue keeps its own
+  deterministic reproduction and focused regression; the expensive complete
+  supported-platform gate runs once only after all three focused repairs and
+  compatibility gates are green.
+
+  - [x] [#7: C++ TextInput ignores `text-align: right`](https://github.com/uimd-lang/uimd/issues/7).
+    Reproduce a right- and center-aligned TextInput whose text fits without
+    horizontal scrolling. The visible text, cursor, and selection must share
+    the resolved alignment offset; overflowing or horizontally scrolled text
+    must retain the canonical left/scrolled behavior.
+  - [x] [#12: ComboBox mouse hit area is clipped to six dropdown rows](https://github.com/uimd-lang/uimd/issues/12).
+    Reproduce an edited ComboBox with more than six visibly rendered options
+    and click a visible option below row six. Rendering, hit testing, selected
+    index/value notification, and edit cleanup must use the same dropdown
+    geometry.
+  - [x] [#11: Reusable/generated ScrollView focus background ignores alpha child backgrounds](https://github.com/uimd-lang/uimd/issues/11).
+    Reproduce a focused reusable or generated ScrollView whose descendant
+    surface uses a partially transparent background such as `#252a36cc`.
+    Composite the focus underlay through that alpha background with the same
+    render order in every affected runtime; do not add an example workaround.
+
+  **Shared batch boundary:** element render-state resolution through local
+  text/overlay geometry, mouse hit geometry, reusable/generated ScrollView
+  parent-background propagation, alpha compositing, and the resulting
+  terminal/MCP cells. Compiler syntax, application domain logic, layout
+  constants, delays, snapshots, and unrelated focus state transitions are out
+  of scope. If ownership analysis shows that an issue does not share this
+  boundary, retain its selected order but split its implementation and focused
+  validation before the one final batch gate.
+
+  **Validation policy:** add and first run a failing focused regression for
+  each issue; run the affected port tests after each repair; use MCP compares
+  with `--compare-app-size 90x35` for externally visible cells and direct PTY
+  input where physical mouse routing differs from MCP; regenerate/build every
+  affected output; compile and run retained `0.5.3` generated applications
+  against the updated runtimes without editing or regeneration; then run one
+  final `./tools/test_all.sh --live-report --keep-going` if the completed port
+  audit confirms the shared rendering blast radius is broad.
+
+  **Issue #7 shared contract:** for a single-line TextInput with no horizontal
+  overflow and a zero scroll offset, resolve `left`, `center`, or `right` from
+  the effective state style and use one visual-cell alignment offset for text,
+  selection, cursor, and pointer-to-cursor mapping. Once content overflows or
+  scrolling is active, the alignment offset is zero and the existing scroll
+  contract remains unchanged. TextArea wrapping is out of scope.
+
+  **Issue #7 port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/elements.py::TextInput::{render_cells,cursor_position_from_point}` | Style parsing exists, but text, cursor, selection, and pointer mapping always start at column zero. | **Fix:** add the shared single-line visual alignment offset and preserve overflow scrolling. | Focused `python/tests/test_elements.py` alignment/render/pointer regression. |
+  | C++ runtime | `cpp/src/elements/BasicElements.cpp::TextInput::{render,cursorForPoint}` | Same defect as Python; `Style::textAlign` is already populated. | **Fix:** port the shared visual-cell offset for render and pointer mapping. | Focused `ui_cpp_tests` TextInput regression. |
+  | C# runtime | `csharp/src/Uimd/Runtime/Elements.cs::TextInput::{Render,CursorForPoint}` | Same defect. | **Fix:** port the same offset and Unicode visual-cell mapping. | Focused C# runtime console regression. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift::TextInput::{render,cursorForPoint}` | Same defect; the current implementation uses character columns. | **Fix:** preserve the existing Swift character model while applying the identical nonoverflow alignment rule. | Swift package runtime test. |
+  | Go runtime | `go/src/uimd/elements.go::TextInput.Render` and `go/src/uimd/runtime.go::textInputCursorAtPoint` | Same defect. | **Fix:** port the alignment offset to render and hit mapping. | Focused Go runtime test. |
+  | Rust runtime | `rust/src/uimd/src/elements.rs::{render_text_input,TextInputState::cursor_for_point}` | Same defect. | **Fix:** use the existing `aligned_col` helper for the same nonoverflow rule. | Focused Rust element/runtime test. |
+  | Java runtime | `java/src/main/java/uimd/TextInput.java::{renderSingleLine,cursorForPoint}` | Same defect. | **Fix:** port the same visual-cell offset and pointer mapping. | Focused `ControlsTest` regression plus Checkstyle. |
+  | Generator/generated API | Native style emitters and existing generated `text-align` properties | The property is already parsed/emitted; no public API or generated source change is needed. | **Unaffected:** do not edit emitters or generated examples. | Existing generator gates in the final run. |
+  | Terminal/MCP adapters | Shared mouse coordinates and rendered snapshot paths | They already forward local coordinates and runtime cells. | **Unaffected:** runtime element geometry is the canonical fix. | Focused runtime tests plus affected MCP compare if an existing example exercises it. |
+
+  **Issue #12 shared contract:** an open ComboBox renders the closed row plus
+  every option row that fits the final overlay surface; the same full rendered
+  rectangle must win hit testing above siblings. A click on visible local row
+  `N + 1` selects option `N`, dispatches one change notification when needed,
+  commits, and leaves edit mode. Do not introduce an unrendered scroll model or
+  retain an independent six-row hit cap.
+
+  **Issue #12 port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/{elements.py::ComboBox.render_cells,UIBase.py::_element_mouse_rect}` | Rendering and hit testing both use `1 + len(options)`. | **Verify:** preserve as semantic reference. | Focused Python mouse regression with an option below row six. |
+  | C++ runtime | `cpp/src/generated/GeneratedWindowRuntime.cpp::{renderEntry,mouseTargetElement,overlayFocusedComboBox}` | Final overlay renders every option, but inline render and mouse target height are capped by `kComboBoxDropdownRows = 6`. | **Fix:** derive both paths from the full overlay row count and remove the independent cap. | Focused stdio-MCP/runtime mouse regression. |
+  | C# runtime | `csharp/src/Uimd/Runtime/GeneratedWindow.cs::{ComboBoxDropDownFrame,ToolMousePressAt}` | Already uses the full option count for overlay hit testing. | **Verify:** add/extend lower-option regression. | C# runtime console/MCP regression. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift::{comboBoxDropdownFrame,overlayFocusedComboBox}` | Overlay renders all options but hit frame is capped at six rows. | **Fix:** use full rendered row count. | Swift package mouse regression. |
+  | Go runtime | `go/src/uimd/runtime.go::{comboBoxMouseFrame,handleOpenComboBoxMousePress}` | Already uses the full option count. | **Verify:** focused Go runtime mouse regression. | `go -C go/src/uimd test` focused by name. |
+  | Rust runtime | `rust/src/uimd/src/mcp.rs::activate_combo_box_option_at` and runtime overlay | Already accepts every visible option row through `options.len()`. | **Verify:** extend the existing ComboBox mouse-scope regression below row six. | Focused Rust MCP test. |
+  | Java runtime | `java/src/main/java/uimd/GeneratedWindowRuntime.java::{mouseTargetElement,renderEntry}` | Same six-row cap as C++ while the final overlay renders all options. | **Fix:** use the full rendered row count. | Focused Java generated-runtime mouse regression plus Checkstyle. |
+  | Generator/generated API | Existing ComboBox member/options emission | No syntax or API defect. | **Unaffected.** | Existing generator gates. |
+  | Terminal/MCP adapters | SGR/MCP pointer delivery | Coordinates are delivered correctly; divergence begins in runtime hit geometry. | **Unaffected:** cover shared runtime path through MCP and direct PTY only if routing differs. | Focused runtime/MCP tests. |
+
+  **Issue #11 shared contract:** when a directly focused reusable host or
+  generated ScrollView supplies focus background `F`, a descendant background
+  `D` with partial alpha is rendered as `D over (F over P)`, where `P` is its
+  structural parent background. Opaque descendant behavior remains the
+  established focus overlay. Descendant-only edit focus must not reapply a
+  wrapper's partial focus style over the edited child. The focus underlay is
+  resolved during canonical parent-background propagation, not by app code or
+  by guessing from final terminal colors.
+
+  **Issue #11 port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/UIScrollView.py::{_apply_self_focus_to_viewport,_focused_descendant_background_map}` plus element parent backgrounds | Partially transparent descendant styles are excluded from the candidate map, and partial proxy focus exits before affecting content. | **Fix:** propagate a direct focus underlay through effective descendant parent backgrounds while preserving descendant-edit suppression. | Focused Python generated/reusable ScrollView cell-color regression. |
+  | C++ runtime | `cpp/src/generated/GeneratedWindowRuntime.cpp::{renderEntry,reusableFocusStyleAppliesToChild,collectDescendantBaseStyleBackgrounds}` | Parent background is available during render, but direct partial wrapper focus is rejected for generated ScrollViews and the later collector accepts only opaque backgrounds. | **Fix:** allow direct-host partial focus, pass the focus-adjusted structural parent into descendant rendering, and retain the opaque post-pass for existing behavior. | Focused `ui_cpp_tests` exact RGB regression for unfocused/focused/edited states. |
+  | C# runtime | `csharp/src/Uimd/Runtime/GeneratedWindow.cs::{RenderEntry,ReusableFocusStyleAppliesToChild,CollectDescendantBaseStyleBackgrounds}` | Structurally the same gap as C++. | **Fix:** port the same render-time underlay and suppression rule. | Focused C# runtime regression. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift::{renderGeneratedContent,collectDescendantBaseStyleBackgrounds}` | It records partial style tokens but final rendered cells already contain parent-composited colors, so the post-pass cannot apply the underlay reliably. | **Fix:** feed the focus-adjusted parent into the existing `ElementRenderState.parentBackground` path and retain direct-versus-descendant suppression. | Swift package exact-color regression. |
+  | Go runtime | `go/src/uimd/elements.go::ReusableElement.Render` and descendant-background helpers | Opaque post-processing exists; partial generated-ScrollView wrapper focus is suppressed and child rows render over the unfocused parent. | **Fix:** render the generated child with the focused structural underlay for direct host/ScrollView focus, preserve descendant-edit suppression, and keep opaque protection logic. | Focused Go exact-color regression. |
+  | Rust runtime | `rust/src/uimd/src/runtime.rs::{render_entry,collect_descendant_base_style_backgrounds,apply_reusable_focus_to_descendant_backgrounds}` | Same opaque-only post-pass gap; render-time parent background is available. | **Fix:** propagate the focus-adjusted parent before partial style resolution and preserve the existing opaque pass. | Focused Rust runtime exact-color regression. |
+  | Java runtime | `java/src/main/java/uimd/{ReusableElement,GeneratedWindowRuntime}.java` | Same opaque-only collector and generated-ScrollView partial-focus suppression. | **Fix:** port the same direct underlay and descendant-edit guard. | Focused Java reusable/ScrollView regression plus Checkstyle. |
+  | Generator/generated API | Existing reusable/generated ScrollView styles | No emitted API or `.uimd` syntax change. | **Unaffected:** use runtime state/style already generated. | Existing generator gates. |
+  | Terminal/MCP adapters | Snapshot/terminal cell serialization | They serialize the resolved runtime colors and do not own compositing. | **Unaffected:** validate through focused exact-cell tests and a compare at `90x35`. | Shared focused compare and final terminal gates. |
+
+  **Issue #11 focused-debug checkpoint (2026-08-27):** the first exact
+  Python/C++ ImageBrowser compare reached direct focus at step 22 and exposed
+  that Python treated a generated ScrollView's structural `@panel` background
+  as protected descendant content, so the child focus surface did not replace
+  the reusable host underlay. After that repair, the compare reached step 135
+  and exposed a second, related case: direct focus of `main.gallery_scroll`
+  marked both the reusable proxy and the generated ScrollView focused, causing
+  the same partial focus background to be alpha-composited twice in Python
+  (`#292c36`) while C++ applied it once (`#171a25`). The canonical Python
+  propagation now distinguishes structural viewport color from the effective
+  parent underlay, recognizes when the proxy's identical partial focus has
+  already been applied, and still allows a genuinely distinct child focus
+  style to override it. The regression uses a real generated-style
+  `UIScrollView`, marks both proxy and child focus as the runtime does, and
+  proves shared partial-focus deduplication plus distinct opaque child-focus
+  precedence. The three focused Python #11 regressions pass, and the complete
+  Python suite passes 525/525 outside the filesystem/network sandbox. Exact
+  rebuilt MCP comparisons and the final cross-platform gate remain pending.
+  A subsequent full rebuild showed that the earlier step-135 comparison had
+  still used the pre-change C++ runtime: the newly rebuilt C++ underlaid the
+  proxy focus correctly but then reapplied the identical generated-ScrollView
+  self-focus to structural gap cells, yielding two layers (`#292c36`) against
+  Python's single layer (`#171a25`). The C++ fixture now includes the same
+  focus background on both the proxy and the inner ScrollView and separately
+  asserts an alpha descendant row and an empty structural row; it reproduced
+  the double layer before the fix. The scoped C++ underlay now temporarily
+  suppresses only an identical inner focus background after that background
+  has already been applied, preserving all other focus-style fields and every
+  distinct child focus. The focused `ui_cpp_tests` binary passes with this
+  stricter regression. The final full rebuild completed, but the exact
+  Python/C++ ImageBrowser rerun still failed at step 135 with the opposite
+  remaining transition: after `Right` enters `main.gallery_scroll`, C++ keeps
+  the unfocused structural background `#030712` while Python applies the
+  single focused layer `#171a25` at row 2 column 31. The run passed 150
+  assertions with no assertion failures before this one snapshot-step
+  failure. Snapshot:
+  `tests/mcp/snapshots/20260827-103041-step-135-image_browser_compare.json`;
+  viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-103041-step-135-image_browser_compare.json`.
+  Next action is to audit the C++ post-key proxy/inner focus transition against
+  Python before changing any further compositing rule; remaining exact
+  compares, compatibility rerun, and the final full gate stay pending.
+
+  **Issue #11 Go focused-debug checkpoint (2026-08-27):** after the final C++
+  structural-background repair, the complete Python/C++ ImageBrowser,
+  MarkdownViewer, and ExpenseTracker compares pass. The exact C++/Go
+  ImageBrowser compare now fails at step 22 immediately after
+  `focus_element("main.items")`: Go keeps one blank descendant cell at the
+  structural `#030712` background while C++ applies the direct reusable /
+  generated ScrollView focus surface `#1e3a5f`. The run reached 57 passing
+  assertions before the snapshot mismatch. Snapshot:
+  `tests/mcp/snapshots/20260827-112045-353007-step-022-image_browser_compare.json`;
+  viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-112045-353007-step-022-image_browser_compare.json`.
+  Audit Go's render-time parent underlay and structural-background remap
+  against the final Python/C++ contract, add an exact-color Go regression,
+  and rerun this complete compare before continuing the remaining port gates.
+  The repaired Go path passes the complete C++/Go ImageBrowser compare with
+  378/378 assertions and zero step failures. The next focused
+  C++/Go MarkdownViewer compare reaches step 40 after 65 passing assertions,
+  then entering edit mode on `viewer` leaves a structural gap at `#000000` in
+  Go while C++ applies the one expected focus layer `#141414`. Snapshot:
+  `tests/mcp/snapshots/20260827-114017-504102-step-040-markdown_viewer.json`;
+  viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-114017-504102-step-040-markdown_viewer.json`.
+  Audit the generated-ScrollView edit-state structural-gap branch without
+  changing document-content backgrounds, then rerun both focused compares.
+  Root cause was Go `ScrollView.Render` replacing a dynamic child row instead
+  of inheriting the effective ScrollView row style as C++
+  `inheritRowStyle` does. Transparent generated child content therefore
+  discarded the already resolved focus surface. Go now composites each child
+  background over the effective ScrollView background and inherits only a
+  missing/transparent foreground. The expanded exact-color regression, the
+  complete Go package, and rebuilt C++/Go compares now pass: ImageBrowser
+  378/378, MarkdownViewer 75/75, and ExpenseTracker 268/268 assertions/steps,
+  all with zero failures.
+
+  **Issue #11 Swift focused-debug checkpoint (2026-08-27):** the first rebuilt
+  C++/Swift ImageBrowser compare reaches step 132 after 148 passing
+  assertions, then Swift paints row 2 column 31 as `#292c35` while C++ keeps
+  the not-yet-focused structural `#030712` background. The color corresponds
+  to two premature partial focus layers. Snapshot:
+  `tests/mcp/snapshots/20260827-115039-step-132-image_browser_compare.json`;
+  viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-115039-step-132-image_browser_compare.json`.
+  Audit the Swift reusable proxy versus inner generated-ScrollView focus flags
+  and identical-partial-focus deduplication before proceeding to the other
+  Swift compares. Root cause was Swift optional identity comparison treating
+  two absent references as identical: a dynamic reusable item with neither a
+  generated ScrollView nor current focus therefore received direct focus
+  styling. The runtime now requires a non-absent focused element before the
+  identity check, applies the same transient structural-background underlay
+  and identical inner-focus suppression as Python/C++, and restores the
+  generated ScrollView styles after rendering. The retained regression covers
+  the unfocused dynamic-item case plus alpha descendants, opaque structural
+  descendants, blank structural gaps, and identical partial-focus
+  deduplication. Swift package tests pass 16/16. Rebuilt exact C++/Swift MCP
+  comparisons pass ImageBrowser 192/192, MarkdownViewer 26/26, and
+  ExpenseTracker 142/142 assertions, all with zero assertion and step
+  failures. The original step-132 reproduction is therefore resolved.
+  `./tools/rebuild_all.sh` subsequently regenerated and rebuilt every
+  supported platform and refreshed `.uimd/build-manifest.json` successfully.
+  The retained, unmodified 0.5.3 applications and generated outputs then
+  compiled and ran against the updated Python, C++, C#, Go, Java, Rust, and
+  Swift runtimes; `python3 tools/previous_version_compatibility.py` passed
+  7/7 checks. Post-rebuild reruns of the original ImageBrowser reproduction
+  pass Python/C++ 192/192, C++/Go 378/378, and C++/Swift 192/192 assertions,
+  all with zero assertion and step failures. The consolidated
+  supported-platform gate remains pending.
+
+  **Consolidated full-gate checkpoint (2026-08-27):**
+  `./tools/test_all.sh --live-report --keep-going --no-rebuild` completed its
+  full keep-going inventory against the validated parity manifest. It passed
+  23/27 executed phases; all seven preceding-version compatibility checks,
+  every unit/lint gate, all direct-terminal and MCP transport smokes, the
+  Python/C++ and C++/Go all-example comparisons, and every regression parity
+  comparison passed. Full log:
+  `.uimd/test-logs/test-all-20260827-123200-327647.log`.
+
+  The remaining failures are confined to issue #11 rendering parity. C#,
+  Java, and Rust each passed 1644/1647 all-example assertions/steps and have
+  the same three identical-partial-focus double-composition mismatches:
+
+  - ImageBrowser step 135 expected one focus layer `#171a25` but rendered
+    `#292c36`. Snapshot viewers:
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-130617-306402-step-135-image_browser_compare.json`
+    (C#),
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-144340-716410-step-135-image_browser_compare.json`
+    (Java), and
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-152003-654112-step-135-image_browser_compare.json`
+    (Rust).
+  - MarkdownViewer step 40 expected one focus layer `#141414` but rendered
+    `#262626`. Snapshot viewers:
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-130840-782270-step-040-markdown_viewer.json`
+    (C#),
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-144546-262366-step-040-markdown_viewer.json`
+    (Java), and
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-152327-418903-step-040-markdown_viewer.json`
+    (Rust).
+  - ExpenseTracker step 17 expected one focus layer `#293143` but rendered
+    `#3a4152`. Snapshot viewers:
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-132813-479796-step-017-expense_tracker_compare.json`
+    (C#),
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-150425-866550-step-017-expense_tracker_compare.json`
+    (Java), and
+    `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-154448-324269-step-017-expense_tracker_compare.json`
+    (Rust).
+
+  Swift passed 1703/1704 all-example assertions/steps. Its only remaining
+  mismatch is TaskBoard step 38 with a modal over the focused reusable /
+  ScrollView surface: expected the dimmed canonical base `#010309`, but Swift
+  retained a dimmed focus-underlay result `#03080f`. Viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-135628-857584-step-038-task_board_compare.json`.
+  Next action is to port the final Python/C++ identical-inner-focus
+  suppression structurally to C#, Java, and Rust, and audit Swift's covered
+  modal-frame suppression before changing its compositor. No example or
+  snapshot change is permitted.
+
+  **Post-full-gate repair checkpoint (2026-08-27):** the remaining four
+  failures were reproduced by retained exact-color regressions and repaired in
+  the shared runtimes without changing examples or snapshots. C#, Java, and
+  Rust now match the final C++ scoped generated-ScrollView underlay algorithm:
+  an identical inner partial focus background is suppressed only while the
+  reusable focus underlay is already active, blank or structural cells are
+  remapped to exactly one focused structural background, and every transient
+  style is restored after rendering. Swift now matches C++ modal-background
+  rendering by suppressing the direct focused state of a covered reusable or
+  ScrollView entry before the modal backdrop is applied. Focused validation
+  passes C# 5/5, the forced Java #11 regression plus the complete Gradle
+  `check`/Checkstyle gate, Rust 164/164 plus Clippy with `-D warnings`, and
+  Swift 17/17. The first sandboxed Rust suite attempt correctly exposed four
+  localhost permission failures; the same complete suite passed outside that
+  restriction. Full regeneration/build, the exact affected MCP comparisons,
+  the retained 0.5.3 compatibility gate, and one final consolidated full test
+  remain pending.
+
+  **Final focused-parity checkpoint (2026-08-27):** exact post-repair C#
+  comparisons pass MarkdownViewer 75/75 and ExpenseTracker 268/268; the
+  rebuilt ImageBrowser run produced no failure snapshot and is covered again
+  by the pending complete all-example gate. Exact Java comparisons pass
+  ImageBrowser 378/378, MarkdownViewer 75/75, and ExpenseTracker 268/268.
+  Rust's first repaired ImageBrowser rerun exposed one additional canonical
+  precedence case at step 22: a genuinely distinct generated-ScrollView focus
+  background (`#1e3a5f`) must replace the reusable proxy's partial focus
+  background (`#171a25`) rather than inherit it. Snapshot viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-170600-925287-step-022-image_browser_compare.json`.
+  The Rust runtime now selects the effective child focus for that direct
+  generated ScrollView, suppresses only an identical already-applied focus,
+  and retains the shared structural-background remap. Its exact comparisons
+  now pass ImageBrowser 378/378, MarkdownViewer 75/75, and ExpenseTracker
+  268/268; the focused exact-color regression and Clippy with `-D warnings`
+  also pass.
+
+  Swift's first exact TaskBoard rerun confirmed the original modal-covered
+  failure at step 38: the reusable/ViewHost path still propagated an inherited
+  active-ScrollView focus background after direct focused-state suppression.
+  Snapshot viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260827-173446-step-38-task_board_compare.json`.
+  ViewHost, ReusableElement, and generated-ScrollView proxy focus now all honor
+  the same covered-frame scope-visual suppression before deriving the child
+  focus underlay. The strengthened regression first proves the opaque focused
+  surface, then opens the modal and proves the dimmed canonical base. Swift
+  package tests pass 17/17 and the rebuilt exact C++/Swift TaskBoard scenario
+  passes 190/190 assertions with zero step failures.
+
+  A second `./tools/rebuild_all.sh` after these last Rust/Swift changes
+  regenerated and built every supported target and rewrote
+  `.uimd/build-manifest.json` successfully. The retained, unmodified 0.5.3
+  fixture applications and generated outputs compile and run against the
+  updated Python, C++, C#, Go, Java, Rust, and Swift runtimes;
+  `python3 tools/previous_version_compatibility.py` passes 7/7. The only
+  remaining completion gate is one post-last-edit
+  `./tools/test_all.sh --live-report --keep-going --no-rebuild` run and its
+  final log inspection.
+
+  **User-requested validation pause (2026-08-27):** the final post-last-edit
+  run at `.uimd/test-logs/test-all-20260827-175111-820315.log` passed the
+  rebuilt-tool and manifest gates, previous-version compatibility 7/7, Python
+  525/525, CTest 26/26, C# 5/5, Go, Java/Checkstyle, Rust 164/164 plus Clippy,
+  Swift 17/17, Swift direct terminal 35/35, Go direct terminal 10/10, Java
+  direct terminal 12/12, Java MCP transport 5/5, Rust direct terminal 8/8,
+  Rust MCP transport 5/5, and the complete Python/C++ example comparison
+  1044/1044. The user then required work to stop within ten minutes while the
+  C# all-example phase was still running. Its 65/65 completed assertions/steps
+  were green before interruption. Because `--keep-going` treated each
+  Ctrl+C as a phase failure and started the next platform, the log contains
+  `KeyboardInterrupt` failure lines for C#, Swift, Go, and Java; these are
+  intentional interruption artifacts, not observed product mismatches. The
+  complete runner was then terminated before the Rust all-example phase
+  finished, and no test runner remains. On resume, rerun the same full command
+  from the beginning and inspect its final recap before marking this batch or
+  issues #7/#12/#11 complete.
+
+  **Completed on 2026-08-28.** A fresh uninterrupted post-last-edit
+  `./tools/test_all.sh --live-report --keep-going --no-rebuild` run passed all
+  27/27 executed phases with exit code 0; its nine skipped phases were exactly
+  the regeneration/build steps already completed by the immediately preceding
+  successful `./tools/rebuild_all.sh`. The final gate passed the parity
+  manifest, preceding-version compatibility 7/7, Python 525/525, CTest 26/26,
+  C# 5/5, Go, Java/Checkstyle, Rust 164/164 plus Clippy, Swift 17/17, every
+  direct-terminal and MCP transport smoke, Python/C++ examples 1044/1044, and
+  C#/Swift/Go/Java/Rust examples 1980/1980 each. Base regression parity passed
+  14/14 and Go/Java/Rust regression parity passed 29/29 each. Full log:
+  `.uimd/test-logs/test-all-20260827-202640-516750.log`.
+
+  Final parity decision: all supported runtimes implement the same TextInput
+  alignment/point-mapping rule, full rendered ComboBox dropdown hit geometry,
+  and reusable/generated ScrollView focus-underlay, distinct-focus precedence,
+  and covered-modal suppression behavior. No `.uimd` example, snapshot,
+  timing workaround, public API, generated application contract, or
+  platform-specific visible behavior was changed. The retained unmodified
+  0.5.3 generated applications compile and run against every updated runtime,
+  so the fixes preserve documented existing-application compatibility.
+
+  Commit preparation on 2026-08-28 raised the patch version to `0.5.4` and
+  exposed that Cargo rewrote the frozen Rust fixture lockfile when resolving
+  the updated path dependency. The compatibility runner now builds Rust from
+  a complete temporary fixture copy and rewrites only that copy's equivalent
+  runtime path, while Swift uses a temporary writable module cache. Focused
+  runner tests pass 17/17, the isolated Rust gate passes without changing the
+  fixture manifest, all version/report tests pass, and the final unsandboxed
+  preceding-version compatibility run passes Python, C++, C#, Go, Java, Rust,
+  and Swift 7/7 against `0.5.4`.
+
 - [x] **Guarantee backward compatibility for existing documented UIMD
   applications.** Requested on 2026-08-27. Add a strict `AGENTS.md` rule and
   mandatory development/bug-fix workflow gates requiring an application and

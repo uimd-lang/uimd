@@ -30,6 +30,7 @@ public:
     void setCursor(int cursor);
     void selectRange(int start, int end);
     [[nodiscard]] int cursorForPoint(int row, int col, Size size) const;
+    [[nodiscard]] int cursorForPoint(int row, int col, Size size, ElementRenderState state) const;
     [[nodiscard]] bool scrollByRows(int delta, int viewportHeight, bool manual = true);
 
     void insertText(std::string_view text);

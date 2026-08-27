@@ -2702,11 +2702,13 @@ public static class GeneratedWindowRuntime
                     (editMode && childOwnsActiveScrollView) ||
                     (editMode && childOwnsActiveScrollViewEditElement) ||
                     (editMode && childHasFocusedElement);
-                bool directFocus = ReferenceEquals(element, focusedElement);
                 ScrollView? reusableGeneratedScrollView =
                     reusable.Child is GeneratedScrollViewBase reusableScrollViewWindow
                         ? reusableScrollViewWindow.ScrollView()
                         : null;
+                bool directFocus =
+                    ReferenceEquals(element, focusedElement) ||
+                    ReferenceEquals(reusableGeneratedScrollView, focusedElement);
                 Size childRenderSize = size;
                 Size childContentSizeForWidth = GeneratedWindowContentSizeForWidth(
                     reusable.Child,
@@ -2719,6 +2721,7 @@ public static class GeneratedWindowRuntime
                 }
                 Style? childWindowStyle = null;
                 Color? childActiveScrollViewFocusBackground = null;
+                GeneratedScrollViewFocusUnderlay? childFocusUnderlay = null;
                 bool applyChildDescendantFocusBackground = true;
                 if (reusableDescendantFocused)
                 {
@@ -2733,7 +2736,13 @@ public static class GeneratedWindowRuntime
                         {
                             childWindowStyle.Merge(reusable.FocusStyle!);
                         }
-                        if (reusable.FocusStyle?.Background is not null)
+                        childFocusUnderlay = ApplyDirectReusableFocusUnderlayToGeneratedScrollView(
+                            childWindowStyle,
+                            reusable,
+                            directFocus,
+                            parentBackground);
+                        if (childFocusUnderlay is null &&
+                            reusable.FocusStyle?.Background is not null)
                         {
                             childActiveScrollViewFocusBackground = reusable.FocusStyle.Background;
                         }
@@ -2779,24 +2788,32 @@ public static class GeneratedWindowRuntime
                 bool useHostViewportForRootScrollViewChild =
                     element is ViewHost &&
                     reusableGeneratedScrollView is not null;
-                rendered = RenderGeneratedWindowContent(
-                    reusable.Child,
-                    childRenderSize,
-                    childFocusedIndex,
-                    focusedElement,
-                    childEditMode,
-                    activeScrollView,
-                    activeScrollViewProxy,
-                    activeScrollViewEditElement,
-                    activeScrollViewFresh,
-                    false,
-                    childActiveScrollViewFocusBackground,
-                    suppressActiveScrollViewScopeVisuals,
-                    childWindowStyle,
-                    elementClipTop,
-                    elementClipBottom,
-                    true,
-                    useHostViewportForRootScrollViewChild);
+                try
+                {
+                    rendered = RenderGeneratedWindowContent(
+                        reusable.Child,
+                        childRenderSize,
+                        childFocusedIndex,
+                        focusedElement,
+                        childEditMode,
+                        activeScrollView,
+                        activeScrollViewProxy,
+                        activeScrollViewEditElement,
+                        activeScrollViewFresh,
+                        false,
+                        childActiveScrollViewFocusBackground,
+                        suppressActiveScrollViewScopeVisuals,
+                        childWindowStyle,
+                        elementClipTop,
+                        elementClipBottom,
+                        true,
+                        useHostViewportForRootScrollViewChild);
+                    childFocusUnderlay?.ApplyToStructuralBackgrounds(rendered);
+                }
+                finally
+                {
+                    childFocusUnderlay?.Restore();
+                }
                 if (childActiveScrollViewFocusBackground is not null &&
                     reusableGeneratedScrollView is null)
                 {
@@ -3023,6 +3040,7 @@ public static class GeneratedWindowRuntime
                 Style? childWindowStyle = null;
                 Color? childActiveScrollViewFocusBackground = null;
                 Color? childDescendantFocusBackground = null;
+                GeneratedScrollViewFocusUnderlay? childFocusUnderlay = null;
                 ScrollView? reusableGeneratedScrollView =
                     reusable.Child is GeneratedScrollViewBase reusableScrollViewWindow
                         ? reusableScrollViewWindow.ScrollView()
@@ -3030,7 +3048,9 @@ public static class GeneratedWindowRuntime
                 if (reusableWholeChildFocus)
                 {
                     childWindowStyle = reusable.Child.GeneratedWindowStyle.Clone();
-                    bool reusableDirectFocus = ReferenceEquals(childView.Element, focusedElement);
+                    bool reusableDirectFocus =
+                        ReferenceEquals(childView.Element, focusedElement) ||
+                        ReferenceEquals(reusableGeneratedScrollView, focusedElement);
                     bool applyReusableFocusStyle = ReusableFocusStyleAppliesToChild(
                         reusable,
                         reusableDirectFocus,
@@ -3041,7 +3061,18 @@ public static class GeneratedWindowRuntime
                         {
                             childWindowStyle.Merge(reusable.FocusStyle!);
                         }
-                        if (reusable.FocusStyle?.Background is not null)
+                        Color? childParentBackground =
+                            childFrame.Row >= 0 && childFrame.Row < buffer.Height &&
+                            childFrame.Col >= 0 && childFrame.Col < buffer.Width
+                                ? buffer.Cell(childFrame.Row, childFrame.Col).Background
+                                : null;
+                        childFocusUnderlay = ApplyDirectReusableFocusUnderlayToGeneratedScrollView(
+                            childWindowStyle,
+                            reusable,
+                            reusableDirectFocus,
+                            childParentBackground);
+                        if (childFocusUnderlay is null &&
+                            reusable.FocusStyle?.Background is not null)
                         {
                             childActiveScrollViewFocusBackground = reusable.FocusStyle.Background;
                         }
@@ -3091,24 +3122,33 @@ public static class GeneratedWindowRuntime
                 bool useHostViewportForRootScrollViewChild =
                     reusable is ViewHost &&
                     reusableGeneratedScrollView is not null;
-                List<List<TerminalCell>> reusableChildContent = RenderGeneratedWindowContent(
-                    reusable.Child,
-                    new Size(childFrame.Width, childFrame.Height),
-                    effectiveChildFocusedIndex,
-                    focusedElement,
-                    reusableChildEditMode,
-                    activeScrollView,
-                    activeScrollViewProxy,
-                    activeScrollViewEditElement,
-                    activeScrollViewFresh,
-                    false,
-                    childActiveScrollViewFocusBackground,
-                    suppressActiveScrollViewScopeVisuals,
-                    childWindowStyle,
-                    childClipTop,
-                    childClipBottom,
-                    true,
-                    useHostViewportForRootScrollViewChild);
+                List<List<TerminalCell>> reusableChildContent;
+                try
+                {
+                    reusableChildContent = RenderGeneratedWindowContent(
+                        reusable.Child,
+                        new Size(childFrame.Width, childFrame.Height),
+                        effectiveChildFocusedIndex,
+                        focusedElement,
+                        reusableChildEditMode,
+                        activeScrollView,
+                        activeScrollViewProxy,
+                        activeScrollViewEditElement,
+                        activeScrollViewFresh,
+                        false,
+                        childActiveScrollViewFocusBackground,
+                        suppressActiveScrollViewScopeVisuals,
+                        childWindowStyle,
+                        childClipTop,
+                        childClipBottom,
+                        true,
+                        useHostViewportForRootScrollViewChild);
+                    childFocusUnderlay?.ApplyToStructuralBackgrounds(reusableChildContent);
+                }
+                finally
+                {
+                    childFocusUnderlay?.Restore();
+                }
                 if (childDescendantFocusBackground is not null &&
                     reusableGeneratedScrollView is null)
                 {
@@ -4036,11 +4076,104 @@ public static class GeneratedWindowRuntime
         {
             return true;
         }
-        if (reusable.Child is GeneratedScrollViewBase)
-        {
-            return false;
-        }
         return directFocus || !descendantOnlyFocus;
+    }
+
+    private sealed class GeneratedScrollViewFocusUnderlay
+    {
+        private readonly ScrollView scrollView;
+        private readonly Style previousStyle;
+        private readonly Style? previousFocusStyle;
+        private readonly Color? structuralBackground;
+        private readonly Color focusBackground;
+
+        public GeneratedScrollViewFocusUnderlay(
+            ScrollView scrollView,
+            Style previousStyle,
+            Style? previousFocusStyle,
+            Color? structuralBackground,
+            Color focusBackground)
+        {
+            this.scrollView = scrollView;
+            this.previousStyle = previousStyle;
+            this.previousFocusStyle = previousFocusStyle;
+            this.structuralBackground = structuralBackground;
+            this.focusBackground = focusBackground;
+        }
+
+        public void ApplyToStructuralBackgrounds(List<List<TerminalCell>> rendered)
+        {
+            if (structuralBackground is null)
+            {
+                return;
+            }
+            Color? focusedBackground = BlendBackgroundOverExisting(
+                focusBackground,
+                structuralBackground);
+            foreach (List<TerminalCell> row in rendered)
+            {
+                foreach (TerminalCell cell in row)
+                {
+                    if (cell.Background is null || ColorEquals(cell.Background, structuralBackground))
+                    {
+                        cell.Background = focusedBackground;
+                    }
+                }
+            }
+        }
+
+        public void Restore()
+        {
+            scrollView.SetStyle(previousStyle);
+            if (previousFocusStyle is not null)
+            {
+                scrollView.SetFocusStyle(previousFocusStyle);
+            }
+        }
+    }
+
+    private static GeneratedScrollViewFocusUnderlay? ApplyDirectReusableFocusUnderlayToGeneratedScrollView(
+        Style childWindowStyle,
+        ReusableElement reusable,
+        bool directFocus,
+        Color? parentBackground)
+    {
+        if (!directFocus ||
+            reusable.Child is not GeneratedScrollViewBase generatedScrollViewWindow ||
+            reusable.FocusStyle?.Background is not Color focusBackground ||
+            !PartialBackground(focusBackground))
+        {
+            return null;
+        }
+
+        ScrollView scrollView = generatedScrollViewWindow.ScrollView();
+        Style previousStyle = scrollView.Style.Clone();
+        Style? previousFocusStyle = null;
+        if (scrollView.FocusStyle?.Background is not null &&
+            ColorEquals(scrollView.FocusStyle.Background, focusBackground))
+        {
+            previousFocusStyle = scrollView.FocusStyle.Clone();
+            Style childFocusStyle = previousFocusStyle.Clone();
+            childFocusStyle.Background = null;
+            scrollView.SetFocusStyle(childFocusStyle);
+        }
+        Style focusedStyle = previousStyle.Clone();
+        Color? structuralBackground =
+            focusedStyle.Background ??
+            childWindowStyle.Background ??
+            reusable.Style.Background ??
+            parentBackground;
+        focusedStyle.Background = structuralBackground is not null
+            ? focusBackground.BlendOver(structuralBackground)
+            : focusBackground;
+        childWindowStyle.Background = focusedStyle.Background;
+        scrollView.SetStyle(focusedStyle);
+        return new GeneratedScrollViewFocusUnderlay(
+            scrollView,
+            previousStyle,
+            previousFocusStyle,
+            structuralBackground,
+            focusBackground);
     }
 
     private static Color? ReusableFocusBaseBackground(
@@ -9044,7 +9177,8 @@ public sealed class McpController
             int cursor = textInput.CursorForPoint(
                 position.Row - textInput.Frame.Row,
                 position.Col - textInput.Frame.Col,
-                new Size(textInput.Frame.Width, textInput.Frame.Height));
+                new Size(textInput.Frame.Width, textInput.Frame.Height),
+                new ElementRenderState { Focused = true, EditMode = true });
             textInput.SelectRange(cursor, cursor);
             mouseSelectionElement = textInput;
             mouseSelectionAnchor = cursor;
@@ -9128,7 +9262,8 @@ public sealed class McpController
             int cursor = textInput.CursorForPoint(
                 localRow,
                 localCol,
-                new Size(textInput.Frame.Width, textInput.Frame.Height));
+                new Size(textInput.Frame.Width, textInput.Frame.Height),
+                new ElementRenderState { Focused = true, EditMode = true });
             textInput.SelectRange(mouseSelectionAnchor, cursor);
             return Snapshot(textInput);
         }

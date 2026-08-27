@@ -743,6 +743,42 @@ class TestTextInput(unittest.TestCase):
         self.assertEqual(cells[1].foreground, Color("#111827"))
         self.assertEqual(cells[1].background, Color("#facc15"))
 
+    def test_textinput_alignment_applies_to_text_cursor_selection_and_mouse(self):
+        """Single-line alignment should use one visual offset everywhere."""
+        inp = TextInput(name="test", value="abc", width=6)
+        inp.style.set("text-align", "right")
+        inp.cursor_style = Style()
+        inp.cursor_style.set("background", "#facc15")
+
+        cells = inp.render_cells()[0]
+        self.assertEqual("".join(cell.text for cell in cells), "   abc")
+
+        inp.edit_mode = True
+        inp.cursor_pos = 1
+        cells = inp.render_cells()[0]
+        self.assertEqual(cells[4].background, Color("#facc15"))
+
+        inp.select_range(0, 2)
+        cells = inp.render_cells()[0]
+        self.assertEqual(cells[3].background, Color("#facc15"))
+        self.assertEqual(cells[4].background, Color("#facc15"))
+        self.assertNotEqual(cells[5].background, Color("#facc15"))
+
+        self.assertEqual(inp.cursor_position_from_point(0, 0), 0)
+        self.assertEqual(inp.cursor_position_from_point(0, 4), 1)
+
+        inp.edit_mode = False
+        inp.style.set("text-align", "center")
+        cells = inp.render_cells()[0]
+        self.assertEqual("".join(cell.text for cell in cells), " abc  ")
+
+        inp.style.set("text-align", "right")
+        inp.value = "abcdefgh"
+        inp.edit_mode = True
+        inp.cursor_pos = len(inp.value)
+        cells = inp.render_cells()[0]
+        self.assertEqual("".join(cell.text for cell in cells), "defgh ")
+
     def test_textinput_set_value(self):
         """Test setting text input value."""
         inp = TextInput(name="test", value="Hello")

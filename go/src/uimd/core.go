@@ -928,9 +928,9 @@ func alignLineSegment(segment textLineSegment, width int, align string) textLine
 		return result
 	}
 	padding := width - len(glyphs)
+	left := textAlignmentOffset(len(glyphs), width, align)
 	switch align {
 	case "center":
-		left := padding / 2
 		result := segment
 		result.Glyphs = append(blankGlyphs(left), glyphs...)
 		result.Glyphs = append(result.Glyphs, blankGlyphs(padding-left)...)
@@ -939,15 +939,27 @@ func alignLineSegment(segment textLineSegment, width int, align string) textLine
 		return result
 	case "right":
 		result := segment
-		result.Glyphs = append(blankGlyphs(padding), glyphs...)
+		result.Glyphs = append(blankGlyphs(left), glyphs...)
 		result.Text = glyphsText(result.Glyphs)
-		result.ContentOffset = segment.ContentOffset + padding
+		result.ContentOffset = segment.ContentOffset + left
 		return result
 	default:
 		result := segment
 		result.Glyphs = append(append([]visualGlyph(nil), glyphs...), blankGlyphs(padding)...)
 		result.Text = glyphsText(result.Glyphs)
 		return result
+	}
+}
+
+func textAlignmentOffset(contentWidth int, width int, align string) int {
+	padding := maxInt(0, width-contentWidth)
+	switch align {
+	case "center":
+		return padding / 2
+	case "right":
+		return padding
+	default:
+		return 0
 	}
 }
 

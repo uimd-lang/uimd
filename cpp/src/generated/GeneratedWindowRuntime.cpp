@@ -77,7 +77,6 @@ constexpr int kContentTopRow = 0;
 constexpr int kContentLeftCol = 0;
 constexpr int kMinimumRenderableSize = 1;
 constexpr int kComboBoxClosedRows = 1;
-constexpr int kComboBoxDropdownRows = 6;
 constexpr int kTextInputWheelScrollRows = 1;
 constexpr int kMaxCoalescedMouseWheelDelta = 12;
 constexpr int kNoBorderWidth = 0;
@@ -970,11 +969,89 @@ void applySelectedBackgroundToFocusedReusableChild(RenderedContent& content,
     if (!partialBackground(background)) {
         return true;
     }
-    if (reusable.child() != nullptr && reusable.child()->generatedScrollView() != nullptr) {
-        return false;
-    }
     return directFocus || !descendantOnlyFocus;
 }
+
+class ScopedGeneratedScrollViewFocusUnderlay {
+public:
+    ScopedGeneratedScrollViewFocusUnderlay() = default;
+
+    ScopedGeneratedScrollViewFocusUnderlay(const ScopedGeneratedScrollViewFocusUnderlay&) = delete;
+    ScopedGeneratedScrollViewFocusUnderlay& operator=(const ScopedGeneratedScrollViewFocusUnderlay&) = delete;
+
+    ~ScopedGeneratedScrollViewFocusUnderlay() {
+        if (scrollView_ != nullptr) {
+            scrollView_->setStyle(previousStyle_);
+            if (previousFocusStyle_.has_value()) {
+                scrollView_->setFocusStyle(*previousFocusStyle_);
+            }
+        }
+    }
+
+    void applyToStructuralBackgrounds(RenderedContent& rendered) const {
+        if (!structuralBackground_.has_value() || !focusBackground_.has_value()) {
+            return;
+        }
+        const Color focusedBackground = blendOverExactAlpha(*focusBackground_, *structuralBackground_);
+        for (RenderedRow& row : rendered) {
+            for (TerminalCell& cell : row) {
+                if (!cell.background.has_value() ||
+                    sameRenderedColor(*cell.background, *structuralBackground_)) {
+                    cell.background = focusedBackground;
+                }
+            }
+        }
+    }
+
+    [[nodiscard]] bool apply(Style& childWindowStyle,
+                             const ReusableElement& reusable,
+                             bool directFocus,
+                             const std::optional<Color>& parentBackground) {
+        if (!directFocus ||
+            reusable.child() == nullptr ||
+            reusable.child()->generatedScrollView() == nullptr ||
+            !reusable.focusStyle().has_value() ||
+            !partialBackground(reusable.focusStyle()->background)) {
+            return false;
+        }
+
+        scrollView_ = reusable.child()->generatedScrollView();
+        previousStyle_ = scrollView_->style();
+        if (scrollView_->focusStyle().has_value() &&
+            sameRenderedColor(
+                scrollView_->focusStyle()->background,
+                reusable.focusStyle()->background)) {
+            previousFocusStyle_ = scrollView_->focusStyle();
+            Style childFocusStyle = *previousFocusStyle_;
+            childFocusStyle.background.reset();
+            scrollView_->setFocusStyle(std::move(childFocusStyle));
+        }
+        Style focusedStyle = previousStyle_;
+        const std::optional<Color> structuralBackground = focusedStyle.background.has_value()
+            ? focusedStyle.background
+            : (childWindowStyle.background.has_value()
+                   ? childWindowStyle.background
+                   : (reusable.style().background.has_value()
+                          ? reusable.style().background
+                          : parentBackground));
+        const Color& focusBackground = *reusable.focusStyle()->background;
+        structuralBackground_ = structuralBackground;
+        focusBackground_ = focusBackground;
+        focusedStyle.background = structuralBackground.has_value()
+            ? blendOverExactAlpha(focusBackground, *structuralBackground)
+            : focusBackground;
+        childWindowStyle.background = focusedStyle.background;
+        scrollView_->setStyle(focusedStyle);
+        return true;
+    }
+
+private:
+    ScrollView* scrollView_ = nullptr;
+    Style previousStyle_;
+    std::optional<Style> previousFocusStyle_;
+    std::optional<Color> structuralBackground_;
+    std::optional<Color> focusBackground_;
+};
 
 void syncReusableChildFrames(ReusableElement& reusable, Rect frame);
 
@@ -3360,8 +3437,7 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
     if (elementEditActive) {
         if (auto* comboBox = dynamic_cast<ComboBox*>(element)) {
             const int dropdownRows = kComboBoxClosedRows + static_cast<int>(comboBox->options().size());
-            const int visibleRows = std::min(kComboBoxDropdownRows, dropdownRows);
-            size.height = std::min(visibleRows, std::max(size.height, buffer.height() - row));
+            size.height = std::min(dropdownRows, std::max(size.height, buffer.height() - row));
             row = renderRowFor(window.generatedLayout(), entry, cellRect, size);
         }
     }
@@ -3440,9 +3516,13 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
              childOwnsActiveScrollViewEditElement);
         std::optional<Style> childWindowStyle;
         std::optional<Color> childActiveScrollViewFocusBackground;
+        ScopedGeneratedScrollViewFocusUnderlay childFocusUnderlay;
         bool applyChildDescendantFocusBackground = true;
         Size childRenderSize = size;
         ScrollView* reusableGeneratedScrollView = generatedScrollViewForReusable(*reusable);
+        const bool reusableDirectFocus =
+            focused ||
+            (reusableGeneratedScrollView != nullptr && focusedElement == reusableGeneratedScrollView);
         const Size childContentSizeForWidth = generatedWindowContentSizeForWidth(
             *reusable->child(),
             std::max(kMinimumRenderableSize, childRenderSize.width));
@@ -3453,13 +3533,18 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
             childWindowStyle = reusable->child()->generatedWindowStyle();
             const bool applyReusableFocusStyle = reusableFocusStyleAppliesToChild(
                 *reusable,
-                focused,
-                reusableDescendantFocused && !focused);
+                reusableDirectFocus,
+                reusableDescendantFocused && !reusableDirectFocus);
             if (applyReusableFocusStyle) {
                 if (reusableGeneratedScrollView == nullptr) {
                     childWindowStyle->merge(*reusable->focusStyle());
                 }
-                if (reusable->focusStyle()->background.has_value()) {
+                const bool appliedDirectUnderlay = childFocusUnderlay.apply(
+                    *childWindowStyle,
+                    *reusable,
+                    reusableDirectFocus,
+                    parentBackground);
+                if (!appliedDirectUnderlay && reusable->focusStyle()->background.has_value()) {
                     childActiveScrollViewFocusBackground = reusable->focusStyle()->background;
                 }
             }
@@ -3502,6 +3587,7 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
             true,
             useHostViewportForRootScrollViewChild,
             suppressActiveScrollViewScopeVisuals);
+        childFocusUnderlay.applyToStructuralBackgrounds(content);
         if (childActiveScrollViewFocusBackground.has_value() && reusableGeneratedScrollView == nullptr) {
             if (applyChildDescendantFocusBackground) {
                 std::vector<Color> descendantBackgrounds;
@@ -3704,10 +3790,13 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
                 std::optional<Style> childWindowStyle;
                 std::optional<Color> childActiveScrollViewFocusBackground;
                 std::optional<Color> childDescendantFocusBackground;
+                ScopedGeneratedScrollViewFocusUnderlay childFocusUnderlay;
                 ScrollView* reusableGeneratedScrollView = generatedScrollViewForReusable(*reusable);
                 if (reusableWholeChildFocus) {
                     childWindowStyle = reusable->child()->generatedWindowStyle();
-                    const bool reusableDirectFocus = childView.element == focusedElement;
+                    const bool reusableDirectFocus =
+                        childView.element == focusedElement ||
+                        (reusableGeneratedScrollView != nullptr && focusedElement == reusableGeneratedScrollView);
                     const bool applyReusableFocusStyle = reusableFocusStyleAppliesToChild(
                         *reusable,
                         reusableDirectFocus,
@@ -3716,7 +3805,17 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
                         if (reusableGeneratedScrollView == nullptr) {
                             childWindowStyle->merge(*reusable->focusStyle());
                         }
-                        if (reusable->focusStyle()->background.has_value()) {
+                        const std::optional<Color> childParentBackground =
+                            childFrame.row >= 0 && childFrame.row < buffer.height() &&
+                            childFrame.col >= 0 && childFrame.col < buffer.width()
+                                ? buffer.cell(childFrame.row, childFrame.col).background
+                                : std::nullopt;
+                        const bool appliedDirectUnderlay = childFocusUnderlay.apply(
+                            *childWindowStyle,
+                            *reusable,
+                            reusableDirectFocus,
+                            childParentBackground);
+                        if (!appliedDirectUnderlay && reusable->focusStyle()->background.has_value()) {
                             childActiveScrollViewFocusBackground = reusable->focusStyle()->background;
                         }
                     }
@@ -3779,6 +3878,7 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
                     dynamic_cast<ViewHost*>(reusable) != nullptr &&
                         reusableGeneratedScrollView != nullptr,
                     suppressActiveScrollViewScopeVisuals);
+                childFocusUnderlay.applyToStructuralBackgrounds(reusableChildContent);
                 if (childDescendantFocusBackground.has_value()) {
                     if (reusableGeneratedScrollView == nullptr) {
                         std::vector<Color> descendantBackgrounds;
@@ -4028,7 +4128,7 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
             Rect dropdownFrame = comboBox->frame();
             dropdownFrame.height = std::max(
                 dropdownFrame.height,
-                std::min(kComboBoxDropdownRows, kComboBoxClosedRows + static_cast<int>(comboBox->options().size())));
+                kComboBoxClosedRows + static_cast<int>(comboBox->options().size()));
             if (dropdownFrame.contains(position)) {
                 return dropdownElement;
             }
@@ -5379,7 +5479,11 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             activeScrollViewEditElement = element;
         }
         notifyEditStarted(options, element);
-        const int cursor = textInput->cursorForPoint(localRow, localCol, Size{frame.width, frame.height});
+        const int cursor = textInput->cursorForPoint(
+            localRow,
+            localCol,
+            Size{frame.width, frame.height},
+            ElementRenderState{.focused = true, .editMode = true});
         textInput->selectRange(cursor, cursor);
         mouseSelectionElement = element;
         mouseSelectionAnchor = cursor;
@@ -5543,7 +5647,11 @@ void clearLabelSelectionsInWindow(GeneratedWindowBase& window) {
                 localRow = frame.height - 1;
             }
         }
-        const int cursor = textInput->cursorForPoint(localRow, localCol, Size{frame.width, frame.height});
+        const int cursor = textInput->cursorForPoint(
+            localRow,
+            localCol,
+            Size{frame.width, frame.height},
+            ElementRenderState{.focused = true, .editMode = true});
         textInput->selectRange(mouseSelectionAnchor, cursor);
         return true;
     }

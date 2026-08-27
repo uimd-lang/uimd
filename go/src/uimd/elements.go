@@ -2153,6 +2153,9 @@ func (element *TextInput) Render(size Size, state ElementRenderState) [][]Termin
 	startSelection, endSelection := element.selectionRange()
 	if !element.Multiline {
 		cursorVisual := element.Cursor
+		if len(valueRunes) <= width {
+			element.colScrollOffset = 0
+		}
 		if state.EditMode {
 			if cursorVisual < element.colScrollOffset {
 				element.colScrollOffset = cursorVisual
@@ -2166,16 +2169,23 @@ func (element *TextInput) Render(size Size, state ElementRenderState) [][]Termin
 		if element.colScrollOffset < len(valueRunes) {
 			visible = string(valueRunes[element.colScrollOffset:end])
 		}
-		rows[0] = renderLine(visible, width, style)
+		textWidth := len(visualGlyphs(element.Value, 0, 0))
+		alignmentOffset := 0
+		if element.colScrollOffset == 0 && textWidth <= width {
+			alignmentOffset = textAlignmentOffset(textWidth, width, style.TextAlign)
+		}
+		visibleRow := renderLine(visible, maxInt(minimumRenderableSize, width-alignmentOffset), style)
+		rows[0] = renderLine("", width, style)
+		copy(rows[0][alignmentOffset:], visibleRow[:minInt(len(visibleRow), width-alignmentOffset)])
 		for col := 0; col < width; col++ {
-			source := element.colScrollOffset + col
+			source := element.colScrollOffset + col - alignmentOffset
 			if state.EditMode && element.hasSelection() && source >= startSelection && source < endSelection {
 				rows[0][col].Foreground = cursorStyle.Color
 				rows[0][col].Background = cursorStyle.Background
 			}
 		}
 		if state.EditMode && !element.hasSelection() {
-			cursorCol := clampInt(element.Cursor-element.colScrollOffset, 0, width-1)
+			cursorCol := clampInt(alignmentOffset+element.Cursor-element.colScrollOffset, 0, width-1)
 			rows[0][cursorCol].Foreground = cursorStyle.Color
 			rows[0][cursorCol].Background = cursorStyle.Background
 		}
@@ -3047,6 +3057,7 @@ func (element *ScrollView) Render(size Size, state ElementRenderState) [][]Termi
 			childState.ClipBottom = &childVisibleBottom
 		}
 		rendered := child.Render(Size{Width: size.Width, Height: childHeight}, childState)
+		inheritScrollViewChildStyle(rendered, style)
 		visibleRows := minInt(childHeight, len(rendered))
 		for row := 0; row < visibleRows; row++ {
 			targetRow := cursor + row - element.ViewOffset
@@ -3099,6 +3110,19 @@ func (element *ScrollView) Render(size Size, state ElementRenderState) [][]Termi
 		}
 	}
 	return rows
+}
+
+func inheritScrollViewChildStyle(rows [][]TerminalCell, parentStyle Style) {
+	for row := range rows {
+		for col := range rows[row] {
+			cell := rows[row][col]
+			cell.Background = blendBackgroundOverExisting(cell.Background, parentStyle.Background)
+			if cell.Foreground.Empty() || cell.Foreground.Transparent() {
+				cell.Foreground = parentStyle.Color
+			}
+			rows[row][col] = cell
+		}
+	}
 }
 
 type scrollViewOverflowRender struct {
@@ -3244,7 +3268,11 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 	}
 	applyReusableFocusStyle := childFocusActive && reusableFocusStyleAppliesToChild(element, state.Focused, childFocusActive && !state.Focused)
 	childWindowFocusStyleApplied := false
+	directFocusUnderlayApplied := false
+	directFocusStructuralBackground := Color{}
+	directFocusUnderlayBackground := Color{}
 	previousChildWindowStyle := element.Child.windowStyle
+	previousChildScrollViewStyle := Style{}
 	if applyReusableFocusStyle &&
 		childScrollView == nil &&
 		element.focusStyle != nil &&
@@ -3253,6 +3281,36 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 		childWindowStyle.Merge(*element.focusStyle)
 		element.Child.windowStyle = childWindowStyle
 		childWindowFocusStyleApplied = true
+	}
+	if applyReusableFocusStyle &&
+		childScrollView != nil &&
+		state.Focused &&
+		element.focusStyle != nil &&
+		hasPartialAlpha(element.focusStyle.Background) {
+		previousChildScrollViewStyle = childScrollView.style.Clone()
+		focusedScrollViewStyle := previousChildScrollViewStyle.Clone()
+		structuralBackground := focusedScrollViewStyle.Background
+		if structuralBackground.Empty() {
+			structuralBackground = previousChildWindowStyle.Background
+		}
+		if structuralBackground.Empty() {
+			structuralBackground = element.style.Background
+		}
+		if structuralBackground.Empty() && effectiveStyleParentBackgroundSet {
+			structuralBackground = effectiveStyleParentBackground
+		}
+		directFocusStructuralBackground = structuralBackground
+		focusedBackground := element.focusStyle.Background
+		if !structuralBackground.Empty() {
+			focusedBackground = focusedBackground.BlendOver(structuralBackground)
+		}
+		focusedScrollViewStyle.Background = focusedBackground
+		directFocusUnderlayBackground = focusedBackground
+		childScrollView.SetStyle(focusedScrollViewStyle)
+		childWindowStyle := previousChildWindowStyle.Clone()
+		childWindowStyle.Background = focusedBackground
+		element.Child.windowStyle = childWindowStyle
+		directFocusUnderlayApplied = true
 	}
 	childRows := renderGeneratedWindowContentWithEditElementClipOptions(
 		element.Child,
@@ -3268,8 +3326,17 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 		state.ClipBottom,
 		true,
 		state.ScopeFocusActive).cells
-	if childWindowFocusStyleApplied {
+	if directFocusUnderlayApplied {
+		applyDirectFocusUnderlayToStructuralBackgrounds(
+			childRows,
+			directFocusStructuralBackground,
+			directFocusUnderlayBackground)
+	}
+	if childWindowFocusStyleApplied || directFocusUnderlayApplied {
 		element.Child.windowStyle = previousChildWindowStyle
+	}
+	if directFocusUnderlayApplied {
+		childScrollView.SetStyle(previousChildScrollViewStyle)
 	}
 	baseFocused := state.Focused
 	if childScrollView != nil && childFocusActive {
@@ -3291,7 +3358,7 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 	}
 	if childFocusActive {
 		childFocusApplied := false
-		if applyReusableFocusStyle && element.focusStyle != nil && !element.focusStyle.Background.Empty() {
+		if applyReusableFocusStyle && !directFocusUnderlayApplied && element.focusStyle != nil && !element.focusStyle.Background.Empty() {
 			descendantBackgrounds := collectDescendantBaseStyleBackgrounds(element.Child)
 			protectedBackgrounds := collectDescendantReusableProtectedBackgrounds(element.Child, descendantBackgrounds)
 			if childScrollView != nil {
@@ -3312,18 +3379,30 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 			}
 			childFocusApplied = true
 		}
+		childScrollFocusBackground := Color{}
+		if childScrollView != nil && childScrollView.focusStyle != nil {
+			childScrollFocusBackground = childScrollView.focusStyle.Background
+			if directFocusUnderlayApplied &&
+				element.focusStyle != nil &&
+				sameRenderedColor(childScrollFocusBackground, element.focusStyle.Background) {
+				childScrollFocusBackground = Color{}
+			}
+		}
 		if !childFocusApplied &&
 			childScrollView != nil &&
 			!(state.Focused && state.EditMode && childFocused == nil) &&
-			childScrollView.focusStyle != nil &&
-			!childScrollView.focusStyle.Background.Empty() {
+			!childScrollFocusBackground.Empty() {
 			descendantBackgrounds := collectDescendantBaseStyleBackgrounds(element.Child)
 			protectedBackgrounds := collectDescendantReusableProtectedBackgrounds(element.Child, descendantBackgrounds)
+			childFocusBaseBackground := focusBaseBackground
+			if directFocusUnderlayApplied {
+				childFocusBaseBackground = directFocusUnderlayBackground
+			}
 			applyReusableFocusBackgroundToRootScrollViewGaps(
 				rows,
 				childScrollView,
-				childScrollView.focusStyle.Background,
-				focusBaseBackground,
+				childScrollFocusBackground,
+				childFocusBaseBackground,
 				protectedBackgrounds,
 				true,
 				false)
@@ -3333,15 +3412,28 @@ func (element *ReusableElement) Render(size Size, state ElementRenderState) [][]
 	return rows
 }
 
+func applyDirectFocusUnderlayToStructuralBackgrounds(rows [][]TerminalCell, structuralBackground Color, focusedBackground Color) {
+	if structuralBackground.Empty() || focusedBackground.Empty() {
+		return
+	}
+	for row := range rows {
+		for col := range rows[row] {
+			cell := rows[row][col]
+			if !cell.Background.Empty() && !sameRenderedColor(cell.Background, structuralBackground) {
+				continue
+			}
+			cell.Background = focusedBackground
+			rows[row][col] = cell
+		}
+	}
+}
+
 func reusableFocusStyleAppliesToChild(element *ReusableElement, directFocus bool, descendantOnlyFocus bool) bool {
 	if element == nil || element.focusStyle == nil {
 		return false
 	}
 	if !hasPartialAlpha(element.focusStyle.Background) {
 		return true
-	}
-	if element.Child != nil && generatedScrollViewForReusableChild(element.Child) != nil {
-		return false
 	}
 	return directFocus || !descendantOnlyFocus
 }

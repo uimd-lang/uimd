@@ -20,6 +20,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import uimd_dev
+import previous_version_compatibility as previous_compat
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,71 @@ class _Phase:
 
 
 class FullTestReportTests(unittest.TestCase):
+    def test_rust_previous_version_fixture_is_built_from_an_isolated_copy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "repo"
+            fixture_root = root / "tests/compatibility/v0.5.3"
+            rust_fixture = fixture_root / "rust"
+            rust_fixture.mkdir(parents=True)
+            source_fixture = fixture_root / "source"
+            source_fixture.mkdir()
+            (source_fixture / "compat_scroll_ui.rs").write_text(
+                "// frozen generated dependency\n",
+                encoding="utf-8",
+            )
+            runtime = root / "rust/src/uimd"
+            runtime.mkdir(parents=True)
+            cargo_toml = (
+                '[package]\nname = "compatibility"\nversion = "0.1.0"\n\n'
+                '[dependencies]\nuimd = { path = "../../../../rust/src/uimd" }\n'
+            )
+            cargo_lock = "frozen lock\n"
+            (rust_fixture / "Cargo.toml").write_text(cargo_toml, encoding="utf-8")
+            (rust_fixture / "Cargo.lock").write_text(cargo_lock, encoding="utf-8")
+            build_root = Path(temp_dir) / "build"
+
+            with (
+                patch.object(previous_compat, "ROOT", root),
+                patch.object(previous_compat, "FIXTURE_ROOT", fixture_root),
+                patch.object(previous_compat, "required_command", return_value="cargo"),
+                patch.object(previous_compat, "run_command") as run_command,
+                patch.object(previous_compat, "exercise_runtime"),
+            ):
+                previous_compat.rust_gate(build_root)
+
+            self.assertEqual((rust_fixture / "Cargo.toml").read_text(), cargo_toml)
+            self.assertEqual((rust_fixture / "Cargo.lock").read_text(), cargo_lock)
+            copied_manifest = build_root / "rust-fixture/rust/Cargo.toml"
+            self.assertIn(runtime.as_posix(), copied_manifest.read_text())
+            self.assertTrue(
+                (build_root / "rust-fixture/source/compat_scroll_ui.rs").is_file()
+            )
+            command = run_command.call_args.args[0]
+            self.assertEqual(command[command.index("--manifest-path") + 1], copied_manifest)
+
+    def test_swift_previous_version_gate_uses_a_writable_module_cache(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            build_root = Path(temp_dir) / "build"
+            fixture_root = Path(temp_dir) / "fixtures"
+            with (
+                patch.object(previous_compat, "FIXTURE_ROOT", fixture_root),
+                patch.object(previous_compat, "required_command", return_value="swift"),
+                patch.object(previous_compat, "run_command") as run_command,
+                patch.object(
+                    previous_compat,
+                    "find_executable",
+                    return_value=build_root / "swift/compatibility",
+                ),
+                patch.object(previous_compat, "exercise_runtime"),
+            ):
+                previous_compat.swift_gate(build_root)
+
+            module_cache = build_root / "swift-module-cache"
+            self.assertTrue(module_cache.is_dir())
+            environment = run_command.call_args.kwargs["env"]
+            self.assertEqual(environment["CLANG_MODULE_CACHE_PATH"], str(module_cache))
+            self.assertEqual(environment["SWIFTPM_MODULECACHE_OVERRIDE"], str(module_cache))
+
     def test_posix_wrapper_exposes_homebrew_libsixel_to_python_children(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -385,6 +451,24 @@ class FullTestReportTests(unittest.TestCase):
         self.assertEqual(calls[0].kwargs["cwd"], uimd_dev.ROOT / "rust/src/uimd")
         self.assertEqual(calls[1].kwargs["cwd"], example_dir)
         self.assertEqual(calls[2].kwargs["cwd"], regression_dir)
+
+    def test_previous_version_compatibility_forwards_disabled_platforms(self):
+        with patch.object(uimd_dev, "run") as run_mock:
+            uimd_dev.run_previous_version_compatibility(
+                include_swift=False,
+                include_rust=True,
+                include_java=False,
+            )
+
+        self.assertEqual(
+            run_mock.call_args.args[0],
+            [
+                sys.executable,
+                "tools/previous_version_compatibility.py",
+                "--no-swift",
+                "--no-java",
+            ],
+        )
 
 
 if __name__ == "__main__":

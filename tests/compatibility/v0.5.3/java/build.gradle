@@ -1,0 +1,53 @@
+plugins
+{
+    id "application"
+}
+
+def compatibilityBuildRoot = System.getenv("UIMD_COMPAT_BUILD_ROOT")
+if (compatibilityBuildRoot)
+{
+    layout.buildDirectory = file(compatibilityBuildRoot)
+}
+
+apply from: new File(gradle.ext.uimdRuntimeRoot, "uimd-java-launchers.gradle")
+
+repositories
+{
+    mavenCentral()
+}
+
+java
+{
+    toolchain
+    {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+dependencies
+{
+    implementation "org.uimd:uimd:0.5.1"
+}
+
+application
+{
+    mainClass = "Compatibility"
+}
+
+sourceSets
+{
+    main
+    {
+        java
+        {
+            srcDirs = ["."]
+            exclude "build/**"
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach
+{
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(["-Xlint:all", "-Werror"])
+}

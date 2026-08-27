@@ -103,11 +103,17 @@ public class ReusableElement extends Element
                 || childOwnsActiveScrollView
                 || childOwnsActiveEditElement);
         ScrollView generatedScrollView = child.generatedScrollView();
+        directFocus = directFocus || focused == generatedScrollView;
         boolean applyFocusStyle = reusableFocusStyleAppliesToChild(
             directFocus,
             reusableDescendantFocused && !directFocus);
         Style childWindowStyle = null;
         Color focusBackground = null;
+        Style previousGeneratedScrollViewStyle = null;
+        Style previousGeneratedScrollViewFocusStyle = null;
+        Color directFocusStructuralBackground = null;
+        Color directFocusBackground = null;
+        boolean directFocusUnderlayApplied = false;
         if (reusableDescendantFocused && applyFocusStyle)
         {
             childWindowStyle = child.generatedWindowStyle().copy();
@@ -115,11 +121,53 @@ public class ReusableElement extends Element
             {
                 childWindowStyle.merge(focusStyle());
             }
-            focusBackground = focusStyle().background();
+            else if (directFocus && hasPartialAlpha(focusStyle().background()))
+            {
+                previousGeneratedScrollViewStyle = generatedScrollView.style().copy();
+                if (generatedScrollView.focusStyle() != null
+                    && generatedScrollView.focusStyle().background() != null
+                    && generatedScrollView.focusStyle().background().equals(focusStyle().background()))
+                {
+                    previousGeneratedScrollViewFocusStyle = generatedScrollView.focusStyle().copy();
+                    Style childFocusStyle = previousGeneratedScrollViewFocusStyle.copy();
+                    childFocusStyle.setBackground(null);
+                    generatedScrollView.setFocusStyle(childFocusStyle);
+                }
+                Style focusedScrollViewStyle = previousGeneratedScrollViewStyle.copy();
+                Color structuralBackground = focusedScrollViewStyle.background();
+                if (structuralBackground == null)
+                {
+                    structuralBackground = childWindowStyle.background();
+                }
+                if (structuralBackground == null)
+                {
+                    structuralBackground = style().background();
+                }
+                if (structuralBackground == null)
+                {
+                    structuralBackground = Element.renderingParentBackground();
+                }
+                directFocusBackground = focusStyle().background();
+                Color focusedBackground = structuralBackground == null
+                    ? directFocusBackground
+                    : directFocusBackground.blendOver(structuralBackground);
+                childWindowStyle.setBackground(focusedBackground);
+                focusedScrollViewStyle.setBackground(focusedBackground);
+                generatedScrollView.setStyle(focusedScrollViewStyle);
+                directFocusStructuralBackground = structuralBackground;
+                directFocusUnderlayApplied = true;
+            }
+            if (!directFocusUnderlayApplied)
+            {
+                focusBackground = focusStyle().background();
+            }
         }
         if (reusableDescendantFocused
             && focusBackground == null
             && !childOwnsActiveScrollView
+            && !(effectiveState.focused()
+                && effectiveState.editMode()
+                && !childHasFocusedElement)
             && generatedScrollView != null)
         {
             Style scrollFocusStyle = generatedScrollView.descendantFocusStyle() != null
@@ -131,21 +179,43 @@ public class ReusableElement extends Element
             }
         }
 
-        List<List<TerminalCell>> rendered = GeneratedWindowRuntime.renderGeneratedWindowContent(
-            child,
-            size,
-            focusedIndex,
-            childEditMode,
-            activeScrollView,
-            activeEditElement,
-            childWindowStyle,
-            focusBackground,
-            effectiveState.clipTop(),
-            effectiveState.clipBottom(),
-            false,
-            true,
-            this instanceof ViewHost && generatedScrollView != null,
-            effectiveState.suppressActiveScrollViewScopeVisuals());
+        List<List<TerminalCell>> rendered;
+        try
+        {
+            rendered = GeneratedWindowRuntime.renderGeneratedWindowContent(
+                child,
+                size,
+                focusedIndex,
+                childEditMode,
+                activeScrollView,
+                activeEditElement,
+                childWindowStyle,
+                focusBackground,
+                effectiveState.clipTop(),
+                effectiveState.clipBottom(),
+                false,
+                true,
+                this instanceof ViewHost && generatedScrollView != null,
+                effectiveState.suppressActiveScrollViewScopeVisuals());
+            if (directFocusUnderlayApplied)
+            {
+                applyFocusUnderlayToStructuralBackgrounds(
+                    rendered,
+                    directFocusStructuralBackground,
+                    directFocusBackground);
+            }
+        }
+        finally
+        {
+            if (directFocusUnderlayApplied && previousGeneratedScrollViewStyle != null)
+            {
+                generatedScrollView.setStyle(previousGeneratedScrollViewStyle);
+            }
+            if (directFocusUnderlayApplied && previousGeneratedScrollViewFocusStyle != null)
+            {
+                generatedScrollView.setFocusStyle(previousGeneratedScrollViewFocusStyle);
+            }
+        }
         if (focusBackground != null && generatedScrollView == null)
         {
             List<Color> descendantBackgrounds = new java.util.ArrayList<>();
@@ -174,10 +244,6 @@ public class ReusableElement extends Element
         if (!hasPartialAlpha(background))
         {
             return true;
-        }
-        if (child != null && child.generatedScrollView() != null)
-        {
-            return false;
         }
         return directFocus || !descendantOnlyFocus;
     }
@@ -273,6 +339,28 @@ public class ReusableElement extends Element
                         cell.setBackground(focusedBackground);
                         break;
                     }
+                }
+            }
+        }
+    }
+
+    private static void applyFocusUnderlayToStructuralBackgrounds(
+        List<List<TerminalCell>> content,
+        Color structuralBackground,
+        Color focusBackground)
+    {
+        if (structuralBackground == null || focusBackground == null)
+        {
+            return;
+        }
+        Color focusedBackground = blendOverExactAlpha(focusBackground, structuralBackground);
+        for (List<TerminalCell> row : content)
+        {
+            for (TerminalCell cell : row)
+            {
+                if (cell.background() == null || structuralBackground.equals(cell.background()))
+                {
+                    cell.setBackground(focusedBackground);
                 }
             }
         }

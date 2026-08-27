@@ -705,6 +705,17 @@ public static class RenderHelpers
         }
     }
 
+    internal static int AlignedTextOffset(int contentWidth, int width, string? align)
+    {
+        int padding = Math.Max(0, width - contentWidth);
+        return align switch
+        {
+            "center" => padding / 2,
+            "right" => padding,
+            _ => 0,
+        };
+    }
+
     public static List<List<TerminalCell>> RenderPlainText(string text, int width, int height, Style style)
     {
         text ??= "";
@@ -893,12 +904,7 @@ public static class RenderHelpers
             glyphs = glyphs.Take(width).ToList();
         }
         int contentWidth = glyphs.Count;
-        int offset = style.TextAlign switch
-        {
-            "center" => Math.Max(0, (width - contentWidth) / 2),
-            "right" => Math.Max(0, width - contentWidth),
-            _ => 0,
-        };
+        int offset = AlignedTextOffset(contentWidth, width, style.TextAlign);
         List<TerminalCell> row = new(width);
         for (int col = 0; col < offset && col < width; ++col)
         {

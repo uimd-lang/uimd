@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -90,6 +91,61 @@ final class McpControllerTest
         JsonNode appResult = controller.callTool("echo", JSON.createObjectNode());
         assertEquals("java", appResult.path("backend").asText());
         assertTrue(controller.listTools().path("tools").toString().contains("\"echo\""));
+    }
+
+    @Test
+    void comboBoxMouseSelectionUsesEveryRenderedOptionRow()
+    {
+        GeneratedWindowBase window = new GeneratedWindowBase("Combo mouse");
+        ComboBox comboBox = window.addElement(new ComboBox(
+            "choice",
+            List.of(
+                "Option 0",
+                "Option 1",
+                "Option 2",
+                "Option 3",
+                "Option 4",
+                "Option 5",
+                "Option 6",
+                "Option 7")));
+        Style windowStyle = new Style();
+        windowStyle.setBorderWidthHorizontal(0);
+        windowStyle.setBorderWidthVertical(0);
+        window.setGeneratedWindowStyle(windowStyle);
+        GeneratedLayoutEntry comboLayout = layout("choice", 0, 0, 12, 1);
+        comboLayout.setCellWidth(AxisDimension.expanded());
+        comboLayout.setCellHeight(AxisDimension.expanded());
+        window.setGeneratedLayout(List.of(comboLayout));
+        AtomicInteger selectionChanges = new AtomicInteger();
+        GeneratedWindowRuntimeOptions runtimeOptions = window.runtimeOptions();
+        runtimeOptions.setInitialFocusName("choice");
+        runtimeOptions.setOnSelectionChanged(
+            (name, values) -> selectionChanges.incrementAndGet());
+        McpRuntimeConfig config = McpRuntimeConfig.parse(new String[] {
+            "--mcp-server",
+            "--headless",
+            "--mcp-fast",
+            "--viewport",
+            "0,0," + VIEWPORT_WIDTH + "," + VIEWPORT_HEIGHT,
+        });
+        McpController controller = new McpController(window, runtimeOptions, config);
+
+        ObjectNode editArguments = JSON.createObjectNode();
+        editArguments.put("element_id", "choice");
+        JsonNode editState = controller.callTool("enter_edit_mode", editArguments);
+        assertTrue(editState.path("edit_mode").asBoolean(), editState.toString());
+        controller.callTool("get_render_frame", JSON.createObjectNode());
+        ObjectNode point = JSON.createObjectNode();
+        point.put("x", comboBox.frame().col() + 1);
+        point.put("y", comboBox.frame().row() + 7);
+        controller.callTool("mouse_press", point);
+
+        assertEquals(6, comboBox.selectedIndex(), "frame " + comboBox.frame() + ", point " + point);
+        assertEquals(1, selectionChanges.get());
+        ObjectNode key = JSON.createObjectNode();
+        key.put("key", "Down");
+        controller.callTool("press_key", key);
+        assertEquals(6, comboBox.selectedIndex());
     }
 
     @Test

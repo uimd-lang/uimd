@@ -610,6 +610,25 @@ def run_csharp_tests() -> None:
     )
 
 
+def run_previous_version_compatibility(
+    *,
+    include_swift: bool,
+    include_rust: bool,
+    include_java: bool,
+) -> None:
+    command: list[str | Path] = [
+        sys.executable,
+        "tools/previous_version_compatibility.py",
+    ]
+    if not include_swift:
+        command.append("--no-swift")
+    if not include_rust:
+        command.append("--no-rust")
+    if not include_java:
+        command.append("--no-java")
+    run(command)
+
+
 def run_gradle(project_dir: Path, *tasks: str) -> None:
     run_with_env(
         [*gradle_wrapper_command(), "-p", project_dir, *tasks, "--console=plain"],
@@ -1469,6 +1488,17 @@ def test_all(args: argparse.Namespace) -> None:
             record_skipped_phase(phases, "Build Swift runtime and examples", "--no-rebuild")
             record_skipped_phase(phases, "Compile Python sources", "--no-rebuild")
             run_full_test_phase(phases, "Validate parity artifact manifest", lambda: validate_manifest(ROOT))
+        run_full_test_phase(
+            phases,
+            "Previous-version compatibility",
+            lambda: run_previous_version_compatibility(
+                include_swift=validate_swift,
+                include_rust=validate_rust,
+                include_java=validate_java,
+            ),
+            report_kind="smoke",
+            continue_on_failure=args.keep_going,
+        )
         run_full_test_phase(
             phases,
             "Python tests",

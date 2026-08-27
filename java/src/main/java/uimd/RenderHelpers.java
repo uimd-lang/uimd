@@ -375,12 +375,7 @@ public final class RenderHelpers
     private static List<TerminalCell> renderGlyphRow(List<VisualGlyph> glyphs, int width, Style style)
     {
         int contentWidth = Math.min(glyphs.size(), width);
-        int offset = switch (style.textAlign())
-        {
-            case "center" -> Math.max(0, (width - contentWidth) / 2);
-            case "right" -> Math.max(0, width - contentWidth);
-            default -> 0;
-        };
+        int offset = alignedTextOffset(contentWidth, width, style.textAlign());
         List<TerminalCell> row = new ArrayList<>(width);
         while (row.size() < offset)
         {
@@ -405,6 +400,16 @@ public final class RenderHelpers
             row.add(styledCell(" ", style, null, null));
         }
         return row;
+    }
+
+    static int alignedTextOffset(int contentWidth, int width, String textAlign)
+    {
+        return switch (textAlign)
+        {
+            case "center" -> Math.max(0, (width - contentWidth) / 2);
+            case "right" -> Math.max(0, width - contentWidth);
+            default -> 0;
+        };
     }
 
     static TerminalCell styledCell(String text, Style style, Color foreground, Color background)

@@ -155,7 +155,20 @@ class UIElement(UIInstance):
 
     def _get_cell_background(self):
         """Get the structural cell background for alpha blending."""
-        return getattr(self, '_cell_background', None)
+        background = getattr(self, '_cell_background', None)
+        if background is not None:
+            return background
+
+        # Older generated components can contain ordinary elements without a
+        # retained structural layout cell.  Their structural surface is the
+        # owning generated window's effective background, just as it is for a
+        # resolved cell without its own background.  Resolve that relationship
+        # dynamically so a reusable host's render-time focus underlay is also
+        # visible through partially transparent descendant styles.
+        parent = getattr(self, 'parent', None)
+        if parent is not None and hasattr(parent, '_effective_window_background'):
+            return parent._effective_window_background()
+        return None
 
     def _get_cell_color(self):
         """Get the structural cell color for foreground inheritance."""

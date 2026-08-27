@@ -1737,6 +1737,60 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertIn("One", plain)
         self.assertIn("Two", plain)
 
+    def test_combobox_mouse_selects_every_rendered_option_row(self):
+        """A visible option below row six must remain interactive."""
+        options = [f"Option {index}" for index in range(8)]
+
+        class SelectionWindow(UIWindow):
+            def __init__(self):
+                super().__init__(
+                    title="Combo Mouse",
+                    style={"this": {"border-width": "0"}},
+                    layout=[{
+                        "name": "choice",
+                        "row": 0,
+                        "col": 0,
+                        "cell_row": 0,
+                        "cell_col": 0,
+                        "cell_chars_width": 12,
+                        "cell_chars_height": 1,
+                        "cell_width": 12,
+                        "cell_height": 1,
+                        "cell_width_mode": "auto",
+                        "cell_height_mode": "auto",
+                        "chars_width": 12,
+                        "chars_height": 1,
+                        "width": 12,
+                        "height": 1,
+                        "type": "combobox",
+                    }],
+                )
+                self.selection_changes = []
+
+            def selectionchanged(self, element, value):
+                self.selection_changes.append((element.name, value))
+
+        app = UIApplication(width=20, height=12)
+        window = SelectionWindow()
+        combo = window.create_element(
+            "choice", "combobox", options=options, selected_item=options[0])
+        app.open(window)
+        window.set_focus(combo)
+        window._enter_edit_mode()
+
+        handled = window._handle_mouse_event({
+            "type": "mouse",
+            "event": "press",
+            "button": 0,
+            "row": 7,
+            "col": 1,
+        })
+
+        self.assertTrue(handled)
+        self.assertEqual(combo.selected_item, options[6])
+        self.assertEqual(window.selection_changes, [("choice", options[6])])
+        self.assertFalse(window._edit_mode)
+
     def test_zero_border_horizontal_group_fills_parent_width(self):
         """Collapsed vertical separators should not leave a trailing empty column."""
         app = UIApplication(width=10, height=2)
@@ -2252,6 +2306,121 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertEqual(child._window_width, 4)
         self.assertEqual(child._window_height, 2)
         self.assertEqual(lines[:2], ["abcd", "ghij"])
+
+    def test_reusable_generated_scrollview_focus_underlays_alpha_descendant_background(self):
+        """Direct host focus must remain visible through an alpha child surface."""
+        parent_background = Color("#303545")
+        focus_background = Color("#ffffff14")
+        descendant_background = Color("#252a36cc")
+
+        # This is the shape of a retained generated ScrollView whose old
+        # output has no structural layout entry for its ordinary base label.
+        # The Label must therefore inherit the generated window surface at
+        # render time instead of blending its alpha background over black.
+        scrollview = UIScrollView(style={
+            "this": {"background": parent_background.hex},
+            "@alpha_row": {"background": descendant_background.hex},
+        })
+        row = scrollview.create_element("alpha_row", "label", text="x")
+
+        host = ViewHost(name="rows", width=1, height=1)
+        host.set_view(scrollview)
+        host._cell_background = parent_background
+        host.style.background = parent_background
+        host.focus_style = Style()
+        host.focus_style.background = focus_background
+
+        unfocused = host.render_cells()[0][0].background
+        host.focused = True
+        focused = host.render_cells()[0][0].background
+        host.focused = False
+        descendant_only = host.render_cells()[0][0].background
+
+        self.assertEqual(scrollview._color_key(unfocused), scrollview._color_key(Color("#272c39")))
+        self.assertEqual(scrollview._color_key(focused), scrollview._color_key(Color("#2a2f3c")))
+        self.assertEqual(scrollview._color_key(descendant_only), scrollview._color_key(Color("#272c39")))
+
+    def test_reusable_generated_scrollview_preserves_child_focus_over_direct_underlay(self):
+        """The root ScrollView focus surface renders over its reusable underlay."""
+        parent_background = Color("#303545")
+        host_focus_background = Color("#ffffff14")
+        opaque_child_focus = Color("#1e3a5f")
+        scrollview = UIScrollView(
+            layout=[{
+                "row": 0,
+                "col": 0,
+                "cell_row": 0,
+                "cell_col": 0,
+                "cell_chars_width": 1,
+                "cell_chars_height": 1,
+                "cell_name": "panel",
+                "cell_width_mode": "expanded",
+                "cell_height_mode": "expanded",
+                "chars_width": 1,
+                "chars_height": 1,
+                "type": "label",
+                "name": "_cell_0",
+            }],
+            style={
+                "this": {
+                    "background": parent_background.hex,
+                    "focus-background": opaque_child_focus.hex,
+                },
+                "@panel": {"background": parent_background.hex},
+            },
+        )
+        scrollview.create_element("_cell_0", "label", text="")
+
+        host = ViewHost(name="rows", width=1, height=1)
+        host.set_view(scrollview)
+        host._cell_background = parent_background
+        host.style.background = parent_background
+        host.focus_style = Style()
+        host.focus_style.background = host_focus_background
+        host.focused = True
+
+        opaque_focused = host.render_cells()[0][0].background
+        self.assertEqual(
+            scrollview._color_key(opaque_focused),
+            scrollview._color_key(opaque_child_focus),
+        )
+
+        scrollview.style.focus_background = host_focus_background
+        scrollview.focus_style.background = host_focus_background
+        scrollview._focused = True
+        shared_partial_focused = host.render_cells()[0][0].background
+        expected_shared_partial = scrollview._blend_color_over_exact_alpha(
+            host_focus_background,
+            parent_background,
+        )
+        self.assertEqual(
+            scrollview._color_key(shared_partial_focused),
+            scrollview._color_key(expected_shared_partial),
+        )
+
+    def test_reusable_generated_scrollview_focus_underlays_dynamic_alpha_child(self):
+        """Generated ScrollView rows composite over the direct host focus underlay."""
+        parent_background = Color("#303545")
+        focus_background = Color("#ffffff14")
+        descendant_background = Color("#252a36cc")
+        row = Label(text="x", width=1, height=1)
+        row.style.background = descendant_background
+        scrollview = PlainScrollView(width=1, height=1, children=[row])
+        scrollview.style.background = parent_background
+
+        host = ViewHost(name="rows", width=1, height=1)
+        host.set_view(scrollview)
+        host._cell_background = parent_background
+        host.style.background = parent_background
+        host.focus_style = Style()
+        host.focus_style.background = focus_background
+
+        unfocused = host.render_cells()[0][0].background
+        host.focused = True
+        focused = host.render_cells()[0][0].background
+
+        self.assertEqual(scrollview._color_key(unfocused), scrollview._color_key(Color("#272c39")))
+        self.assertEqual(scrollview._color_key(focused), scrollview._color_key(Color("#2a2f3c")))
 
     def _window_with_active_scrollview_child(self, elem, *, begin_child_edit=True):
         window = UIWindow()

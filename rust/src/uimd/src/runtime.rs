@@ -4624,6 +4624,34 @@ fn apply_reusable_focus_to_descendant_backgrounds(
     }
 }
 
+fn apply_generated_scroll_view_focus_underlay_to_structural_backgrounds(
+    buffer: &mut TerminalBuffer,
+    structural_background: Option<&Color>,
+    focus_background: Option<&Color>,
+)
+{
+    let (Some(structural_background), Some(focus_background)) =
+        (structural_background, focus_background)
+    else
+    {
+        return;
+    };
+    let focused = focused_background(focus_background, structural_background);
+    for row in 0..buffer.height
+    {
+        for col in 0..buffer.width
+        {
+            let Some(cell) = buffer.cell_mut(row, col) else { continue };
+            if cell.background.is_none()
+                || cell.background.as_ref().is_some_and(|background|
+                    same_rendered_color(background, structural_background))
+            {
+                cell.background = Some(focused.clone());
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_embedded_window_with_interaction(
     window: &mut GeneratedWindow,
@@ -5502,7 +5530,7 @@ fn render_generated_window_with_root_scroll_indicator_mode<A: GeneratedApplicati
         let parent_background = buffer
             .cell(rect.row, rect.col)
             .and_then(|cell| cell.background.clone());
-        let rendered = crate::with_element_parent_background(parent_background, ||
+        let rendered = crate::with_element_parent_background(parent_background.clone(), ||
         {
             if has_child_window
             {
@@ -5612,28 +5640,125 @@ fn render_generated_window_with_root_scroll_indicator_mode<A: GeneratedApplicati
                     .background
                     .clone()
                     .or_else(|| item.cell_style.background.clone());
+                let reusable_focus_background = element_value
+                    .focus_style
+                    .as_ref()
+                    .and_then(|style| style.background.clone())
+                    .filter(|background| !background.empty());
                 let child_window = element_value
                     .child_window_mut()
                     .expect("reusable child window disappeared while rendering");
                 let use_host_viewport_for_root_scroll_indicators =
                     kind == ElementKind::ViewHost
                         && child_window.is_generated_scroll_view();
+                let generated_scroll_view = child_window.generated_scroll_view();
+                let direct_generated_scroll_focus = child_window.is_generated_scroll_view()
+                    && reusable_focus_background
+                        .as_ref()
+                        .is_some_and(Color::has_partial_alpha)
+                    && (is_focused
+                        || focused.as_ref().is_some_and(|focused|
+                        {
+                            generated_scroll_view
+                                .as_ref()
+                                .is_some_and(|scroll_view| Rc::ptr_eq(scroll_view, focused))
+                        }));
+                let direct_generated_scroll_focus_background =
+                    direct_generated_scroll_focus.then(||
+                    {
+                        focus_background_override
+                            .clone()
+                            .or_else(|| reusable_focus_background.clone())
+                    }).flatten();
+                let previous_child_window_background =
+                    child_window.window_style.background.clone();
+                let previous_generated_scroll_view_style = generated_scroll_view
+                    .as_ref()
+                    .map(|scroll_view| scroll_view.borrow().style.clone());
+                let previous_generated_scroll_view_focus_style = generated_scroll_view
+                    .as_ref()
+                    .and_then(|scroll_view| scroll_view.borrow().focus_style.clone());
+                let mut direct_focus_structural_background = None;
+                if direct_generated_scroll_focus
+                {
+                    let structural_background = previous_generated_scroll_view_style
+                        .as_ref()
+                        .and_then(|style| style.background.clone())
+                        .or_else(|| previous_child_window_background.clone())
+                        .or_else(|| reusable_base_background.clone())
+                        .or_else(|| parent_background.clone());
+                    direct_focus_structural_background = structural_background.clone();
+                    if let Some(focus_background) =
+                        direct_generated_scroll_focus_background.as_ref()
+                    {
+                        if let (Some(scroll_view), Some(previous_focus_style)) = (
+                            generated_scroll_view.as_ref(),
+                            previous_generated_scroll_view_focus_style.as_ref(),
+                        ) && previous_focus_style.background.as_ref().is_some_and(|background|
+                            same_rendered_color(background, focus_background))
+                        {
+                            let mut child_focus_style = previous_focus_style.clone();
+                            child_focus_style.background = None;
+                            scroll_view.borrow_mut().focus_style = Some(child_focus_style);
+                        }
+                        let focused_background = structural_background
+                            .as_ref()
+                            .map(|background| focus_background.blend_over(background))
+                            .unwrap_or_else(|| focus_background.clone());
+                        child_window.window_style.background = Some(focused_background.clone());
+                        if let Some(scroll_view) = generated_scroll_view.as_ref()
+                        {
+                            scroll_view.borrow_mut().style.background = Some(focused_background);
+                        }
+                    }
+                }
                 let mut rendered = render_embedded_window_with_interaction(
                     child_window,
                     rect.width,
                     rect.height,
                     state,
                     focused_id,
-                    focus_background_override.clone(),
+                    if direct_generated_scroll_focus
+                    {
+                        None
+                    }
+                    else
+                    {
+                        focus_background_override.clone()
+                    },
                     element_clip.0,
                     element_clip.1,
                     use_host_viewport_for_root_scroll_indicators,
                 );
+                if direct_generated_scroll_focus
+                {
+                    apply_generated_scroll_view_focus_underlay_to_structural_backgrounds(
+                        &mut rendered,
+                        direct_focus_structural_background.as_ref(),
+                        direct_generated_scroll_focus_background.as_ref(),
+                    );
+                    child_window.window_style.background = previous_child_window_background;
+                    if let (Some(scroll_view), Some(previous_style)) = (
+                        generated_scroll_view.as_ref(),
+                        previous_generated_scroll_view_style,
+                    )
+                    {
+                        scroll_view.borrow_mut().style = previous_style;
+                    }
+                    if let Some(scroll_view) = generated_scroll_view.as_ref()
+                    {
+                        scroll_view.borrow_mut().focus_style =
+                            previous_generated_scroll_view_focus_style;
+                    }
+                }
+                let descendant_focus_background = focus_background_override.as_ref();
                 if let Some(focus_background) =
-                    focus_background_override
-                        .as_ref()
+                    descendant_focus_background
                         .filter(|background| !background.empty())
-                        .filter(|_| !child_window.is_generated_scroll_view())
+                        .filter(|_|
+                        {
+                            !child_window.is_generated_scroll_view()
+                        })
                 {
                     let mut descendant_backgrounds = Vec::new();
                     collect_descendant_base_style_backgrounds(
@@ -9529,6 +9654,143 @@ mod tests
                 .background
                 .normalized(),
             "#171a25",
+        );
+
+        gallery_scroll
+            .borrow_mut()
+            .child_window_mut()
+            .expect("gallery ScrollView child")
+            .set_generated_scroll_view_focus_style(Style
+            {
+                background: Some(Color::new("#1e3a5f")),
+                ..Default::default()
+            });
+        let rendered = render_generated_application(&mut app, &mut state, &options);
+        assert_eq!(
+            rendered
+                .cell(0, 0)
+                .expect("distinct focused ScrollView background")
+                .background
+                .normalized(),
+            "#1e3a5f",
+        );
+    }
+
+    #[test]
+    fn reusable_generated_scroll_view_focus_underlays_alpha_descendant_background()
+    {
+        let parent_background = Color::new("#303545");
+        let focus_background = Color::new("#ffffff14");
+        let descendant_background = Color::new("#252a36cc");
+        let mut scroll = GeneratedWindow::new_scroll_view("alpha focus scroll");
+        scroll.set_generated_focusable(true);
+        scroll.set_generated_window_style(Style
+        {
+            background: Some(parent_background.clone()),
+            ..Default::default()
+        });
+        scroll.set_generated_scroll_view_style(Style
+        {
+            background: Some(parent_background.clone()),
+            ..Default::default()
+        });
+        scroll.set_generated_scroll_view_focus_style(Style
+        {
+            background: Some(focus_background.clone()),
+            ..Default::default()
+        });
+        let row = new_label("row", " ");
+        row.borrow_mut().set_frame(Rect { row: 0, col: 0, width: 1, height: 1 });
+        row.borrow_mut().set_style(Style
+        {
+            background: Some(descendant_background.clone()),
+            ..Default::default()
+        });
+        scroll.add_child(row);
+
+        let host: ElementRef = new_reusable_element("card", "AlphaFocusScroll").into();
+        host.borrow_mut().set_child_window(scroll);
+        host.borrow_mut().set_style(Style
+        {
+            background: Some(parent_background.clone()),
+            ..Default::default()
+        });
+        host.borrow_mut().set_focus_style(Style
+        {
+            background: Some(focus_background.clone()),
+            ..Default::default()
+        });
+        let mut window = GeneratedWindow::new("root");
+        window.set_generated_window_style(Style
+        {
+            background: Some(parent_background.clone()),
+            ..Default::default()
+        });
+        window.set_generated_layout(vec![LayoutItem
+        {
+            element_type: "uielementreusable".to_string(),
+            cell_chars_width: 1,
+            cell_chars_height: 2,
+            cell_width: 1,
+            cell_height: 2,
+            cell_width_mode: "fixed".to_string(),
+            cell_height_mode: "fixed".to_string(),
+            width: 1,
+            height: 2,
+            width_mode: "fixed".to_string(),
+            height_mode: "fixed".to_string(),
+            chars_width: 1,
+            chars_height: 2,
+            content: "card".to_string(),
+            cell_style: Style
+            {
+                background: Some(parent_background.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }]);
+        window.add_element(host.clone());
+        let options = GeneratedWindowRuntimeOptions::default();
+        let mut state = RuntimeState::new(
+            &window,
+            &options,
+            Size { width: 1, height: 2 },
+        );
+        let mut app = App
+        {
+            window,
+            activated: false,
+        };
+
+        let unfocused = render_generated_application(&mut app, &mut state, &options);
+        assert!(state.focus_element(&app.window, &host));
+        let focused = render_generated_application(&mut app, &mut state, &options);
+        let expected_unfocused = descendant_background.blend_over(&parent_background);
+        let expected_focused =
+            descendant_background.blend_over(&focus_background.blend_over(&parent_background));
+        assert_eq!(
+            unfocused
+                .cell(0, 0)
+                .expect("unfocused alpha descendant cell")
+                .background
+                .normalized(),
+            expected_unfocused.normalized(),
+        );
+        assert_eq!(
+            focused
+                .cell(0, 0)
+                .expect("focused alpha descendant cell")
+                .background
+                .normalized(),
+            expected_focused.normalized(),
+        );
+        assert_eq!(
+            focused
+                .cell(1, 0)
+                .expect("single focused structural cell")
+                .background
+                .normalized(),
+            focus_background.blend_over(&parent_background).normalized(),
         );
     }
 
