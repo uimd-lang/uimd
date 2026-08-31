@@ -503,6 +503,11 @@ public class WidgetGalleryUI extends GeneratedWindowBase
     {
     }
 
+    protected boolean onModeListItemActivate(int index, String value)
+    {
+        return false;
+    }
+
     protected void onApplyBtnClick()
     {
     }
@@ -581,6 +586,20 @@ public class WidgetGalleryUI extends GeneratedWindowBase
         {
             onModeListSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if ("mode_list".equals(name))
+        {
+            return onModeListItemActivate(index, value);
         }
         return false;
     }

@@ -180,6 +180,25 @@ public class GeneratedWindowBase extends Window
         return false;
     }
 
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        return false;
+    }
+
+    public boolean onPreviewKey(KeyEvent event)
+    {
+        return false;
+    }
+
+    public boolean onKey(String key)
+    {
+        return false;
+    }
+
     public String callAppTool(String name, String inputJson)
     {
         throw new IllegalStateException("App MCP tool is not implemented: " + name);

@@ -44,6 +44,8 @@ public:
     int run();
 
 private:
+    bool onEntriesItemActivate(int index, std::string_view value) override;
+    bool onPreviewKey(const KeyEvent& event) override;
     [[nodiscard]] std::filesystem::path clampDir(std::filesystem::path path) const;
     [[nodiscard]] std::filesystem::path selectedPath() const;
     [[nodiscard]] bool pathMatchesFilter(const std::filesystem::path& path) const;
@@ -51,7 +53,7 @@ private:
     void confirmOverwrite(const std::filesystem::path& path);
     void previewSelected();
     void updateOpenEnabled();
-    [[nodiscard]] GeneratedWindowRuntimeOptions runtimeOptions();
+    [[nodiscard]] GeneratedWindowRuntimeOptions runtimeOptions() override;
 
     std::filesystem::path rootDir_;
     std::filesystem::path currentDir_;

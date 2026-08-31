@@ -28,6 +28,7 @@ except ModuleNotFoundError:
     tty = None
 from uimd.runtime.mcp import MCPServer, parse_mcp_runtime_args
 from uimd.runtime.UIBase import suppress_active_scrollview_scope_visuals
+from uimd.runtime.events import KeyEvent
 from uimd.runtime.rendering import (
     ANSI_CLEAR_SCREEN,
     TerminalBuffer,
@@ -733,6 +734,19 @@ class UIApplication:
                 self._active_popup.dismiss()
                 return  # swallow click so background isn't accidentally triggered
 
+        active_window = self.active_window
+        if isinstance(key, str) and active_window is not None:
+            focused = getattr(active_window, "_focused_element", None)
+            focused_id = active_window.runtime_element_id(focused)
+            event = KeyEvent(
+                key=key,
+                focused_element_id=focused_id,
+                edit_mode=bool(getattr(active_window, "_edit_mode", False)),
+            )
+            if active_window.on_preview_key(event):
+                self._dirty = True
+                return
+
         if key == "Escape":
             if self._is_dialog_window(self.active_window):
                 parent_window = self._window_stack[-2] if len(self._window_stack) > 1 else None
@@ -744,6 +758,9 @@ class UIApplication:
                         and len(self._window_stack) < stack_size_before
                     ):
                         self._cleanup_background_after_standard_escape(parent_window)
+                    self._dirty = True
+                    return
+                if self.active_window.on_key(key):
                     self._dirty = True
                     return
                 if getattr(self.active_window, "_handles_escape", False):
@@ -766,6 +783,9 @@ class UIApplication:
             return
 
         if self.active_window.handle_key(key):
+            self._dirty = True
+            return
+        if isinstance(key, str) and self.active_window.on_key(key):
             self._dirty = True
 
     @staticmethod

@@ -351,3 +351,28 @@ func (ui *MarkdownViewerUI) HandleGeneratedSelectionChanged(name string, value [
     }
     return false
 }
+
+func (ui *MarkdownViewerUI) HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {
+    _ = elementID
+    if name == "docs" {
+        if handler, ok := ui.eventHandler.(interface{ OnDocsItemActivate(int, string) bool }); ok {
+            return handler.OnDocsItemActivate(index, value)
+        }
+        return false
+    }
+    return false
+}
+
+func (ui *MarkdownViewerUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *MarkdownViewerUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

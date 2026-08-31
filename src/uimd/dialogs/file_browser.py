@@ -55,31 +55,27 @@ class FileBrowser(FileBrowserUI):
             and self._handle_entry_mouse_press(key)
         ):
             return True
-        if (
-            key == "Enter"
-            and getattr(self, "_edit_mode", False)
-            and getattr(self, "_focused_element", None) is self.entries
-        ):
-            self.entries.handle_key(key)
-            self._preview_selected()
-            if self._selected_entry_is_directory():
-                self._accept_current()
-            else:
-                self._exit_edit_mode(commit=True, notify=False)
-            return True
-        if key == "Escape":
-            if getattr(self, "_edit_mode", False):
-                focused = getattr(self, "_focused_element", None)
-                commit = focused is self.entries or self._uses_leave_commit(focused)
-                notify = focused is not self.entries
-                if focused is self.entries:
-                    self._preview_selected()
-                self._exit_edit_mode(commit=commit, notify=notify)
-                return True
+        return super().handle_key(key)
+
+    def on_preview_key(self, event):
+        if event.key == "Escape" and not event.edit_mode:
             self._flash_close_button()
             self._close(None)
             return True
-        return super().handle_key(key)
+        return False
+
+    def on_entries_item_activate(self, index, value):
+        if value is None:
+            return False
+        if value == PARENT_ENTRY or str(value).endswith("/"):
+            self.entries.selected_items = [value]
+            self.entries._active_index = index
+            self.entries._active_item_visible = False
+            self.entries._ensure_selection_visible(index)
+            self._preview_selected()
+            self._accept_current()
+            return True
+        return False
 
     def _handle_entry_mouse_press(self, event):
         rect = self._element_mouse_rect(self.entries)

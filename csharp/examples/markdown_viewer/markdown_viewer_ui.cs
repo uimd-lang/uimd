@@ -513,6 +513,7 @@ button:
     }
 
     protected virtual void onDocsSelectionChange(List<string> value) { }
+    protected virtual bool onDocsItemActivate(int index, string value) { return false; }
     protected virtual void onUpBtnClick() { }
     protected virtual void onDownBtnClick() { }
     protected virtual void onCloseBtnClick() { }
@@ -554,6 +555,15 @@ button:
         {
             onDocsSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    public override bool HandleGeneratedListBoxItemActivate(string name, string elementId, int index, string value)
+    {
+        if (name == "docs")
+        {
+            return onDocsItemActivate(index, value);
         }
         return false;
     }

@@ -560,9 +560,14 @@ final class UimdRuntimeSmokeTests: XCTestCase
         browser.entries.setActiveIndex(childIndex)
         browser.entries.showActiveItem()
 
-        let handled = browser.runtimeOptions().onKeyBeforeFocusedElement?("Enter", "entries", true)
+        let handled = browser.handleGeneratedListBoxItemActivate(
+            "entries",
+            elementId: "entries",
+            index: childIndex,
+            value: "child/"
+        )
 
-        XCTAssertEqual(handled, true)
+        XCTAssertTrue(handled)
         XCTAssertFalse(browser.entries.activeItemVisible)
         XCTAssertEqual(browser.currentDirectory, child.path)
         XCTAssertEqual(browser.entries.selectedValues, [".."])

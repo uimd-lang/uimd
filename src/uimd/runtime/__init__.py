@@ -6,4 +6,5 @@ from uimd.runtime.UIScrollView import UIScrollView
 from uimd.runtime.UIPopup import UIPopup
 from uimd.runtime.elements import Label, FrameBufferView, TextInput, TextArea, NumberInput, Button, CheckBox, ComboBox, ListBox, UIElementReusable, ViewHost
 from uimd.runtime.image import Image
+from uimd.runtime.events import KeyEvent
 from uimd.runtime.style import Style, Color

@@ -294,6 +294,7 @@ open class CategoriesViewUI: GeneratedWindowBase
     open func onCategoryNameSubmit(_ value: String) { }
     open func onAddCategoryBtnClick() { }
     open func onCategoriesSelectionChange(_ value: [String]) { }
+    open func onCategoriesItemActivate(_ index: Int, value: String) -> Bool { false }
     open func onRemoveCategoryBtnClick() { }
 
     open override func handleGeneratedButton(_ name: String) -> Bool
@@ -340,6 +341,15 @@ open class CategoriesViewUI: GeneratedWindowBase
         {
             onCategoriesSelectionChange(value)
             return true
+        }
+        return false
+    }
+
+    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool
+    {
+        if name == "categories"
+        {
+            return onCategoriesItemActivate(index, value: value)
         }
         return false
     }

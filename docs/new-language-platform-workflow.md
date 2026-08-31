@@ -171,6 +171,13 @@ schemas are breaking changes when an ordinary existing app must be edited or
 regenerated. Stop and obtain explicit user approval plus a migration/version
 plan before implementing such a change.
 
+The new target must also implement every active deprecation listed in
+`docs/deprecations.md`. Use the target language's native warning mechanism and
+preserve the same compatibility behavior and replacement API as the existing
+ports. Do not omit an API merely because its removal is scheduled: an API
+deprecated in `0.x.y` remains required throughout `0.(x+1).*` and is removed
+from every port together in `0.(x+2).0`.
+
 ## Example Implementation
 
 Examples prove the target works; they must not compensate for runtime bugs.

@@ -32,6 +32,7 @@ public:
     bool handleGeneratedTextChanged(std::string_view name, std::string_view value) override;
     bool handleGeneratedTextConfirmed(std::string_view name, std::string_view value) override;
     bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;
+    bool handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value) override;
 
 
     ui::Label* header = nullptr;
@@ -48,6 +49,7 @@ public:
 
 protected:
     virtual void onContactsSelectionChange(const std::vector<std::string>& value);
+    virtual bool onContactsItemActivate(int index, std::string_view value);
     virtual void onAddBtnClick();
     virtual void onEditBtnClick();
     virtual void onDeleteBtnClick();

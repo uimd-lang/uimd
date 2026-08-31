@@ -46,6 +46,10 @@ class UIInstance(ABC):
     def confirmed(self, element, value):
         pass
 
+    def listbox_item_activate(self, element_id, index, value):
+        """Handle a ListBox activation request before its default Enter action."""
+        return False
+
     def elementchanged(self, element, value):
         pass
 
@@ -54,6 +58,9 @@ class UIInstance(ABC):
 
     def _dispatch_confirmed(self, element, value):
         self.confirmed(element, value)
+
+    def _dispatch_listbox_item_activate(self, element, element_id, index, value):
+        return bool(self.listbox_item_activate(element_id, index, value))
 
     def _dispatch_element_changed(self, element, value):
         self.elementchanged(element, value)
@@ -66,6 +73,14 @@ class UIInstance(ABC):
 
     def enabled(self, element, value):
         pass
+
+    def on_preview_key(self, event):
+        """Inspect a logical key before the focused element handles it."""
+        return False
+
+    def on_key(self, key):
+        """Handle a logical key left unhandled by the focused element."""
+        return False
 
     def render(self):
         return []

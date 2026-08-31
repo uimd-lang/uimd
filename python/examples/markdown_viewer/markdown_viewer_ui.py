@@ -39,6 +39,9 @@ class MarkdownViewerUI(UIWindow):
     def on_docs_selection_change(self, value):
         pass
 
+    def on_docs_item_activate(self, index, value):
+        return False
+
     def on_up_btn_click(self):
         pass
 
@@ -66,6 +69,12 @@ class MarkdownViewerUI(UIWindow):
         if element is self.docs:
             self.on_docs_selection_change(value)
         super()._dispatch_selection_changed(element, value)
+
+    def _dispatch_listbox_item_activate(self, element, element_id, index, value):
+        if element is self.docs:
+            if self.on_docs_item_activate(index, value):
+                return True
+        return super()._dispatch_listbox_item_activate(element, element_id, index, value)
 
 
 COMPILED_MEMBERS = {

@@ -371,6 +371,13 @@ void CategoriesViewUI::onCategoriesSelectionChange(const std::vector<std::string
     (void)value;
 }
 
+bool CategoriesViewUI::onCategoriesItemActivate(int index, std::string_view value)
+{
+    (void)index;
+    (void)value;
+    return false;
+}
+
 void CategoriesViewUI::onRemoveCategoryBtnClick()
 {
 }
@@ -392,6 +399,16 @@ bool CategoriesViewUI::handleGeneratedButton(std::string_view name)
     {
         onRemoveCategoryBtnClick();
         return true;
+    }
+    return false;
+}
+
+bool CategoriesViewUI::handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value)
+{
+    (void)elementId;
+    if (name == "categories")
+    {
+        return onCategoriesItemActivate(index, value);
     }
     return false;
 }

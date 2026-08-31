@@ -1,12 +1,13 @@
 using Uimd;
 
-const int RegressionCount = 5;
+const int RegressionCount = 6;
 int passed = 0;
 passed += RunRegression("ScrollView scoped confirm keeps a fresh edit session", RunKeepEditModeRegression);
 passed += RunRegression("ScrollView scoped confirm rebases focus after mutation", RunFocusRebaseRegression);
 passed += RunRegression("TextInput alignment shares one render and mouse offset", RunTextInputAlignmentRegression);
 passed += RunRegression("ComboBox mouse reaches every rendered option row", RunComboBoxMouseGeometryRegression);
 passed += RunRegression("Reusable ScrollView focus underlays alpha descendants", RunAlphaScrollFocusRegression);
+passed += RunRegression("Modal mouse clicks preserve local text cursor coordinates", RunModalMouseCursorRegression);
 Console.WriteLine($"{passed}/{RegressionCount} checks passed");
 if (passed != RegressionCount)
 {
@@ -138,6 +139,43 @@ static void RunAlphaScrollFocusRegression()
         $"identical proxy/inner focus was applied more than once: {focused[1][0].Background}");
 }
 
+static void RunModalMouseCursorRegression()
+{
+    AssertModalMouseCursor(multiline: false, clickCol: 3);
+    AssertModalMouseCursor(multiline: true, clickCol: 6);
+}
+
+static void AssertModalMouseCursor(bool multiline, int clickCol)
+{
+    GeneratedWindowBase root = new("Root");
+    ModalMouseWindow modal = new(multiline);
+    McpRuntimeConfig config = new()
+    {
+        ViewportWidth = 30,
+        ViewportHeight = 12,
+    };
+    McpController controller = new(root, new GeneratedWindowRuntimeOptions(), config);
+    controller.OpenModalWindow(modal);
+
+    _ = controller.RenderTerminalFrame(new Size(config.ViewportWidth, config.ViewportHeight));
+    Size modalSize = GeneratedWindowRuntime.GeneratedWindowContentSize(modal);
+    int modalRow = (config.ViewportHeight - modalSize.Height) / 2;
+    int modalCol = (config.ViewportWidth - modalSize.Width) / 2;
+    Rect controlFrame = modal.Control.Frame;
+    int expectedCursor = modal.Control.CursorForPoint(
+        0,
+        clickCol,
+        new Size(controlFrame.Width, controlFrame.Height),
+        new ElementRenderState { Focused = true, EditMode = true });
+    controller.MousePressAt(new Point(
+        modalRow + controlFrame.Row,
+        modalCol + controlFrame.Col + clickCol));
+    Require(modal.Control.Cursor == expectedCursor,
+        $"modal {(multiline ? "TextArea" : "TextInput")} cursor was " +
+        $"{modal.Control.Cursor}, expected {expectedCursor}; modal={modalSize}, " +
+        $"offset=({modalRow},{modalCol}), frame={controlFrame}");
+}
+
 static void Require(bool condition, string message)
 {
     if (!condition)
@@ -221,6 +259,42 @@ internal sealed class AlphaFocusScrollHostWindow : GeneratedWindowBase
         entry.CellCharsSize = new Size(TestLayout.ControlHeight, 2);
         entry.CellStyle.Background = new Color("#303545");
         SetGeneratedLayout(new[] { entry });
+    }
+}
+
+internal sealed class ModalMouseWindow : GeneratedWindowBase
+{
+    public TextInput Control { get; }
+
+    public ModalMouseWindow(bool multiline) : base("Modal mouse")
+    {
+        GeneratedWindowStyle.BorderWidthHorizontal = 0;
+        GeneratedWindowStyle.BorderWidthVertical = 0;
+        Control = multiline
+            ? AddElement(new TextArea("control", "alpha beta", 40))
+            : AddElement(new TextInput("control", "abcdef", 20));
+        int height = multiline ? 2 : 1;
+        SetGeneratedLayout(new[]
+        {
+            Entry("control", multiline ? "textarea" : "textinput", new Rect(0, 0, 10, height)),
+        });
+    }
+
+    private static GeneratedLayoutEntry Entry(string name, string type, Rect rect)
+    {
+        return new GeneratedLayoutEntry
+        {
+            Name = name,
+            Type = type,
+            Relative = rect,
+            SourceCell = rect,
+            Width = AxisDimension.Fixed(rect.Width),
+            Height = AxisDimension.Fixed(rect.Height),
+            CellWidth = AxisDimension.Fixed(rect.Width),
+            CellHeight = AxisDimension.Fixed(rect.Height),
+            CharsSize = new Size(rect.Width, rect.Height),
+            CellCharsSize = new Size(rect.Width, rect.Height),
+        };
     }
 }
 

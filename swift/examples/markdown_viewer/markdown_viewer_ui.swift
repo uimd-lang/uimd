@@ -405,6 +405,7 @@ open class MarkdownViewerUI: GeneratedWindowBase
     }
 
     open func onDocsSelectionChange(_ value: [String]) { }
+    open func onDocsItemActivate(_ index: Int, value: String) -> Bool { false }
     open func onUpBtnClick() { }
     open func onDownBtnClick() { }
     open func onCloseBtnClick() { }
@@ -448,6 +449,15 @@ open class MarkdownViewerUI: GeneratedWindowBase
         {
             onDocsSelectionChange(value)
             return true
+        }
+        return false
+    }
+
+    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool
+    {
+        if name == "docs"
+        {
+            return onDocsItemActivate(index, value: value)
         }
         return false
     }

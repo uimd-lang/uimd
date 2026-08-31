@@ -40,6 +40,8 @@ IMAGE_BROWSER_HELD_DOWN_REPEAT_COUNT = 30
 IMAGE_BROWSER_IDLE_CAPTURE_SECONDS = 0.7
 IMAGE_BROWSER_HELD_DOWN_DRAIN_SECONDS = 6.0
 IMAGE_BROWSER_HELD_DOWN_MAX_OUTPUT_BYTES = 256 * 1024
+ANIMATION_IDLE_CAPTURE_SECONDS = 0.45
+ANIMATION_IDLE_SAMPLE_COUNT = 2
 
 
 class TerminalScreen:
@@ -352,11 +354,13 @@ def check_binaries(cpp_build_dir: Path, go_examples_dir: Path) -> None:
         ROOT / cpp_build_dir / "examples/calculator/calculator",
         ROOT / cpp_build_dir / "examples/formular/formular",
         ROOT / cpp_build_dir / "examples/image_browser/image_browser",
+        ROOT / cpp_build_dir / "examples/special_elements/special_elements",
         ROOT / cpp_build_dir / "examples/widget_gallery/widget_gallery",
         ROOT / go_examples_dir / "calculator/calculator",
         ROOT / go_examples_dir / "formular/formular",
         ROOT / go_examples_dir / "image_browser/image_browser",
         ROOT / go_examples_dir / "image_gallery/image_gallery",
+        ROOT / go_examples_dir / "special_elements/special_elements",
         ROOT / go_examples_dir / "task_board/task_board",
         ROOT / go_examples_dir / "widget_gallery/widget_gallery",
     ]
@@ -372,6 +376,27 @@ def run_dynamic_screen(command: list[str], cwd: Path, exercise: Callable[[PtyApp
         exercise(app)
         app.drain()
         return app.screen.text()
+
+
+def run_idle_text_gradient_animation(
+    cpp_command: list[str],
+    go_command: list[str],
+) -> None:
+    def require_idle_updates(command: list[str], platform_name: str) -> None:
+        with PtyApp(command, ROOT, DEFAULT_ROWS, DEFAULT_COLS) as app:
+            wait_for_screen_text(app, "Special UI Elements")
+            for sample in range(ANIMATION_IDLE_SAMPLE_COUNT):
+                output_start = len(app.output)
+                app.drain(total_seconds=ANIMATION_IDLE_CAPTURE_SECONDS)
+                if len(app.output) == output_start:
+                    raise AssertionError(
+                        f"{platform_name} animated gradient emitted no terminal update "
+                        f"during idle sample {sample + 1}"
+                    )
+
+    require_idle_updates(cpp_command, "C++")
+    require_idle_updates(go_command, "Go")
+    print("PASS Go animated gradients advance without terminal input", flush=True)
 
 
 def assert_equal_screen(
@@ -711,6 +736,12 @@ def main() -> int:
     ]
     go_task_board = [str(ROOT / args.go_examples_dir / "task_board/task_board")]
     cpp_widget_gallery = [str(ROOT / args.cpp_build_dir / "examples/widget_gallery/widget_gallery")]
+    cpp_special_elements = [
+        str(ROOT / args.cpp_build_dir / "examples/special_elements/special_elements")
+    ]
+    go_special_elements = [
+        str(ROOT / args.go_examples_dir / "special_elements/special_elements")
+    ]
     go_widget_gallery = [str(ROOT / args.go_examples_dir / "widget_gallery/widget_gallery")]
 
     run_title_and_teardown(go_calculator)
@@ -722,8 +753,9 @@ def main() -> int:
     run_dialog_escape_flash_case(go_task_board)
     run_mouse_click_case(cpp_calculator, go_calculator)
     run_mouse_drag_case(cpp_widget_gallery, go_widget_gallery)
+    run_idle_text_gradient_animation(cpp_special_elements, go_special_elements)
     run_explicit_quit_case(go_image_gallery)
-    print("PASS Go direct terminal smoke: 10/10 checks passed", flush=True)
+    print("PASS Go direct terminal smoke: 11/11 checks passed", flush=True)
     return 0
 
 

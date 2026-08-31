@@ -1,6 +1,6 @@
 [package]
 name = "uimd"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2024"
 license = "MIT"
 description = "Rust terminal runtime for User Interface Markdown"

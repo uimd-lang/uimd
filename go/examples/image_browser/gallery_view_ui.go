@@ -70,3 +70,17 @@ func (ui *GalleryViewUI) HandleGeneratedTextConfirmed(name string, value string)
 func (ui *GalleryViewUI) HandleGeneratedSelectionChanged(name string, value []string) bool {
     return false
 }
+
+func (ui *GalleryViewUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *GalleryViewUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

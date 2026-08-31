@@ -28,6 +28,12 @@ class Settings(SettingsUI):
     def on_cancel_button_click(self):
         self._cancel()
 
+    def on_preview_key(self, event):
+        if event.key == "Escape" and not event.edit_mode:
+            self._cancel()
+            return True
+        return False
+
     def save(self):
         self._confirm()
 

@@ -20,7 +20,7 @@ java
 
 dependencies
 {
-    implementation "org.uimd:uimd:0.5.4"
+    implementation "org.uimd:uimd:0.5.5"
 }
 
 application

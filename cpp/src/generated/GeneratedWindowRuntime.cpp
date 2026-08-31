@@ -1297,6 +1297,34 @@ void syncReusableChildFrames(ReusableElement& reusable, Rect frame);
     return std::nullopt;
 }
 
+[[nodiscard]] KeyEvent keyEventFor(GeneratedWindowBase& window,
+                                   Element* focused,
+                                   std::string_view key,
+                                   bool editMode) {
+    KeyEvent event;
+    event.key = std::string(key);
+    event.focusedElementId = elementIdForElement(window, focused).value_or(std::string{});
+    event.editMode = editMode;
+    return event;
+}
+
+[[nodiscard]] bool dispatchListBoxItemActivate(GeneratedWindowBase& window, Element* element) {
+    auto* listBox = dynamic_cast<ListBox*>(element);
+    if (listBox == nullptr || listBox->options().empty()) {
+        return false;
+    }
+    const int index = std::clamp(listBox->activeIndex(), 0, static_cast<int>(listBox->options().size()) - 1);
+    GeneratedWindowBase* owner = ownerWindowForElement(window, element);
+    if (owner == nullptr) {
+        owner = &window;
+    }
+    return owner->handleGeneratedListBoxItemActivate(
+        element->name(),
+        elementIdForElement(window, element).value_or(element->name()),
+        index,
+        listBox->options()[static_cast<std::size_t>(index)]);
+}
+
 void syncReusableChildFrames(ReusableElement& reusable, Rect frame);
 
 struct ElementFrameSnapshot {
@@ -5185,6 +5213,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
         ? focusable[static_cast<std::size_t>(frame.focusedIndex)]
         : nullptr;
     const std::string_view focusedName = focused == nullptr ? std::string_view{} : std::string_view(focused->name());
+    if (frame.window->onPreviewKey(keyEventFor(*frame.window, focused, key, frame.editMode))) {
+        return true;
+    }
     if (frame.editMode && key == "Escape") {
         if (frame.activeScrollView != nullptr) {
             if (frame.activeScrollViewEditElement != nullptr) {
@@ -5223,6 +5254,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
         if (frame.activeScrollView != nullptr) {
             if (frame.activeScrollViewEditElement != nullptr) {
                 if (key == "Enter") {
+                    if (dispatchListBoxItemActivate(*frame.window, frame.activeScrollViewEditElement)) {
+                        return true;
+                    }
                     const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(frame.activeScrollViewEditElement);
                     (void)handleElementKey(*frame.activeScrollViewEditElement, key);
                     notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions,
@@ -5311,6 +5345,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             return true;
         }
         if (key == "Enter" && dynamic_cast<ListBox*>(focused) != nullptr) {
+            if (dispatchListBoxItemActivate(*frame.window, focused)) {
+                return true;
+            }
             const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
             (void)handleElementKey(*focused, key);
             notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
@@ -5341,6 +5378,9 @@ bool handleStackFrameKey(GeneratedWindowStackFrame& frame, std::string_view key,
             (void)handleElementKey(*focused, key);
             notifyOwnerAwareValueChangedAfterHandledKey(*frame.window, notifyOptions, focused, previousSelection);
         }
+        return true;
+    }
+    if (frame.window->onKey(key)) {
         return true;
     }
     if (frame.options.onKey && frame.options.onKey(key)) {
@@ -8057,6 +8097,10 @@ private:
         Element* focused = (focusedIndex >= 0 && focusedIndex < static_cast<int>(focusable.size()))
             ? focusable[static_cast<std::size_t>(focusedIndex)]
             : nullptr;
+        if (window.onPreviewKey(keyEventFor(window, focused, key, editMode))) {
+            state_.fullRedrawRequested = true;
+            return toolGetState();
+        }
         if (key == "cmd_c") {
             (void)copyFocusedText(focused);
             state_.fullRedrawRequested = true;
@@ -8205,6 +8249,10 @@ private:
             if (windowActiveScrollView != nullptr) {
                 if (windowActiveScrollViewEditElement != nullptr) {
                     if (key == "Enter") {
+                        if (dispatchListBoxItemActivate(window, windowActiveScrollViewEditElement)) {
+                            state_.fullRedrawRequested = true;
+                            return toolGetState();
+                        }
                         const SelectionChangeSnapshot previousSelection =
                             selectionChangeSnapshot(windowActiveScrollViewEditElement);
                         (void)handleElementKey(*windowActiveScrollViewEditElement, key);
@@ -8252,6 +8300,10 @@ private:
                     }
                 }
             } else if (key == "Enter" && dynamic_cast<ListBox*>(focused) != nullptr) {
+                if (dispatchListBoxItemActivate(window, focused)) {
+                    state_.fullRedrawRequested = true;
+                    return toolGetState();
+                }
                 const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                 (void)handleElementKey(*focused, key);
                 notifyActiveFrameValueChangedAfterHandledKey(focused, previousSelection);
@@ -9025,6 +9077,9 @@ private:
     }
 
     [[nodiscard]] bool handleActiveFrameKey(std::string_view key) {
+        if (activeWindow().onKey(key)) {
+            return true;
+        }
         if (GeneratedWindowStackFrame* frame = activeStackFrame(); frame != nullptr && frame->options.onKey) {
             return frame->options.onKey(key);
         }
@@ -10885,6 +10940,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                 running = false;
                 continue;
             }
+            if (window.onPreviewKey(keyEventFor(window, focused, key, editMode))) {
+                continue;
+            }
             if (key == "cmd_c") {
                 if (copyFocusedText(focused)) {
                     notification = "Copied to clipboard";
@@ -11014,6 +11072,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                 if (activeScrollView != nullptr) {
                     if (activeScrollViewEditElement != nullptr) {
                         if (key == "Enter") {
+                            if (dispatchListBoxItemActivate(window, activeScrollViewEditElement)) {
+                                continue;
+                            }
                             const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(activeScrollViewEditElement);
                             (void)handleElementKey(*activeScrollViewEditElement, key);
                             notifyOwnerAwareValueChangedAfterHandledKey(window, options, activeScrollViewEditElement,
@@ -11053,6 +11114,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                     editSnapshot = captureSnapshot(focused);
                 } else if (key == "Enter") {
                     if (dynamic_cast<ListBox*>(focused) != nullptr) {
+                        if (dispatchListBoxItemActivate(window, focused)) {
+                            continue;
+                        }
                         const SelectionChangeSnapshot previousSelection = selectionChangeSnapshot(focused);
                         (void)handleElementKey(*focused, key);
                         notifyOwnerAwareValueChangedAfterHandledKey(window, options, focused, previousSelection);
@@ -11099,6 +11163,9 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                 continue;
             }
 
+            if (window.onKey(key)) {
+                continue;
+            }
             if (options.onKey && options.onKey(key)) {
                 continue;
             }

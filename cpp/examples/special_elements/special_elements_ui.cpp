@@ -584,6 +584,13 @@ void SpecialElementsUI::onRawListSelectionChange(const std::vector<std::string>&
     (void)value;
 }
 
+bool SpecialElementsUI::onRawListItemActivate(int index, std::string_view value)
+{
+    (void)index;
+    (void)value;
+    return false;
+}
+
 void SpecialElementsUI::onRawInputChange(std::string_view value)
 {
     (void)value;
@@ -616,6 +623,16 @@ bool SpecialElementsUI::handleGeneratedButton(std::string_view name)
     {
         onRawButtonClick();
         return true;
+    }
+    return false;
+}
+
+bool SpecialElementsUI::handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value)
+{
+    (void)elementId;
+    if (name == "raw_list")
+    {
+        return onRawListItemActivate(index, value);
     }
     return false;
 }

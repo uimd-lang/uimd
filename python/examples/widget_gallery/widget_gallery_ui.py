@@ -66,6 +66,9 @@ class WidgetGalleryUI(UIWindow):
     def on_mode_list_selection_change(self, value):
         pass
 
+    def on_mode_list_item_activate(self, index, value):
+        return False
+
     def on_apply_btn_click(self):
         pass
 
@@ -101,6 +104,12 @@ class WidgetGalleryUI(UIWindow):
         elif element is self.mode_list:
             self.on_mode_list_selection_change(value)
         super()._dispatch_selection_changed(element, value)
+
+    def _dispatch_listbox_item_activate(self, element, element_id, index, value):
+        if element is self.mode_list:
+            if self.on_mode_list_item_activate(index, value):
+                return True
+        return super()._dispatch_listbox_item_activate(element, element_id, index, value)
 
 
 COMPILED_MEMBERS = {

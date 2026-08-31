@@ -3926,6 +3926,8 @@ public struct GeneratedAppToolMetadata
 
 public struct GeneratedWindowRuntimeOptions
 {
+    private var keyBeforeFocusedElement: ((String, String, Bool) -> Bool)?
+    private var keyBeforeFocused: ((String) -> Bool)?
     public var initialFocusName: String?
     public var startInEditMode = false
     public var windowStack: GeneratedWindowStack?
@@ -3933,8 +3935,28 @@ public struct GeneratedWindowRuntimeOptions
     public var onTextChanged: ((String, String) -> Bool)?
     public var onTextConfirmed: ((String, String) -> Bool)?
     public var onSelectionChanged: ((String, [String]) -> Bool)?
+    @available(*, deprecated, message: "Use GeneratedWindowBase.onPreviewKey; removal in UIMD 0.7.0")
     public var onKeyBeforeFocusedElement: ((String, String, Bool) -> Bool)?
+    {
+        get { keyBeforeFocusedElement }
+        set { keyBeforeFocusedElement = newValue }
+    }
+    @available(*, deprecated, message: "Use GeneratedWindowBase.onPreviewKey; removal in UIMD 0.7.0")
     public var onKeyBeforeFocused: ((String) -> Bool)?
+    {
+        get { keyBeforeFocused }
+        set { keyBeforeFocused = newValue }
+    }
+    var legacyOnKeyBeforeFocusedElement: ((String, String, Bool) -> Bool)?
+    {
+        get { keyBeforeFocusedElement }
+        set { keyBeforeFocusedElement = newValue }
+    }
+    var legacyOnKeyBeforeFocused: ((String) -> Bool)?
+    {
+        get { keyBeforeFocused }
+        set { keyBeforeFocused = newValue }
+    }
     public var onMousePressBeforeFocused: ((Point) -> Bool)?
     public var onMouseWheelBeforeFocused: ((Point, Int) -> Bool)?
     public var onMouseWheel: ((String, Int) -> Bool)?
@@ -3950,6 +3972,8 @@ public struct GeneratedWindowRuntimeOptions
 
 public struct GeneratedWindowFrameOptions
 {
+    private var keyBeforeFocusedElement: ((String, String, Bool) -> Bool)?
+    private var keyBeforeFocused: ((String) -> Bool)?
     public var className = ""
     public var initialFocusName: String?
     public var startInEditMode = false
@@ -3958,8 +3982,20 @@ public struct GeneratedWindowFrameOptions
     public var onTextChanged: ((String, String) -> Bool)?
     public var onTextConfirmed: ((String, String) -> Bool)?
     public var onSelectionChanged: ((String, [String]) -> Bool)?
+    @available(*, deprecated, message: "Use GeneratedWindowBase.onPreviewKey; removal in UIMD 0.7.0")
     public var onKeyBeforeFocusedElement: ((String, String, Bool) -> Bool)?
+    {
+        get { keyBeforeFocusedElement }
+        set { keyBeforeFocusedElement = newValue }
+    }
+    @available(*, deprecated, message: "Use GeneratedWindowBase.onPreviewKey; removal in UIMD 0.7.0")
     public var onKeyBeforeFocused: ((String) -> Bool)?
+    {
+        get { keyBeforeFocused }
+        set { keyBeforeFocused = newValue }
+    }
+    var legacyOnKeyBeforeFocusedElement: ((String, String, Bool) -> Bool)? { keyBeforeFocusedElement }
+    var legacyOnKeyBeforeFocused: ((String) -> Bool)? { keyBeforeFocused }
     public var onMousePressBeforeFocused: ((Point) -> Bool)?
     public var onMouseWheelBeforeFocused: ((Point, Int) -> Bool)?
     public var onMouseWheel: ((String, Int) -> Bool)?
@@ -3997,8 +4033,8 @@ public final class GeneratedWindowStackFrame
         runtime.onTextChanged = frameOptions.onTextChanged ?? runtime.onTextChanged
         runtime.onTextConfirmed = frameOptions.onTextConfirmed ?? runtime.onTextConfirmed
         runtime.onSelectionChanged = frameOptions.onSelectionChanged ?? runtime.onSelectionChanged
-        runtime.onKeyBeforeFocusedElement = frameOptions.onKeyBeforeFocusedElement ?? runtime.onKeyBeforeFocusedElement
-        runtime.onKeyBeforeFocused = frameOptions.onKeyBeforeFocused ?? runtime.onKeyBeforeFocused
+        runtime.legacyOnKeyBeforeFocusedElement = frameOptions.legacyOnKeyBeforeFocusedElement ?? runtime.legacyOnKeyBeforeFocusedElement
+        runtime.legacyOnKeyBeforeFocused = frameOptions.legacyOnKeyBeforeFocused ?? runtime.legacyOnKeyBeforeFocused
         runtime.onMousePressBeforeFocused = frameOptions.onMousePressBeforeFocused ?? runtime.onMousePressBeforeFocused
         runtime.onMouseWheelBeforeFocused = frameOptions.onMouseWheelBeforeFocused ?? runtime.onMouseWheelBeforeFocused
         runtime.onMouseWheel = frameOptions.onMouseWheel ?? runtime.onMouseWheel
@@ -4048,6 +4084,20 @@ public final class GeneratedWindowStack
     fileprivate var allFrames: [GeneratedWindowStackFrame]
     {
         frames
+    }
+}
+
+public struct KeyEvent
+{
+    public let key: String
+    public let focusedElementId: String
+    public let editMode: Bool
+
+    public init(key: String, focusedElementId: String = "", editMode: Bool = false)
+    {
+        self.key = key
+        self.focusedElementId = focusedElementId
+        self.editMode = editMode
     }
 }
 
@@ -4209,6 +4259,32 @@ open class GeneratedWindowBase
     {
         _ = name
         _ = value
+        return false
+    }
+
+    open func handleGeneratedListBoxItemActivate(
+        _ name: String,
+        elementId: String,
+        index: Int,
+        value: String
+    ) -> Bool
+    {
+        _ = name
+        _ = elementId
+        _ = index
+        _ = value
+        return false
+    }
+
+    open func onPreviewKey(_ event: KeyEvent) -> Bool
+    {
+        _ = event
+        return false
+    }
+
+    open func onKey(_ key: String) -> Bool
+    {
+        _ = key
         return false
     }
 
@@ -6294,37 +6370,37 @@ public final class FileBrowser: GeneratedWindowBase
         var options = super.runtimeOptions()
         options.initialFocusName = "entries"
         options.startInEditMode = true
-        options.onKeyBeforeFocusedElement = { [weak self] key, name, editMode in
-            guard let self, key == "Enter", name == "entries", editMode else
-            {
-                return false
-            }
-            self.entries.setSelectedIndex(self.entries.activeIndex)
-            self.entries.hideActiveItem()
-            self.previewSelected()
-            if self.selectedEntryIsDirectory()
-            {
-                _ = self.acceptCurrent()
-                return true
-            }
-            return false
-        }
         options.onMousePressBeforeFocused = { [weak self] point in
             self?.handleEntryMousePress(point) ?? false
         }
-        options.onKey = { [weak self] key in
-            guard let self else
-            {
-                return false
-            }
-            if key == "Escape"
-            {
-                self.close("")
-                return true
-            }
+        return options
+    }
+
+    public override func handleGeneratedListBoxItemActivate(
+        _ name: String,
+        elementId: String,
+        index: Int,
+        value: String
+    ) -> Bool
+    {
+        guard name == "entries" else
+        {
             return false
         }
-        return options
+        entries.setSelectedIndex(index)
+        entries.hideActiveItem()
+        previewSelected()
+        return selectedEntryIsDirectory() && acceptCurrent()
+    }
+
+    public override func onPreviewKey(_ event: KeyEvent) -> Bool
+    {
+        if event.key == "Escape" && !event.editMode
+        {
+            close("")
+            return true
+        }
+        return false
     }
 
     private func handleEntryMousePress(_ point: Point) -> Bool
@@ -8306,6 +8382,23 @@ final class GeneratedRuntimeController
             return owner.handleGeneratedSelectionChanged(element.name, value: value)
         }
         return options.onSelectionChanged?(elementId, value) ?? false
+    }
+
+    private func dispatchListBoxItemActivate(_ element: UIElement) -> Bool
+    {
+        guard let listBox = element as? ListBox, !listBox.options.isEmpty else
+        {
+            return false
+        }
+        let index = min(max(listBox.activeIndex, 0), listBox.options.count - 1)
+        let elementId = runtimeElementId(element)
+        let owner = ownerWindowForElement(window, element) ?? window
+        return owner.handleGeneratedListBoxItemActivate(
+            element.name,
+            elementId: elementId,
+            index: index,
+            value: listBox.options[index]
+        )
     }
 
     private func getImageRenderInfo(_ id: String?) throws -> [String: Any]
@@ -10291,6 +10384,14 @@ final class GeneratedRuntimeController
 
     private func handleTerminalKeyInput(_ key: String, refreshLayoutForNavigation: Bool = true) throws
     {
+        if window.onPreviewKey(KeyEvent(
+            key: key,
+            focusedElementId: focusedName ?? "",
+            editMode: editMode
+        ))
+        {
+            return
+        }
         if editMode && key == "Escape"
         {
             if activeScrollView != nil
@@ -10344,11 +10445,11 @@ final class GeneratedRuntimeController
             return
         }
         if let focusedName,
-           options.onKeyBeforeFocusedElement?(key, focusedName, editMode) == true
+           options.legacyOnKeyBeforeFocusedElement?(key, focusedName, editMode) == true
         {
             return
         }
-        if options.onKeyBeforeFocused?(key) == true
+        if options.legacyOnKeyBeforeFocused?(key) == true
         {
             return
         }
@@ -10412,6 +10513,10 @@ final class GeneratedRuntimeController
             }
             if editMode && key == "Enter", let listBox = element as? ListBox
             {
+                if dispatchListBoxItemActivate(element)
+                {
+                    return
+                }
                 let before = element.valueForSnapshot
                 if element.handleKey(key)
                 {
@@ -10491,7 +10596,7 @@ final class GeneratedRuntimeController
                 return
             }
         }
-        if options.onKey?(key) == true
+        if window.onKey(key) || options.onKey?(key) == true
         {
             return
         }
@@ -11104,6 +11209,10 @@ final class GeneratedRuntimeController
             let editedId = runtimeElementId(edited)
             if key == "Enter"
             {
+                if dispatchListBoxItemActivate(edited)
+                {
+                    return true
+                }
                 let before = edited.valueForSnapshot
                 _ = edited.handleKey(key)
                 notifyValueChange(edited, before: before)

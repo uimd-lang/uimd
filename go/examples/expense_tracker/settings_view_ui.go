@@ -295,3 +295,17 @@ func (ui *SettingsViewUI) HandleGeneratedSelectionChanged(name string, value []s
     }
     return false
 }
+
+func (ui *SettingsViewUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *SettingsViewUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

@@ -232,15 +232,15 @@ private struct SettingsResult
     var defaultType = kDefaultActivityType
 }
 
-private final class SettingsDialog
+private final class SettingsDialog: SettingsUI
 {
-    let ui = SettingsUI()
+    var onCancel: (() -> Void)?
     private(set) var isOpen = false
 
     func configure(_ settings: SettingsResult)
     {
-        ui.auto_scroll.setChecked(settings.autoScroll)
-        ui.show_timestamps.setChecked(settings.showTimestamps)
+        auto_scroll.setChecked(settings.autoScroll)
+        show_timestamps.setChecked(settings.showTimestamps)
         selectDefaultType(settings.defaultType)
     }
 
@@ -257,20 +257,30 @@ private final class SettingsDialog
     func result() -> SettingsResult
     {
         SettingsResult(
-            autoScroll: ui.auto_scroll.checked,
-            showTimestamps: ui.show_timestamps.checked,
+            autoScroll: auto_scroll.checked,
+            showTimestamps: show_timestamps.checked,
             defaultType: selectedDefaultType()
         )
     }
 
     func selectDefaultType(_ value: String)
     {
-        selectComboValue(ui.default_type, value)
+        selectComboValue(default_type, value)
     }
 
     func selectedDefaultType() -> String
     {
-        selectedComboValue(ui.default_type, fallback: kDefaultActivityType)
+        selectedComboValue(default_type, fallback: kDefaultActivityType)
+    }
+
+    override func onPreviewKey(_ event: KeyEvent) -> Bool
+    {
+        if event.key == "Escape" && !event.editMode
+        {
+            onCancel?()
+            return true
+        }
+        return false
     }
 }
 
@@ -424,6 +434,14 @@ private final class ActivityFeedApp: ActivityFeedUI
             defaultType: defaultType
         ))
         settingsDialog.open()
+        settingsDialog.onCancel = { [weak self] in
+            guard let self else
+            {
+                return
+            }
+            status.setText("Settings canceled")
+            closeSettings()
+        }
         var frame = GeneratedWindowFrameOptions()
         frame.onButton = { [weak self] name in
             guard let self else
@@ -441,25 +459,12 @@ private final class ActivityFeedApp: ActivityFeedUI
             closeSettings()
             return true
         }
-        frame.onKeyBeforeFocusedElement = { [weak self] keyName, _, editMode in
-            guard let self else
-            {
-                return false
-            }
-            if keyName == "Escape" && !editMode
-            {
-                status.setText("Settings canceled")
-                closeSettings()
-                return true
-            }
-            return false
-        }
-        modalStack.push(settingsDialog.ui, frame)
+        modalStack.push(settingsDialog, frame)
     }
 
     private func closeSettings()
     {
-        modalStack.remove(settingsDialog.ui)
+        modalStack.remove(settingsDialog)
         settingsDialog.close()
     }
 

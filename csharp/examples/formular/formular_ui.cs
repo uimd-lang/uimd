@@ -907,6 +907,7 @@ cancel_btn:
     protected virtual void onDescriptionInputSubmit(string value) { }
     protected virtual void onCountryComboChange(string value) { }
     protected virtual void onRoleListboxSelectionChange(List<string> value) { }
+    protected virtual bool onRoleListboxItemActivate(int index, string value) { return false; }
     protected virtual void onNotifyCheckChange(string value) { }
     protected virtual void onTermsCheckChange(string value) { }
     protected virtual void onSaveBtnClick() { }
@@ -999,6 +1000,15 @@ cancel_btn:
         {
             onRoleListboxSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    public override bool HandleGeneratedListBoxItemActivate(string name, string elementId, int index, string value)
+    {
+        if (name == "role_listbox")
+        {
+            return onRoleListboxItemActivate(index, value);
         }
         return false;
     }

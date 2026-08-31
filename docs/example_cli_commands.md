@@ -752,6 +752,8 @@ explicitly running the Python tester implementation.
 PYTHONPATH=python:src python3 -m pytest python/tests
 PYTHONPATH=python:src python3 -m pytest python/tests/test_activity_feed.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_listbox_item_activation_can_consume_enter_before_default_commit
+PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_preview_key_receives_stable_repeated_element_id_and_can_consume
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_confirm_keeps_same_focus_after_callback_changes_focusables
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_reusable_control_activates_with_enter_and_space
 PYTHONPATH=python:src python3 -m pytest python/tests/test_calculator.py
@@ -915,10 +917,11 @@ python3 tools/go_direct_terminal_smoke.py --cpp-build-dir cpp/build --go-example
 
 The smoke covers raw keyboard input, root Escape staying inside the app,
 MessageBox Escape exposing its negative-button flash before close, explicit
-Quit, SGR mouse press/drag/release, Ctrl+C, title, alternate-screen setup,
-full-frame writes, and terminal teardown. A native Windows direct-terminal
-smoke remains blocked on the Windows console or ConPTY runtime adapter; Windows
-headless MCP commands are documented below.
+Quit, SGR mouse press/drag/release, animated-gradient progression while the
+terminal is idle, Ctrl+C, title, alternate-screen setup, full-frame writes, and
+terminal teardown. A native Windows direct-terminal smoke remains blocked on
+the Windows console or ConPTY runtime adapter; Windows headless MCP commands
+are documented below.
 
 ## Rust Direct Terminal And MCP Transport Smoke Tests
 

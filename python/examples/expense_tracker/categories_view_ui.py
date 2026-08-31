@@ -42,6 +42,9 @@ class CategoriesViewUI(UIControl):
     def on_categories_selection_change(self, value):
         pass
 
+    def on_categories_item_activate(self, index, value):
+        return False
+
     def on_remove_category_btn_click(self):
         pass
 
@@ -64,6 +67,12 @@ class CategoriesViewUI(UIControl):
         if element is self.categories:
             self.on_categories_selection_change(value)
         super()._dispatch_selection_changed(element, value)
+
+    def _dispatch_listbox_item_activate(self, element, element_id, index, value):
+        if element is self.categories:
+            if self.on_categories_item_activate(index, value):
+                return True
+        return super()._dispatch_listbox_item_activate(element, element_id, index, value)
 
 
 COMPILED_MEMBERS = {

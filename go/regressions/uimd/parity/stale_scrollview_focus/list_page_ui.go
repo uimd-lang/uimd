@@ -82,3 +82,17 @@ func (ui *ListPageUI) HandleGeneratedTextConfirmed(name string, value string) bo
 func (ui *ListPageUI) HandleGeneratedSelectionChanged(name string, value []string) bool {
     return false
 }
+
+func (ui *ListPageUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *ListPageUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

@@ -703,7 +703,10 @@ std::vector<EventSpec> eventSpecsForMember(const std::string& name, const YamlMa
     }
     if (elemType == "listbox")
     {
-        return {{name, "selection", eventMethodName(name, "SelectionChange")}};
+        return {
+            {name, "selection", eventMethodName(name, "SelectionChange")},
+            {name, "listbox_activate", eventMethodName(name, "ItemActivate")},
+        };
     }
     return {};
 }
@@ -965,6 +968,38 @@ std::string generateSource(
         lines.push_back("        return false");
         lines.push_back("    }");
     }
+    lines.push_back("    return false");
+    lines.push_back("}");
+    const std::vector<EventSpec> listboxActivateSpecs = specsForChannel(members, "listbox_activate");
+    if (!listboxActivateSpecs.empty())
+    {
+        lines.push_back("");
+        lines.push_back("func (ui *" + classNameValue + ") HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {");
+        lines.push_back("    _ = elementID");
+        for (const EventSpec& spec : listboxActivateSpecs)
+        {
+            lines.push_back("    if name == " + goString(spec.name) + " {");
+            lines.push_back("        if handler, ok := ui.eventHandler.(interface{ " + spec.methodName + "(int, string) bool }); ok {");
+            lines.push_back("            return handler." + spec.methodName + "(index, value)");
+            lines.push_back("        }");
+            lines.push_back("        return false");
+            lines.push_back("    }");
+        }
+        lines.push_back("    return false");
+        lines.push_back("}");
+    }
+    lines.push_back("");
+    lines.push_back("func (ui *" + classNameValue + ") HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {");
+    lines.push_back("    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {");
+    lines.push_back("        return handler.OnPreviewKey(event)");
+    lines.push_back("    }");
+    lines.push_back("    return false");
+    lines.push_back("}");
+    lines.push_back("");
+    lines.push_back("func (ui *" + classNameValue + ") HandleGeneratedKey(key string) bool {");
+    lines.push_back("    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {");
+    lines.push_back("        return handler.OnKey(key)");
+    lines.push_back("    }");
     lines.push_back("    return false");
     lines.push_back("}");
 

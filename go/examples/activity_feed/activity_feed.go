@@ -148,6 +148,10 @@ func (app *ActivityFeedApp) OpenSettings() {
 		DefaultType:    app.defaultType,
 	})
 	app.settingsDialog.Open()
+	app.settingsDialog.OnCancel = func() {
+		app.Status.SetText("Settings canceled")
+		app.closeSettings()
+	}
 	frame := uimd.GeneratedWindowFrameOptions{
 		ClassName: "Settings",
 		OnButton: func(name string) {
@@ -158,17 +162,9 @@ func (app *ActivityFeedApp) OpenSettings() {
 			}
 			app.closeSettings()
 		},
-		OnKeyBeforeFocusedElement: func(key string, _ string, editMode bool) bool {
-			if key == "Escape" && !editMode {
-				app.Status.SetText("Settings canceled")
-				app.closeSettings()
-				return true
-			}
-			return false
-		},
 	}
 	app.settingsWasShown = true
-	app.stack.Push(app.settingsDialog.UI, frame)
+	app.stack.Push(app.settingsDialog, frame)
 }
 
 func (app *ActivityFeedApp) closeSettings() {

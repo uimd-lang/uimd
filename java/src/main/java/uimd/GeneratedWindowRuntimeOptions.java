@@ -117,24 +117,38 @@ public final class GeneratedWindowRuntimeOptions
         return onKey;
     }
 
+    @Deprecated(since = "0.5.4", forRemoval = true)
     public GeneratedFocusedKeyHandler onKeyBeforeFocusedElement()
     {
         return onKeyBeforeFocusedElement;
     }
 
+    @Deprecated(since = "0.5.4", forRemoval = true)
     public void setOnKeyBeforeFocusedElement(GeneratedFocusedKeyHandler value)
     {
         onKeyBeforeFocusedElement = value;
     }
 
+    @Deprecated(since = "0.5.4", forRemoval = true)
     public Predicate<String> onKeyBeforeFocused()
     {
         return onKeyBeforeFocused;
     }
 
+    @Deprecated(since = "0.5.4", forRemoval = true)
     public void setOnKeyBeforeFocused(Predicate<String> value)
     {
         onKeyBeforeFocused = value;
+    }
+
+    GeneratedFocusedKeyHandler legacyOnKeyBeforeFocusedElement()
+    {
+        return onKeyBeforeFocusedElement;
+    }
+
+    Predicate<String> legacyOnKeyBeforeFocused()
+    {
+        return onKeyBeforeFocused;
     }
 
     public Consumer<String> onButton()

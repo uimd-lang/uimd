@@ -198,8 +198,6 @@ GeneratedWindowFrameOptions FileBrowser::stackFrameOptions() {
     frame.initialFocusName = std::move(runtime.initialFocusName);
     frame.startInEditMode = runtime.startInEditMode;
     frame.onButton = std::move(runtime.onButton);
-    frame.onKeyBeforeFocusedElement = std::move(runtime.onKeyBeforeFocusedElement);
-    frame.onKeyBeforeFocused = std::move(runtime.onKeyBeforeFocused);
     frame.onKey = std::move(runtime.onKey);
     frame.onMousePressBeforeFocused = std::move(runtime.onMousePressBeforeFocused);
     frame.onTextChanged = std::move(runtime.onTextChanged);
@@ -372,19 +370,6 @@ GeneratedWindowRuntimeOptions FileBrowser::runtimeOptions() {
             previewSelected();
         }
     };
-    options.onKeyBeforeFocusedElement = [this](std::string_view key, std::string_view name, bool editMode) {
-        if (key != "Enter" || name != "entries" || !editMode) {
-            return false;
-        }
-        entries->setSelectedIndex(entries->activeIndex());
-        entries->hideActiveItem();
-        previewSelected();
-        if (selectedEntryIsDirectory()) {
-            (void)acceptCurrent();
-            return true;
-        }
-        return false;
-    };
     options.onEditStarted = [this](std::string_view name) {
         if (name == "filename") {
             moveFilenameCursorToEnd();
@@ -393,17 +378,30 @@ GeneratedWindowRuntimeOptions FileBrowser::runtimeOptions() {
     options.onMousePressBeforeFocused = [this](Point point) {
         return handleEntryMousePress(point);
     };
-    options.onKey = [this](std::string_view key) {
-        if (key == "Escape") {
-            close("");
-            return true;
-        }
-        return false;
-    };
     options.shouldClose = [this] {
         return closed_;
     };
     return options;
+}
+
+bool FileBrowser::onEntriesItemActivate(int index, std::string_view value) {
+    (void)value;
+    if (!entryIndexIsDirectory(index)) {
+        return false;
+    }
+    selectEntry(index);
+    entries->hideActiveItem();
+    previewSelected();
+    (void)acceptCurrent();
+    return true;
+}
+
+bool FileBrowser::onPreviewKey(const KeyEvent& event) {
+    if (event.key == "Escape" && !event.editMode) {
+        close("");
+        return true;
+    }
+    return false;
 }
 
 }  // namespace ui::dialogs

@@ -114,17 +114,6 @@ public final class FileBrowser extends FileBrowserUI
         GeneratedWindowRuntimeOptions options = super.runtimeOptions();
         options.setInitialFocusName("entries");
         options.setStartInEditMode(true);
-        options.setOnKeyBeforeFocusedElement((key, name, editMode) ->
-        {
-            if (!"Enter".equals(key) || !"entries".equals(name) || !editMode)
-            {
-                return false;
-            }
-            entries.setSelectedIndex(entries.activeIndex());
-            entries.hideActiveItem();
-            previewSelected();
-            return selectedEntryIsDirectory() && acceptCurrent();
-        });
         options.setOnMousePressBeforeFocused(this::handleEntryMousePress);
         options.setOnEditStarted(name ->
         {
@@ -133,17 +122,36 @@ public final class FileBrowser extends FileBrowserUI
                 moveFilenameCursorToEnd();
             }
         });
-        options.setOnKey(key ->
-        {
-            if (!"Escape".equals(key))
-            {
-                return false;
-            }
-            close(null);
-            return true;
-        });
         options.setShouldClose(this::closed);
         return options;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if (!"entries".equals(name))
+        {
+            return false;
+        }
+        entries.setSelectedIndex(index);
+        entries.hideActiveItem();
+        previewSelected();
+        return selectedEntryIsDirectory() && acceptCurrent();
+    }
+
+    @Override
+    public boolean onPreviewKey(KeyEvent event)
+    {
+        if (!"Escape".equals(event.key()) || event.editMode())
+        {
+            return false;
+        }
+        close(null);
+        return true;
     }
 
     public void refreshEntries()

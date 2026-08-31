@@ -505,6 +505,7 @@ open class ContactsManagerUI: GeneratedWindowBase
     }
 
     open func onContactsSelectionChange(_ value: [String]) { }
+    open func onContactsItemActivate(_ index: Int, value: String) -> Bool { false }
     open func onAddBtnClick() { }
     open func onEditBtnClick() { }
     open func onDeleteBtnClick() { }
@@ -566,6 +567,15 @@ open class ContactsManagerUI: GeneratedWindowBase
         {
             onContactsSelectionChange(value)
             return true
+        }
+        return false
+    }
+
+    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool
+    {
+        if name == "contacts"
+        {
+            return onContactsItemActivate(index, value: value)
         }
         return false
     }

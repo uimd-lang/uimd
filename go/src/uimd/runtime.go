@@ -19,15 +19,22 @@ import (
 
 var runtimeClipboardText string
 
+type KeyEvent struct {
+	Key              string
+	FocusedElementID string
+	EditMode         bool
+}
+
 type GeneratedWindowRuntimeOptions struct {
-	Output                    io.Writer
-	Footer                    string
-	InitialFocusName          string
-	StartInEditMode           bool
-	KeepEditModeAfterConfirm  bool
-	KeepEditModeAfterEscape   bool
-	WindowStack               *GeneratedWindowStack
-	OnKey                     func(string) bool
+	Output                   io.Writer
+	Footer                   string
+	InitialFocusName         string
+	StartInEditMode          bool
+	KeepEditModeAfterConfirm bool
+	KeepEditModeAfterEscape  bool
+	WindowStack              *GeneratedWindowStack
+	OnKey                    func(string) bool
+	// Deprecated: implement OnPreviewKey(KeyEvent) on the window; removal in UIMD 0.7.0.
 	OnKeyBeforeFocusedElement func(string, string, bool) bool
 	OnMousePressBeforeFocused func(Point) bool
 	OnButton                  func(string)
@@ -39,12 +46,13 @@ type GeneratedWindowRuntimeOptions struct {
 }
 
 type GeneratedWindowFrameOptions struct {
-	ClassName                 string
-	InitialFocusName          string
-	StartInEditMode           bool
-	KeepEditModeAfterConfirm  bool
-	KeepEditModeAfterEscape   bool
-	OnKey                     func(string) bool
+	ClassName                string
+	InitialFocusName         string
+	StartInEditMode          bool
+	KeepEditModeAfterConfirm bool
+	KeepEditModeAfterEscape  bool
+	OnKey                    func(string) bool
+	// Deprecated: implement OnPreviewKey(KeyEvent) on the window; removal in UIMD 0.7.0.
 	OnKeyBeforeFocusedElement func(string, string, bool) bool
 	OnMousePressBeforeFocused func(Point) bool
 	OnButton                  func(string)
@@ -898,6 +906,17 @@ func (state *runtimeState) handleKey(key string) bool {
 	if focused != nil {
 		focusedName = focused.ElementName()
 	}
+	owner := ownerObjectForWindow(state.window)
+	previewEvent := KeyEvent{Key: key, FocusedElementID: elementPath(state.window, focused), EditMode: state.editMode}
+	previewHandled := false
+	if handler, ok := owner.(interface{ OnPreviewKey(KeyEvent) bool }); ok {
+		previewHandled = handler.OnPreviewKey(previewEvent)
+	} else if handler, ok := owner.(interface{ HandleGeneratedPreviewKey(KeyEvent) bool }); ok {
+		previewHandled = handler.HandleGeneratedPreviewKey(previewEvent)
+	}
+	if previewHandled {
+		return true
+	}
 	if state.options.OnKeyBeforeFocusedElement != nil && state.options.OnKeyBeforeFocusedElement(key, focusedName, state.editMode) {
 		return true
 	}
@@ -915,6 +934,9 @@ func (state *runtimeState) handleKey(key string) bool {
 			return true
 		}
 		before := valueForElement(focused)
+		if key == "Enter" && state.dispatchListBoxItemActivate(focused) {
+			return true
+		}
 		handled := focused.HandleKey(key)
 		if key == "Enter" && !handled {
 			state.endElementEdit(focused, true)
@@ -944,6 +966,15 @@ func (state *runtimeState) handleKey(key string) bool {
 		return state.handleReusableScrollScopeKey(key, focused)
 	}
 	if key == "Escape" && state.handleStandardEscapeButton() {
+		return true
+	}
+	fallbackHandled := false
+	if handler, ok := owner.(interface{ OnKey(string) bool }); ok {
+		fallbackHandled = handler.OnKey(key)
+	} else if handler, ok := owner.(interface{ HandleGeneratedKey(string) bool }); ok {
+		fallbackHandled = handler.HandleGeneratedKey(key)
+	}
+	if fallbackHandled {
 		return true
 	}
 	if state.options.OnKey != nil && state.options.OnKey(key) {
@@ -1221,6 +1252,9 @@ func (state *runtimeState) handleReusableScrollScopeKey(key string, focused Elem
 		}
 	}
 	before := valueForElement(focused)
+	if key == "Enter" && state.dispatchListBoxItemActivate(focused) {
+		return true
+	}
 	handled := focused.HandleKey(key)
 	if key == "Enter" {
 		state.dispatchChangeIfNeeded(focused, before)
@@ -1846,6 +1880,27 @@ func (state *runtimeState) dispatchGeneratedSelectionChanged(element Element, va
 		return handler.HandleGeneratedSelectionChanged(element.ElementName(), values)
 	}
 	return false
+}
+
+func (state *runtimeState) dispatchListBoxItemActivate(element Element) bool {
+	listBox, ok := element.(*ListBox)
+	if !ok || len(listBox.Options) == 0 {
+		return false
+	}
+	index := clampInt(listBox.ActiveIndex, 0, len(listBox.Options)-1)
+	owner := ownerObjectForElement(state.window, element)
+	handler, ok := owner.(interface {
+		HandleGeneratedListBoxItemActivate(string, string, int, string) bool
+	})
+	if !ok {
+		return false
+	}
+	return handler.HandleGeneratedListBoxItemActivate(
+		element.ElementName(),
+		elementPath(state.window, element),
+		index,
+		listBox.Options[index],
+	)
 }
 
 const (
@@ -3990,6 +4045,71 @@ func valueForElement(element Element) string {
 	}
 }
 
+func styleHasAnimatedTextGradient(style Style) bool {
+	return style.TextColorGradient != nil || style.TextBackgroundGradient != nil
+}
+
+func (element *elementBase) hasAnimatedTextGradient() bool {
+	if styleHasAnimatedTextGradient(element.style) {
+		return true
+	}
+	for _, style := range []*Style{
+		element.focusStyle,
+		element.editStyle,
+		element.cursorStyle,
+		element.selectedStyle,
+		element.activeStyle,
+		element.checkedStyle,
+		element.uncheckedStyle,
+		element.disabledStyle,
+	} {
+		if style != nil && styleHasAnimatedTextGradient(*style) {
+			return true
+		}
+	}
+	return false
+}
+
+func elementHasAnimatedTextGradient(element Element) bool {
+	if element == nil {
+		return false
+	}
+	if styled, ok := element.(interface{ hasAnimatedTextGradient() bool }); ok &&
+		styled.hasAnimatedTextGradient() {
+		return true
+	}
+	if scrollView, ok := element.(*ScrollView); ok {
+		if scrollView.descendantFocusStyle != nil &&
+			styleHasAnimatedTextGradient(*scrollView.descendantFocusStyle) {
+			return true
+		}
+		for _, child := range scrollView.Children {
+			if elementHasAnimatedTextGradient(child) {
+				return true
+			}
+		}
+	}
+	if childWindow := childWindowForElement(element); childWindow != nil {
+		return windowHasAnimatedTextGradient(childWindow)
+	}
+	return false
+}
+
+func windowHasAnimatedTextGradient(window *GeneratedWindowBase) bool {
+	if window == nil {
+		return false
+	}
+	if styleHasAnimatedTextGradient(window.windowStyle) {
+		return true
+	}
+	for _, element := range window.elements {
+		if elementHasAnimatedTextGradient(element) {
+			return true
+		}
+	}
+	return false
+}
+
 func runInteractiveTerminal(window *GeneratedWindowBase, options GeneratedWindowRuntimeOptions) int {
 	state := newRuntimeState(window, options)
 	terminalMode := enterTerminalMode(window.Title())
@@ -4016,6 +4136,8 @@ func runInteractiveTerminal(window *GeneratedWindowBase, options GeneratedWindow
 	}
 	dirty := true
 	forceFullRedraw := false
+	hasAnimatedTextGradient := windowHasAnimatedTextGradient(window)
+	lastAnimatedRenderAt := time.Now()
 	previousSize := Size{}
 	previousWindowStackSize := 0
 	if options.WindowStack != nil {
@@ -4038,10 +4160,15 @@ func runInteractiveTerminal(window *GeneratedWindowBase, options GeneratedWindow
 			dirty = true
 			forceFullRedraw = true
 		}
+		now := time.Now()
+		if hasAnimatedTextGradient && now.Sub(lastAnimatedRenderAt) >= animatedRenderInterval {
+			dirty = true
+			lastAnimatedRenderAt = now
+		}
 		root := state.rootState()
 		if root.notification != "" &&
 			!root.notificationUntil.IsZero() &&
-			!time.Now().Before(root.notificationUntil) {
+			!now.Before(root.notificationUntil) {
 			dirty = true
 		}
 		if dirty {
@@ -4162,6 +4289,7 @@ const (
 	dialogButtonCloseDelay             = 180 * time.Millisecond
 	terminalEscapeSequenceTimeout      = 50 * time.Millisecond
 	terminalInputIdleSleep             = 10 * time.Millisecond
+	animatedRenderInterval             = 70 * time.Millisecond
 	terminalRawInputMinBytes           = "0"
 	terminalRawInputTimeoutDeciseconds = "0"
 	notificationForeground             = "#ffffff"

@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -56,6 +57,7 @@ constexpr int kReusableFocusCellSize = 1;
 constexpr int kAlphaFocusScrollSize = 3;
 constexpr int kScopedConfirmWidth = 12;
 constexpr int kScopedConfirmHeight = 3;
+constexpr int kListBoxActivationHeight = 2;
 
 const ui::Color kReusableFocusParentBackground{"#172033"};
 const ui::Color kReusableFocusBackground{"#ffffff14"};
@@ -436,6 +438,83 @@ public:
     ui::ComboBox* choice = nullptr;
 };
 
+class KeyPreviewHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    KeyPreviewHostWindow()
+        : ui::GeneratedWindowBase("KeyPreviewHostWindow")
+    {
+        items = &addElement<ui::ScrollView>("items");
+        first = &items->addChild<ui::Button>("action", "First");
+        second = &items->addChild<ui::Button>("action", "Second");
+        setGeneratedLayout({
+            fixedEntry(
+                "items",
+                "scrollview",
+                ui::Rect{0, 0, kScopedConfirmWidth, kScopedConfirmHeight}),
+        });
+    }
+
+    bool onPreviewKey(const ui::KeyEvent& event) override
+    {
+        if (event.key != "Delete")
+        {
+            return false;
+        }
+        previewEvent = event;
+        return true;
+    }
+
+    ui::ScrollView* items = nullptr;
+    ui::Button* first = nullptr;
+    ui::Button* second = nullptr;
+    std::optional<ui::KeyEvent> previewEvent;
+};
+
+class ListBoxActivationHostWindow : public ui::GeneratedWindowBase
+{
+public:
+    ListBoxActivationHostWindow()
+        : ui::GeneratedWindowBase("ListBoxActivationHostWindow")
+    {
+        choices = &addElement<ui::ListBox>(
+            "choices",
+            std::vector<std::string>{"First", "Second"});
+        choices->setSelectedValues({"First"});
+        setGeneratedLayout({
+            fixedEntry(
+                "choices",
+                "listbox",
+                ui::Rect{0, 0, kScopedConfirmWidth, kListBoxActivationHeight}),
+        });
+    }
+
+    bool handleGeneratedListBoxItemActivate(std::string_view name,
+                                            std::string_view elementId,
+                                            int index,
+                                            std::string_view value) override
+    {
+        activationName = std::string(name);
+        activationElementId = std::string(elementId);
+        activationIndex = index;
+        activationValue = std::string(value);
+        return true;
+    }
+
+    bool onKey(std::string_view key) override
+    {
+        fallbackKeys.emplace_back(key);
+        return true;
+    }
+
+    ui::ListBox* choices = nullptr;
+    std::string activationName;
+    std::string activationElementId;
+    int activationIndex = -1;
+    std::string activationValue;
+    std::vector<std::string> fallbackKeys;
+};
+
 struct ComboBoxMouseMcpResult
 {
     int selectedIndex = -1;
@@ -485,6 +564,74 @@ struct ComboBoxMouseMcpResult
     }
     result.selectedIndex = window.choice->selectedIndex();
     return result;
+}
+
+void runKeyEventPipelineMcpCases()
+{
+    {
+        KeyPreviewHostWindow window;
+        ui::GeneratedWindowRuntimeOptions options;
+        options.initialFocusName = "items";
+        std::istringstream requests{
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n"
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"press_key\",\"params\":{\"key\":\"Down\"}}\n"
+            "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"press_key\",\"params\":{\"key\":\"Delete\"}}\n"};
+        std::ostringstream responses;
+        std::streambuf* previousInput = std::cin.rdbuf(requests.rdbuf());
+        std::streambuf* previousOutput = std::cout.rdbuf(responses.rdbuf());
+        std::cin.clear();
+        std::cout.clear();
+
+        char executable[] = "ui_cpp_tests";
+        char mcpServer[] = "--mcp-server";
+        char headless[] = "--headless";
+        char fast[] = "--mcp-fast";
+        char* arguments[] = {executable, mcpServer, headless, fast};
+        const int exitCode = ui::runGeneratedWindow(window, std::move(options), 4, arguments);
+
+        std::cin.rdbuf(previousInput);
+        std::cout.rdbuf(previousOutput);
+        std::cin.clear();
+        std::cout.clear();
+        assert(exitCode == 0);
+        assert(window.previewEvent.has_value());
+        assert(window.previewEvent->focusedElementId == "items[1].action");
+        assert(!window.previewEvent->editMode);
+    }
+
+    {
+        ListBoxActivationHostWindow window;
+        ui::GeneratedWindowRuntimeOptions options;
+        options.initialFocusName = "choices";
+        options.startInEditMode = true;
+        std::istringstream requests{
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"press_key\",\"params\":{\"key\":\"Down\"}}\n"
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"press_key\",\"params\":{\"key\":\"Enter\"}}\n"};
+        std::ostringstream responses;
+        std::streambuf* previousInput = std::cin.rdbuf(requests.rdbuf());
+        std::streambuf* previousOutput = std::cout.rdbuf(responses.rdbuf());
+        std::cin.clear();
+        std::cout.clear();
+
+        char executable[] = "ui_cpp_tests";
+        char mcpServer[] = "--mcp-server";
+        char headless[] = "--headless";
+        char fast[] = "--mcp-fast";
+        char* arguments[] = {executable, mcpServer, headless, fast};
+        const int exitCode = ui::runGeneratedWindow(window, std::move(options), 4, arguments);
+
+        std::cin.rdbuf(previousInput);
+        std::cout.rdbuf(previousOutput);
+        std::cin.clear();
+        std::cout.clear();
+        assert(exitCode == 0);
+        assert(window.activationName == "choices");
+        assert(window.activationElementId == "choices");
+        assert(window.activationIndex == 1);
+        assert(window.activationValue == "Second");
+        assert(window.choices->selectedValues() == std::vector<std::string>{"First"});
+        assert(window.fallbackKeys.empty());
+    }
 }
 
 struct ScopedConfirmMcpResult
@@ -1112,6 +1259,7 @@ int main() {
     {
         return failCheck("active ScrollView reusable focus target did not activate exactly once per key");
     }
+    runKeyEventPipelineMcpCases();
     const ComboBoxMouseMcpResult comboMouse = runComboBoxMouseMcpCase();
     if (comboMouse.selectedIndex != 6 || comboMouse.selectionChangedCount != 1)
     {

@@ -2,7 +2,7 @@ package uimd;
 
 public final class Version
 {
-    private static final String RUNTIME_VERSION = "0.5.4";
+    private static final String RUNTIME_VERSION = "0.5.5";
 
     private Version()
     {

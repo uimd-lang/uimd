@@ -263,6 +263,11 @@ private:
             .defaultType = defaultType_,
         });
         settingsDialog_.open();
+        settingsDialog_.setOnCancel([&]
+        {
+            status->setText("Settings canceled");
+            closeSettings();
+        });
         ui::GeneratedWindowFrameOptions frame;
         frame.onButton = [&](std::string_view name)
         {
@@ -275,16 +280,6 @@ private:
                 status->setText("Settings canceled");
             }
             closeSettings();
-        };
-        frame.onKeyBeforeFocusedElement = [&](std::string_view keyName, std::string_view, bool editMode)
-        {
-            if (keyName == "Escape" && !editMode)
-            {
-                status->setText("Settings canceled");
-                closeSettings();
-                return true;
-            }
-            return false;
         };
         modalStack_.push(settingsDialog_.window(), std::move(frame));
     }

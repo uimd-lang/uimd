@@ -1762,40 +1762,7 @@ class MCPController:
 
     def _iter_element_items(self):
         window = self._require_window()
-        for elem in window.get_all_elements():
-            yield getattr(elem, "name", ""), elem
-        if not hasattr(window, "_embedded_scrollview_contexts"):
-            return
-        for proxy, scrollview, origin_rect in window._embedded_scrollview_contexts():
-            proxy_name = getattr(proxy, "name", "")
-            for context in window._scrollview_child_focus_contexts(proxy, scrollview, origin_rect, focusable_only=False):
-                child_index = context.get("child_index", 0)
-                elem = context["element"]
-                yield f"{proxy_name}[{child_index}].{getattr(elem, 'name', '')}", elem
-        if not hasattr(window, "_embedded_view_contexts"):
-            return
-        seen = set()
-        for context in window._embedded_view_contexts(focusable_only=False):
-            elem = context["element"]
-            key = id(elem)
-            if key in seen:
-                continue
-            seen.add(key)
-            proxy_name = getattr(context["proxy"], "name", "")
-            elem_name = getattr(elem, "name", "")
-            element_id = f"{proxy_name}.{elem_name}"
-            yield element_id, elem
-            scrollview = getattr(elem, "_child_instance", None)
-            if scrollview is not None and hasattr(scrollview, "child_view_entries") and hasattr(scrollview, "_clamped_viewport_rect"):
-                for child_context in window._scrollview_child_focus_contexts(
-                    elem,
-                    scrollview,
-                    context["rect"],
-                    focusable_only=False,
-                ):
-                    child_index = child_context.get("child_index", 0)
-                    child_elem = child_context["element"]
-                    yield f"{element_id}[{child_index}].{getattr(child_elem, 'name', '')}", child_elem
+        yield from window._iter_runtime_element_items()
 
     def _iter_exposed_element_items(self):
         for element_id, elem in self._iter_element_items():

@@ -82,3 +82,17 @@ func (ui *TaskListUI) HandleGeneratedTextConfirmed(name string, value string) bo
 func (ui *TaskListUI) HandleGeneratedSelectionChanged(name string, value []string) bool {
     return false
 }
+
+func (ui *TaskListUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *TaskListUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

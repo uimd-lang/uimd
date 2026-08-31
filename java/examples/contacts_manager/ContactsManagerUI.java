@@ -312,6 +312,11 @@ public class ContactsManagerUI extends GeneratedWindowBase
     {
     }
 
+    protected boolean onContactsItemActivate(int index, String value)
+    {
+        return false;
+    }
+
     protected void onAddBtnClick()
     {
     }
@@ -391,6 +396,20 @@ public class ContactsManagerUI extends GeneratedWindowBase
         {
             onContactsSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if ("contacts".equals(name))
+        {
+            return onContactsItemActivate(index, value);
         }
         return false;
     }

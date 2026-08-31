@@ -497,6 +497,11 @@ public class FormularUI extends GeneratedWindowBase
     {
     }
 
+    protected boolean onRoleListboxItemActivate(int index, String value)
+    {
+        return false;
+    }
+
     protected void onNotifyCheckChange(String value)
     {
     }
@@ -603,6 +608,20 @@ public class FormularUI extends GeneratedWindowBase
         {
             onRoleListboxSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if ("role_listbox".equals(name))
+        {
+            return onRoleListboxItemActivate(index, value);
         }
         return false;
     }

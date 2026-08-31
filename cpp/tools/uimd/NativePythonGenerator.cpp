@@ -812,7 +812,10 @@ std::vector<EventSpec> eventSpecsForMember(const std::string& name, const YamlMa
     }
     if (elemType == "listbox")
     {
-        return {{"selection", pythonEventMethodName(name, "selection_change"), "value"}};
+        return {
+            {"selection", pythonEventMethodName(name, "selection_change"), "value"},
+            {"listbox_activate", pythonEventMethodName(name, "item_activate"), "index, value"},
+        };
     }
     return {};
 }
@@ -840,7 +843,15 @@ std::string generateEventHookCode(const YamlMap& members)
             {
                 result += ", " + spec.argName;
             }
-            result += "):\n        pass\n\n";
+            result += "):\n";
+            if (spec.channel == "listbox_activate")
+            {
+                result += "        return False\n\n";
+            }
+            else
+            {
+                result += "        pass\n\n";
+            }
         }
     }
     if (!result.empty())
@@ -855,6 +866,7 @@ std::string generateEventDispatchCode(const YamlMap& members)
     std::vector<std::pair<std::string, EventSpec>> elementSpecs;
     std::vector<std::pair<std::string, EventSpec>> confirmedSpecs;
     std::vector<std::pair<std::string, EventSpec>> selectionSpecs;
+    std::vector<std::pair<std::string, EventSpec>> listboxActivateSpecs;
     for (const auto& [name, value] : members)
     {
         const YamlMap* member = valueAsMap(&value);
@@ -875,6 +887,10 @@ std::string generateEventDispatchCode(const YamlMap& members)
             else if (spec.channel == "selection")
             {
                 selectionSpecs.push_back({name, spec});
+            }
+            else if (spec.channel == "listbox_activate")
+            {
+                listboxActivateSpecs.push_back({name, spec});
             }
         }
     }
@@ -907,6 +923,18 @@ std::string generateEventDispatchCode(const YamlMap& members)
     result += "    def _dispatch_selection_changed(self, element, value):\n";
     appendSpecs(result, selectionSpecs);
     result += "        super()._dispatch_selection_changed(element, value)\n";
+    if (!listboxActivateSpecs.empty())
+    {
+        result += "\n    def _dispatch_listbox_item_activate(self, element, element_id, index, value):\n";
+        for (std::size_t index = 0; index < listboxActivateSpecs.size(); ++index)
+        {
+            const auto& [name, spec] = listboxActivateSpecs[index];
+            result += std::string(index == 0 ? "        if" : "        elif") + " element is self." + generatedAttrName(name) + ":\n";
+            result += "            if self." + spec.methodName + "(index, value):\n";
+            result += "                return True\n";
+        }
+        result += "        return super()._dispatch_listbox_item_activate(element, element_id, index, value)\n";
+    }
     return result;
 }
 

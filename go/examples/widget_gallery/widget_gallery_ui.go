@@ -707,3 +707,28 @@ func (ui *WidgetGalleryUI) HandleGeneratedSelectionChanged(name string, value []
     }
     return false
 }
+
+func (ui *WidgetGalleryUI) HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {
+    _ = elementID
+    if name == "mode_list" {
+        if handler, ok := ui.eventHandler.(interface{ OnModeListItemActivate(int, string) bool }); ok {
+            return handler.OnModeListItemActivate(index, value)
+        }
+        return false
+    }
+    return false
+}
+
+func (ui *WidgetGalleryUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *WidgetGalleryUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

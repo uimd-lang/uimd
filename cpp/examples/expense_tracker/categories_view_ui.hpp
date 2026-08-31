@@ -32,6 +32,7 @@ public:
     bool handleGeneratedTextChanged(std::string_view name, std::string_view value) override;
     bool handleGeneratedTextConfirmed(std::string_view name, std::string_view value) override;
     bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;
+    bool handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value) override;
 
 
     ui::Label* view_title = nullptr;
@@ -45,6 +46,7 @@ protected:
     virtual void onCategoryNameSubmit(std::string_view value);
     virtual void onAddCategoryBtnClick();
     virtual void onCategoriesSelectionChange(const std::vector<std::string>& value);
+    virtual bool onCategoriesItemActivate(int index, std::string_view value);
     virtual void onRemoveCategoryBtnClick();
     virtual bool shouldClose() const;
 

@@ -366,28 +366,27 @@ func (browser *FileBrowser) RuntimeOptions() GeneratedWindowRuntimeOptions {
 				browser.PreviewSelected()
 			}
 		},
-		OnKeyBeforeFocusedElement: func(key string, name string, editMode bool) bool {
-			if key != "Enter" || name != "entries" || !editMode {
-				return false
-			}
-			browser.SelectEntry(browser.Entries.ActiveIndex)
-			browser.Entries.HideActiveItem()
-			if browser.SelectedEntryIsDirectory() {
-				browser.AcceptCurrent()
-				return true
-			}
-			return false
-		},
 		OnMousePressBeforeFocused: browser.HandleEntryMousePress,
-		OnKey: func(key string) bool {
-			if key == "Escape" {
-				browser.Close("")
-				return true
-			}
-			return false
-		},
-		ShouldClose: browser.ShouldClose,
+		ShouldClose:               browser.ShouldClose,
 	}
+}
+
+func (browser *FileBrowser) HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {
+	if name != "entries" {
+		return false
+	}
+	browser.SelectEntry(index)
+	browser.Entries.HideActiveItem()
+	browser.PreviewSelected()
+	return browser.SelectedEntryIsDirectory() && browser.AcceptCurrent()
+}
+
+func (browser *FileBrowser) OnPreviewKey(event KeyEvent) bool {
+	if event.Key == "Escape" && !event.EditMode {
+		browser.Close("")
+		return true
+	}
+	return false
 }
 
 func (browser *FileBrowser) StackFrameOptions() GeneratedWindowFrameOptions {
@@ -399,7 +398,6 @@ func (browser *FileBrowser) StackFrameOptions() GeneratedWindowFrameOptions {
 		KeepEditModeAfterConfirm:  options.KeepEditModeAfterConfirm,
 		KeepEditModeAfterEscape:   options.KeepEditModeAfterEscape,
 		OnKey:                     options.OnKey,
-		OnKeyBeforeFocusedElement: options.OnKeyBeforeFocusedElement,
 		OnMousePressBeforeFocused: options.OnMousePressBeforeFocused,
 		OnButton:                  options.OnButton,
 		OnTextChanged:             options.OnTextChanged,

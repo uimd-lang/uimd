@@ -99,3 +99,17 @@ func (ui *CodeBlockUI) HandleGeneratedTextConfirmed(name string, value string) b
 func (ui *CodeBlockUI) HandleGeneratedSelectionChanged(name string, value []string) bool {
     return false
 }
+
+func (ui *CodeBlockUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *CodeBlockUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

@@ -453,3 +453,28 @@ func (ui *ContactsManagerUI) HandleGeneratedSelectionChanged(name string, value 
     }
     return false
 }
+
+func (ui *ContactsManagerUI) HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {
+    _ = elementID
+    if name == "contacts" {
+        if handler, ok := ui.eventHandler.(interface{ OnContactsItemActivate(int, string) bool }); ok {
+            return handler.OnContactsItemActivate(index, value)
+        }
+        return false
+    }
+    return false
+}
+
+func (ui *ContactsManagerUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *ContactsManagerUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

@@ -726,3 +726,28 @@ func (ui *FormularUI) HandleGeneratedSelectionChanged(name string, value []strin
     }
     return false
 }
+
+func (ui *FormularUI) HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {
+    _ = elementID
+    if name == "role_listbox" {
+        if handler, ok := ui.eventHandler.(interface{ OnRoleListboxItemActivate(int, string) bool }); ok {
+            return handler.OnRoleListboxItemActivate(index, value)
+        }
+        return false
+    }
+    return false
+}
+
+func (ui *FormularUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *FormularUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

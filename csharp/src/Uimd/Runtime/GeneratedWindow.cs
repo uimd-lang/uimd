@@ -43,6 +43,8 @@ public sealed class GeneratedAppToolMetadata
     public string OutputSchemaJson { get; set; } = "";
 }
 
+public sealed record KeyEvent(string Key, string FocusedElementId = "", bool EditMode = false);
+
 public class Window
 {
     public string Title { get; }
@@ -154,6 +156,25 @@ public class GeneratedWindowBase : Window
     }
 
     public virtual bool HandleGeneratedSelectionChanged(string name, List<string> value)
+    {
+        return false;
+    }
+
+    public virtual bool HandleGeneratedListBoxItemActivate(
+        string name,
+        string elementId,
+        int index,
+        string value)
+    {
+        return false;
+    }
+
+    public virtual bool OnPreviewKey(KeyEvent keyEvent)
+    {
+        return false;
+    }
+
+    public virtual bool OnKey(string key)
     {
         return false;
     }
@@ -295,6 +316,8 @@ public class GeneratedScrollViewBase : GeneratedWindowBase
 
 public sealed class GeneratedWindowRuntimeOptions
 {
+    private Func<string, string, bool, bool>? onKeyBeforeFocusedElement;
+
     public string Footer { get; set; } = "";
     public string InitialFocusName { get; set; } = "";
     public bool StartInEditMode { get; set; }
@@ -302,7 +325,13 @@ public sealed class GeneratedWindowRuntimeOptions
     public bool KeepEditModeAfterConfirm { get; set; }
     public bool KeepEditModeAfterEscape { get; set; }
     public Action<string>? OnButton { get; set; }
-    public Func<string, string, bool, bool>? OnKeyBeforeFocusedElement { get; set; }
+    [Obsolete("Use GeneratedWindowBase.OnPreviewKey; removal in UIMD 0.7.0")]
+    public Func<string, string, bool, bool>? OnKeyBeforeFocusedElement
+    {
+        get => onKeyBeforeFocusedElement;
+        set => onKeyBeforeFocusedElement = value;
+    }
+    internal Func<string, string, bool, bool>? LegacyOnKeyBeforeFocusedElement => onKeyBeforeFocusedElement;
     public Func<Point, bool>? OnMousePressBeforeFocused { get; set; }
     public Func<string, bool>? OnKey { get; set; }
     public Action<string, string>? OnTextChanged { get; set; }
@@ -7787,9 +7816,11 @@ public sealed class McpController
         return Snapshot(element);
     }
 
-    private (ReusableElement Proxy, ScrollView ScrollView)? FocusElementWithScrollViewScope(Element element)
+    private (ReusableElement Proxy, ScrollView ScrollView)? FocusElementWithScrollViewScope(
+        Element element,
+        bool refreshLayout = true)
     {
-        FocusElement(element);
+        FocusElement(element, refreshLayout);
         (ReusableElement Proxy, ScrollView ScrollView)? scrollContext =
             ScrollViewFocusContextForElement(Current.Window, element);
         if (!scrollContext.HasValue)
@@ -8266,6 +8297,14 @@ public sealed class McpController
         ClearLabelSelectionsInWindow(Current.Window);
         List<Element> focusable = GeneratedWindowRuntime.FocusableElements(Current.Window, Current.ActiveScrollView);
         Element? focused = FocusedElement();
+        if (Current.Window.OnPreviewKey(new KeyEvent(
+                key,
+                focused is null ? "" : ElementSnapshotId(focused),
+                Current.EditMode)))
+        {
+            CloseCurrentWindowIfRequested();
+            return focused is null ? new JsonObject { ["ok"] = true } : Snapshot(focused);
+        }
         int focusedListIndex = focused is null ? Current.FocusedIndex : focusable.IndexOf(focused);
         if (focusedListIndex >= 0)
         {
@@ -8347,7 +8386,7 @@ public sealed class McpController
         }
 
         if (focused is not null &&
-            Current.Options.OnKeyBeforeFocusedElement?.Invoke(key, focused.Name, Current.EditMode) == true)
+            Current.Options.LegacyOnKeyBeforeFocusedElement?.Invoke(key, focused.Name, Current.EditMode) == true)
         {
             CloseCurrentWindowIfRequested();
             return Snapshot(focused);
@@ -8401,6 +8440,11 @@ public sealed class McpController
                 {
                     if (key == "Enter")
                     {
+                        if (DispatchListBoxItemActivate(Current.ActiveScrollViewEditElement))
+                        {
+                            CloseCurrentWindowIfRequested();
+                            return Snapshot(Current.ActiveScrollViewEditElement);
+                        }
                         int previousSelectionIndex = SelectedIndexOf(Current.ActiveScrollViewEditElement);
                         List<string>? previousSelectionValues = SelectionValuesForChange(Current.ActiveScrollViewEditElement);
                         Current.ActiveScrollViewEditElement.HandleKey(key);
@@ -8428,6 +8472,11 @@ public sealed class McpController
             }
             else if (key == "Enter" && focused is ListBox focusedListBox)
             {
+                if (DispatchListBoxItemActivate(focused))
+                {
+                    CloseCurrentWindowIfRequested();
+                    return Snapshot(focused);
+                }
                 int previousSelectionIndex = SelectedIndexOf(focused);
                 List<string>? previousSelectionValues = SelectionValuesForChange(focused);
                 focused.HandleKey(key);
@@ -8492,7 +8541,7 @@ public sealed class McpController
             return FocusedElement() is Element edited ? Snapshot(edited) : new JsonObject { ["ok"] = true };
         }
 
-        if (Current.Options.OnKey?.Invoke(key) == true)
+        if (Current.Window.OnKey(key) || Current.Options.OnKey?.Invoke(key) == true)
         {
             CloseCurrentWindowIfRequested();
             return focused is null ? new JsonObject { ["ok"] = true } : Snapshot(focused);
@@ -9139,11 +9188,11 @@ public sealed class McpController
         {
             if (scrollViewScopeActive)
             {
-                _ = FocusElementWithScrollViewScope(target);
+                _ = FocusElementWithScrollViewScope(target, refreshLayout: false);
             }
             else
             {
-                FocusElement(target);
+                FocusElement(target, refreshLayout: false);
             }
             focused = target;
         }
@@ -9502,9 +9551,12 @@ public sealed class McpController
         }
     }
 
-    private void FocusElement(Element element)
+    private void FocusElement(Element element, bool refreshLayout = true)
     {
-        RenderContent();
+        if (refreshLayout)
+        {
+            RenderContent();
+        }
         GeneratedWindowRuntime.EnsureElementVisibleInContainingScrollView(Current.Window, element);
         SetFocusInFrame(Current, element);
     }
@@ -9913,6 +9965,21 @@ public sealed class McpController
         {
             DispatchChanged(listBox);
         }
+    }
+
+    private bool DispatchListBoxItemActivate(Element element)
+    {
+        if (element is not ListBox listBox || listBox.Options.Count == 0)
+        {
+            return false;
+        }
+        int index = Math.Clamp(listBox.ActiveIndex, 0, listBox.Options.Count - 1);
+        GeneratedWindowBase owner = OwnerWindowFor(Current.Window, element) ?? Current.Window;
+        return owner.HandleGeneratedListBoxItemActivate(
+            element.Name,
+            ElementSnapshotId(element),
+            index,
+            listBox.Options[index]);
     }
 
     private void DispatchConfirmed(Element element)

@@ -251,6 +251,11 @@ public class MarkdownViewerUI extends GeneratedWindowBase
     {
     }
 
+    protected boolean onDocsItemActivate(int index, String value)
+    {
+        return false;
+    }
+
     protected void onUpBtnClick()
     {
     }
@@ -303,6 +308,20 @@ public class MarkdownViewerUI extends GeneratedWindowBase
         {
             onDocsSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if ("docs".equals(name))
+        {
+            return onDocsItemActivate(index, value);
         }
         return false;
     }

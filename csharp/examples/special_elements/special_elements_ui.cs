@@ -1069,6 +1069,7 @@ listbox:
     protected virtual void onRawButtonClick() { }
     protected virtual void onRawComboChange(string value) { }
     protected virtual void onRawListSelectionChange(List<string> value) { }
+    protected virtual bool onRawListItemActivate(int index, string value) { return false; }
     protected virtual void onRawInputChange(string value) { }
     protected virtual void onRawInputSubmit(string value) { }
     protected virtual void onRawAreaChange(string value) { }
@@ -1126,6 +1127,15 @@ listbox:
         {
             onRawListSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    public override bool HandleGeneratedListBoxItemActivate(string name, string elementId, int index, string value)
+    {
+        if (name == "raw_list")
+        {
+            return onRawListItemActivate(index, value);
         }
         return false;
     }

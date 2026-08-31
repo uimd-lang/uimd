@@ -1697,7 +1697,10 @@ std::vector<EventSpec> eventSpecsForMember(const CompilerMember& member)
     }
     if (elemType == "listbox")
     {
-        return {{name, "selection", "SelectionChange", cppEventMethodName(name, "SelectionChange"), "const std::vector<std::string>& value"}};
+        return {
+            {name, "selection", "SelectionChange", cppEventMethodName(name, "SelectionChange"), "const std::vector<std::string>& value"},
+            {name, "listbox_activate", "ItemActivate", cppEventMethodName(name, "ItemActivate"), "int index, std::string_view value"},
+        };
     }
     return {};
 }
@@ -1725,9 +1728,10 @@ std::string generateCppHookDeclarations(const std::vector<CompilerMember>& membe
     std::vector<std::string> lines;
     for (const EventSpec& spec : eventSpecs(members))
     {
+        const std::string returnType = spec.channel == "listbox_activate" ? "bool" : "void";
         lines.push_back(spec.args.empty()
-            ? "    virtual void " + spec.methodName + "();"
-            : "    virtual void " + spec.methodName + "(" + spec.args + ");");
+            ? "    virtual " + returnType + " " + spec.methodName + "();"
+            : "    virtual " + returnType + " " + spec.methodName + "(" + spec.args + ");");
     }
     lines.push_back("    virtual bool shouldClose() const;");
     std::string result;
@@ -2403,9 +2407,16 @@ std::vector<std::string> generateCppHookDefinitions(
     std::vector<std::string> lines;
     for (const EventSpec& spec : eventSpecs(members))
     {
-        lines.push_back("void " + classNameValue + "::" + spec.methodName + "(" + spec.args + ")");
+        const std::string returnType = spec.channel == "listbox_activate" ? "bool" : "void";
+        lines.push_back(returnType + " " + classNameValue + "::" + spec.methodName + "(" + spec.args + ")");
         lines.push_back("{");
-        if (!spec.args.empty())
+        if (spec.channel == "listbox_activate")
+        {
+            lines.push_back("    (void)index;");
+            lines.push_back("    (void)value;");
+            lines.push_back("    return false;");
+        }
+        else if (!spec.args.empty())
         {
             std::string argName = spec.args.substr(spec.args.find_last_of(' ') + 1);
             while (!argName.empty() && argName.front() == '&')
@@ -2505,6 +2516,7 @@ void appendCppEventDispatch(
     std::vector<std::pair<std::string, std::string>> confirmedSpecs;
     std::vector<std::pair<std::string, std::string>> selectionTextSpecs;
     std::vector<std::pair<std::string, std::string>> selectionSpecs;
+    std::vector<std::pair<std::string, std::string>> listboxActivateSpecs;
     for (const EventSpec& spec : eventSpecs(members))
     {
         if (spec.channel == "button")
@@ -2527,6 +2539,10 @@ void appendCppEventDispatch(
         {
             selectionSpecs.push_back({spec.name, spec.methodName});
         }
+        else if (spec.channel == "listbox_activate")
+        {
+            listboxActivateSpecs.push_back({spec.name, spec.methodName});
+        }
     }
 
     lines.push_back("bool " + classNameValue + "::handleGeneratedButton(std::string_view name)");
@@ -2536,6 +2552,25 @@ void appendCppEventDispatch(
     lines.push_back("    return false;");
     lines.push_back("}");
     lines.push_back("");
+
+    if (!listboxActivateSpecs.empty())
+    {
+        lines.push_back("bool " + classNameValue + "::handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value)");
+        lines.push_back("{");
+        lines.push_back("    (void)elementId;");
+        for (std::size_t index = 0; index < listboxActivateSpecs.size(); ++index)
+        {
+            const auto& [name, method] = listboxActivateSpecs[index];
+            const std::string keyword = index == 0 ? "if" : "else if";
+            lines.push_back("    " + keyword + " (name == " + cppString(name) + ")");
+            lines.push_back("    {");
+            lines.push_back("        return " + method + "(index, value);");
+            lines.push_back("    }");
+        }
+        lines.push_back("    return false;");
+        lines.push_back("}");
+        lines.push_back("");
+    }
 
     lines.push_back("bool " + classNameValue + "::handleGeneratedTextChanged(std::string_view name, std::string_view value)");
     lines.push_back("{");
@@ -2744,6 +2779,14 @@ std::string generateHeader(const std::string& baseName, const std::string& class
         "    bool handleGeneratedTextConfirmed(std::string_view name, std::string_view value) override;",
         "    bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;",
     });
+    const std::vector<EventSpec> headerEventSpecs = eventSpecs(members);
+    if (std::any_of(
+            headerEventSpecs.begin(),
+            headerEventSpecs.end(),
+            [](const EventSpec& spec) { return spec.channel == "listbox_activate"; }))
+    {
+        lines.push_back("    bool handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value) override;");
+    }
     const std::string toolDeclarations = generateCppToolDeclarations(mcpTools);
     lines.push_back("");
     if (!toolDeclarations.empty())

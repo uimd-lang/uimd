@@ -516,6 +516,13 @@ void FormularUI::onRoleListboxSelectionChange(const std::vector<std::string>& va
     (void)value;
 }
 
+bool FormularUI::onRoleListboxItemActivate(int index, std::string_view value)
+{
+    (void)index;
+    (void)value;
+    return false;
+}
+
 void FormularUI::onNotifyCheckChange(std::string_view value)
 {
     (void)value;
@@ -551,6 +558,16 @@ bool FormularUI::handleGeneratedButton(std::string_view name)
     {
         onCancelBtnClick();
         return true;
+    }
+    return false;
+}
+
+bool FormularUI::handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value)
+{
+    (void)elementId;
+    if (name == "role_listbox")
+    {
+        return onRoleListboxItemActivate(index, value);
     }
     return false;
 }

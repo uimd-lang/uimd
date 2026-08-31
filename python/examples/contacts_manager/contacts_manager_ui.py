@@ -41,6 +41,9 @@ class ContactsManagerUI(UIWindow):
     def on_contacts_selection_change(self, value):
         pass
 
+    def on_contacts_item_activate(self, index, value):
+        return False
+
     def on_add_btn_click(self):
         pass
 
@@ -83,6 +86,12 @@ class ContactsManagerUI(UIWindow):
         if element is self.contacts:
             self.on_contacts_selection_change(value)
         super()._dispatch_selection_changed(element, value)
+
+    def _dispatch_listbox_item_activate(self, element, element_id, index, value):
+        if element is self.contacts:
+            if self.on_contacts_item_activate(index, value):
+                return True
+        return super()._dispatch_listbox_item_activate(element, element_id, index, value)
 
 
 COMPILED_MEMBERS = {

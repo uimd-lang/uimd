@@ -227,6 +227,11 @@ public class FileBrowserUI extends GeneratedWindowBase
     {
     }
 
+    protected boolean onEntriesItemActivate(int index, String value)
+    {
+        return false;
+    }
+
     protected void onFilenameChange(String value)
     {
     }
@@ -288,6 +293,20 @@ public class FileBrowserUI extends GeneratedWindowBase
         {
             onEntriesSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if ("entries".equals(name))
+        {
+            return onEntriesItemActivate(index, value);
         }
         return false;
     }

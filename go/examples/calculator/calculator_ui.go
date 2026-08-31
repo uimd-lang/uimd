@@ -814,3 +814,17 @@ func (ui *CalculatorUI) HandleGeneratedTextConfirmed(name string, value string) 
 func (ui *CalculatorUI) HandleGeneratedSelectionChanged(name string, value []string) bool {
     return false
 }
+
+func (ui *CalculatorUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *CalculatorUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

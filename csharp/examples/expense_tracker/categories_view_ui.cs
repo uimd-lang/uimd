@@ -372,6 +372,7 @@ button:
     protected virtual void onCategoryNameSubmit(string value) { }
     protected virtual void onAddCategoryBtnClick() { }
     protected virtual void onCategoriesSelectionChange(List<string> value) { }
+    protected virtual bool onCategoriesItemActivate(int index, string value) { return false; }
     protected virtual void onRemoveCategoryBtnClick() { }
     protected override bool shouldClose() { return false; }
 
@@ -416,6 +417,15 @@ button:
         {
             onCategoriesSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    public override bool HandleGeneratedListBoxItemActivate(string name, string elementId, int index, string value)
+    {
+        if (name == "categories")
+        {
+            return onCategoriesItemActivate(index, value);
         }
         return false;
     }

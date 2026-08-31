@@ -679,7 +679,10 @@ std::vector<EventSpec> eventSpecsForMember(const CompilerMember& member)
     }
     if (elemType == "listbox")
     {
-        return {{name, "selection", eventMethodName(name, "SelectionChange")}};
+        return {
+            {name, "selection", eventMethodName(name, "SelectionChange")},
+            {name, "listbox_activate", eventMethodName(name, "ItemActivate")},
+        };
     }
     return {};
 }
@@ -996,12 +999,18 @@ std::string generateSource(
     {
         lines.push_back("    fn " + spec.methodName + "(&mut self, _ui: &mut " + classNameValue + ", _value: &[String]) {}");
     }
+    for (const EventSpec& spec : specsForChannel(members, "listbox_activate"))
+    {
+        lines.push_back("    fn " + spec.methodName + "(&mut self, _ui: &mut " + classNameValue + ", _index: usize, _value: &str) -> bool { false }");
+    }
     lines.push_back("    fn handle_dynamic_button(&mut self, _ui: &mut " + classNameValue + ", _name: &str) -> bool { false }");
     lines.push_back("    fn handle_dynamic_text_changed(&mut self, _ui: &mut " + classNameValue + ", _name: &str, _value: &str) -> bool { false }");
     lines.push_back("    fn handle_dynamic_text_confirmed(&mut self, _ui: &mut " + classNameValue + ", _name: &str, _value: &str) -> bool { false }");
     lines.push_back("    fn handle_dynamic_selection_changed(&mut self, _ui: &mut " + classNameValue + ", _name: &str, _value: &[String]) -> bool { false }");
     lines.push_back("    fn handle_active_window_button(&mut self, _ui: &mut " + classNameValue + ", _name: &str) -> bool { false }");
     lines.push_back("    fn on_focus_changed(&mut self, _ui: &mut " + classNameValue + ", _name: &str, _focused: bool) {}");
+    lines.push_back("    fn on_preview_key(&mut self, _ui: &mut " + classNameValue + ", _event: &uimd::KeyEvent) -> bool { false }");
+    lines.push_back("    #[deprecated(since = \"0.5.4\", note = \"use on_preview_key; removal in UIMD 0.7.0\")]");
     lines.push_back("    fn handle_key_before_focused(&mut self, _ui: &mut " + classNameValue + ", _key: &str, _name: &str, _edit_mode: bool) -> bool { false }");
     lines.push_back("    fn handle_key(&mut self, _ui: &mut " + classNameValue + ", _key: &str) -> bool { false }");
     lines.push_back("    fn on_window_closed(&mut self, _ui: &mut " + classNameValue + ", _window: uimd::GeneratedWindow) {}");
@@ -1060,6 +1069,19 @@ std::string generateSource(
     }
     lines.push_back("        self.handler.handle_dynamic_selection_changed(self.ui, name, value)");
     lines.push_back("    }");
+    const std::vector<EventSpec> listboxActivateSpecs = specsForChannel(members, "listbox_activate");
+    if (!listboxActivateSpecs.empty())
+    {
+        lines.push_back("");
+        lines.push_back("    fn handle_generated_listbox_item_activate(&mut self, name: &str, _element_id: &str, index: usize, value: &str) -> bool");
+        lines.push_back("    {");
+        for (const EventSpec& spec : listboxActivateSpecs)
+        {
+            lines.push_back("        if name == " + rustString(spec.name) + " { return self.handler." + spec.methodName + "(self.ui, index, value); }");
+        }
+        lines.push_back("        false");
+        lines.push_back("    }");
+    }
     lines.push_back("");
     lines.push_back("    fn handle_focus_changed(&mut self, name: &str, focused: bool) -> bool");
     lines.push_back("    {");
@@ -1067,6 +1089,12 @@ std::string generateSource(
     lines.push_back("        true");
     lines.push_back("    }");
     lines.push_back("");
+    lines.push_back("    fn handle_preview_key(&mut self, event: &uimd::KeyEvent) -> bool");
+    lines.push_back("    {");
+    lines.push_back("        self.handler.on_preview_key(self.ui, event)");
+    lines.push_back("    }");
+    lines.push_back("");
+    lines.push_back("    #[allow(deprecated)]");
     lines.push_back("    fn handle_key_before_focused(&mut self, key: &str, name: &str, edit_mode: bool) -> bool");
     lines.push_back("    {");
     lines.push_back("        self.handler.handle_key_before_focused(self.ui, key, name, edit_mode)");

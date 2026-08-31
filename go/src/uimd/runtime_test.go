@@ -29,9 +29,164 @@ type scopedConfirmGeneratedScrollView struct {
 	leading *Button
 }
 
+type generatedKeyDispatchUI struct {
+	*GeneratedWindowBase
+	eventHandler       any
+	previewDispatches  int
+	fallbackDispatches int
+}
+
+func (ui *generatedKeyDispatchUI) HandleGeneratedPreviewKey(event KeyEvent) bool {
+	ui.previewDispatches++
+	if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(KeyEvent) bool }); ok {
+		return handler.OnPreviewKey(event)
+	}
+	return false
+}
+
+func (ui *generatedKeyDispatchUI) HandleGeneratedKey(key string) bool {
+	ui.fallbackDispatches++
+	if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+		return handler.OnKey(key)
+	}
+	return false
+}
+
+type embeddedGeneratedKeyOwner struct {
+	*generatedKeyDispatchUI
+}
+
+type explicitGeneratedKeyOwner struct {
+	*generatedKeyDispatchUI
+	previewCalls  int
+	fallbackCalls int
+}
+
+func (owner *explicitGeneratedKeyOwner) OnPreviewKey(KeyEvent) bool {
+	owner.previewCalls++
+	return false
+}
+
+func (owner *explicitGeneratedKeyOwner) OnKey(string) bool {
+	owner.fallbackCalls++
+	return true
+}
+
 func (window *scopedConfirmGeneratedScrollView) HandleGeneratedTextConfirmed(string, string) bool {
 	window.leading.SetEnabled(false)
 	return true
+}
+
+func TestGeneratedKeyDispatchDistinguishesPromotedForwardersFromOverrides(t *testing.T) {
+	for _, test := range []struct {
+		name                   string
+		wantHandled            bool
+		wantPreviewDispatches  int
+		wantFallbackDispatches int
+		wantPreviewCalls       int
+		wantFallbackCalls      int
+	}{
+		{
+			name: "embedded generated UI without key overrides",
+		},
+		{
+			name:              "explicit application overrides",
+			wantHandled:       true,
+			wantPreviewCalls:  1,
+			wantFallbackCalls: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ui := &generatedKeyDispatchUI{GeneratedWindowBase: NewGeneratedWindowBase("keys")}
+			var owner any
+			if test.wantHandled {
+				owner = &explicitGeneratedKeyOwner{generatedKeyDispatchUI: ui}
+			} else {
+				owner = &embeddedGeneratedKeyOwner{generatedKeyDispatchUI: ui}
+				test.wantPreviewDispatches = 1
+				test.wantFallbackDispatches = 1
+			}
+			ui.eventHandler = owner
+			ui.ownerObject = owner
+			state := newRuntimeState(ui.GeneratedWindowBase, GeneratedWindowRuntimeOptions{})
+
+			if handled := state.handleKey("Delete"); handled != test.wantHandled {
+				t.Fatalf("handleKey handled = %v, want %v", handled, test.wantHandled)
+			}
+			if ui.previewDispatches != test.wantPreviewDispatches || ui.fallbackDispatches != test.wantFallbackDispatches {
+				t.Fatalf(
+					"generated dispatches = (%d, %d), want (%d, %d)",
+					ui.previewDispatches,
+					ui.fallbackDispatches,
+					test.wantPreviewDispatches,
+					test.wantFallbackDispatches,
+				)
+			}
+			if explicit, ok := owner.(*explicitGeneratedKeyOwner); ok &&
+				(explicit.previewCalls != test.wantPreviewCalls || explicit.fallbackCalls != test.wantFallbackCalls) {
+				t.Fatalf(
+					"override calls = (%d, %d), want (%d, %d)",
+					explicit.previewCalls,
+					explicit.fallbackCalls,
+					test.wantPreviewCalls,
+					test.wantFallbackCalls,
+				)
+			}
+		})
+	}
+}
+
+func TestWindowHasAnimatedTextGradientFindsStateAndNestedStyles(t *testing.T) {
+	animatedStyle := NewStyle()
+	animatedStyle.TextColorGradient = &TextGradient{
+		IntervalMs:  70,
+		Step:        1,
+		SegmentSize: 1,
+		Colors: []Color{
+			NewColor("#ff0000"),
+			NewColor("#00ff00"),
+		},
+	}
+
+	t.Run("plain window has no animation", func(t *testing.T) {
+		window := NewGeneratedWindowBase("plain")
+		window.AddElement(NewLabel("label", "Plain"))
+		if windowHasAnimatedTextGradient(window) {
+			t.Fatal("plain window was incorrectly classified as animated")
+		}
+	})
+
+	t.Run("element state style is animated", func(t *testing.T) {
+		window := NewGeneratedWindowBase("state style")
+		label := NewLabel("label", "Animated")
+		label.SetFocusStyle(animatedStyle)
+		window.AddElement(label)
+		if !windowHasAnimatedTextGradient(window) {
+			t.Fatal("animated focus style was not discovered")
+		}
+	})
+
+	t.Run("nested reusable child is animated", func(t *testing.T) {
+		child := NewGeneratedWindowBase("child")
+		child.SetGeneratedWindowStyle(animatedStyle)
+		reusable := NewReusableElement("child", "child")
+		reusable.SetChild(child)
+		window := NewGeneratedWindowBase("parent")
+		window.AddElement(reusable)
+		if !windowHasAnimatedTextGradient(window) {
+			t.Fatal("animated reusable child window was not discovered")
+		}
+	})
+
+	t.Run("scroll descendant focus style is animated", func(t *testing.T) {
+		scrollView := NewScrollView("items", 0)
+		scrollView.SetDescendantFocusStyle(animatedStyle)
+		window := NewGeneratedWindowBase("scroll")
+		window.AddElement(scrollView)
+		if !windowHasAnimatedTextGradient(window) {
+			t.Fatal("animated scroll descendant focus style was not discovered")
+		}
+	})
 }
 
 type customElementWithoutCommitMode struct {

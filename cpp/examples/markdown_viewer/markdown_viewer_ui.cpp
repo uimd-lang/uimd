@@ -408,6 +408,13 @@ void MarkdownViewerUI::onDocsSelectionChange(const std::vector<std::string>& val
     (void)value;
 }
 
+bool MarkdownViewerUI::onDocsItemActivate(int index, std::string_view value)
+{
+    (void)index;
+    (void)value;
+    return false;
+}
+
 void MarkdownViewerUI::onUpBtnClick()
 {
 }
@@ -442,6 +449,16 @@ bool MarkdownViewerUI::handleGeneratedButton(std::string_view name)
     {
         onCloseBtnClick();
         return true;
+    }
+    return false;
+}
+
+bool MarkdownViewerUI::handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value)
+{
+    (void)elementId;
+    if (name == "docs")
+    {
+        return onDocsItemActivate(index, value);
     }
     return false;
 }

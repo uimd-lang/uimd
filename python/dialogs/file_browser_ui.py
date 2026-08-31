@@ -35,6 +35,9 @@ class FileBrowserUI(UIWindow):
     def on_entries_selection_change(self, value):
         pass
 
+    def on_entries_item_activate(self, index, value):
+        return False
+
     def on_filename_change(self, value):
         pass
 
@@ -66,6 +69,12 @@ class FileBrowserUI(UIWindow):
         if element is self.entries:
             self.on_entries_selection_change(value)
         super()._dispatch_selection_changed(element, value)
+
+    def _dispatch_listbox_item_activate(self, element, element_id, index, value):
+        if element is self.entries:
+            if self.on_entries_item_activate(index, value):
+                return True
+        return super()._dispatch_listbox_item_activate(element, element_id, index, value)
 
 
 COMPILED_MEMBERS = {

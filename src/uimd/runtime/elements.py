@@ -2269,6 +2269,17 @@ class ListBox(UIElement):
         self._mark_dirty()
         return True
 
+    def activation_item(self):
+        """Return the index and value targeted by the next Enter action."""
+        if not self._options:
+            return -1, None
+        index = max(0, min(getattr(self, "_active_index", 0), len(self._options) - 1))
+        if not self.multiple and self._selected_items and not self._active_item_visible:
+            current = self._selected_items[-1]
+            if current in self._options:
+                index = self._options.index(current)
+        return index, self._options[index]
+
     def handle_key(self, key):
         if isinstance(key, dict) and key.get("type") == "mouse_wheel":
             return self._handle_mouse_wheel(key)
@@ -2276,10 +2287,7 @@ class ListBox(UIElement):
         if not self._options:
             return False
 
-        idx = max(0, min(getattr(self, "_active_index", 0), len(self._options) - 1))
-        if not self.multiple and self._selected_items and not self._active_item_visible:
-            current = self._selected_items[-1]
-            idx = self._options.index(current) if current in self._options else idx
+        idx, _value = self.activation_item()
 
         if key == "Up":
             idx = max(0, idx - 1)

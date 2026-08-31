@@ -987,6 +987,7 @@ checkbox:
     protected virtual void onEnabledCheckChange(string value) { }
     protected virtual void onThemeComboChange(string value) { }
     protected virtual void onModeListSelectionChange(List<string> value) { }
+    protected virtual bool onModeListItemActivate(int index, string value) { return false; }
     protected virtual void onApplyBtnClick() { }
     protected virtual void onResetBtnClick() { }
     protected override bool shouldClose() { return false; }
@@ -1057,6 +1058,15 @@ checkbox:
         {
             onModeListSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    public override bool HandleGeneratedListBoxItemActivate(string name, string elementId, int index, string value)
+    {
+        if (name == "mode_list")
+        {
+            return onModeListItemActivate(index, value);
         }
         return false;
     }

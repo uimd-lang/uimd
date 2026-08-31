@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use crate::{
     Color, ElementKind, ElementRef, ElementRenderState, LayoutItem, Point, Rect, Size, Style,
     ScrollViewPosition, ScrollViewRef, TerminalBuffer, DEFAULT_VIEWPORT_HEIGHT,
@@ -19,6 +21,14 @@ static NEXT_GENERATED_WINDOW_IDENTITY: AtomicU64 = AtomicU64::new(1);
 const COPY_NOTIFICATION_DURATION: Duration = Duration::from_secs(3);
 pub(crate) const DIALOG_BUTTON_CLOSE_DURATION: Duration = Duration::from_millis(180);
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeyEvent
+{
+    pub key: String,
+    pub focused_element_id: String,
+    pub edit_mode: bool,
+}
+
 pub trait GeneratedApplication
 {
     fn window(&self) -> &GeneratedWindow;
@@ -31,7 +41,16 @@ pub trait GeneratedApplication
     fn handle_generated_text_changed(&mut self, _name: &str, _value: &str) -> bool { false }
     fn handle_generated_text_confirmed(&mut self, _name: &str, _value: &str) -> bool { false }
     fn handle_generated_selection_changed(&mut self, _name: &str, _values: &[String]) -> bool { false }
+    fn handle_generated_listbox_item_activate(
+        &mut self,
+        _name: &str,
+        _element_id: &str,
+        _index: usize,
+        _value: &str,
+    ) -> bool { false }
     fn handle_focus_changed(&mut self, _name: &str, _focused: bool) -> bool { false }
+    fn handle_preview_key(&mut self, _event: &KeyEvent) -> bool { false }
+    #[deprecated(since = "0.5.4", note = "use handle_preview_key; removal in UIMD 0.7.0")]
     fn handle_key_before_focused(&mut self, _key: &str, _name: &str, _edit_mode: bool) -> bool { false }
     fn handle_key(&mut self, _key: &str) -> bool { false }
     fn handle_generated_window_closed(&mut self, _window: GeneratedWindow) {}
@@ -59,6 +78,12 @@ pub trait GeneratedWindowBehavior
         false
     }
 
+    fn handle_preview_key(&mut self, _window: &mut GeneratedWindow, _event: &KeyEvent) -> bool
+    {
+        false
+    }
+
+    #[deprecated(since = "0.5.4", note = "use handle_preview_key; removal in UIMD 0.7.0")]
     fn handle_key_before_focused(
         &mut self,
         _window: &mut GeneratedWindow,
@@ -71,6 +96,18 @@ pub trait GeneratedWindowBehavior
     }
 
     fn handle_key(&mut self, _window: &mut GeneratedWindow, _key: &str) -> bool
+    {
+        false
+    }
+
+    fn handle_listbox_item_activate(
+        &mut self,
+        _window: &mut GeneratedWindow,
+        _name: &str,
+        _element_id: &str,
+        _index: usize,
+        _value: &str,
+    ) -> bool
     {
         false
     }
@@ -165,7 +202,9 @@ pub struct GeneratedWindowRuntimeOptions
     pub keep_edit_mode_after_confirm: bool,
     pub keep_edit_mode_after_escape: bool,
     pub on_button: Option<ButtonCallback>,
+    #[deprecated(since = "0.5.4", note = "use handle_preview_key; removal in UIMD 0.7.0")]
     pub on_key_before_focused_element: Option<KeyBeforeFocusedElementCallback>,
+    #[deprecated(since = "0.5.4", note = "use handle_preview_key; removal in UIMD 0.7.0")]
     pub on_key_before_focused: Option<KeyCallback>,
     pub on_key: Option<KeyCallback>,
     pub on_mouse_press_before_focused: Option<MousePressCallback>,
@@ -334,7 +373,9 @@ pub struct GeneratedWindowFrameOptions
     pub keep_edit_mode_after_escape: bool,
     pub dim_background: bool,
     pub on_button: Option<ButtonCallback>,
+    #[deprecated(since = "0.5.4", note = "use handle_preview_key; removal in UIMD 0.7.0")]
     pub on_key_before_focused_element: Option<KeyBeforeFocusedElementCallback>,
+    #[deprecated(since = "0.5.4", note = "use handle_preview_key; removal in UIMD 0.7.0")]
     pub on_key_before_focused: Option<KeyCallback>,
     pub on_key: Option<KeyCallback>,
     pub on_mouse_press_before_focused: Option<MousePressCallback>,
@@ -754,6 +795,12 @@ impl GeneratedWindow
         behavior.0.borrow_mut().handle_button(self, name)
     }
 
+    fn behavior_handles_preview_key(&mut self, event: &KeyEvent) -> bool
+    {
+        let Some(behavior) = self.behavior.clone() else { return false };
+        behavior.0.borrow_mut().handle_preview_key(self, event)
+    }
+
     fn behavior_handles_key_before_focused(
         &mut self,
         key: &str,
@@ -772,6 +819,24 @@ impl GeneratedWindow
     {
         let Some(behavior) = self.behavior.clone() else { return false };
         behavior.0.borrow_mut().handle_key(self, key)
+    }
+
+    fn behavior_handles_listbox_item_activate(
+        &mut self,
+        name: &str,
+        element_id: &str,
+        index: usize,
+        value: &str,
+    ) -> bool
+    {
+        let Some(behavior) = self.behavior.clone() else { return false };
+        behavior.0.borrow_mut().handle_listbox_item_activate(
+            self,
+            name,
+            element_id,
+            index,
+            value,
+        )
     }
 
     fn behavior_handles_mouse_press(&mut self, point: Point) -> bool
@@ -2234,22 +2299,29 @@ impl RuntimeState
             app.window_mut().request_close();
             return true;
         }
-        if key != "Escape"
+        let focused_name = self
+            .focused_element(app.active_window())
+            .and_then(|element| app.active_window().element_id(&element))
+            .unwrap_or_default();
+        if dispatch_preview_key(app, &KeyEvent
         {
-            let focused_name = self
-                .focused_element(app.active_window())
-                .and_then(|element| app.active_window().element_id(&element))
-                .unwrap_or_default();
-            if dispatch_key_before_focused(
+            key: key.to_string(),
+            focused_element_id: focused_name.clone(),
+            edit_mode: self.edit_mode,
+        })
+        {
+            return true;
+        }
+        if key != "Escape"
+            && dispatch_key_before_focused(
                 app,
                 options,
                 key,
                 &focused_name,
                 self.edit_mode,
             )
-            {
-                return true;
-            }
+        {
+            return true;
         }
         if self.scope_edit_element.is_some()
         {
@@ -2265,6 +2337,12 @@ impl RuntimeState
             }
             if let Some(inner) = self.scope_dim_element.clone()
             {
+                if key == "Enter"
+                    && inner.borrow().kind() == ElementKind::ListBox
+                    && dispatch_listbox_item_activate(app, &inner)
+                {
+                    return true;
+                }
                 let before = element_value(&inner);
                 let handled = inner.borrow_mut().handle_key(key);
                 if key == "Enter"
@@ -2354,6 +2432,10 @@ impl RuntimeState
             let kind = element.borrow().kind();
             if key == "Enter" && kind == ElementKind::ListBox
             {
+                if dispatch_listbox_item_activate(app, &element)
+                {
+                    return true;
+                }
                 let before = element_value(&element);
                 element.borrow_mut().handle_key(key);
                 dispatch_change_if_needed(app, self, options, &element, before);
@@ -3137,6 +3219,52 @@ pub(crate) fn active_window_point(root: &GeneratedWindow, position: Point) -> Po
     })
 }
 
+fn dispatch_preview_key<A: GeneratedApplication>(app: &mut A, event: &KeyEvent) -> bool
+{
+    let modal = app.window().window_stack.top().is_some();
+    if app
+        .active_window_mut()
+        .behavior_handles_preview_key(event)
+    {
+        return true;
+    }
+    !modal && app.handle_preview_key(event)
+}
+
+fn dispatch_listbox_item_activate<A: GeneratedApplication>(
+    app: &mut A,
+    element: &ElementRef,
+) -> bool
+{
+    let (name, options, active_index) =
+    {
+        let element = element.borrow();
+        (
+            element.name().to_string(),
+            element.options().to_vec(),
+            element.active_index(),
+        )
+    };
+    if options.is_empty()
+    {
+        return false;
+    }
+    let index = (active_index.max(0) as usize).min(options.len() - 1);
+    let value = options[index].clone();
+    let element_id = app
+        .active_window()
+        .element_id(element)
+        .unwrap_or_else(|| name.clone());
+    if app
+        .active_window_mut()
+        .behavior_handles_listbox_item_activate(&name, &element_id, index, &value)
+    {
+        return true;
+    }
+    let modal = app.window().window_stack.top().is_some();
+    !modal && app.handle_generated_listbox_item_activate(&name, &element_id, index, &value)
+}
+
 fn dispatch_key_before_focused<A: GeneratedApplication>(
     app: &mut A,
     root_options: &GeneratedWindowRuntimeOptions,
@@ -3176,15 +3304,15 @@ fn dispatch_key<A: GeneratedApplication>(
 ) -> bool
 {
     let (options, modal) = active_callback_options(app.window(), root_options);
-    if options.on_key.as_ref().is_some_and(|callback| callback(key))
-    {
-        return true;
-    }
     if app.active_window_mut().behavior_handles_key(key)
     {
         return true;
     }
-    !modal && app.handle_key(key)
+    if !modal && app.handle_key(key)
+    {
+        return true;
+    }
+    options.on_key.as_ref().is_some_and(|callback| callback(key))
 }
 
 pub(crate) fn dispatch_focus_changed<A: GeneratedApplication>(

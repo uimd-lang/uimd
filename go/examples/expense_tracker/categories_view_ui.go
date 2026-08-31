@@ -275,3 +275,28 @@ func (ui *CategoriesViewUI) HandleGeneratedSelectionChanged(name string, value [
     }
     return false
 }
+
+func (ui *CategoriesViewUI) HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {
+    _ = elementID
+    if name == "categories" {
+        if handler, ok := ui.eventHandler.(interface{ OnCategoriesItemActivate(int, string) bool }); ok {
+            return handler.OnCategoriesItemActivate(index, value)
+        }
+        return false
+    }
+    return false
+}
+
+func (ui *CategoriesViewUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *CategoriesViewUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

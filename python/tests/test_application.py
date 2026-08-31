@@ -2658,6 +2658,76 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertIs(window._focused_element, scrollview._children[1]._elements["browse"])
         self.assertEqual(scrollview._view_offset, 0)
 
+    def test_preview_key_receives_stable_repeated_element_id_and_can_consume(self):
+        class PreviewWindow(UIWindow):
+            def __init__(self):
+                super().__init__()
+                self.preview_events = []
+
+            def on_preview_key(self, event):
+                self.preview_events.append(event)
+                return True
+
+        children = []
+        for _ in range(2):
+            child = UIWindow()
+            child.create_element("action", "button", title="Action")
+            child._window_width = 10
+            child._window_height = 1
+            children.append(child)
+
+        window = PreviewWindow()
+        scrollview = PlainScrollView(width=10, height=2, children=children)
+        proxy = window.create_element("items", "uielement", width=10, height=2)
+        proxy._child_instance = scrollview
+        scrollview.parent = proxy
+        app = UIApplication()
+        app.open(window)
+        window.set_focus(children[1]._elements["action"])
+
+        app.handle_key("Delete")
+
+        self.assertEqual(len(window.preview_events), 1)
+        self.assertEqual(window.preview_events[0].key, "Delete")
+        self.assertEqual(window.preview_events[0].focused_element_id, "items[1].action")
+        self.assertFalse(window.preview_events[0].edit_mode)
+
+    def test_listbox_item_activation_can_consume_enter_before_default_commit(self):
+        class ActivationWindow(UIWindow):
+            def __init__(self):
+                super().__init__()
+                self.activations = []
+                self.fallback_keys = []
+
+            def listbox_item_activate(self, element_id, index, value):
+                self.activations.append((element_id, index, value))
+                return True
+
+            def on_key(self, key):
+                self.fallback_keys.append(key)
+                return True
+
+        window = ActivationWindow()
+        choices = window.create_element(
+            "choices",
+            "listbox",
+            options=["First", "Second"],
+            selected_items=["First"],
+        )
+        app = UIApplication()
+        app.open(window)
+        window.set_focus(choices)
+        window._enter_edit_mode()
+        choices._active_index = 1
+        choices._active_item_visible = True
+
+        app.handle_key("Enter")
+
+        self.assertEqual(window.activations, [("choices", 1, "Second")])
+        self.assertEqual(choices.selected_items, ["First"])
+        self.assertTrue(window._edit_mode)
+        self.assertEqual(window.fallback_keys, [])
+
     def test_label_text_marks_app_dirty(self):
         """Programmatic label text changes should render after dirty rendering is enabled."""
         app = UIApplication()

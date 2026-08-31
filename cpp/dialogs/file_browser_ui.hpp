@@ -32,6 +32,7 @@ public:
     bool handleGeneratedTextChanged(std::string_view name, std::string_view value) override;
     bool handleGeneratedTextConfirmed(std::string_view name, std::string_view value) override;
     bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;
+    bool handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value) override;
 
 
     ui::Label* dialog_header = nullptr;
@@ -43,6 +44,7 @@ public:
 
 protected:
     virtual void onEntriesSelectionChange(const std::vector<std::string>& value);
+    virtual bool onEntriesItemActivate(int index, std::string_view value);
     virtual void onFilenameChange(std::string_view value);
     virtual void onFilenameSubmit(std::string_view value);
     virtual void onOpenBtnClick();

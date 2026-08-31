@@ -32,6 +32,7 @@ public:
     bool handleGeneratedTextChanged(std::string_view name, std::string_view value) override;
     bool handleGeneratedTextConfirmed(std::string_view name, std::string_view value) override;
     bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;
+    bool handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value) override;
 
 
     ui::Label* title_label = nullptr;
@@ -62,6 +63,7 @@ protected:
     virtual void onDescriptionInputSubmit(std::string_view value);
     virtual void onCountryComboChange(std::string_view value);
     virtual void onRoleListboxSelectionChange(const std::vector<std::string>& value);
+    virtual bool onRoleListboxItemActivate(int index, std::string_view value);
     virtual void onNotifyCheckChange(std::string_view value);
     virtual void onTermsCheckChange(std::string_view value);
     virtual void onSaveBtnClick();

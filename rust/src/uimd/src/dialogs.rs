@@ -1,5 +1,5 @@
 use crate::{
-    GeneratedApplication, GeneratedWindow, GeneratedWindowBehavior,
+    GeneratedApplication, GeneratedWindow, GeneratedWindowBehavior, KeyEvent,
     GeneratedWindowFrameOptions, GeneratedWindowRuntimeOptions,
 };
 use std::cell::RefCell;
@@ -540,23 +540,21 @@ impl FileBrowserState
         }
     }
 
-    pub fn handle_key_before_focused(
+    fn handle_listbox_item_activate(
         &mut self,
         window: &mut GeneratedWindow,
-        key: &str,
-        focused_name: &str,
-        edit_mode: bool,
+        name: &str,
+        index: usize,
     ) -> bool
     {
-        if key != "Enter" || focused_name != "entries" || !edit_mode
+        if name != "entries"
         {
             return false;
         }
         let Some(entries) = window.find_element("entries") else { return false };
         {
             let mut entries = entries.borrow_mut();
-            let active_index = entries.active_index();
-            entries.set_selected_index(active_index);
+            entries.set_selected_index(index.try_into().unwrap_or(i32::MAX));
             entries.hide_active_item();
         }
         self.preview_selected(window);
@@ -963,26 +961,27 @@ impl GeneratedWindowBehavior for FileBrowserBehavior
         self.finish_outcome(window, outcome)
     }
 
-    fn handle_key_before_focused(
-        &mut self,
-        window: &mut GeneratedWindow,
-        key: &str,
-        name: &str,
-        edit_mode: bool,
-    ) -> bool
+    fn handle_preview_key(&mut self, window: &mut GeneratedWindow, event: &KeyEvent) -> bool
     {
-        self.state
-            .borrow_mut()
-            .handle_key_before_focused(window, key, name, edit_mode)
-    }
-
-    fn handle_key(&mut self, window: &mut GeneratedWindow, key: &str) -> bool
-    {
-        if key != "Escape"
+        if event.key != "Escape" || event.edit_mode
         {
             return false;
         }
         self.finish_outcome(window, FileBrowserOutcome::Cancelled)
+    }
+
+    fn handle_listbox_item_activate(
+        &mut self,
+        window: &mut GeneratedWindow,
+        name: &str,
+        _element_id: &str,
+        index: usize,
+        _value: &str,
+    ) -> bool
+    {
+        self.state
+            .borrow_mut()
+            .handle_listbox_item_activate(window, name, index)
     }
 
     fn handle_mouse_press(&mut self, window: &mut GeneratedWindow, point: crate::Point) -> bool
@@ -1313,6 +1312,7 @@ impl FileBrowser
         self.state.borrow_mut().handle_button(window, button_name)
     }
 
+    #[deprecated(since = "0.5.4", note = "use ListBox item activation; removal in UIMD 0.7.0")]
     pub fn handle_key_before_focused(
         &mut self,
         window: &mut GeneratedWindow,
@@ -1321,9 +1321,15 @@ impl FileBrowser
         edit_mode: bool,
     ) -> bool
     {
+        if key != "Enter" || focused_name != "entries" || !edit_mode
+        {
+            return false;
+        }
+        let Some(entries) = window.find_element("entries") else { return false };
+        let active_index = entries.borrow().active_index().max(0) as usize;
         self.state
             .borrow_mut()
-            .handle_key_before_focused(window, key, focused_name, edit_mode)
+            .handle_listbox_item_activate(window, focused_name, active_index)
     }
 
     pub fn handle_selection_changed(&self, window: &mut GeneratedWindow, name: &str)
@@ -1582,6 +1588,7 @@ mod tests
     }
 
     #[test]
+    #[allow(deprecated)]
     fn directory_navigation_restores_the_initial_filename_selection()
     {
         let unique = SystemTime::now()

@@ -32,6 +32,7 @@ public:
     bool handleGeneratedTextChanged(std::string_view name, std::string_view value) override;
     bool handleGeneratedTextConfirmed(std::string_view name, std::string_view value) override;
     bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;
+    bool handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value) override;
 
 
     ui::Label* header_label = nullptr;
@@ -54,6 +55,7 @@ protected:
     virtual void onRawButtonClick();
     virtual void onRawComboChange(std::string_view value);
     virtual void onRawListSelectionChange(const std::vector<std::string>& value);
+    virtual bool onRawListItemActivate(int index, std::string_view value);
     virtual void onRawInputChange(std::string_view value);
     virtual void onRawInputSubmit(std::string_view value);
     virtual void onRawAreaChange(std::string_view value);

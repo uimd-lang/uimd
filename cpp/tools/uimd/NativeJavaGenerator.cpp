@@ -710,6 +710,7 @@ std::vector<EventSpec> eventSpecs(const std::vector<CompilerMember>& members)
         else if (member.type == "listbox")
         {
             result.push_back({member.name, "selection", eventMethodName(member.name, "SelectionChange")});
+            result.push_back({member.name, "listbox-activate", eventMethodName(member.name, "ItemActivate")});
         }
     }
     return result;
@@ -1012,6 +1013,15 @@ std::string generateSource(
 
     for (const EventSpec& spec : eventSpecs(model.members))
     {
+        if (spec.channel == "listbox-activate")
+        {
+            lines.push_back("    protected boolean " + spec.methodName + "(int index, String value)");
+            lines.push_back("    {");
+            lines.push_back("        return false;");
+            lines.push_back("    }");
+            lines.push_back("");
+            continue;
+        }
         const bool hasValue = spec.channel != "button";
         const std::string argument = spec.channel == "selection"
             ? "List<String> value"
@@ -1061,6 +1071,28 @@ std::string generateSource(
     }
     lines.push_back("        return false;");
     lines.push_back("    }");
+    const std::vector<EventSpec> listboxActivateSpecs =
+        specsForChannel(model.members, "listbox-activate");
+    if (!listboxActivateSpecs.empty())
+    {
+        lines.push_back("");
+        lines.push_back("    @Override");
+        lines.push_back("    public boolean handleGeneratedListBoxItemActivate(");
+        lines.push_back("        String name,");
+        lines.push_back("        String elementId,");
+        lines.push_back("        int index,");
+        lines.push_back("        String value)");
+        lines.push_back("    {");
+        for (const EventSpec& spec : listboxActivateSpecs)
+        {
+            lines.push_back("        if (" + javaString(spec.name) + ".equals(name))");
+            lines.push_back("        {");
+            lines.push_back("            return " + spec.methodName + "(index, value);");
+            lines.push_back("        }");
+        }
+        lines.push_back("        return false;");
+        lines.push_back("    }");
+    }
     lines.push_back("}");
 
     std::string result;

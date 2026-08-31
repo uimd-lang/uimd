@@ -709,3 +709,28 @@ func (ui *SpecialElementsUI) HandleGeneratedSelectionChanged(name string, value 
     }
     return false
 }
+
+func (ui *SpecialElementsUI) HandleGeneratedListBoxItemActivate(name string, elementID string, index int, value string) bool {
+    _ = elementID
+    if name == "raw_list" {
+        if handler, ok := ui.eventHandler.(interface{ OnRawListItemActivate(int, string) bool }); ok {
+            return handler.OnRawListItemActivate(index, value)
+        }
+        return false
+    }
+    return false
+}
+
+func (ui *SpecialElementsUI) HandleGeneratedPreviewKey(event uimd.KeyEvent) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnPreviewKey(uimd.KeyEvent) bool }); ok {
+        return handler.OnPreviewKey(event)
+    }
+    return false
+}
+
+func (ui *SpecialElementsUI) HandleGeneratedKey(key string) bool {
+    if handler, ok := ui.eventHandler.(interface{ OnKey(string) bool }); ok {
+        return handler.OnKey(key)
+    }
+    return false
+}

@@ -1783,6 +1783,8 @@ class UIBase(UIInstance):
                 self._end_scoped_child_edit(elem, commit=self._uses_leave_commit(elem))
                 return True
             if key == "Enter":
+                if elem.ELEMENT_TYPE == "listbox" and self._dispatch_listbox_item_activate_for(elem):
+                    return True
                 handled = self._handle_focused_element_key(key)
                 if elem.ELEMENT_TYPE == "listbox" and getattr(elem, "multiple", False):
                     return handled or True
@@ -1828,6 +1830,57 @@ class UIBase(UIInstance):
         context = self._embedded_view_context_for_element(element)
         return context["owner"] if context is not None else self
 
+    def _iter_runtime_element_items(self):
+        """Yield stable runtime IDs and elements from this complete view tree."""
+        for elem in self.get_all_elements():
+            yield getattr(elem, "name", ""), elem
+        if hasattr(self, "_embedded_scrollview_contexts"):
+            for proxy, scrollview, origin_rect in self._embedded_scrollview_contexts():
+                proxy_name = getattr(proxy, "name", "")
+                contexts = self._scrollview_child_focus_contexts(
+                    proxy,
+                    scrollview,
+                    origin_rect,
+                    focusable_only=False,
+                )
+                for context in contexts:
+                    child_index = context.get("child_index", 0)
+                    elem = context["element"]
+                    yield f"{proxy_name}[{child_index}].{getattr(elem, 'name', '')}", elem
+        if not hasattr(self, "_embedded_view_contexts"):
+            return
+        seen = set()
+        for context in self._embedded_view_contexts(focusable_only=False):
+            elem = context["element"]
+            key = id(elem)
+            if key in seen:
+                continue
+            seen.add(key)
+            proxy_name = getattr(context["proxy"], "name", "")
+            elem_name = getattr(elem, "name", "")
+            element_id = f"{proxy_name}.{elem_name}"
+            yield element_id, elem
+            scrollview = getattr(elem, "_child_instance", None)
+            if scrollview is None or not hasattr(scrollview, "child_view_entries") or not hasattr(scrollview, "_clamped_viewport_rect"):
+                continue
+            child_contexts = self._scrollview_child_focus_contexts(
+                elem,
+                scrollview,
+                context["rect"],
+                focusable_only=False,
+            )
+            for child_context in child_contexts:
+                child_index = child_context.get("child_index", 0)
+                child_elem = child_context["element"]
+                yield f"{element_id}[{child_index}].{getattr(child_elem, 'name', '')}", child_elem
+
+    def runtime_element_id(self, element):
+        """Return the stable full runtime ID for an element in this view tree."""
+        for element_id, candidate in self._iter_runtime_element_items():
+            if candidate is element:
+                return element_id
+        return getattr(element, "name", "") if element is not None else ""
+
     def _dispatch_element_changed_for(self, element, value):
         owner = self._event_owner_for_element(element)
         if owner is self:
@@ -1841,6 +1894,14 @@ class UIBase(UIInstance):
             self._dispatch_confirmed(element, value)
             return
         owner._dispatch_confirmed(element, value)
+
+    def _dispatch_listbox_item_activate_for(self, element):
+        index, value = element.activation_item()
+        owner = self._event_owner_for_element(element)
+        element_id = self.runtime_element_id(element)
+        if owner is self:
+            return self._dispatch_listbox_item_activate(element, element_id, index, value)
+        return owner._dispatch_listbox_item_activate(element, element_id, index, value)
 
     def _dispatch_selection_changed_for(self, element, value):
         owner = self._event_owner_for_element(element)
@@ -2627,6 +2688,8 @@ class UIBase(UIInstance):
             if key == "Enter":
                 if self._focused_element and self._focused_element.ELEMENT_TYPE == "listbox":
                     confirmed_element = self._focused_element
+                    if self._dispatch_listbox_item_activate_for(confirmed_element):
+                        return True
                     handled = self._handle_focused_element_key(key)
                     if getattr(confirmed_element, "multiple", False):
                         return handled or True

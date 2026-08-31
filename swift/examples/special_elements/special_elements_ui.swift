@@ -828,6 +828,7 @@ open class SpecialElementsUI: GeneratedWindowBase
     open func onRawButtonClick() { }
     open func onRawComboChange(_ value: String) { }
     open func onRawListSelectionChange(_ value: [String]) { }
+    open func onRawListItemActivate(_ index: Int, value: String) -> Bool { false }
     open func onRawInputChange(_ value: String) { }
     open func onRawInputSubmit(_ value: String) { }
     open func onRawAreaChange(_ value: String) { }
@@ -887,6 +888,15 @@ open class SpecialElementsUI: GeneratedWindowBase
         {
             onRawListSelectionChange(value)
             return true
+        }
+        return false
+    }
+
+    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool
+    {
+        if name == "raw_list"
+        {
+            return onRawListItemActivate(index, value: value)
         }
         return false
     }

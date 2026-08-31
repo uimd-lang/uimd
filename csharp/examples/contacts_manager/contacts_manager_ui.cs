@@ -630,6 +630,7 @@ button:
     }
 
     protected virtual void onContactsSelectionChange(List<string> value) { }
+    protected virtual bool onContactsItemActivate(int index, string value) { return false; }
     protected virtual void onAddBtnClick() { }
     protected virtual void onEditBtnClick() { }
     protected virtual void onDeleteBtnClick() { }
@@ -689,6 +690,15 @@ button:
         {
             onContactsSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    public override bool HandleGeneratedListBoxItemActivate(string name, string elementId, int index, string value)
+    {
+        if (name == "contacts")
+        {
+            return onContactsItemActivate(index, value);
         }
         return false;
     }

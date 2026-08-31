@@ -36,6 +36,10 @@ public final class GeneratedWindowRuntime
     private static final Color NOTIFICATION_FOREGROUND = new Color("#ffffff");
     private static final Color NOTIFICATION_BACKGROUND = new Color("#2255bb");
 
+    record RuntimeElementReference(String id, Element element, GeneratedWindowBase owner)
+    {
+    }
+
     private enum GeneratedWindowMode
     {
         NORMAL,
@@ -263,6 +267,72 @@ public final class GeneratedWindowRuntime
             }
         }
         return null;
+    }
+
+    static List<RuntimeElementReference> runtimeElementReferences(GeneratedWindowBase window)
+    {
+        List<RuntimeElementReference> result = new ArrayList<>();
+        appendRuntimeElementReferences(window, "", null, result);
+        return result;
+    }
+
+    static String runtimeElementId(GeneratedWindowBase window, Element element)
+    {
+        if (element == null)
+        {
+            return "";
+        }
+        for (RuntimeElementReference reference : runtimeElementReferences(window))
+        {
+            if (reference.element() == element)
+            {
+                return reference.id();
+            }
+        }
+        return element.name();
+    }
+
+    private static void appendRuntimeElementReferences(
+        GeneratedWindowBase window,
+        String prefix,
+        String generatedScrollViewAlias,
+        List<RuntimeElementReference> output)
+    {
+        ScrollView generatedScrollView = window.generatedScrollView();
+        for (Element element : window.elements())
+        {
+            String elementId = generatedScrollViewAlias != null && element == generatedScrollView
+                ? generatedScrollViewAlias
+                : prefix + element.name();
+            output.add(new RuntimeElementReference(elementId, element, window));
+            if (element instanceof ReusableElement reusable && reusable.child() != null)
+            {
+                String childScrollViewAlias = reusable.child().generatedScrollView() == null
+                    ? null
+                    : elementId;
+                appendRuntimeElementReferences(
+                    reusable.child(),
+                    elementId + ".",
+                    childScrollViewAlias,
+                    output);
+            }
+            if (!(element instanceof ScrollView scrollView))
+            {
+                continue;
+            }
+            for (int index = 0; index < scrollView.children().size(); ++index)
+            {
+                Element child = scrollView.children().get(index);
+                if (child instanceof ReusableElement reusable && reusable.child() != null)
+                {
+                    appendRuntimeElementReferences(
+                        reusable.child(),
+                        elementId + "[" + index + "].",
+                        null,
+                        output);
+                }
+            }
+        }
     }
 
     public static List<Element> focusableElements(GeneratedWindowBase window)
@@ -1638,6 +1708,13 @@ public final class GeneratedWindowRuntime
         {
             state.suppressActiveScrollViewScopeVisuals = false;
         }
+        if (window.onPreviewKey(new KeyEvent(
+                key,
+                runtimeElementId(window, focused),
+                state.editMode)))
+        {
+            return;
+        }
         if ("Escape".equals(key) && state.activeScrollView != null)
         {
             if (state.activeScrollViewEditElement != null)
@@ -1655,15 +1732,16 @@ public final class GeneratedWindowRuntime
             escapeEdit(options, state, focused);
             return;
         }
-        if (options.onKeyBeforeFocusedElement() != null
-            && options.onKeyBeforeFocusedElement().handle(
+        if (options.legacyOnKeyBeforeFocusedElement() != null
+            && options.legacyOnKeyBeforeFocusedElement().handle(
                 key,
                 focused == null ? "" : focused.name(),
                 state.editMode))
         {
             return;
         }
-        if (options.onKeyBeforeFocused() != null && options.onKeyBeforeFocused().test(key))
+        if (options.legacyOnKeyBeforeFocused() != null
+            && options.legacyOnKeyBeforeFocused().test(key))
         {
             return;
         }
@@ -1691,7 +1769,7 @@ public final class GeneratedWindowRuntime
             handleEditKey(window, options, state, focused, key);
             return;
         }
-        if (options.onKey() != null && options.onKey().test(key))
+        if (window.onKey(key) || options.onKey() != null && options.onKey().test(key))
         {
             return;
         }
@@ -1788,6 +1866,12 @@ public final class GeneratedWindowRuntime
         Element focused,
         String key)
     {
+        if ("Enter".equals(key)
+            && focused instanceof ListBox
+            && dispatchListBoxItemActivate(window, focused))
+        {
+            return;
+        }
         int previousSelection = selectedIndexOf(focused);
         List<String> previousValues = selectionValues(focused);
         boolean handled = focused.handleKey(key);
@@ -2235,6 +2319,27 @@ public final class GeneratedWindowRuntime
         {
             options.onTextConfirmed().accept(element.name(), textValueOf(element));
         }
+    }
+
+    private static boolean dispatchListBoxItemActivate(
+        GeneratedWindowBase window,
+        Element element)
+    {
+        if (!(element instanceof ListBox listBox) || listBox.options().isEmpty())
+        {
+            return false;
+        }
+        int index = Math.max(0, Math.min(listBox.activeIndex(), listBox.options().size() - 1));
+        GeneratedWindowBase owner = ownerWindowForElement(window, element);
+        if (owner == null)
+        {
+            owner = window;
+        }
+        return owner.handleGeneratedListBoxItemActivate(
+            element.name(),
+            runtimeElementId(window, element),
+            index,
+            listBox.options().get(index));
     }
 
     private static String textValueOf(Element element)

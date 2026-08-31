@@ -707,7 +707,10 @@ std::vector<EventSpec> eventSpecsForMember(const std::string& name, const YamlMa
     }
     if (elemType == "listbox")
     {
-        return {{name, "selection", eventMethodName(name, "SelectionChange"), "[String]"}};
+        return {
+            {name, "selection", eventMethodName(name, "SelectionChange"), "[String]"},
+            {name, "listbox_activate", eventMethodName(name, "ItemActivate"), "Int,String"},
+        };
     }
     return {};
 }
@@ -2040,7 +2043,11 @@ std::string generateHookDeclarations(const YamlMap& members)
     std::string result;
     for (const EventSpec& spec : eventSpecs(members))
     {
-        if (spec.argType.empty())
+        if (spec.channel == "listbox_activate")
+        {
+            result += "    open func " + spec.methodName + "(_ index: Int, value: String) -> Bool { false }\n";
+        }
+        else if (spec.argType.empty())
         {
             result += "    open func " + spec.methodName + "() { }\n";
         }
@@ -2261,6 +2268,7 @@ std::string generateSource(const std::string& baseName, const std::string& class
     std::vector<EventSpec> confirmedSpecs;
     std::vector<EventSpec> selectionTextSpecs;
     std::vector<EventSpec> selectionSpecs;
+    std::vector<EventSpec> listboxActivateSpecs;
     for (const EventSpec& spec : eventSpecs(members))
     {
         if (spec.channel == "button")
@@ -2282,6 +2290,10 @@ std::string generateSource(const std::string& baseName, const std::string& class
         else if (spec.channel == "selection")
         {
             selectionSpecs.push_back(spec);
+        }
+        else if (spec.channel == "listbox_activate")
+        {
+            listboxActivateSpecs.push_back(spec);
         }
     }
 
@@ -2314,6 +2326,23 @@ std::string generateSource(const std::string& baseName, const std::string& class
     }
     lines.push_back("        return false");
     lines.push_back("    }");
+    if (!listboxActivateSpecs.empty())
+    {
+        lines.push_back("");
+        lines.push_back("    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool");
+        lines.push_back("    {");
+        for (std::size_t index = 0; index < listboxActivateSpecs.size(); ++index)
+        {
+            const EventSpec& spec = listboxActivateSpecs[index];
+            const std::string keyword = index == 0 ? "if" : "else if";
+            lines.push_back("        " + keyword + " name == " + swiftString(spec.name));
+            lines.push_back("        {");
+            lines.push_back("            return " + spec.methodName + "(index, value: value)");
+            lines.push_back("        }");
+        }
+        lines.push_back("        return false");
+        lines.push_back("    }");
+    }
     lines.push_back("}");
     lines.push_back("");
 

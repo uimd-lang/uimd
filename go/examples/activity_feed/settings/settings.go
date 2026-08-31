@@ -1,5 +1,7 @@
 package settings
 
+import "uimd"
+
 type SettingsResult struct {
 	AutoScroll     bool
 	ShowTimestamps bool
@@ -7,12 +9,25 @@ type SettingsResult struct {
 }
 
 type SettingsDialog struct {
-	UI   *SettingsUI
-	open bool
+	UI       *SettingsUI
+	OnCancel func()
+	open     bool
 }
 
 func NewSettingsDialog() *SettingsDialog {
-	return &SettingsDialog{UI: NewSettingsUI()}
+	dialog := &SettingsDialog{UI: NewSettingsUI()}
+	dialog.UI.SetEventHandler(dialog)
+	return dialog
+}
+
+func (dialog *SettingsDialog) OnPreviewKey(event uimd.KeyEvent) bool {
+	if event.Key != "Escape" || event.EditMode {
+		return false
+	}
+	if dialog.OnCancel != nil {
+		dialog.OnCancel()
+	}
+	return true
 }
 
 func (dialog *SettingsDialog) Configure(result SettingsResult) {

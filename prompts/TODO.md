@@ -4,6 +4,160 @@
 
 Date: 2026-06-21
 
+- [x] **Audit C# mouse-to-cursor placement in nested/modal TextInput and
+  TextArea controls against the Python reference.** Reported from the generated
+  C# ContactsManager contact add/edit window on 2026-08-31: a physical mouse
+  click focuses the requested control but places its cursor at source position
+  zero, while keyboard Enter and the root Formular example behave correctly.
+  Determine whether the defect is example logic, generated ownership/frame
+  metadata, modal coordinate translation, or shared C# runtime hit mapping.
+  Reproduce both TextInput and TextArea through the shared runtime path, audit
+  equivalent Python/C++ behavior, and keep any eventual repair out of the
+  example.
+
+  **Confirmed diagnosis (2026-08-31):** both ContactsManager `.uimd` sources
+  are byte-identical to Python, and a real-PTY SGR click plus text insertion
+  reproduces the divergence: C++ produces `KovZac` and
+  `Primary Zcontact`, while C# produces `ZKovac` and
+  `ZPrimary contact`. In
+  `csharp/src/Uimd/Runtime/GeneratedWindow.cs::McpController.ToolMousePressAt`,
+  the physical terminal point and initial target frames are correctly local to
+  the active modal. When the click changes focus, `FocusElement` calls
+  `RenderContent()`, whose viewport renderer rewrites the modal element frames
+  to absolute viewport coordinates. The handler then subtracts those absolute
+  frames from the still-local pointer before calling `CursorForPoint`; the
+  negative result clamps to source position zero. Root Formular keeps both
+  values in the same coordinate space, and Enter does not perform pointer
+  mapping, which explains both reported exceptions. TextArea inherits the
+  TextInput mapping. NumberInput and other modal handlers that derive a local
+  row/column after the same focus transition must be audited in the eventual
+  shared-runtime repair. Python retains the hit rectangle through focus, and
+  C++ focus does not rerender/rebase frames in the middle of dispatch.
+
+  **Completed on 2026-08-31:** the shared C# mouse-press dispatcher now keeps
+  the hit-test layout stable while changing focus, then performs TextInput,
+  TextArea, NumberInput, and other local pointer mapping in that same coordinate
+  space. Other programmatic focus paths retain their existing layout refresh,
+  so the repair changes no public API. The C# runtime regression suite passed
+  6/6 including modal TextInput and TextArea cases. A real PTY replay passed on
+  both C++ and C#, producing `KovZac` and `Primary Zcontact` after physical SGR
+  clicks. The complete C# ContactsManager MCP scenario passed 21/21, frozen
+  C# `0.5.3` compatibility passed, every supported platform/example was
+  regenerated and rebuilt, and the resulting artifact manifest validated.
+
+- [x] **Audit idle Go animation progression in WidgetGallery and
+  SpecialElements against Python/C++.** Reported on 2026-08-31: animated
+  content advances only after a key or mouse action. Compare the shared Go
+  terminal event loop, bounded input polling, animation detection, tick/dirty
+  scheduling, monotonic cadence, and render presentation with the reference
+  runtime. Prove whether the divergence is shared runtime behavior or example
+  logic; any eventual repair must use the centralized runtime timing contract
+  and must not introduce an example-specific timer.
+
+  **Confirmed diagnosis (2026-08-31):** the Python and Go WidgetGallery and
+  SpecialElements `.uimd` sources are byte-identical, and Go's gradient color
+  calculation already uses wall-clock frames correctly. The divergence is in
+  `go/src/uimd/runtime.go::runInteractiveTerminal`: `dirty` is scheduled only
+  for resize, window-stack changes, notification expiry, and user input. There
+  is no animated-style discovery, idle tick, or bounded animation render
+  cadence. C++ detects animated gradients recursively and schedules a frame on
+  its centralized 70 ms cadence; Python propagates idle `tick()` calls and each
+  gradient invalidates at its configured interval. The existing real-PTY idle
+  animation probe passes C++ and deterministically fails Go before its first
+  idle sample with `Go animated gradient emitted no terminal update`. A later
+  key/mouse action marks the frame dirty, so the wall-clock gradient appears to
+  advance only at that moment, exactly matching the report.
+
+  **Completed on 2026-08-31:** the shared Go terminal loop now discovers
+  animated foreground/background gradients recursively through element state
+  styles, ScrollView children, reusable controls, view hosts, and nested
+  generated windows, and schedules dirty frames on the same centralized 70 ms
+  cadence used by C++. No example timer or platform-specific application logic
+  was added. Go runtime tests passed, the permanent direct-terminal smoke now
+  covers idle animation and passed 11/11, SpecialElements compare passed 10/10,
+  WidgetGallery compare passed 123/123, frozen Go `0.5.3` compatibility passed,
+  every supported platform/example was regenerated and rebuilt, and the
+  resulting artifact manifest validated.
+
+- [x] **Define a uniform public-API deprecation lifecycle across every UIMD
+  language port.** When the user explicitly decides that a documented API is
+  obsolete, retain it as a compatibility adapter, record the version and
+  replacement, emit the native platform warning, and remove it automatically
+  only at the second subsequent middle-version release. Document the policy in
+  `AGENTS.md`, the cross-platform bug-fix workflow, the new-platform workflow,
+  and a central deprecation register. Completed on 2026-08-28: the lifecycle is
+  now mandatory in `AGENTS.md`, both development workflows reference it, and
+  `docs/deprecations.md` defines the active/removed register and the automatic
+  `0.x.y` -> `0.(x+2).0` removal rule.
+
+- [x] **Replace the global pre-focused key workaround with a window/element
+  event pipeline and resolve GitHub issue
+  [#14](https://github.com/uimd-lang/uimd/issues/14).** Requested by the user
+  on 2026-08-28. Introduce one shared dispatch contract,
+  `window.onPreviewKey -> focusedElement.onKey -> window.onKey`, where each
+  stage runs only when the preceding stage returned unhandled. The preview
+  event must carry the logical key, the focused element's stable full runtime
+  ID/path, and edit-mode state. Add a cancellable ListBox item-activation event
+  carrying the full element ID, active index, and value; migrate FileBrowser
+  Enter handling to that semantic event and migrate ActivityFeed Settings
+  Escape handling to the window preview event. Keep ordinary after-the-fact
+  change/selection notifications non-cancellable.
+
+  **Compatibility and deprecation contract:** this is an additive `0.5.x`
+  public API change. Preserve the existing `onKeyBeforeFocusedElement` /
+  equivalent generated hook with its original callback order and local-name
+  arguments as a behavior-preserving adapter, mark it deprecated with native
+  warnings across every affected port, and register it in
+  `docs/deprecations.md` as deprecated since `0.5.4`, replaced by
+  `onPreviewKey`, and automatically removable in `0.7.0`. Do not change the
+  existing `onKey` signature. Previously generated `0.5.3` applications must
+  compile and run without editing or regeneration.
+
+  **Port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/{application.py::UIApplication._handle_key_impl,UIBase.py::handle_key,elements.py::ListBox.handle_key}` and `src/uimd/dialogs/file_browser.py` | Window dispatch has no public preview/fallback hooks; FileBrowser overrides the complete window `handle_key` to intercept ListBox Enter. | **Fix first:** add the shared preview/target/fallback order, canonical runtime element IDs, cancellable item activation, and migrate FileBrowser without an example workaround. | Focused Python dispatch-order, repeated-ID, ListBox-consumption, and FileBrowser tests. |
+  | C++ runtime | `cpp/include/ui/generated/GeneratedWindowRuntime.hpp`, `cpp/include/ui/generated/GeneratedWindowBase.hpp`, and `cpp/src/generated/GeneratedWindowRuntime.cpp` | `onKeyBeforeFocusedElement` runs before target handling but receives only `focused->name()`; `onKey` is the later window fallback. | **Fix:** add `KeyEvent`, `onPreviewKey`, owner-aware ListBox activation, full `elementIdForElement` identity, and preserve the old callback at its existing point. | Focused root, stack-frame, repeated reusable, edit/non-edit, and consumed/unhandled C++ tests. |
+  | C# runtime | `csharp/src/Uimd/Runtime/{GeneratedWindow.cs,Dialogs.cs}` | Mirrors the local-name global callback and FileBrowser workaround. | **Fix:** port the same event object, order, activation dispatch, migration, and `[Obsolete]` compatibility surface. | C# runtime console dispatch and FileBrowser regression. |
+  | Go runtime | `go/src/uimd/{runtime.go,dialogs.go}` | Mirrors the callback/options model and FileBrowser workaround; generated handlers are interface-bound. | **Fix:** add equivalent event/interface dispatch and Go `Deprecated:` markers without adding required struct fields to old positional construction. | Focused Go runtime and dialog tests. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift` | Mirrors the callback and FileBrowser workaround; it already computes full runtime element IDs. | **Fix:** add the equivalent event, hooks, semantic activation, migration, and Swift availability warning. | Swift package dispatch/dialog tests. |
+  | Rust runtime | `rust/src/uimd/src/{runtime.rs,dialogs.rs}` | Exposes both option callbacks and generated behavior hooks; FileBrowser behavior intercepts Enter by local name. | **Fix:** add equivalent event/trait dispatch and item activation while retaining deprecated fields/hooks without breaking old exhaustive construction patterns. | Focused Rust runtime/dialog tests plus clippy. |
+  | Java runtime | `java/src/main/java/uimd/{GeneratedWindowRuntime,GeneratedWindowRuntimeOptions,GeneratedWindowBase,FileBrowser}.java` | Mirrors the local-name callback and FileBrowser workaround. | **Fix:** add the equivalent immutable event, hooks, activation, migration, and `@Deprecated(since="0.5.4", forRemoval=true)` adapter. | Focused JUnit runtime/dialog tests plus Checkstyle. |
+  | Native generator/generated APIs | `cpp/tools/uimd/Native{Python,Cpp,CSharp,Go,Swift,Rust,Java}Generator.cpp` and representative generated classes | ListBox emits selection-change only; generic preview/target-window hooks are absent or inconsistently exposed. | **Fix canonical emitters:** generate only the ListBox item-activate hook for ListBox members, bind the window preview/fallback hooks consistently, regenerate all supported outputs, and never hand-maintain divergent generated copies. | Native generator tests plus representative generated-source assertions. |
+  | Terminal/MCP adapters | Per-port terminal and MCP key entry points | They deliver logical key strings but traverse several duplicated runtime dispatch paths. | **Fix shared routing:** every physical/MCP key path must use the same preview/target/fallback and activation order; transports and key names remain unchanged. | Focused MCP `press_key` parity and direct-terminal smoke, followed by one consolidated full gate. |
+
+  **Validation policy:** run focused tests while implementing each port, then
+  regenerate and build all examples because this changes global input routing
+  and generated public APIs. Run the retained previous-version compatibility
+  gate, affected FileBrowser/ActivityFeed direct and MCP compares at
+  `--compare-app-size 90x35`, and one final
+  `./tools/test_all.sh --live-report --keep-going` after every focused gate is
+  green. Do not weaken snapshots, insert waits, or special-case examples.
+
+  **Go validation follow-up (2026-08-28):** the first consolidated full gate
+  exposed recursive dispatch when an application embeds a generated Go UI but
+  does not override `OnPreviewKey`: Go method promotion made the generated
+  forwarding method appear to be an application override and it forwarded
+  back to the same owner. Fix this in the canonical Go generator/runtime
+  dispatch, preserve separate `SetEventHandler` objects, and cover both an
+  implicit promoted handler and a real application override before rerunning
+  the failed Go direct/MCP phases.
+
+  **Completed on 2026-08-28:** all supported ports now implement the shared
+  preview/element/fallback pipeline and semantic ListBox activation with stable
+  full element IDs. FileBrowser and ActivityFeed use the new semantic hooks;
+  the legacy pre-focused callback remains behavior-compatible, is deprecated
+  since `0.5.4`, and is registered for removal in `0.7.0`. All generated
+  outputs were regenerated and every platform/example rebuild passed. Focused
+  runtime, generator, dialog, direct-terminal, MCP, clippy/checkstyle, and
+  previous-version compatibility gates passed. The first consolidated full
+  gate passed 31/36 phases and isolated all five remaining failures to the Go
+  method-promotion recursion described above. After the canonical Go fix, its
+  runtime regression, direct-terminal smoke (10/10), both regression parity
+  compares, Swift and Java cross-check smokes, and the complete Go example MCP
+  compare (14/14 scripts, 1980/1980 assertions) all passed with zero failures.
+
 - [x] **Fix GitHub issues #7, #12, and #11 as one shared element-rendering
   and interaction-geometry batch, in the user-selected order.** Selected by
   the user on 2026-08-27. The batch is limited to shared TextInput alignment,

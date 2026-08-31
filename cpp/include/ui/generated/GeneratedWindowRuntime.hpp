@@ -10,11 +10,51 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace ui {
+
+template <typename Signature>
+class DeprecatedKeyCallback;
+
+template <typename Result, typename... Args>
+class DeprecatedKeyCallback<Result(Args...)> {
+public:
+    DeprecatedKeyCallback() = default;
+    DeprecatedKeyCallback(const DeprecatedKeyCallback&) = default;
+    DeprecatedKeyCallback(DeprecatedKeyCallback&&) noexcept = default;
+    DeprecatedKeyCallback& operator=(const DeprecatedKeyCallback&) = default;
+    DeprecatedKeyCallback& operator=(DeprecatedKeyCallback&&) noexcept = default;
+
+    template <typename Callback>
+        requires (!std::is_same_v<std::remove_cvref_t<Callback>, DeprecatedKeyCallback>)
+    [[deprecated("Use GeneratedWindowBase::onPreviewKey; removal in UIMD 0.7.0")]]
+    DeprecatedKeyCallback(Callback&& callback)
+        : callback_(std::forward<Callback>(callback)) {
+    }
+
+    template <typename Callback>
+        requires (!std::is_same_v<std::remove_cvref_t<Callback>, DeprecatedKeyCallback>)
+    [[deprecated("Use GeneratedWindowBase::onPreviewKey; removal in UIMD 0.7.0")]]
+    DeprecatedKeyCallback& operator=(Callback&& callback) {
+        callback_ = std::forward<Callback>(callback);
+        return *this;
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return static_cast<bool>(callback_);
+    }
+
+    Result operator()(Args... args) const {
+        return callback_(std::forward<Args>(args)...);
+    }
+
+private:
+    std::function<Result(Args...)> callback_;
+};
 
 struct GeneratedWindowFrameOptions {
     std::string className;
@@ -24,8 +64,8 @@ struct GeneratedWindowFrameOptions {
     bool keepEditModeAfterEscape = false;
     bool dimBackground = true;
     std::function<void(std::string_view)> onButton;
-    std::function<bool(std::string_view, std::string_view, bool)> onKeyBeforeFocusedElement;
-    std::function<bool(std::string_view)> onKeyBeforeFocused;
+    DeprecatedKeyCallback<bool(std::string_view, std::string_view, bool)> onKeyBeforeFocusedElement;
+    DeprecatedKeyCallback<bool(std::string_view)> onKeyBeforeFocused;
     std::function<bool(std::string_view)> onKey;
     std::function<bool(Point)> onMousePressBeforeFocused;
     std::function<bool(Point, int)> onMouseWheelBeforeFocused;
@@ -101,8 +141,8 @@ struct GeneratedWindowRuntimeOptions {
     bool keepEditModeAfterEscape = false;
     GeneratedWindowStack* windowStack = nullptr;
     std::function<void(std::string_view)> onButton;
-    std::function<bool(std::string_view, std::string_view, bool)> onKeyBeforeFocusedElement;
-    std::function<bool(std::string_view)> onKeyBeforeFocused;
+    DeprecatedKeyCallback<bool(std::string_view, std::string_view, bool)> onKeyBeforeFocusedElement;
+    DeprecatedKeyCallback<bool(std::string_view)> onKeyBeforeFocused;
     std::function<bool(std::string_view)> onKey;
     std::function<bool(Point)> onMousePressBeforeFocused;
     std::function<bool(Point, int)> onMouseWheelBeforeFocused;

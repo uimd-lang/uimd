@@ -216,6 +216,11 @@ public class CategoriesViewUI extends GeneratedWindowBase
     {
     }
 
+    protected boolean onCategoriesItemActivate(int index, String value)
+    {
+        return false;
+    }
+
     protected void onRemoveCategoryBtnClick()
     {
     }
@@ -265,6 +270,20 @@ public class CategoriesViewUI extends GeneratedWindowBase
         {
             onCategoriesSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if ("categories".equals(name))
+        {
+            return onCategoriesItemActivate(index, value);
         }
         return false;
     }

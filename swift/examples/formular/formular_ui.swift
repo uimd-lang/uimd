@@ -810,6 +810,7 @@ open class FormularUI: GeneratedWindowBase
     open func onDescriptionInputSubmit(_ value: String) { }
     open func onCountryComboChange(_ value: String) { }
     open func onRoleListboxSelectionChange(_ value: [String]) { }
+    open func onRoleListboxItemActivate(_ index: Int, value: String) -> Bool { false }
     open func onNotifyCheckChange(_ value: String) { }
     open func onTermsCheckChange(_ value: String) { }
     open func onSaveBtnClick() { }
@@ -904,6 +905,15 @@ open class FormularUI: GeneratedWindowBase
         {
             onRoleListboxSelectionChange(value)
             return true
+        }
+        return false
+    }
+
+    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool
+    {
+        if name == "role_listbox"
+        {
+            return onRoleListboxItemActivate(index, value: value)
         }
         return false
     }

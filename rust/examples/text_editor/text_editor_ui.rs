@@ -442,6 +442,8 @@ pub trait TextEditorUIEvents
     fn handle_dynamic_selection_changed(&mut self, _ui: &mut TextEditorUI, _name: &str, _value: &[String]) -> bool { false }
     fn handle_active_window_button(&mut self, _ui: &mut TextEditorUI, _name: &str) -> bool { false }
     fn on_focus_changed(&mut self, _ui: &mut TextEditorUI, _name: &str, _focused: bool) {}
+    fn on_preview_key(&mut self, _ui: &mut TextEditorUI, _event: &uimd::KeyEvent) -> bool { false }
+    #[deprecated(since = "0.5.4", note = "use on_preview_key; removal in UIMD 0.7.0")]
     fn handle_key_before_focused(&mut self, _ui: &mut TextEditorUI, _key: &str, _name: &str, _edit_mode: bool) -> bool { false }
     fn handle_key(&mut self, _ui: &mut TextEditorUI, _key: &str) -> bool { false }
     fn on_window_closed(&mut self, _ui: &mut TextEditorUI, _window: uimd::GeneratedWindow) {}
@@ -494,6 +496,12 @@ impl<H: TextEditorUIEvents> uimd::GeneratedApplication for TextEditorUIRuntime<'
         true
     }
 
+    fn handle_preview_key(&mut self, event: &uimd::KeyEvent) -> bool
+    {
+        self.handler.on_preview_key(self.ui, event)
+    }
+
+    #[allow(deprecated)]
     fn handle_key_before_focused(&mut self, key: &str, name: &str, edit_mode: bool) -> bool
     {
         self.handler.handle_key_before_focused(self.ui, key, name, edit_mode)

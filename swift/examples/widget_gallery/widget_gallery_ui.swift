@@ -811,6 +811,7 @@ open class WidgetGalleryUI: GeneratedWindowBase
     open func onEnabledCheckChange(_ value: String) { }
     open func onThemeComboChange(_ value: String) { }
     open func onModeListSelectionChange(_ value: [String]) { }
+    open func onModeListItemActivate(_ index: Int, value: String) -> Bool { false }
     open func onApplyBtnClick() { }
     open func onResetBtnClick() { }
 
@@ -883,6 +884,15 @@ open class WidgetGalleryUI: GeneratedWindowBase
         {
             onModeListSelectionChange(value)
             return true
+        }
+        return false
+    }
+
+    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool
+    {
+        if name == "mode_list"
+        {
+            return onModeListItemActivate(index, value: value)
         }
         return false
     }

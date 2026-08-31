@@ -571,6 +571,13 @@ void WidgetGalleryUI::onModeListSelectionChange(const std::vector<std::string>& 
     (void)value;
 }
 
+bool WidgetGalleryUI::onModeListItemActivate(int index, std::string_view value)
+{
+    (void)index;
+    (void)value;
+    return false;
+}
+
 void WidgetGalleryUI::onApplyBtnClick()
 {
 }
@@ -601,6 +608,16 @@ bool WidgetGalleryUI::handleGeneratedButton(std::string_view name)
     {
         onResetBtnClick();
         return true;
+    }
+    return false;
+}
+
+bool WidgetGalleryUI::handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value)
+{
+    (void)elementId;
+    if (name == "mode_list")
+    {
+        return onModeListItemActivate(index, value);
     }
     return false;
 }

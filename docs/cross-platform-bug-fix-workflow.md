@@ -202,6 +202,14 @@ construction pattern and previously generated source. A patch-level bug fix
 may change the reported defective behavior only; it must not require an
 ordinary application author to edit or regenerate an existing app.
 
+When the user explicitly decides that an existing public API is obsolete,
+follow the lifecycle in `docs/deprecations.md` instead of deleting it as part
+of the fix. Mark it deprecated in every affected port, keep a forwarding or
+behavior-preserving compatibility path, record the current version and its
+replacement, and add native warnings. An API deprecated in `0.x.y` remains
+through `0.(x+1).*` and is removed as one cross-platform change in `0.(x+2).0`.
+There is no per-API removal-version decision.
+
 For generated code, edit the canonical emitter or shared model. Do not hand
 edit multiple generated outputs as independent implementations.
 

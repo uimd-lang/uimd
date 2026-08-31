@@ -436,6 +436,13 @@ void ContactsManagerUI::onContactsSelectionChange(const std::vector<std::string>
     (void)value;
 }
 
+bool ContactsManagerUI::onContactsItemActivate(int index, std::string_view value)
+{
+    (void)index;
+    (void)value;
+    return false;
+}
+
 void ContactsManagerUI::onAddBtnClick()
 {
 }
@@ -497,6 +504,16 @@ bool ContactsManagerUI::handleGeneratedButton(std::string_view name)
     {
         onCloseBtnClick();
         return true;
+    }
+    return false;
+}
+
+bool ContactsManagerUI::handleGeneratedListBoxItemActivate(std::string_view name, std::string_view elementId, int index, std::string_view value)
+{
+    (void)elementId;
+    if (name == "contacts")
+    {
+        return onContactsItemActivate(index, value);
     }
     return false;
 }

@@ -471,21 +471,6 @@ public sealed class FileBrowser : GeneratedWindowBase
                 PreviewSelected();
             }
         };
-        options.OnKeyBeforeFocusedElement = (key, name, editMode) =>
-        {
-            if (key == "Enter" && name == "entries" && editMode)
-            {
-                entries.SetSelectedIndex(entries.ActiveIndex);
-                entries.HideActiveItem();
-                PreviewSelected();
-                if (SelectedEntryIsDirectory())
-                {
-                    AcceptCurrent();
-                    return true;
-                }
-            }
-            return false;
-        };
         options.OnEditStarted = name =>
         {
             if (name == "filename")
@@ -494,17 +479,35 @@ public sealed class FileBrowser : GeneratedWindowBase
             }
         };
         options.OnMousePressBeforeFocused = HandleEntryMousePress;
-        options.OnKey = key =>
-        {
-            if (key == "Escape")
-            {
-                Close("");
-                return true;
-            }
-            return false;
-        };
         options.ShouldClose = () => closed;
         return options;
+    }
+
+    public override bool HandleGeneratedListBoxItemActivate(
+        string name,
+        string elementId,
+        int index,
+        string value)
+    {
+        if (name != "entries" || !EntryIndexIsDirectory(index))
+        {
+            return false;
+        }
+        SelectEntry(index);
+        entries.HideActiveItem();
+        PreviewSelected();
+        AcceptCurrent();
+        return true;
+    }
+
+    public override bool OnPreviewKey(KeyEvent keyEvent)
+    {
+        if (keyEvent.Key == "Escape" && !keyEvent.EditMode)
+        {
+            Close("");
+            return true;
+        }
+        return false;
     }
 
     public void RefreshEntries()

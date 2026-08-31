@@ -1311,51 +1311,15 @@ public final class McpController
     private List<ElementReference> elementReferences()
     {
         List<ElementReference> result = new ArrayList<>();
-        appendWindowReferences(activeWindow(), "", null, result);
-        return result;
-    }
-
-    private static void appendWindowReferences(
-        GeneratedWindowBase window,
-        String prefix,
-        String generatedScrollViewAlias,
-        List<ElementReference> output)
-    {
-        ScrollView generatedScrollView = window.generatedScrollView();
-        for (Element element : window.elements())
+        for (GeneratedWindowRuntime.RuntimeElementReference reference :
+            GeneratedWindowRuntime.runtimeElementReferences(activeWindow()))
         {
-            String elementId = generatedScrollViewAlias != null && element == generatedScrollView
-                ? generatedScrollViewAlias
-                : prefix + element.name();
-            output.add(new ElementReference(elementId, element, window));
-            if (element instanceof ReusableElement reusable && reusable.child() != null)
-            {
-                String childScrollViewAlias = reusable.child().generatedScrollView() == null
-                    ? null
-                    : elementId;
-                appendWindowReferences(
-                    reusable.child(),
-                    elementId + ".",
-                    childScrollViewAlias,
-                    output);
-            }
-            if (!(element instanceof ScrollView scrollView))
-            {
-                continue;
-            }
-            for (int index = 0; index < scrollView.children().size(); ++index)
-            {
-                Element child = scrollView.children().get(index);
-                if (child instanceof ReusableElement reusable && reusable.child() != null)
-                {
-                    appendWindowReferences(
-                        reusable.child(),
-                        elementId + "[" + index + "].",
-                        null,
-                        output);
-                }
-            }
+            result.add(new ElementReference(
+                reference.id(),
+                reference.element(),
+                reference.owner()));
         }
+        return result;
     }
 
     private ElementReference requireReference(String elementId)

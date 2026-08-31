@@ -804,12 +804,15 @@ pub trait WidgetGalleryUIEvents
     fn on_count_input_submit(&mut self, _ui: &mut WidgetGalleryUI, _value: &str) {}
     fn on_theme_combo_change(&mut self, _ui: &mut WidgetGalleryUI, _value: &str) {}
     fn on_mode_list_selectionchange(&mut self, _ui: &mut WidgetGalleryUI, _value: &[String]) {}
+    fn on_mode_list_itemactivate(&mut self, _ui: &mut WidgetGalleryUI, _index: usize, _value: &str) -> bool { false }
     fn handle_dynamic_button(&mut self, _ui: &mut WidgetGalleryUI, _name: &str) -> bool { false }
     fn handle_dynamic_text_changed(&mut self, _ui: &mut WidgetGalleryUI, _name: &str, _value: &str) -> bool { false }
     fn handle_dynamic_text_confirmed(&mut self, _ui: &mut WidgetGalleryUI, _name: &str, _value: &str) -> bool { false }
     fn handle_dynamic_selection_changed(&mut self, _ui: &mut WidgetGalleryUI, _name: &str, _value: &[String]) -> bool { false }
     fn handle_active_window_button(&mut self, _ui: &mut WidgetGalleryUI, _name: &str) -> bool { false }
     fn on_focus_changed(&mut self, _ui: &mut WidgetGalleryUI, _name: &str, _focused: bool) {}
+    fn on_preview_key(&mut self, _ui: &mut WidgetGalleryUI, _event: &uimd::KeyEvent) -> bool { false }
+    #[deprecated(since = "0.5.4", note = "use on_preview_key; removal in UIMD 0.7.0")]
     fn handle_key_before_focused(&mut self, _ui: &mut WidgetGalleryUI, _key: &str, _name: &str, _edit_mode: bool) -> bool { false }
     fn handle_key(&mut self, _ui: &mut WidgetGalleryUI, _key: &str) -> bool { false }
     fn on_window_closed(&mut self, _ui: &mut WidgetGalleryUI, _window: uimd::GeneratedWindow) {}
@@ -859,12 +862,24 @@ impl<H: WidgetGalleryUIEvents> uimd::GeneratedApplication for WidgetGalleryUIRun
         self.handler.handle_dynamic_selection_changed(self.ui, name, value)
     }
 
+    fn handle_generated_listbox_item_activate(&mut self, name: &str, _element_id: &str, index: usize, value: &str) -> bool
+    {
+        if name == "mode_list" { return self.handler.on_mode_list_itemactivate(self.ui, index, value); }
+        false
+    }
+
     fn handle_focus_changed(&mut self, name: &str, focused: bool) -> bool
     {
         self.handler.on_focus_changed(self.ui, name, focused);
         true
     }
 
+    fn handle_preview_key(&mut self, event: &uimd::KeyEvent) -> bool
+    {
+        self.handler.on_preview_key(self.ui, event)
+    }
+
+    #[allow(deprecated)]
     fn handle_key_before_focused(&mut self, key: &str, name: &str, edit_mode: bool) -> bool
     {
         self.handler.handle_key_before_focused(self.ui, key, name, edit_mode)

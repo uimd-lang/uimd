@@ -46,6 +46,12 @@ struct GeneratedAppToolMetadata {
     std::string outputSchemaJson;
 };
 
+struct KeyEvent {
+    std::string key;
+    std::string focusedElementId;
+    bool editMode = false;
+};
+
 class GeneratedWindowBase : public Window {
 public:
     using Window::Window;
@@ -120,6 +126,27 @@ public:
     virtual bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) {
         (void)name;
         (void)value;
+        return false;
+    }
+
+    virtual bool handleGeneratedListBoxItemActivate(std::string_view name,
+                                                     std::string_view elementId,
+                                                     int index,
+                                                     std::string_view value) {
+        (void)name;
+        (void)elementId;
+        (void)index;
+        (void)value;
+        return false;
+    }
+
+    virtual bool onPreviewKey(const KeyEvent& event) {
+        (void)event;
+        return false;
+    }
+
+    virtual bool onKey(std::string_view key) {
+        (void)key;
         return false;
     }
 

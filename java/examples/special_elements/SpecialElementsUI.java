@@ -527,6 +527,11 @@ public class SpecialElementsUI extends GeneratedWindowBase
     {
     }
 
+    protected boolean onRawListItemActivate(int index, String value)
+    {
+        return false;
+    }
+
     protected void onRawInputChange(String value)
     {
     }
@@ -598,6 +603,20 @@ public class SpecialElementsUI extends GeneratedWindowBase
         {
             onRawListSelectionChange(value);
             return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean handleGeneratedListBoxItemActivate(
+        String name,
+        String elementId,
+        int index,
+        String value)
+    {
+        if ("raw_list".equals(name))
+        {
+            return onRawListItemActivate(index, value);
         }
         return false;
     }

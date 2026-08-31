@@ -26,6 +26,7 @@ _SUBMODULES = (
     "UIScrollView",
     "UIPopup",
     "elements",
+    "events",
     "image",
     "mcp",
     "rendering",
@@ -68,6 +69,7 @@ from uimd.runtime import (  # noqa: E402,F401
     UIElementReusable,
     ViewHost,
     Image,
+    KeyEvent,
     Style,
     Color,
 )
@@ -96,6 +98,7 @@ __all__ = [
     "UIElementReusable",
     "ViewHost",
     "Image",
+    "KeyEvent",
     "Style",
     "Color",
 ]

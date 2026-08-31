@@ -330,6 +330,7 @@ open class FileBrowserUI: GeneratedWindowBase
     }
 
     open func onEntriesSelectionChange(_ value: [String]) { }
+    open func onEntriesItemActivate(_ index: Int, value: String) -> Bool { false }
     open func onFilenameChange(_ value: String) { }
     open func onFilenameSubmit(_ value: String) { }
     open func onOpenBtnClick() { }
@@ -379,6 +380,15 @@ open class FileBrowserUI: GeneratedWindowBase
         {
             onEntriesSelectionChange(value)
             return true
+        }
+        return false
+    }
+
+    open override func handleGeneratedListBoxItemActivate(_ name: String, elementId: String, index: Int, value: String) -> Bool
+    {
+        if name == "entries"
+        {
+            return onEntriesItemActivate(index, value: value)
         }
         return false
     }
