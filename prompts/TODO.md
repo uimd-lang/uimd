@@ -4,6 +4,106 @@
 
 Date: 2026-06-21
 
+- [x] **Fix GitHub issue
+  [#15: C++ terminal renderer leaves stale Sixel graphics after closing an image modal](https://github.com/uimd-lang/uimd/issues/15).**
+  Selected by the user on 2026-08-31. Reproduce the reported real-terminal
+  sequence with a scrollable grid of raw Sixel images, opening a full-size
+  image modal, closing it by both button and Escape, and forcing a redraw or
+  resize. The expected result is one coherent underlying grid without stale
+  graphics-plane fragments, dark bands, clipped geometry, or missing tiles.
+  Diagnose the complete modal transition and terminal diff lifecycle, add a
+  deterministic direct-PTY regression before the repair, fix the canonical
+  renderer/runtime owner without example-specific cleanup, and preserve the
+  documented public API and compatibility of existing generated applications.
+
+  **Initial parity scope:** Python under `src/uimd/runtime` is the semantic
+  rendering reference; C++ under `cpp/src/terminal` and the generated terminal
+  loop is the reported implementation. C#, Go, Rust, Swift, and Java each own
+  a terminal buffer/raw-image adapter and must be explicitly classified as
+  affected, already equivalent, or unreachable before implementation. The
+  native generator and `.uimd` sources are initially expected to be unaffected
+  because the report concerns terminal graphics teardown, but this must be
+  confirmed from the reproduction. Focused validation will include the new
+  C++ unit/direct-PTY regression, the original modal close sequence, equivalent
+  affected-port renderer checks, retained previous-version compatibility, and
+  blast-radius-appropriate rebuild/compare gates.
+
+  **Confirmed reproduction and canonical owner (2026-08-31):** a direct PTY
+  replay of the C++ ImageBrowser opens the raw-Sixel image modal and closes it
+  back to the scrollable grid. The window stack emits a normal text-plane
+  `CSI 2 J` clear and the current grid emits fresh Sixel payloads, but
+  `TerminalBuffer::renderDiffRegion` has no transition that explicitly erases
+  a previous raw-image rectangle when its anchor disappears, moves, or changes.
+  Text-cell repainting therefore cannot guarantee cleanup of the terminal's
+  independent Sixel graphics plane. The defect belongs to the shared terminal
+  diff contract, not to the example, modal callback, generator, or `.uimd`
+  source.
+
+  **Port parity matrix (recorded before implementation):**
+
+  | Port or layer | Reference path/function | Current behavior | Required action | Focused validation |
+  | --- | --- | --- | --- | --- |
+  | Python reference | `src/uimd/runtime/rendering.py::TerminalBuffer.render_diff_region` | Tracks previous raw anchors but never erases their old graphics rectangles. | **Fix first:** derive obsolete previous raw rectangles from the existing grids, issue an explicit rectangular graphics erase, and repaint the affected region in one synchronized update. | Focused raw removal, replacement, movement, unchanged-raw, and offset-region tests in `python/tests/test_application.py`. |
+  | C++ runtime | `cpp/src/terminal/TerminalBuffer.cpp::TerminalBuffer::renderDiffRegion` and `cpp/src/generated/GeneratedWindowRuntime.cpp::writeFrame` | Same missing raw teardown; the outer full-screen text clear on a window-stack transition is not a Sixel-plane cleanup contract and embedded viewports cannot clear the whole terminal. | **Fix 1:1:** port the same previous-grid erase/repaint algorithm without an example or modal special case. | `ui_cpp_tests` raw-diff regression plus the real ImageBrowser modal-close PTY sequence by button and Escape. |
+  | C# runtime | `csharp/src/Uimd/Runtime/Core.cs::TerminalBuffer.RenderDiffRegion` | Same previous/current diff algorithm and reachable Sixel rendering; affected. | **Fix 1:1.** | C# runtime raw teardown console regression. |
+  | Go runtime | `go/src/uimd/core.go::TerminalBuffer.RenderDiff` | Same previous/current diff algorithm and reachable Sixel rendering; affected. | **Fix 1:1** for the full-buffer renderer. | Go package raw teardown regression. |
+  | Rust runtime | `rust/src/uimd/src/core.rs::TerminalBuffer::render_diff_region` | Same previous/current diff algorithm and reachable Sixel rendering; affected. | **Fix 1:1.** | Rust raw teardown unit regression plus Clippy. |
+  | Swift runtime | `swift/src/Uimd/Sources/Uimd/Uimd.swift::TerminalBuffer.renderDiff` | Same previous/current diff algorithm and reachable Sixel rendering; affected. | **Fix 1:1** for the full-buffer renderer. | Swift package raw teardown regression. |
+  | Java runtime | `java/src/main/java/uimd/TerminalBuffer.java::renderDiffRegion` | Same previous/current diff algorithm and reachable Sixel rendering; affected. | **Fix 1:1.** | Java JUnit raw teardown regression plus Checkstyle. |
+  | Native generator / `.uimd` sources | `cpp/tools/uimd` emitters and shared ImageBrowser sources | Do not own raw terminal teardown; generated APIs and layouts are unaffected. | **Unaffected:** preserve generated output and public APIs; regenerate/build only as the mandatory broad-runtime gate. | Native generation remains byte-stable; rebuild all examples. |
+
+  **Shared repair contract:** before ordinary cell diffing, inspect previous raw
+  anchors in the requested paint region. If the current cell no longer has the
+  identical raw payload and geometry, erase the previous cell rectangle with
+  the DEC rectangular erase terminal primitive, then force repaint of current
+  text cells and raw rectangles that intersect the erased area. Raw cleanup,
+  any replacement Sixel payload, and the text overlay repaint must be enclosed
+  by one synchronized-update pair.
+  Unchanged raw anchors emit neither cleanup nor redundant image data. The
+  algorithm uses only the existing current/previous grids, supports terminal
+  row/column offsets, clips cleanup to the buffer and paint region, adds no
+  public API or cached/index state, and preserves old generated applications.
+
+  **Validation refinement (2026-08-31):** the first full gate proved the
+  graphics-plane teardown itself (Swift/C++ direct terminal smoke 35/35), but
+  exposed that treating any obsolete raw rectangle as a full-region redraw
+  retransmits unrelated unchanged images. Go reported 80 Sixel payloads for
+  30 held-Down events, while the shared Rust/Java image-diff smoke rejected an
+  unchanged payload retransmission. Preserve the erase-and-synchronized-update
+  contract, but force repaint only for text cells inside an erased rectangle
+  and current raw rectangles that intersect one. Ordinary changed cells and
+  moved/replaced raw anchors still use the normal diff path. Add a deterministic
+  unaffected-neighbour assertion, rerun the three failed direct-terminal
+  phases, then rerun the one final full gate; do not relax their bounded-output
+  expectations.
+
+  **Completed on 2026-09-01:** the canonical Python terminal buffer and the
+  C++, C#, Go, Rust, Swift, and Java ports now erase each obsolete raw-image
+  rectangle with DECERA and selectively repaint only text cells and current
+  raw rectangles intersecting the erased area, all inside one synchronized
+  terminal update. Unrelated unchanged images are not retransmitted. The
+  change adds no public API, option, stored cache/index, generator behavior,
+  `.uimd` layout change, or example-specific cleanup. The shared behavior
+  specification and exact focused regressions cover raw removal, replacement,
+  movement, offsets, and an unaffected neighbouring image. The direct PTY
+  regression models independent text and graphics planes and proves that C++
+  close-by-button, C++ close-by-Escape, and Swift close-by-button restore the
+  exact pre-modal graphics grid.
+
+  Every supported platform/example was regenerated and rebuilt successfully,
+  and `.uimd/build-manifest.json` was refreshed. Focused direct-terminal gates
+  passed Go 11/11, Java 12/12, Rust 8/8, and the ImageBrowser modal teardown.
+  The final `./tools/test_all.sh --live-report --keep-going --no-rebuild` gate
+  passed all 27 executed phases with 9 expected rebuild skips immediately
+  after that full rebuild: previous-version compatibility 7/7, Python 530/530,
+  CTest 26/26, C# 7/7, Rust 164/164, Swift 17/17, all lint/transport/direct-PTY
+  phases, Python/C++ examples 1044/1044, C#/Swift/Go/Java/Rust examples
+  1980/1980 each, base regressions 14/14, and Go/Java/Rust regressions 29/29
+  each. Full log:
+  `.uimd/test-logs/test-all-20260831-200820-407179.log`. Final parity decision:
+  all seven terminal renderers implement the same cleanup and selective-repaint
+  contract; generator output and public application APIs remain unaffected.
+
 - [x] **Audit C# mouse-to-cursor placement in nested/modal TextInput and
   TextArea controls against the Python reference.** Reported from the generated
   C# ContactsManager contact add/edit window on 2026-08-31: a physical mouse

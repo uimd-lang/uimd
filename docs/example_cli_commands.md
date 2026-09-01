@@ -752,6 +752,7 @@ explicitly running the Python tester implementation.
 PYTHONPATH=python:src python3 -m pytest python/tests
 PYTHONPATH=python:src python3 -m pytest python/tests/test_activity_feed.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplication::test_terminal_buffer_erases_obsolete_raw_rectangles_before_repaint
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_listbox_item_activation_can_consume_enter_before_default_commit
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_preview_key_receives_stable_repeated_element_id_and_can_consume
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_confirm_keeps_same_focus_after_callback_changes_focusables
@@ -824,6 +825,7 @@ python3 -m pytest python/tests/test_java_toolchain.py
 ./java/gradlew -p java test --tests uimd.ImageTest
 UIMD_FORCE_SIXEL=1 ./java/gradlew -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
 ./java/gradlew -p java test --tests uimd.McpControllerTest
+./java/gradlew -p java test --tests uimd.TerminalBufferTest.obsoleteRawRectanglesAreErasedBeforeTheCurrentRegionIsRepainted
 ./java/gradlew -p java test --tests uimd.terminal.InputParserTest
 ```
 
@@ -840,6 +842,7 @@ Windows PowerShell:
 .\java\gradlew.bat -p java test --tests uimd.ImageTest
 $env:UIMD_FORCE_SIXEL = "1"; .\java\gradlew.bat -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
 .\java\gradlew.bat -p java test --tests uimd.McpControllerTest
+.\java\gradlew.bat -p java test --tests uimd.TerminalBufferTest.obsoleteRawRectanglesAreErasedBeforeTheCurrentRegionIsRepainted
 .\java\gradlew.bat -p java test --tests uimd.terminal.InputParserTest
 ```
 
@@ -858,6 +861,7 @@ env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestScrollViewScopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestTerminalBufferRenderDiffSkipsUnchangedTextAndRawPayload$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd vet ./...
 ```
 
@@ -870,6 +874,7 @@ go -C go\src\uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandal
 go -C go\src\uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
 go -C go\src\uimd test -run '^TestScrollViewScopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation$'
 go -C go\src\uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
+go -C go\src\uimd test -run '^TestTerminalBufferRenderDiffSkipsUnchangedTextAndRawPayload$'
 go -C go\src\uimd vet ./...
 ```
 
@@ -877,6 +882,7 @@ go -C go\src\uimd vet ./...
 
 ```bash
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml core::tests::terminal_buffer_owns_diff_history_stats_resize_and_raw_scroll_safety -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::activate_button_after_text_tool_dispatches_before_render_like_cpp -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::click_element_refreshes_nested_scroll_row_frames_before_reading_the_centre -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::gui_tcp_server_keeps_accepted_stream_blocking_until_request_arrives -- --exact

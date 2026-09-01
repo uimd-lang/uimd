@@ -376,13 +376,70 @@ public sealed class TerminalBuffer
     public string RenderDiffRegion(int rowOffset, int colOffset, int startRow, int startCol, int height, int width)
     {
         StringBuilder output = new();
-        bool fullRedraw = forceFullRedraw;
-        bool synchronizeUpdate = false;
-        bool rawEmitted = false;
         int firstRow = Math.Max(0, startRow);
         int firstCol = Math.Max(0, startCol);
         int lastRow = Math.Min(Height, startRow + Math.Max(0, height));
         int lastCol = Math.Min(Width, startCol + Math.Max(0, width));
+        List<(int Row, int Col, int Height, int Width)> obsoleteRawRectangles = new();
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            for (int col = firstCol; col < lastCol; ++col)
+            {
+                TerminalCell prior = previous[row, col];
+                if (string.IsNullOrEmpty(prior.Raw))
+                {
+                    continue;
+                }
+                TerminalCell current = cells[row, col];
+                int priorRawWidth = Math.Max(1, prior.RawWidth);
+                int priorRawHeight = Math.Max(1, prior.RawHeight);
+                if (current.Raw == prior.Raw &&
+                    Math.Max(1, current.RawWidth) == priorRawWidth &&
+                    Math.Max(1, current.RawHeight) == priorRawHeight)
+                {
+                    continue;
+                }
+                int eraseFirstRow = Math.Max(firstRow, row);
+                int eraseFirstCol = Math.Max(firstCol, col);
+                int eraseLastRow = Math.Min(lastRow, row + priorRawHeight);
+                int eraseLastCol = Math.Min(lastCol, col + priorRawWidth);
+                if (eraseFirstRow < eraseLastRow && eraseFirstCol < eraseLastCol)
+                {
+                    obsoleteRawRectangles.Add((
+                        eraseFirstRow,
+                        eraseFirstCol,
+                        eraseLastRow - eraseFirstRow,
+                        eraseLastCol - eraseFirstCol));
+                }
+            }
+        }
+        bool CellWasErased(int row, int col)
+        {
+            return obsoleteRawRectangles.Any(rect =>
+                row >= rect.Row && row < rect.Row + rect.Height &&
+                col >= rect.Col && col < rect.Col + rect.Width);
+        }
+
+        bool RawIntersectsErased(int row, int col, int rawHeight, int rawWidth)
+        {
+            return obsoleteRawRectangles.Any(rect =>
+                row < rect.Row + rect.Height && row + rawHeight > rect.Row &&
+                col < rect.Col + rect.Width && col + rawWidth > rect.Col);
+        }
+
+        bool fullRedraw = forceFullRedraw;
+        bool synchronizeUpdate = obsoleteRawRectangles.Count > 0;
+        bool rawEmitted = false;
+        foreach ((int row, int col, int eraseHeight, int eraseWidth) in obsoleteRawRectangles)
+        {
+            output.Append(RectangularErase(
+                row,
+                col,
+                eraseHeight,
+                eraseWidth,
+                rowOffset,
+                colOffset));
+        }
         for (int row = firstRow; row < lastRow; ++row)
         {
             int col = firstCol;
@@ -395,7 +452,16 @@ public sealed class TerminalBuffer
                     ++col;
                     continue;
                 }
-                if (!fullRedraw && CellsEqual(start, previous[row, col]))
+                bool needsRepaint = CellWasErased(row, col);
+                if (!string.IsNullOrEmpty(start.Raw))
+                {
+                    needsRepaint = RawIntersectsErased(
+                        row,
+                        col,
+                        Math.Max(1, start.RawHeight),
+                        Math.Max(1, start.RawWidth));
+                }
+                if (!fullRedraw && !needsRepaint && CellsEqual(start, previous[row, col]))
                 {
                     ++col;
                     continue;
@@ -444,7 +510,8 @@ public sealed class TerminalBuffer
                 while (col < lastCol)
                 {
                     TerminalCell current = cells[row, col];
-                    if (!fullRedraw && CellsEqual(current, previous[row, col]))
+                    if (!fullRedraw && !CellWasErased(row, col) &&
+                        CellsEqual(current, previous[row, col]))
                     {
                         break;
                     }
@@ -496,6 +563,21 @@ public sealed class TerminalBuffer
             return $"\x1b[{rawBottomExclusive + AnsiBaseRow};{bufferBottomExclusive}r";
         }
         return "";
+    }
+
+    private static string RectangularErase(
+        int row,
+        int col,
+        int height,
+        int width,
+        int rowOffset,
+        int colOffset)
+    {
+        int top = row + rowOffset + AnsiBaseRow;
+        int left = col + colOffset + AnsiBaseCol;
+        int bottom = top + Math.Max(1, height) - 1;
+        int right = left + Math.Max(1, width) - 1;
+        return $"\x1b[{top};{left};{bottom};{right}$z";
     }
 
     public string RenderScrollRegion(int rowOffset, int startRow, int height, int delta)

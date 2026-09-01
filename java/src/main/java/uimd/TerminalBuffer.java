@@ -1,6 +1,8 @@
 package uimd;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class TerminalBuffer
 {
@@ -112,15 +114,53 @@ public final class TerminalBuffer
         int regionWidth)
     {
         StringBuilder output = new StringBuilder();
-        boolean fullRedraw = forceFullRedraw;
-        boolean synchronizedUpdate = false;
-        boolean rawEmitted = false;
         long changedCells = 0;
         long changedRuns = 0;
         int firstRow = Math.max(0, startRow);
         int firstCol = Math.max(0, startCol);
         int lastRow = Math.min(height, startRow + Math.max(0, regionHeight));
         int lastCol = Math.min(width, startCol + Math.max(0, regionWidth));
+        List<Rect> obsoleteRawRectangles = new ArrayList<>();
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            for (int col = firstCol; col < lastCol; ++col)
+            {
+                TerminalCell prior = previous[row][col];
+                if (prior.raw().isEmpty())
+                {
+                    continue;
+                }
+                TerminalCell current = cells[row][col];
+                int priorRawWidth = Math.max(1, prior.rawWidth());
+                int priorRawHeight = Math.max(1, prior.rawHeight());
+                if (current.raw().equals(prior.raw())
+                    && Math.max(1, current.rawWidth()) == priorRawWidth
+                    && Math.max(1, current.rawHeight()) == priorRawHeight)
+                {
+                    continue;
+                }
+                int eraseFirstRow = Math.max(firstRow, row);
+                int eraseFirstCol = Math.max(firstCol, col);
+                int eraseLastRow = Math.min(lastRow, row + priorRawHeight);
+                int eraseLastCol = Math.min(lastCol, col + priorRawWidth);
+                if (eraseFirstRow < eraseLastRow && eraseFirstCol < eraseLastCol)
+                {
+                    obsoleteRawRectangles.add(new Rect(
+                        eraseFirstRow,
+                        eraseFirstCol,
+                        eraseLastCol - eraseFirstCol,
+                        eraseLastRow - eraseFirstRow));
+                }
+            }
+        }
+        boolean fullRedraw = forceFullRedraw;
+        boolean synchronizedUpdate = !obsoleteRawRectangles.isEmpty();
+        boolean rawEmitted = false;
+        for (Rect rect : obsoleteRawRectangles)
+        {
+            output.append(rectangularErase(rect, rowOffset, colOffset));
+            ++changedRuns;
+        }
 
         for (int row = firstRow; row < lastRow; ++row)
         {
@@ -130,7 +170,8 @@ public final class TerminalBuffer
                 TerminalCell start = cells[row][col];
                 if (start.rawSkip())
                 {
-                    if (fullRedraw || !start.equals(previous[row][col]))
+                    if (fullRedraw || cellWasErased(obsoleteRawRectangles, row, col)
+                        || !start.equals(previous[row][col]))
                     {
                         ++changedCells;
                     }
@@ -138,7 +179,17 @@ public final class TerminalBuffer
                     ++col;
                     continue;
                 }
-                if (!fullRedraw && start.equals(previous[row][col]))
+                boolean needsRepaint = cellWasErased(obsoleteRawRectangles, row, col);
+                if (!start.raw().isEmpty())
+                {
+                    needsRepaint = rawIntersectsErased(
+                        obsoleteRawRectangles,
+                        row,
+                        col,
+                        Math.max(1, start.rawHeight()),
+                        Math.max(1, start.rawWidth()));
+                }
+                if (!fullRedraw && !needsRepaint && start.equals(previous[row][col]))
                 {
                     ++col;
                     continue;
@@ -189,7 +240,8 @@ public final class TerminalBuffer
                 while (col < lastCol)
                 {
                     TerminalCell current = cells[row][col];
-                    if (!fullRedraw && current.equals(previous[row][col]))
+                    if (!fullRedraw && !cellWasErased(obsoleteRawRectangles, row, col)
+                        && current.equals(previous[row][col]))
                     {
                         break;
                     }
@@ -409,6 +461,34 @@ public final class TerminalBuffer
             return "\u001b[" + (rawBottomExclusive + ANSI_BASE_ROW) + ";" + bufferBottomExclusive + "r";
         }
         return "";
+    }
+
+    private static String rectangularErase(Rect rect, int rowOffset, int colOffset)
+    {
+        int top = rect.row() + rowOffset + ANSI_BASE_ROW;
+        int left = rect.col() + colOffset + ANSI_BASE_COL;
+        int bottom = top + Math.max(1, rect.height()) - 1;
+        int right = left + Math.max(1, rect.width()) - 1;
+        return "\u001b[" + top + ";" + left + ";" + bottom + ";" + right + "$z";
+    }
+
+    private static boolean cellWasErased(List<Rect> rectangles, int row, int col)
+    {
+        return rectangles.stream().anyMatch(rect ->
+            row >= rect.row() && row < rect.row() + rect.height()
+                && col >= rect.col() && col < rect.col() + rect.width());
+    }
+
+    private static boolean rawIntersectsErased(
+        List<Rect> rectangles,
+        int row,
+        int col,
+        int rawHeight,
+        int rawWidth)
+    {
+        return rectangles.stream().anyMatch(rect ->
+            row < rect.row() + rect.height() && row + rawHeight > rect.row()
+                && col < rect.col() + rect.width() && col + rawWidth > rect.col());
     }
 
     private static TerminalCell[][] copyGrid(TerminalCell[][] source)

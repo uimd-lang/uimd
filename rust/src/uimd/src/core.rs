@@ -9,6 +9,8 @@ pub const TEXT_TAB_WIDTH: i32 = 4;
 pub const DEFAULT_CELL_GAP: i32 = 1;
 pub const DEFAULT_CELL_PADDING: i32 = 0;
 const ANSI_RESET_SCROLL_REGION: &str = "\x1b[r";
+const ANSI_TERMINAL_BASE_ROW: i32 = 1;
+const ANSI_TERMINAL_BASE_COL: i32 = 1;
 const MINIMUM_SCROLL_REGION_ROWS: i32 = 2;
 
 pub fn tab_spaces_for_column(column: i32) -> i32
@@ -1545,14 +1547,71 @@ impl TerminalBuffer
     ) -> String
     {
         let mut output = String::new();
-        let full_redraw = self.force_full_redraw;
-        let mut synchronize_update = false;
-        let mut raw_emitted = false;
-        self.render_stats.full_redraw |= full_redraw;
         let first_row = max(0, start_row);
         let first_col = max(0, start_col);
         let last_row = min(self.height, start_row + max(0, height));
         let last_col = min(self.width, start_col + max(0, width));
+        let mut obsolete_raw_rectangles = Vec::new();
+        for row in first_row..last_row
+        {
+            for col in first_col..last_col
+            {
+                let index = self.index(row, col).expect("render coordinate");
+                let previous = &self.previous[index];
+                if previous.raw.is_empty()
+                {
+                    continue;
+                }
+                let current = &self.cells[index];
+                let previous_raw_width = max(MINIMUM_RENDERABLE_SIZE, previous.raw_width);
+                let previous_raw_height = max(MINIMUM_RENDERABLE_SIZE, previous.raw_height);
+                if current.raw == previous.raw
+                    && max(MINIMUM_RENDERABLE_SIZE, current.raw_width) == previous_raw_width
+                    && max(MINIMUM_RENDERABLE_SIZE, current.raw_height) == previous_raw_height
+                {
+                    continue;
+                }
+                let erase_first_row = max(first_row, row);
+                let erase_first_col = max(first_col, col);
+                let erase_last_row = min(last_row, row + previous_raw_height);
+                let erase_last_col = min(last_col, col + previous_raw_width);
+                if erase_first_row < erase_last_row && erase_first_col < erase_last_col
+                {
+                    obsolete_raw_rectangles.push(Rect
+                    {
+                        row: erase_first_row,
+                        col: erase_first_col,
+                        width: erase_last_col - erase_first_col,
+                        height: erase_last_row - erase_first_row,
+                    });
+                }
+            }
+        }
+        let cell_was_erased = |row: i32, col: i32| {
+            obsolete_raw_rectangles.iter().any(|rect| {
+                row >= rect.row
+                    && row < rect.row + rect.height
+                    && col >= rect.col
+                    && col < rect.col + rect.width
+            })
+        };
+        let raw_intersects_erased = |row: i32, col: i32, raw_height: i32, raw_width: i32| {
+            obsolete_raw_rectangles.iter().any(|rect| {
+                row < rect.row + rect.height
+                    && row + raw_height > rect.row
+                    && col < rect.col + rect.width
+                    && col + raw_width > rect.col
+            })
+        };
+        let full_redraw = self.force_full_redraw;
+        let mut synchronize_update = !obsolete_raw_rectangles.is_empty();
+        let mut raw_emitted = false;
+        self.render_stats.full_redraw |= full_redraw;
+        for rect in &obsolete_raw_rectangles
+        {
+            output.push_str(&rectangular_erase(*rect, row_offset, col_offset));
+            self.render_stats.changed_runs += 1;
+        }
 
         for row in first_row..last_row
         {
@@ -1562,7 +1621,9 @@ impl TerminalBuffer
                 let index = self.index(row, col).expect("render coordinate");
                 if self.cells[index].raw_skip
                 {
-                    if full_redraw || self.cells[index] != self.previous[index]
+                    if full_redraw
+                        || cell_was_erased(row, col)
+                        || self.cells[index] != self.previous[index]
                     {
                         self.render_stats.changed_cells += 1;
                     }
@@ -1570,7 +1631,23 @@ impl TerminalBuffer
                     col += 1;
                     continue;
                 }
-                if !full_redraw && self.cells[index] == self.previous[index]
+                let start = &self.cells[index];
+                let needs_repaint = if start.raw.is_empty()
+                {
+                    cell_was_erased(row, col)
+                }
+                else
+                {
+                    raw_intersects_erased(
+                        row,
+                        col,
+                        max(MINIMUM_RENDERABLE_SIZE, start.raw_height),
+                        max(MINIMUM_RENDERABLE_SIZE, start.raw_width),
+                    )
+                };
+                if !full_redraw
+                    && !needs_repaint
+                    && self.cells[index] == self.previous[index]
                 {
                     col += 1;
                     continue;
@@ -1638,7 +1715,9 @@ impl TerminalBuffer
                 {
                     let current_index = self.index(row, col).expect("render coordinate");
                     let current = &self.cells[current_index];
-                    if (!full_redraw && *current == self.previous[current_index])
+                    if (!full_redraw
+                        && !cell_was_erased(row, col)
+                        && *current == self.previous[current_index])
                         || current.raw_skip
                         || !current.raw.is_empty()
                         || current.foreground != style_cell.foreground
@@ -1831,6 +1910,15 @@ fn raw_no_scroll_region(anchor_row: i32, raw_height: i32, buffer_bottom_exclusiv
         );
     }
     String::new()
+}
+
+fn rectangular_erase(rect: Rect, row_offset: i32, col_offset: i32) -> String
+{
+    let top = rect.row + row_offset + ANSI_TERMINAL_BASE_ROW;
+    let left = rect.col + col_offset + ANSI_TERMINAL_BASE_COL;
+    let bottom = top + max(MINIMUM_RENDERABLE_SIZE, rect.height) - 1;
+    let right = left + max(MINIMUM_RENDERABLE_SIZE, rect.width) - 1;
+    format!("\x1b[{top};{left};{bottom};{right}$z")
 }
 
 fn push_terminal_cursor(output: &mut String, row: i32, col: i32)
@@ -2270,6 +2358,58 @@ mod tests
         assert!(payload.starts_with("\x1b[?2026h"));
         assert!(payload.contains("RAW"));
         assert!(payload.ends_with("\x1b[?2026l"));
+
+        raw.clear_with(TerminalCell
+        {
+            text: ".".to_string(),
+            ..TerminalCell::default()
+        });
+        let removed = raw.render_diff(4, 7);
+        assert!(removed.starts_with("\x1b[?2026h"));
+        assert!(removed.contains("\x1b[5;8;5;9$z"));
+        assert!(!removed.contains("RAW"));
+        assert!(removed.ends_with("\x1b[?2026l"));
+
+        {
+            let anchor = raw.cell_mut(0, 0).expect("raw anchor");
+            anchor.raw = "RAW-TWO".to_string();
+            anchor.raw_width = 2;
+        }
+        raw.cell_mut(0, 1).expect("raw coverage").raw_skip = true;
+        assert!(raw.render_diff(4, 7).contains("RAW-TWO"));
+        raw.cell_mut(0, 0).expect("raw anchor").raw = "RAW-THREE".to_string();
+        let replaced = raw.render_diff(4, 7);
+        assert!(replaced.contains("\x1b[5;8;5;9$z"));
+        assert!(replaced.contains("RAW-THREE"));
+
+        let mut selective = TerminalBuffer::new(5, 1);
+        {
+            let anchor = selective.cell_mut(0, 0).expect("removed raw anchor");
+            anchor.raw = "RAW-REMOVED".to_string();
+            anchor.raw_width = 2;
+        }
+        selective.cell_mut(0, 1).expect("removed raw coverage").raw_skip = true;
+        {
+            let anchor = selective.cell_mut(0, 3).expect("unchanged raw anchor");
+            anchor.raw = "RAW-UNCHANGED".to_string();
+            anchor.raw_width = 2;
+        }
+        selective.cell_mut(0, 4).expect("unchanged raw coverage").raw_skip = true;
+        selective.render_diff(0, 0);
+        *selective.cell_mut(0, 0).expect("removed anchor text") = TerminalCell
+        {
+            text: ".".to_string(),
+            ..TerminalCell::default()
+        };
+        *selective.cell_mut(0, 1).expect("removed coverage text") = TerminalCell
+        {
+            text: ".".to_string(),
+            ..TerminalCell::default()
+        };
+        let selective_frame = selective.render_diff(0, 0);
+        assert!(selective_frame.contains("\x1b[1;1;1;2$z"));
+        assert!(!selective_frame.contains("RAW-REMOVED"));
+        assert!(!selective_frame.contains("RAW-UNCHANGED"));
 
         let mut guarded = TerminalBuffer::new(4, 8);
         {

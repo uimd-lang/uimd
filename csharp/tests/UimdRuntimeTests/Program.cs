@@ -1,6 +1,6 @@
 using Uimd;
 
-const int RegressionCount = 6;
+const int RegressionCount = 7;
 int passed = 0;
 passed += RunRegression("ScrollView scoped confirm keeps a fresh edit session", RunKeepEditModeRegression);
 passed += RunRegression("ScrollView scoped confirm rebases focus after mutation", RunFocusRebaseRegression);
@@ -8,6 +8,7 @@ passed += RunRegression("TextInput alignment shares one render and mouse offset"
 passed += RunRegression("ComboBox mouse reaches every rendered option row", RunComboBoxMouseGeometryRegression);
 passed += RunRegression("Reusable ScrollView focus underlays alpha descendants", RunAlphaScrollFocusRegression);
 passed += RunRegression("Modal mouse clicks preserve local text cursor coordinates", RunModalMouseCursorRegression);
+passed += RunRegression("Obsolete raw image rectangles are erased before repaint", RunRawImageTeardownRegression);
 Console.WriteLine($"{passed}/{RegressionCount} checks passed");
 if (passed != RegressionCount)
 {
@@ -143,6 +144,65 @@ static void RunModalMouseCursorRegression()
 {
     AssertModalMouseCursor(multiline: false, clickCol: 3);
     AssertModalMouseCursor(multiline: true, clickCol: 6);
+}
+
+static void RunRawImageTeardownRegression()
+{
+    TerminalBuffer buffer = new(3, 2);
+    TerminalCell raw = new()
+    {
+        Raw = "RAW-ONE",
+        RawWidth = 2,
+        RawHeight = 2,
+    };
+    buffer.SetCell(0, 0, raw);
+    buffer.SetCell(0, 1, new TerminalCell { RawSkip = true });
+    buffer.SetCell(1, 0, new TerminalCell { RawSkip = true });
+    buffer.SetCell(1, 1, new TerminalCell { RawSkip = true });
+    Require(buffer.RenderDiff(4, 7).Contains("RAW-ONE"), "initial raw payload was not rendered");
+    Require(buffer.RenderDiff(4, 7) == "", "unchanged raw payload produced terminal output");
+
+    buffer.Clear(new TerminalCell { Text = "." });
+    string removed = buffer.RenderDiff(4, 7);
+    Require(removed.StartsWith("\x1b[?2026h"), "raw cleanup was not synchronized");
+    Require(removed.Contains("\x1b[5;8;6;9$z"), "old raw rectangle was not erased");
+    Require(!removed.Contains("RAW-ONE"), "removed raw payload was retransmitted");
+    Require(removed.EndsWith("\x1b[?2026l"), "raw cleanup synchronization was not closed");
+
+    raw.Raw = "RAW-TWO";
+    buffer.SetCell(0, 0, raw);
+    buffer.SetCell(0, 1, new TerminalCell { RawSkip = true });
+    buffer.SetCell(1, 0, new TerminalCell { RawSkip = true });
+    buffer.SetCell(1, 1, new TerminalCell { RawSkip = true });
+    Require(buffer.RenderDiff(4, 7).Contains("RAW-TWO"), "replacement baseline was not rendered");
+    raw.Raw = "RAW-THREE";
+    buffer.SetCell(0, 0, raw);
+    string replaced = buffer.RenderDiff(4, 7);
+    Require(replaced.Contains("\x1b[5;8;6;9$z"), "replaced raw rectangle was not erased");
+    Require(replaced.Contains("RAW-THREE"), "replacement raw payload was not rendered");
+
+    TerminalBuffer selective = new(5, 1);
+    selective.SetCell(0, 0, new TerminalCell
+    {
+        Raw = "RAW-REMOVED",
+        RawWidth = 2,
+        RawHeight = 1,
+    });
+    selective.SetCell(0, 1, new TerminalCell { RawSkip = true });
+    selective.SetCell(0, 3, new TerminalCell
+    {
+        Raw = "RAW-UNCHANGED",
+        RawWidth = 2,
+        RawHeight = 1,
+    });
+    selective.SetCell(0, 4, new TerminalCell { RawSkip = true });
+    _ = selective.RenderDiff();
+    selective.SetCell(0, 0, new TerminalCell { Text = "." });
+    selective.SetCell(0, 1, new TerminalCell { Text = "." });
+    string selectiveFrame = selective.RenderDiff();
+    Require(selectiveFrame.Contains("\x1b[1;1;1;2$z"), "selective raw rectangle was not erased");
+    Require(!selectiveFrame.Contains("RAW-REMOVED"), "removed raw payload was retransmitted");
+    Require(!selectiveFrame.Contains("RAW-UNCHANGED"), "unrelated raw payload was retransmitted");
 }
 
 static void AssertModalMouseCursor(bool multiline, int clickCol)

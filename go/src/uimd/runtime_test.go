@@ -525,6 +525,49 @@ func TestTerminalBufferRenderDiffSkipsUnchangedTextAndRawPayload(t *testing.T) {
 	if strings.Contains(third, "\x1bPq") {
 		t.Fatalf("text-only diff retransmitted unchanged raw payload: %q", third)
 	}
+
+	for row := 0; row < buffer.Height(); row++ {
+		for col := 0; col < buffer.Width(); col++ {
+			buffer.SetCell(row, col, TerminalCell{Text: "."})
+		}
+	}
+	removed := buffer.RenderDiff()
+	if !strings.HasPrefix(removed, ansiSyncUpdateBegin) || !strings.HasSuffix(removed, ansiSyncUpdateEnd) {
+		t.Fatalf("raw cleanup was not synchronized: %q", removed)
+	}
+	if !strings.Contains(removed, "\x1b[1;1;1;2$z") {
+		t.Fatalf("raw cleanup omitted old rectangle erase: %q", removed)
+	}
+	if strings.Contains(removed, "\x1bPq") {
+		t.Fatalf("raw cleanup retransmitted removed payload: %q", removed)
+	}
+
+	buffer.SetCell(0, 0, TerminalCell{Raw: "RAW-TWO", RawWidth: 2, RawHeight: 1})
+	buffer.SetCell(0, 1, TerminalCell{RawSkip: true})
+	if baseline := buffer.RenderDiff(); !strings.Contains(baseline, "RAW-TWO") {
+		t.Fatalf("replacement baseline omitted raw payload: %q", baseline)
+	}
+	buffer.SetCell(0, 0, TerminalCell{Raw: "RAW-THREE", RawWidth: 2, RawHeight: 1})
+	replaced := buffer.RenderDiff()
+	if !strings.Contains(replaced, "\x1b[1;1;1;2$z") || !strings.Contains(replaced, "RAW-THREE") {
+		t.Fatalf("raw replacement did not erase then repaint: %q", replaced)
+	}
+
+	selective := NewTerminalBuffer(5, 1)
+	selective.SetCell(0, 0, TerminalCell{Raw: "RAW-REMOVED", RawWidth: 2, RawHeight: 1})
+	selective.SetCell(0, 1, TerminalCell{RawSkip: true})
+	selective.SetCell(0, 3, TerminalCell{Raw: "RAW-UNCHANGED", RawWidth: 2, RawHeight: 1})
+	selective.SetCell(0, 4, TerminalCell{RawSkip: true})
+	selective.RenderDiff()
+	selective.SetCell(0, 0, TerminalCell{Text: "."})
+	selective.SetCell(0, 1, TerminalCell{Text: "."})
+	selectiveFrame := selective.RenderDiff()
+	if !strings.Contains(selectiveFrame, "\x1b[1;1;1;2$z") {
+		t.Fatalf("selective cleanup omitted old rectangle erase: %q", selectiveFrame)
+	}
+	if strings.Contains(selectiveFrame, "RAW-REMOVED") || strings.Contains(selectiveFrame, "RAW-UNCHANGED") {
+		t.Fatalf("selective cleanup retransmitted an unrelated raw payload: %q", selectiveFrame)
+	}
 }
 
 func TestScrollViewTopClippedSixelKeepsCroppedRawAnchor(t *testing.T) {

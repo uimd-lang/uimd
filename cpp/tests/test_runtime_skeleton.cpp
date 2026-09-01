@@ -2197,6 +2197,56 @@ int main() {
     assert(rawSyncBegin < rawPayload);
     assert(rawPayload < rawSyncEnd);
 
+    rawDiffBuffer.clear(ui::TerminalCell{.text = "."});
+    const std::string removedRawDiff = rawDiffBuffer.renderDiff(4, 7);
+    assert(removedRawDiff.starts_with(kAnsiSyncUpdateBegin));
+    assert(removedRawDiff.find("\x1b[5;8;5;9$z") != std::string::npos);
+    assert(removedRawDiff.find("RAW") == std::string::npos);
+    assert(removedRawDiff.ends_with(kAnsiSyncUpdateEnd));
+
+    rawDiffBuffer.setCell(0, 0, ui::TerminalCell{
+        .text = " ",
+        .raw = "RAW-REPLACEMENT",
+        .rawWidth = 2,
+        .rawHeight = 1,
+    });
+    rawDiffBuffer.setCell(0, 1, ui::TerminalCell{.text = " ", .rawSkip = true});
+    assert(rawDiffBuffer.renderDiff(4, 7).find("RAW-REPLACEMENT") != std::string::npos);
+    rawDiffBuffer.setCell(0, 0, ui::TerminalCell{
+        .text = " ",
+        .raw = "RAW-NEW",
+        .rawWidth = 2,
+        .rawHeight = 1,
+    });
+    const std::string replacedRawDiff = rawDiffBuffer.renderDiff(4, 7);
+    assert(replacedRawDiff.find("\x1b[5;8;5;9$z") != std::string::npos);
+    assert(replacedRawDiff.find("RAW-NEW") != std::string::npos);
+
+    ui::TerminalBuffer selectiveRawDiffBuffer{5, 1};
+    selectiveRawDiffBuffer.setCell(0, 0, ui::TerminalCell{
+        .text = " ",
+        .raw = "RAW-REMOVED",
+        .rawWidth = 2,
+        .rawHeight = 1,
+    });
+    selectiveRawDiffBuffer.setCell(0, 1, ui::TerminalCell{.text = " ", .rawSkip = true});
+    selectiveRawDiffBuffer.setCell(0, 3, ui::TerminalCell{
+        .text = " ",
+        .raw = "RAW-UNCHANGED",
+        .rawWidth = 2,
+        .rawHeight = 1,
+    });
+    selectiveRawDiffBuffer.setCell(0, 4, ui::TerminalCell{.text = " ", .rawSkip = true});
+    const std::string selectiveRawBaseline = selectiveRawDiffBuffer.renderDiff();
+    assert(selectiveRawBaseline.find("RAW-REMOVED") != std::string::npos);
+    assert(selectiveRawBaseline.find("RAW-UNCHANGED") != std::string::npos);
+    selectiveRawDiffBuffer.setCell(0, 0, ui::TerminalCell{.text = "."});
+    selectiveRawDiffBuffer.setCell(0, 1, ui::TerminalCell{.text = "."});
+    const std::string selectiveRawDiff = selectiveRawDiffBuffer.renderDiff();
+    assert(selectiveRawDiff.find("\x1b[1;1;1;2$z") != std::string::npos);
+    assert(selectiveRawDiff.find("RAW-REMOVED") == std::string::npos);
+    assert(selectiveRawDiff.find("RAW-UNCHANGED") == std::string::npos);
+
     ui::TerminalBuffer guardedRawDiffBuffer{4, 8};
     guardedRawDiffBuffer.setCell(3, 1, ui::TerminalCell{
         .text = " ",

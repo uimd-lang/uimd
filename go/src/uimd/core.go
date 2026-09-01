@@ -568,9 +568,53 @@ func (buffer *TerminalBuffer) RenderDiff() string {
 		return ""
 	}
 	var builder strings.Builder
+	obsoleteRawRectangles := make([]Rect, 0)
+	for row := 0; row < buffer.height; row++ {
+		for col := 0; col < buffer.width; col++ {
+			prior := buffer.previous[row][col]
+			if prior.Raw == "" {
+				continue
+			}
+			current := buffer.cells[row][col]
+			priorRawWidth := maxInt(minimumRenderableSize, prior.RawWidth)
+			priorRawHeight := maxInt(minimumRenderableSize, prior.RawHeight)
+			if current.Raw == prior.Raw &&
+				maxInt(minimumRenderableSize, current.RawWidth) == priorRawWidth &&
+				maxInt(minimumRenderableSize, current.RawHeight) == priorRawHeight {
+				continue
+			}
+			obsoleteRawRectangles = append(obsoleteRawRectangles, Rect{
+				Row:    row,
+				Col:    col,
+				Width:  minInt(priorRawWidth, buffer.width-col),
+				Height: minInt(priorRawHeight, buffer.height-row),
+			})
+		}
+	}
+	cellWasErased := func(row int, col int) bool {
+		for _, rect := range obsoleteRawRectangles {
+			if row >= rect.Row && row < rect.Row+rect.Height &&
+				col >= rect.Col && col < rect.Col+rect.Width {
+				return true
+			}
+		}
+		return false
+	}
+	rawIntersectsErased := func(row int, col int, rawHeight int, rawWidth int) bool {
+		for _, rect := range obsoleteRawRectangles {
+			if row < rect.Row+rect.Height && row+rawHeight > rect.Row &&
+				col < rect.Col+rect.Width && col+rawWidth > rect.Col {
+				return true
+			}
+		}
+		return false
+	}
 	fullRedraw := buffer.forceFullRedraw
-	synchronizeUpdate := false
+	synchronizeUpdate := len(obsoleteRawRectangles) > 0
 	rawEmitted := false
+	for _, rect := range obsoleteRawRectangles {
+		builder.WriteString(rectangularErase(rect))
+	}
 	for row := 0; row < buffer.height; row++ {
 		col := 0
 		for col < buffer.width {
@@ -580,7 +624,16 @@ func (buffer *TerminalBuffer) RenderDiff() string {
 				col++
 				continue
 			}
-			if !fullRedraw && sameTerminalCell(current, buffer.previous[row][col]) {
+			needsRepaint := cellWasErased(row, col)
+			if current.Raw != "" {
+				needsRepaint = rawIntersectsErased(
+					row,
+					col,
+					maxInt(minimumRenderableSize, current.RawHeight),
+					maxInt(minimumRenderableSize, current.RawWidth),
+				)
+			}
+			if !fullRedraw && !needsRepaint && sameTerminalCell(current, buffer.previous[row][col]) {
 				col++
 				continue
 			}
@@ -618,7 +671,8 @@ func (buffer *TerminalBuffer) RenderDiff() string {
 			var run strings.Builder
 			for col < buffer.width {
 				current = buffer.cells[row][col]
-				if !fullRedraw && sameTerminalCell(current, buffer.previous[row][col]) {
+				if !fullRedraw && !cellWasErased(row, col) &&
+					sameTerminalCell(current, buffer.previous[row][col]) {
 					break
 				}
 				if current.RawSkip || current.Raw != "" ||
@@ -779,6 +833,14 @@ func rawNoScrollRegion(anchorRow int, rawHeight int, bufferBottomExclusive int) 
 		return fmt.Sprintf("\x1b[%d;%dr", rawBottomExclusive+ansiTerminalBaseRow, bufferBottomExclusive)
 	}
 	return ""
+}
+
+func rectangularErase(rect Rect) string {
+	top := rect.Row + ansiTerminalBaseRow
+	left := rect.Col + ansiTerminalBaseCol
+	bottom := top + maxInt(minimumRenderableSize, rect.Height) - 1
+	right := left + maxInt(minimumRenderableSize, rect.Width) - 1
+	return fmt.Sprintf("\x1b[%d;%d;%d;%d$z", top, left, bottom, right)
 }
 
 func writeAnsiCursorPosition(builder *strings.Builder, row int, col int) {

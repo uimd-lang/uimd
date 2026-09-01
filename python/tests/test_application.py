@@ -485,6 +485,52 @@ class TestUIApplication(unittest.TestCase):
         self.assertLess(frame.index(ANSI_SYNC_UPDATE_BEGIN), frame.index("RAW"))
         self.assertLess(frame.index("RAW"), frame.index(ANSI_SYNC_UPDATE_END))
 
+    def test_terminal_buffer_erases_obsolete_raw_rectangles_before_repaint(self):
+        """Removed, replaced, and moved raw images must leave no graphics-plane residue."""
+        def put_raw(buffer, row, col, raw):
+            for covered_row in range(row, row + 2):
+                for covered_col in range(col, col + 3):
+                    buffer.set_cell(covered_row, covered_col, TerminalCell(" ", raw_skip=True))
+            buffer.set_cell(row, col, TerminalCell(" ", raw=raw, raw_width=3, raw_height=2))
+
+        buffer = TerminalBuffer(6, 3)
+        put_raw(buffer, 1, 1, "RAW-ONE")
+        self.assertIn("RAW-ONE", buffer.render_diff(row_offset=4, col_offset=7))
+        self.assertEqual(buffer.render_diff(row_offset=4, col_offset=7), "")
+
+        buffer.clear(TerminalCell("."))
+        removed = buffer.render_diff(row_offset=4, col_offset=7)
+        erase_old_rect = "\x1b[6;9;7;11$z"
+        self.assertTrue(removed.startswith(ANSI_SYNC_UPDATE_BEGIN))
+        self.assertIn(erase_old_rect, removed)
+        self.assertNotIn("RAW-ONE", removed)
+        self.assertTrue(removed.endswith(ANSI_SYNC_UPDATE_END))
+
+        put_raw(buffer, 1, 1, "RAW-TWO")
+        self.assertIn("RAW-TWO", buffer.render_diff(row_offset=4, col_offset=7))
+        put_raw(buffer, 1, 1, "RAW-THREE")
+        replaced = buffer.render_diff(row_offset=4, col_offset=7)
+        self.assertIn(erase_old_rect, replaced)
+        self.assertIn("RAW-THREE", replaced)
+
+        buffer.clear(TerminalCell("."))
+        put_raw(buffer, 0, 0, "RAW-MOVED")
+        moved = buffer.render_diff(row_offset=4, col_offset=7)
+        self.assertIn(erase_old_rect, moved)
+        self.assertIn("RAW-MOVED", moved)
+
+        neighbors = TerminalBuffer(10, 3)
+        put_raw(neighbors, 1, 1, "RAW-REMOVED")
+        put_raw(neighbors, 0, 6, "RAW-UNCHANGED")
+        neighbors.render_diff()
+        for covered_row in range(1, 3):
+            for covered_col in range(1, 4):
+                neighbors.set_cell(covered_row, covered_col, TerminalCell("."))
+        selective = neighbors.render_diff()
+        self.assertIn("\x1b[2;2;3;4$z", selective)
+        self.assertNotIn("RAW-REMOVED", selective)
+        self.assertNotIn("RAW-UNCHANGED", selective)
+
     def test_terminal_buffer_rejects_bottom_clipped_raw_payloads(self):
         """Raw Sixel must be cropped before terminal diff emission."""
         buffer = TerminalBuffer(2, 1)

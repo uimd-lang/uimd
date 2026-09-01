@@ -77,6 +77,14 @@ def raw_no_scroll_region(anchor_row, raw_height, buffer_bottom_exclusive):
     return ""
 
 
+def rectangular_erase(row, col, height, width, row_offset=0, col_offset=0):
+    top = int(row) + int(row_offset) + ANSI_BASE_ROW
+    left = int(col) + int(col_offset) + ANSI_BASE_COL
+    bottom = top + max(1, int(height)) - 1
+    right = left + max(1, int(width)) - 1
+    return f"\x1b[{top};{left};{bottom};{right}$z"
+
+
 class TerminalBufferRenderStats:
     def __init__(self):
         self.changed_cells = 0
@@ -367,14 +375,71 @@ class TerminalBuffer:
 
     def render_diff_region(self, row_offset, col_offset, start_row, start_col, height, width):
         output = []
-        full_redraw = self.force_full_redraw
-        synchronize_update = False
-        raw_emitted = False
-        self._stats.full_redraw = self._stats.full_redraw or full_redraw
         first_row = max(0, int(start_row))
         first_col = max(0, int(start_col))
         last_row = min(self.height, int(start_row) + max(0, int(height)))
         last_col = min(self.width, int(start_col) + max(0, int(width)))
+        obsolete_raw_rectangles = []
+        for row in range(first_row, last_row):
+            for col in range(first_col, last_col):
+                previous = self.previous[row][col]
+                previous_raw = getattr(previous, "raw", "")
+                if not previous_raw:
+                    continue
+                current = self.cells[row][col]
+                if (
+                    getattr(current, "raw", "") == previous_raw
+                    and max(1, int(getattr(current, "raw_width", 1) or 1))
+                    == max(1, int(getattr(previous, "raw_width", 1) or 1))
+                    and max(1, int(getattr(current, "raw_height", 1) or 1))
+                    == max(1, int(getattr(previous, "raw_height", 1) or 1))
+                ):
+                    continue
+                raw_width = max(1, int(getattr(previous, "raw_width", 1) or 1))
+                raw_height = max(1, int(getattr(previous, "raw_height", 1) or 1))
+                erase_first_row = max(first_row, row)
+                erase_first_col = max(first_col, col)
+                erase_last_row = min(last_row, row + raw_height)
+                erase_last_col = min(last_col, col + raw_width)
+                if erase_first_row < erase_last_row and erase_first_col < erase_last_col:
+                    obsolete_raw_rectangles.append((
+                        erase_first_row,
+                        erase_first_col,
+                        erase_last_row - erase_first_row,
+                        erase_last_col - erase_first_col,
+                    ))
+        def cell_was_erased(row, col):
+            return any(
+                erase_row <= row < erase_row + erase_height
+                and erase_col <= col < erase_col + erase_width
+                for erase_row, erase_col, erase_height, erase_width
+                in obsolete_raw_rectangles
+            )
+
+        def raw_intersects_erased(row, col, raw_height, raw_width):
+            return any(
+                row < erase_row + erase_height
+                and row + raw_height > erase_row
+                and col < erase_col + erase_width
+                and col + raw_width > erase_col
+                for erase_row, erase_col, erase_height, erase_width
+                in obsolete_raw_rectangles
+            )
+
+        full_redraw = self.force_full_redraw
+        synchronize_update = bool(obsolete_raw_rectangles)
+        raw_emitted = False
+        self._stats.full_redraw = self._stats.full_redraw or full_redraw
+        for row, col, erase_height, erase_width in obsolete_raw_rectangles:
+            output.append(rectangular_erase(
+                row,
+                col,
+                erase_height,
+                erase_width,
+                row_offset,
+                col_offset,
+            ))
+            self._stats.changed_runs += 1
 
         for row in range(first_row, last_row):
             col = first_col
@@ -383,18 +448,26 @@ class TerminalBuffer:
                 previous = self.previous[row][col]
                 if getattr(current, "raw_skip", False):
                     self.previous[row][col] = current
-                    if full_redraw or current != previous:
+                    if full_redraw or cell_was_erased(row, col) or current != previous:
                         self._stats.changed_cells += 1
                     col += 1
                     continue
-                if not full_redraw and current == previous:
+                raw = getattr(current, "raw", "")
+                needs_repaint = cell_was_erased(row, col)
+                if raw:
+                    needs_repaint = raw_intersects_erased(
+                        row,
+                        col,
+                        max(1, int(getattr(current, "raw_height", 1) or 1)),
+                        max(1, int(getattr(current, "raw_width", 1) or 1)),
+                    )
+                if not full_redraw and not needs_repaint and current == previous:
                     col += 1
                     continue
 
                 style_cell = current
                 run_col = col
                 run = []
-                raw = getattr(current, "raw", "")
                 if raw:
                     synchronize_update = True
                     raw_width = max(1, int(getattr(current, "raw_width", 1) or 1))
@@ -434,7 +507,11 @@ class TerminalBuffer:
                 while col < last_col:
                     current = self.cells[row][col]
                     previous = self.previous[row][col]
-                    if not full_redraw and current == previous:
+                    if (
+                        not full_redraw
+                        and not cell_was_erased(row, col)
+                        and current == previous
+                    ):
                         break
                     if getattr(current, "raw_skip", False):
                         break

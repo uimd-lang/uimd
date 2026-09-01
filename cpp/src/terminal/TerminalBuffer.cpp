@@ -19,6 +19,13 @@ constexpr char kAnsiSyncUpdateEnd[] = "\x1b[?2026l";
 constexpr char kAnsiResetScrollRegion[] = "\x1b[r";
 constexpr int kMinimumScrollRegionRows = 2;
 
+struct RawEraseRect {
+    int row = 0;
+    int col = 0;
+    int width = 0;
+    int height = 0;
+};
+
 [[nodiscard]] std::size_t cellCountFor(int width, int height) {
     if (width < 0 || height < 0) {
         throw std::invalid_argument("terminal buffer dimensions must not be negative");
@@ -61,6 +68,15 @@ constexpr int kMinimumScrollRegionRows = 2;
                std::to_string(bufferBottomExclusive) + "r";
     }
     return {};
+}
+
+[[nodiscard]] std::string rectangularErase(const RawEraseRect& rect, int rowOffset, int colOffset) {
+    const int top = rect.row + rowOffset + kAnsiBaseRow;
+    const int left = rect.col + colOffset + kAnsiBaseCol;
+    const int bottom = top + std::max(1, rect.height) - 1;
+    const int right = left + std::max(1, rect.width) - 1;
+    return "\x1b[" + std::to_string(top) + ";" + std::to_string(left) + ";" +
+           std::to_string(bottom) + ";" + std::to_string(right) + "$z";
 }
 
 }  // namespace
@@ -129,32 +145,96 @@ std::string TerminalBuffer::renderDiffRegion(
     int width
 ) {
     std::string output;
-    const bool fullRedraw = forceFullRedraw_;
-    bool synchronizeUpdate = false;
-    bool rawEmitted = false;
-    renderStats_.fullRedraw = renderStats_.fullRedraw || fullRedraw;
     const int firstRow = std::max(0, startRow);
     const int firstCol = std::max(0, startCol);
     const int lastRow = std::min(height_, startRow + std::max(0, height));
     const int lastCol = std::min(width_, startCol + std::max(0, width));
+    std::vector<RawEraseRect> obsoleteRawRectangles;
+    for (int row = firstRow; row < lastRow; ++row) {
+        for (int col = firstCol; col < lastCol; ++col) {
+            const TerminalCell& previous = previous_[index(row, col)];
+            if (previous.raw.empty()) {
+                continue;
+            }
+            const TerminalCell& current = cells_[index(row, col)];
+            const int previousRawWidth = std::max(1, previous.rawWidth);
+            const int previousRawHeight = std::max(1, previous.rawHeight);
+            if (current.raw == previous.raw &&
+                std::max(1, current.rawWidth) == previousRawWidth &&
+                std::max(1, current.rawHeight) == previousRawHeight) {
+                continue;
+            }
+            const int eraseFirstRow = std::max(firstRow, row);
+            const int eraseFirstCol = std::max(firstCol, col);
+            const int eraseLastRow = std::min(lastRow, row + previousRawHeight);
+            const int eraseLastCol = std::min(lastCol, col + previousRawWidth);
+            if (eraseFirstRow < eraseLastRow && eraseFirstCol < eraseLastCol) {
+                obsoleteRawRectangles.push_back(RawEraseRect{
+                    .row = eraseFirstRow,
+                    .col = eraseFirstCol,
+                    .width = eraseLastCol - eraseFirstCol,
+                    .height = eraseLastRow - eraseFirstRow,
+                });
+            }
+        }
+    }
+    const auto cellWasErased = [&obsoleteRawRectangles](int row, int col) {
+        return std::ranges::any_of(obsoleteRawRectangles, [row, col](const RawEraseRect& rect) {
+            return row >= rect.row && row < rect.row + rect.height &&
+                   col >= rect.col && col < rect.col + rect.width;
+        });
+    };
+    const auto rawIntersectsErased = [&obsoleteRawRectangles](
+                                         int row,
+                                         int col,
+                                         int rawHeight,
+                                         int rawWidth
+                                     ) {
+        return std::ranges::any_of(
+            obsoleteRawRectangles,
+            [row, col, rawHeight, rawWidth](const RawEraseRect& rect) {
+                return row < rect.row + rect.height && row + rawHeight > rect.row &&
+                       col < rect.col + rect.width && col + rawWidth > rect.col;
+            }
+        );
+    };
+    const bool fullRedraw = forceFullRedraw_;
+    bool synchronizeUpdate = !obsoleteRawRectangles.empty();
+    bool rawEmitted = false;
+    renderStats_.fullRedraw = renderStats_.fullRedraw || fullRedraw;
+    for (const RawEraseRect& rect : obsoleteRawRectangles) {
+        output += rectangularErase(rect, rowOffset, colOffset);
+        ++renderStats_.changedRuns;
+    }
     for (int row = firstRow; row < lastRow; ++row) {
         int col = firstCol;
         while (col < lastCol) {
             const std::size_t startIndex = index(row, col);
             if (cells_[startIndex].rawSkip) {
-                if (fullRedraw || cells_[startIndex] != previous_[startIndex]) {
+                if (fullRedraw || cellWasErased(row, col) ||
+                    cells_[startIndex] != previous_[startIndex]) {
                     ++renderStats_.changedCells;
                 }
                 previous_[startIndex] = cells_[startIndex];
                 ++col;
                 continue;
             }
-            if (!fullRedraw && cells_[startIndex] == previous_[startIndex]) {
+            const TerminalCell& startCell = cells_[startIndex];
+            bool needsRepaint = cellWasErased(row, col);
+            if (!startCell.raw.empty()) {
+                needsRepaint = rawIntersectsErased(
+                    row,
+                    col,
+                    std::max(1, startCell.rawHeight),
+                    std::max(1, startCell.rawWidth)
+                );
+            }
+            if (!fullRedraw && !needsRepaint && startCell == previous_[startIndex]) {
                 ++col;
                 continue;
             }
 
-            const TerminalCell styleCell = cells_[startIndex];
+            const TerminalCell styleCell = startCell;
             if (!styleCell.raw.empty()) {
                 synchronizeUpdate = true;
                 const int rawWidth = std::max(1, styleCell.rawWidth);
@@ -197,7 +277,8 @@ std::string TerminalBuffer::renderDiffRegion(
             while (col < lastCol) {
                 const std::size_t currentIndex = index(row, col);
                 const TerminalCell& current = cells_[currentIndex];
-                if (!fullRedraw && current == previous_[currentIndex]) {
+                if (!fullRedraw && !cellWasErased(row, col) &&
+                    current == previous_[currentIndex]) {
                     break;
                 }
                 if (current.rawSkip) {

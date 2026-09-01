@@ -63,6 +63,7 @@ DIRECT_TERMINAL_CELL_PIXEL_WIDTH = 14
 DIRECT_TERMINAL_CELL_PIXEL_HEIGHT = 34
 SIXEL_SCROLL_MODEL_ROWS = 5
 SIXEL_SCROLL_MODEL_COLS = 12
+SIXEL_SCROLL_MODEL_CELL_PIXEL_WIDTH = 10
 SIXEL_SCROLL_MODEL_CELL_PIXEL_HEIGHT = 10
 SIXEL_FORBIDDEN_DIAGNOSTICS = (
     b"making histogram",
@@ -101,6 +102,7 @@ class TerminalScreen:
         self.grid = [[" "] * cols for _ in range(rows)]
         self.foreground = [[None] * cols for _ in range(rows)]
         self.background = [[None] * cols for _ in range(rows)]
+        self.graphics = [[None] * cols for _ in range(rows)]
         self.current_foreground = None
         self.current_background = None
 
@@ -122,6 +124,7 @@ class TerminalScreen:
         result.grid = [row[:] for row in self.grid]
         result.foreground = [row[:] for row in self.foreground]
         result.background = [row[:] for row in self.background]
+        result.graphics = [row[:] for row in self.graphics]
         result.current_foreground = self.current_foreground
         result.current_background = self.current_background
         return result
@@ -153,6 +156,9 @@ class TerminalScreen:
             )
             for row in range(self.rows)
         )
+
+    def graphics_cells(self) -> tuple[tuple[str | None, ...], ...]:
+        return tuple(tuple(row) for row in self.graphics)
 
     def position_of(self, needle: str) -> tuple[int, int]:
         for row_index, row in enumerate(self.grid):
@@ -197,16 +203,26 @@ class TerminalScreen:
             self.title = payload[2:]
 
     def _handle_dcs(self, payload: str) -> None:
-        if self.pixel_height <= 0 or self.rows <= 0:
+        if self.pixel_height <= 0 or self.rows <= 0 or self.cols <= 0:
             return
-        raster = re.search(r'"1;1;\d+;(\d+)', payload)
+        raster = re.search(r'"1;1;(\d+);(\d+)', payload)
         if raster is None:
             return
-        raster_height = int(raster.group(1))
+        raster_width = int(raster.group(1))
+        raster_height = int(raster.group(2))
+        cell_pixel_width = (
+            self.pixel_width // self.cols
+            if self.pixel_width > 0
+            else SIXEL_SCROLL_MODEL_CELL_PIXEL_WIDTH
+        )
         cell_pixel_height = self.pixel_height // self.rows
-        if raster_height <= 0 or cell_pixel_height <= 0:
+        if raster_width <= 0 or raster_height <= 0 or cell_pixel_width <= 0 or cell_pixel_height <= 0:
             return
+        occupied_cols = (raster_width + cell_pixel_width - 1) // cell_pixel_width
         occupied_rows = (raster_height + cell_pixel_height - 1) // cell_pixel_height
+        for target_row in range(self.row, min(self.rows, self.row + occupied_rows)):
+            for target_col in range(self.col, min(self.cols, self.col + occupied_cols)):
+                self.graphics[target_row][target_col] = payload
         target_row = self.row + occupied_rows - 1
         if self.scroll_top <= self.row <= self.scroll_bottom and target_row > self.scroll_bottom:
             self._scroll_up(target_row - self.scroll_bottom)
@@ -224,6 +240,8 @@ class TerminalScreen:
             self.foreground.insert(self.scroll_bottom, [None] * self.cols)
             del self.background[self.scroll_top]
             self.background.insert(self.scroll_bottom, [None] * self.cols)
+            del self.graphics[self.scroll_top]
+            self.graphics.insert(self.scroll_bottom, [None] * self.cols)
 
     def _write_char(self, char: str) -> None:
         if char == "\r":
@@ -242,6 +260,10 @@ class TerminalScreen:
 
     def _handle_csi(self, params: str, final: str) -> None:
         if params.startswith("?"):
+            return
+        if final == "z" and params.endswith("$"):
+            values = self._parse_csi_values(params[:-1])
+            self._erase_rectangle(values)
             return
         values = self._parse_csi_values(params)
 
@@ -339,6 +361,23 @@ class TerminalScreen:
             self.grid[self.row][col] = " "
             self.foreground[self.row][col] = self.current_foreground
             self.background[self.row][col] = self.current_background
+
+    def _erase_rectangle(self, values: list[int | None]) -> None:
+        def value(position: int, fallback: int) -> int:
+            if position < len(values) and values[position] is not None:
+                return values[position]
+            return fallback
+
+        top = self._clamp(value(0, 1) - 1, 0, self.rows - 1)
+        left = self._clamp(value(1, 1) - 1, 0, self.cols - 1)
+        bottom = self._clamp(value(2, self.rows) - 1, top, self.rows - 1)
+        right = self._clamp(value(3, self.cols) - 1, left, self.cols - 1)
+        for row in range(top, bottom + 1):
+            for col in range(left, right + 1):
+                self.grid[row][col] = " "
+                self.foreground[row][col] = self.current_foreground
+                self.background[row][col] = self.current_background
+                self.graphics[row][col] = None
 
     @staticmethod
     def _parse_csi_values(params: str) -> list[int | None]:
@@ -522,6 +561,21 @@ def wait_for_screen_text(app: PtyApp, needle: str, timeout_seconds: float = DEFA
     if last_error is not None:
         raise last_error
     raise AssertionError(f"screen text not found: {needle!r}")
+
+
+def wait_for_screen_text_absent(
+    app: PtyApp,
+    needle: str,
+    timeout_seconds: float = DEFAULT_TITLE_SECONDS,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if needle not in app.screen.text():
+            return
+        app.drain(total_seconds=DEFAULT_QUIET_SECONDS)
+        if app.process is not None and app.process.poll() is not None:
+            break
+    raise AssertionError(f"screen text remained visible: {needle!r}")
 
 
 def app_specs(cpp_build_dir: Path, swift_examples_dir: Path) -> dict[str, tuple[list[str], Path, list[str], Path]]:
@@ -826,6 +880,23 @@ def run_sixel_terminal_scroll_model_case(name: str) -> None:
     )
     if "row-0" not in guarded.text() or "row-4" not in guarded.text():
         raise AssertionError(f"{name}: guarded bottom-edge Sixel damaged the terminal grid")
+
+    graphics = TerminalScreen(
+        SIXEL_SCROLL_MODEL_ROWS,
+        SIXEL_SCROLL_MODEL_COLS,
+        pixel_width=SIXEL_SCROLL_MODEL_COLS * SIXEL_SCROLL_MODEL_CELL_PIXEL_WIDTH,
+        pixel_height=SIXEL_SCROLL_MODEL_ROWS * SIXEL_SCROLL_MODEL_CELL_PIXEL_HEIGHT,
+    )
+    graphics.feed(b'\x1b[2;3H\x1bP0;1;0q"1;1;20;20#0~\x1b\\')
+    before_clear = graphics.graphics_cells()
+    if before_clear[1][2] is None or before_clear[2][3] is None:
+        raise AssertionError(f"{name}: Sixel graphics rectangle was not recorded")
+    graphics.feed(b"\x1b[H\x1b[2J")
+    if graphics.graphics_cells() != before_clear:
+        raise AssertionError(f"{name}: text-plane ED incorrectly erased Sixel graphics")
+    graphics.feed(b"\x1b[2;3;3;4$z")
+    if graphics.graphics_cells()[1][2] is not None or graphics.graphics_cells()[2][3] is not None:
+        raise AssertionError(f"{name}: DECERA did not erase the Sixel graphics rectangle")
     print(f"PASS {name}", flush=True)
 
 
@@ -920,7 +991,12 @@ def run_image_browser_sixel_modal_case(
         "UIMD_DISABLE_SIXEL": "",
     }
 
-    def capture(command: list[str], cwd: Path) -> tuple[list[tuple[tuple[int, int] | None, str | None]], str]:
+    def capture(
+        platform: str,
+        command: list[str],
+        cwd: Path,
+        close_with_escape: bool,
+    ) -> tuple[list[tuple[tuple[int, int] | None, str | None]], str]:
         with PtyApp(
             command,
             cwd,
@@ -933,9 +1009,11 @@ def run_image_browser_sixel_modal_case(
             row, col = wait_for_screen_text(app, "Image items")
             app.send(sgr_click(col + 2, row + 1))
             row, col = wait_for_screen_text(app, "Show")
+            app.drain(total_seconds=DEFAULT_DRAIN_SECONDS)
+            baseline_graphics = app.screen.graphics_cells()
             start = len(app.output)
             app.send(sgr_click(col, row))
-            wait_for_screen_text(app, "Close")
+            close_row, close_col = wait_for_screen_text(app, "Close")
             deadline = time.monotonic() + DEFAULT_TITLE_SECONDS
             signatures: list[tuple[tuple[int, int] | None, str | None]] = []
             while time.monotonic() < deadline:
@@ -943,13 +1021,46 @@ def run_image_browser_sixel_modal_case(
                 signatures = sixel_payload_signatures(bytes(app.output)[start:])
                 if signatures:
                     break
+            close_start = len(app.output)
+            if close_with_escape:
+                app.send(b"\x1b")
+            else:
+                app.send(sgr_click(close_col, close_row))
+            wait_for_screen_text_absent(app, "Close")
+            wait_for_screen_text(app, "Show")
+            app.drain(total_seconds=DEFAULT_DRAIN_SECONDS)
+            close_output = bytes(app.output)[close_start:]
+            if b"$z" not in close_output:
+                close_kind = "Escape" if close_with_escape else "button"
+                raise AssertionError(
+                    f"{name}: {platform} modal {close_kind} emitted no rectangular raw cleanup"
+                )
+            if app.screen.graphics_cells() != baseline_graphics:
+                changed = sum(
+                    1
+                    for row_index in range(app.rows)
+                    for col_index in range(app.cols)
+                    if app.screen.graphics[row_index][col_index]
+                    != baseline_graphics[row_index][col_index]
+                )
+                close_kind = "Escape" if close_with_escape else "button"
+                raise AssertionError(
+                    f"{name}: {platform} modal {close_kind} left {changed} stale graphics cells"
+                )
             return signatures, app.screen.text()
 
-    cpp_signatures, cpp_screen = capture(cpp_command, cpp_cwd)
-    swift_signatures, swift_screen = capture(swift_command, swift_cwd)
-    expected = ["Image Browser", "Render", "Image items", "Close"]
+    cpp_signatures, cpp_screen = capture("C++", cpp_command, cpp_cwd, close_with_escape=False)
+    swift_signatures, swift_screen = capture("Swift", swift_command, swift_cwd, close_with_escape=False)
+    _cpp_escape_signatures, cpp_escape_screen = capture(
+        "C++",
+        cpp_command,
+        cpp_cwd,
+        close_with_escape=True,
+    )
+    expected = ["Image Browser", "Render", "Image items", "Show"]
     assert_contains(f"{name} C++", cpp_screen, expected)
     assert_contains(f"{name} Swift", swift_screen, expected)
+    assert_contains(f"{name} C++ Escape", cpp_escape_screen, expected)
     if not cpp_signatures:
         raise AssertionError(f"{name}: C++ did not emit Sixel payloads for image dialog")
     for platform, signatures in (("C++", cpp_signatures), ("Swift", swift_signatures)):

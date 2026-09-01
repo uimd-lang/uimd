@@ -12368,9 +12368,66 @@ private final class TerminalFrameBuffer
     func renderDiff(rowOffset: Int = 0, colOffset: Int = 0) -> String
     {
         var output: [String] = []
+        var obsoleteRawRectangles: [Rect] = []
+        for row in 0..<height
+        {
+            for col in 0..<width
+            {
+                let cellIndex = index(row: row, col: col)
+                let prior = previous[cellIndex]
+                if prior.raw.isEmpty
+                {
+                    continue
+                }
+                let current = cells[cellIndex]
+                let priorRawWidth = max(1, prior.rawWidth)
+                let priorRawHeight = max(1, prior.rawHeight)
+                if current.raw == prior.raw &&
+                   max(1, current.rawWidth) == priorRawWidth &&
+                   max(1, current.rawHeight) == priorRawHeight
+                {
+                    continue
+                }
+                obsoleteRawRectangles.append(Rect(
+                    row: row,
+                    col: col,
+                    width: min(priorRawWidth, width - col),
+                    height: min(priorRawHeight, height - row)
+                ))
+            }
+        }
+        func cellWasErased(row: Int, col: Int) -> Bool
+        {
+            obsoleteRawRectangles.contains
+            {
+                row >= $0.row && row < $0.row + $0.height &&
+                col >= $0.col && col < $0.col + $0.width
+            }
+        }
+        func rawIntersectsErased(
+            row: Int,
+            col: Int,
+            rawHeight: Int,
+            rawWidth: Int
+        ) -> Bool
+        {
+            obsoleteRawRectangles.contains
+            {
+                row < $0.row + $0.height && row + rawHeight > $0.row &&
+                col < $0.col + $0.width && col + rawWidth > $0.col
+            }
+        }
         let fullRedraw = forceFullRedraw
-        var synchronizeUpdate = false
+        var synchronizeUpdate = !obsoleteRawRectangles.isEmpty
         var rawEmitted = false
+        for rect in obsoleteRawRectangles
+        {
+            output.append(rectangularErase(
+                rect: rect,
+                rowOffset: rowOffset,
+                colOffset: colOffset
+            ))
+        }
         for row in 0..<height
         {
             var col = 0
@@ -12383,13 +12440,22 @@ private final class TerminalFrameBuffer
                     col += 1
                     continue
                 }
-                if !fullRedraw && cells[startIndex] == previous[startIndex]
+                let start = cells[startIndex]
+                let needsRepaint = start.raw.isEmpty
+                    ? cellWasErased(row: row, col: col)
+                    : rawIntersectsErased(
+                        row: row,
+                        col: col,
+                        rawHeight: max(1, start.rawHeight),
+                        rawWidth: max(1, start.rawWidth)
+                    )
+                if !fullRedraw && !needsRepaint && start == previous[startIndex]
                 {
                     col += 1
                     continue
                 }
 
-                let styleCell = cells[startIndex]
+                let styleCell = start
                 if !styleCell.raw.isEmpty
                 {
                     synchronizeUpdate = true
@@ -12438,7 +12504,8 @@ private final class TerminalFrameBuffer
                 {
                     let currentIndex = index(row: row, col: col)
                     let current = cells[currentIndex]
-                    if !fullRedraw && current == previous[currentIndex]
+                    if !fullRedraw && !cellWasErased(row: row, col: col) &&
+                       current == previous[currentIndex]
                     {
                         break
                     }
@@ -12731,6 +12798,15 @@ private func rawNoScrollRegion(anchorRow: Int, rawHeight: Int, bufferBottomExclu
         return "\u{001B}[\(rawBottomExclusive + kTerminalAnsiBaseRow);\(bufferBottomExclusive)r"
     }
     return ""
+}
+
+private func rectangularErase(rect: Rect, rowOffset: Int, colOffset: Int) -> String
+{
+    let top = rect.row + rowOffset + kTerminalAnsiBaseRow
+    let left = rect.col + colOffset + kTerminalAnsiBaseCol
+    let bottom = top + max(1, rect.height) - 1
+    let right = left + max(1, rect.width) - 1
+    return "\u{001B}[\(top);\(left);\(bottom);\(right)$z"
 }
 
 private func sgrForCell(_ cell: TerminalCell) -> String

@@ -27,6 +27,22 @@ Backends should track dirty state at app, window, layout, and element levels.
 C++ terminal rendering should use current and previous cell buffers and emit only
 changed cells/runs.
 
+### Raw Image Teardown
+
+Terminal raw-image payloads such as Sixel occupy a graphics plane that is not
+guaranteed to be erased by text-cell spaces or `CSI 2 J`. A diff renderer must
+therefore compare current raw anchors with its previous cell buffer. Before an
+old raw anchor is removed, moved, resized, or replaced, the renderer must erase
+the old cell rectangle with the terminal rectangular-erase primitive, repaint
+text cells inside that rectangle, and re-emit current raw rectangles only when
+they intersect the erased area or changed through the ordinary diff. The text
+overlay follows any replacement raw payload. The erase and repaint belong to
+one synchronized terminal update. An unchanged raw payload with unchanged
+geometry outside the erased area must not be erased or retransmitted.
+
+This lifecycle belongs to the shared terminal buffer. Window stacks, dialogs,
+examples, and application callbacks must not perform raw-image cleanup.
+
 ## Scroll View
 
 Scroll views contain reusable controls and support:
