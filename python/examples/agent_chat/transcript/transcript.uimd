@@ -1,0 +1,44 @@
+# Agent Chat Transcript
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Scrollable collection of deterministic simulated agent chat entries."
+tags: [component, simulation, scrollview]
+```
+
+## Definition
+
+```yaml
+extends: uiscrollview
+uses:
+  - ../chat_entry/chat_entry
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#00000000"
+@panel:
+  gap: 1
+  padding: 1, 1, 1, 1
+  background: "#00000000"
+```
+
+## User Interface
+
+```ui
++-panel-**----------------------------------------------------------------+
+|                                                                         |
+|                                                                         |
+*                                                                         |
+*                                                                         |
+|                                                                         |
++-------------------------------------------------------------------------+
+```

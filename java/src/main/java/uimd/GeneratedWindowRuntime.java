@@ -411,7 +411,7 @@ public final class GeneratedWindowRuntime
                 continue;
             }
             Element element = findElement(window, entry.name());
-            Size entrySize = renderSizeFor(entry, cell.rect(), element);
+            Size entrySize = renderSizeFor(window.generatedLayout(), entry, cell.rect(), element);
             resultWidth = Math.max(
                 resultWidth,
                 cell.rect().col() + paddingLeft(entry.cellStyle())
@@ -856,6 +856,12 @@ public final class GeneratedWindowRuntime
                 }
                 synchronized (mcpController.uiLock())
                 {
+                    GeneratedWindowStackFrame activeFrame = options.windowStack().topFrame();
+                    if (activeFrame == null)
+                    {
+                        activeFrame = rootFrame;
+                    }
+                    dirty = activeFrame.window().tick() || dirty;
                     long currentMutationGeneration = mcpController.mutationGeneration();
                     if (dirty || currentMutationGeneration != renderedMutationGeneration)
                     {
@@ -4082,7 +4088,7 @@ public final class GeneratedWindowRuntime
         Color activeScrollViewFocusBackgroundOverride)
     {
         Element element = findElement(window, entry.name());
-        Size resolvedSize = renderSizeFor(entry, cell, element);
+        Size resolvedSize = renderSizeFor(window.generatedLayout(), entry, cell, element);
         int row = renderRowFor(window.generatedLayout(), entry, cell);
         int col = renderColFor(window.generatedLayout(), entry, cell, resolvedSize);
         if (element == null)
@@ -5303,14 +5309,30 @@ public final class GeneratedWindowRuntime
     }
 
     private static Size renderSizeFor(
+        List<GeneratedLayoutEntry> layout,
         GeneratedLayoutEntry entry,
         Rect cellRect,
         Element element)
     {
+        int cellWidthDelta = Math.max(0, cellRect.width() - entry.cellCharsSize().width());
+        boolean followsExpandedEntry = hasExpandedEntryBeforeInSourceRow(layout, entry);
+        boolean canPreserveRightEdge = entry.marginRight() == 0
+            && entry.cellWidth().mode() == DimensionMode.EXPANDED
+            && entry.cellCharsSize().width() > 0
+            && cellRect.width() > entry.cellCharsSize().width()
+            && entry.width().mode() != DimensionMode.EXPANDED;
+        boolean canPreserveTrailingGroup = followsExpandedEntry
+            && entry.cellWidth().mode() == DimensionMode.EXPANDED
+            && entry.cellCharsSize().width() > 0
+            && cellWidthDelta > 0
+            && entry.width().mode() != DimensionMode.EXPANDED
+            && !canPreserveRightEdge;
+        int trailingGroupShift = canPreserveTrailingGroup ? cellWidthDelta : 0;
         int availableWidth = cellRect.width()
             - paddingLeft(entry.cellStyle())
             - paddingRight(entry.cellStyle())
             - entry.relative().col()
+            - trailingGroupShift
             - entry.marginRight();
         int availableHeight = cellRect.height()
             - paddingTop(entry.cellStyle())
@@ -5345,7 +5367,11 @@ public final class GeneratedWindowRuntime
                 dimensionWithin(entry.height(), availableHeight, fallbackHeight));
         }
         return new Size(
-            dimensionWithin(entry.width(), availableWidth, fallbackWidth),
+            paddingLeft(entry.cellStyle()) != 0 || paddingRight(entry.cellStyle()) != 0
+                ? Math.min(
+                    Math.max(MINIMUM_RENDERABLE_SIZE, availableWidth),
+                    dimensionWithin(entry.width(), availableWidth, fallbackWidth))
+                : dimensionWithin(entry.width(), availableWidth, fallbackWidth),
             dimensionWithin(entry.height(), availableHeight, fallbackHeight));
     }
 
@@ -5923,7 +5949,7 @@ public final class GeneratedWindowRuntime
             {
                 continue;
             }
-            Size elementSize = renderSizeFor(entry, cell.rect(), element);
+            Size elementSize = renderSizeFor(window.generatedLayout(), entry, cell.rect(), element);
             element.setFrame(new Rect(
                 origin.row() + renderRowFor(window.generatedLayout(), entry, cell.rect()),
                 origin.col() + renderColFor(

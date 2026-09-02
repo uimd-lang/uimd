@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.5.6 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.5.7 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -282,6 +282,12 @@ if(UIMD_BUILD_EXAMPLES)
         examples/activity_feed/settings/settings.cpp
         examples/activity_feed/settings/settings_ui.cpp
     )
+    add_ui_cpp_example(agent_chat)
+    target_sources(agent_chat PRIVATE
+        examples/agent_chat/transcript/transcript.cpp
+        examples/agent_chat/transcript/transcript_ui.cpp
+        examples/agent_chat/chat_entry/chat_entry_ui.cpp
+    )
     add_ui_cpp_example(task_board)
     target_sources(task_board PRIVATE
         examples/task_board/task_filters/task_filters.cpp
@@ -306,6 +312,7 @@ if(UIMD_BUILD_EXAMPLES)
 
     if(UIMD_BUILD_TESTS)
         add_test(NAME example_activity_feed_logic COMMAND activity_feed --logic-test)
+        add_test(NAME example_agent_chat_logic COMMAND agent_chat --logic-test)
         add_test(NAME example_task_board_logic COMMAND task_board --logic-test)
         add_test(NAME example_expense_tracker_logic COMMAND expense_tracker --logic-test)
         add_test(NAME example_calculator_logic COMMAND calculator --logic-test)

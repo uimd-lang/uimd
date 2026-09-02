@@ -24,6 +24,7 @@ CMakeCache.txt
 
 # Go MCP compare binaries are built in place beside their example sources.
 /go/examples/activity_feed/activity_feed
+/go/examples/agent_chat/agent_chat
 /go/examples/calculator/calculator
 /go/examples/cells/cells
 /go/examples/contacts_manager/contacts_manager

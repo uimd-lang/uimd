@@ -262,6 +262,10 @@ type renderableGeneratedWindow interface {
 	ShouldClose() bool
 }
 
+type tickableGeneratedWindow interface {
+	Tick() bool
+}
+
 func RunGeneratedAppMain(run func() int) int {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -1936,7 +1940,7 @@ func GeneratedWindowContentSizeForWidth(window any, width int) Size {
 	result := resolvedContentExtent(cellRects, contentSize)
 	for _, item := range base.layout {
 		cellRect := resolvedCellRect(item, cellRects)
-		entrySize := renderSizeFor(item, cellRect, layoutElementForItem(base, item))
+		entrySize := renderSizeFor(base.layout, item, cellRect, layoutElementForItem(base, item))
 		result.Width = maxInt(result.Width, cellRect.Col+paddingLeft(item.CellStyle)+item.Col+entrySize.Width)
 		result.Height = maxInt(result.Height, cellRect.Row+paddingTop(item.CellStyle)+item.Row+entrySize.Height)
 	}
@@ -3265,7 +3269,7 @@ func resolveLayout(layout []LayoutItem, cellRects map[string]Rect, owners ...*Ge
 		if owner != nil {
 			element = layoutElementForItem(owner, item)
 		}
-		size := renderSizeFor(item, cellRect, element)
+		size := renderSizeFor(layout, item, cellRect, element)
 		frame := Rect{
 			Row:    maxInt(0, renderRowFor(layout, item, cellRect)),
 			Col:    maxInt(0, renderColFor(layout, item, cellRect, size)),
@@ -3277,8 +3281,27 @@ func resolveLayout(layout []LayoutItem, cellRects map[string]Rect, owners ...*Ge
 	return result
 }
 
-func renderSizeFor(item LayoutItem, cellRect Rect, elements ...Element) Size {
-	availableWidth := cellRect.Width - paddingLeft(item.CellStyle) - paddingRight(item.CellStyle) - item.Col - item.MarginRight
+func renderSizeFor(layout []LayoutItem, item LayoutItem, cellRect Rect, elements ...Element) Size {
+	cellWidthDelta := maxInt(0, cellRect.Width-item.CellCharsWidth)
+	followsExpandedEntry := hasExpandedEntryBeforeInSourceRow(layout, item)
+	canPreserveRightEdge := item.MarginRight == 0 &&
+		(item.CellWidthMode == "expanded" || item.CellWidth == Expanded) &&
+		item.CellCharsWidth > 0 &&
+		cellRect.Width > item.CellCharsWidth &&
+		item.WidthMode != "expanded" &&
+		item.Width != Expanded
+	canPreserveTrailingGroup := followsExpandedEntry &&
+		(item.CellWidthMode == "expanded" || item.CellWidth == Expanded) &&
+		item.CellCharsWidth > 0 &&
+		cellWidthDelta > 0 &&
+		item.WidthMode != "expanded" &&
+		item.Width != Expanded &&
+		!canPreserveRightEdge
+	trailingGroupShift := 0
+	if canPreserveTrailingGroup {
+		trailingGroupShift = cellWidthDelta
+	}
+	availableWidth := cellRect.Width - paddingLeft(item.CellStyle) - paddingRight(item.CellStyle) - item.Col - trailingGroupShift - item.MarginRight
 	availableHeight := cellRect.Height - paddingTop(item.CellStyle) - paddingBottom(item.CellStyle) - item.Row - item.MarginBottom
 	fallbackWidth := item.CharsWidth
 	if fallbackWidth <= 0 {
@@ -3295,8 +3318,12 @@ func renderSizeFor(item LayoutItem, cellRect Rect, elements ...Element) Size {
 	if item.HeightMode == "fit-content" || item.Height == FitContent {
 		fallbackHeight = fitContentHeightFor(element, fallbackHeight, maxInt(minimumRenderableSize, availableWidth))
 	}
+	resolvedWidth := dimensionWithin(item.WidthMode, item.Width, availableWidth, fallbackWidth)
+	if paddingLeft(item.CellStyle) != 0 || paddingRight(item.CellStyle) != 0 {
+		resolvedWidth = minInt(maxInt(minimumRenderableSize, availableWidth), resolvedWidth)
+	}
 	return Size{
-		Width:  dimensionWithin(item.WidthMode, item.Width, availableWidth, fallbackWidth),
+		Width:  resolvedWidth,
 		Height: dimensionWithin(item.HeightMode, item.Height, availableHeight, fallbackHeight),
 	}
 }
@@ -4170,6 +4197,10 @@ func runInteractiveTerminal(window *GeneratedWindowBase, options GeneratedWindow
 			!root.notificationUntil.IsZero() &&
 			!now.Before(root.notificationUntil) {
 			dirty = true
+		}
+		active := activeRuntimeState(state)
+		if tickable, ok := active.window.ownerObject.(tickableGeneratedWindow); ok {
+			dirty = tickable.Tick() || dirty
 		}
 		if dirty {
 			renderFrame(forceFullRedraw)

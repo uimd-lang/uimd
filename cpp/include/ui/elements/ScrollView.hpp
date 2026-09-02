@@ -41,9 +41,16 @@ class ScrollView : public Element {
 public:
     explicit ScrollView(std::string name, int gap = kDefaultScrollViewGap);
 
-    using Element::addChild;
+    template <typename T, typename... Args>
+    T& addChild(Args&&... args) {
+        auto child = std::make_unique<T>(std::forward<Args>(args)...);
+        T& ref = *child;
+        addChild(std::move(child));
+        return ref;
+    }
 
     void setGap(int gap);
+    Element& addChild(std::unique_ptr<Element> child);
     void addChild(RenderedContent child);
     void clearChildren();
     void invalidateHeightCache() const;

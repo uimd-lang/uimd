@@ -252,6 +252,7 @@ macOS/Linux (POSIX shell):
 
 ```bash
 ./uimd run python/examples/activity_feed/activity_feed.uimd
+./uimd run python/examples/agent_chat/agent_chat.uimd
 ./uimd run python/examples/calculator/calculator.uimd
 ./uimd run python/examples/cells/cells.uimd
 ./uimd run python/examples/contacts_manager/contacts_manager.uimd
@@ -270,6 +271,7 @@ Windows over SSH / cmd.exe:
 
 ```bat
 .\uimd.cmd run python\examples\activity_feed\activity_feed.uimd
+.\uimd.cmd run python\examples\agent_chat\agent_chat.uimd
 .\uimd.cmd run python\examples\calculator\calculator.uimd
 .\uimd.cmd run python\examples\cells\cells.uimd
 .\uimd.cmd run python\examples\contacts_manager\contacts_manager.uimd
@@ -288,6 +290,7 @@ Windows PowerShell only:
 
 ```powershell
 .\uimd.ps1 run python\examples\activity_feed\activity_feed.uimd
+.\uimd.ps1 run python\examples\agent_chat\agent_chat.uimd
 .\uimd.ps1 run python\examples\calculator\calculator.uimd
 .\uimd.ps1 run python\examples\cells\cells.uimd
 .\uimd.ps1 run python\examples\contacts_manager\contacts_manager.uimd
@@ -308,6 +311,7 @@ macOS/Linux (POSIX shell):
 
 ```bash
 python3 python/examples/activity_feed/activity_feed.py
+python3 python/examples/agent_chat/agent_chat.py
 python3 python/examples/calculator/calculator.py
 python3 python/examples/cells/cells.py
 python3 python/examples/contacts_manager/contacts_manager.py
@@ -326,6 +330,7 @@ Windows over SSH / cmd.exe:
 
 ```bat
 python python\examples\activity_feed\activity_feed.py
+python python\examples\agent_chat\agent_chat.py
 python python\examples\calculator\calculator.py
 python python\examples\cells\cells.py
 python python\examples\contacts_manager\contacts_manager.py
@@ -348,6 +353,7 @@ POSIX:
 
 ```bash
 ./tools/run_cpp_example.sh activity_feed
+./tools/run_cpp_example.sh agent_chat
 ./tools/run_cpp_example.sh calculator
 ./tools/run_cpp_example.sh cells
 ./tools/run_cpp_example.sh contacts_manager
@@ -366,6 +372,7 @@ Windows over SSH / cmd.exe:
 
 ```bat
 .\tools\run_cpp_example.cmd activity_feed
+.\tools\run_cpp_example.cmd agent_chat
 .\tools\run_cpp_example.cmd calculator
 .\tools\run_cpp_example.cmd cells
 .\tools\run_cpp_example.cmd contacts_manager
@@ -384,6 +391,7 @@ Run already-built Windows example executables directly:
 
 ```bat
 .\cpp\build-windows\examples\activity_feed\Release\activity_feed.exe
+.\cpp\build-windows\examples\agent_chat\Release\agent_chat.exe
 .\cpp\build-windows\examples\calculator\Release\calculator.exe
 .\cpp\build-windows\examples\cells\Release\cells.exe
 .\cpp\build-windows\examples\contacts_manager\Release\contacts_manager.exe
@@ -402,6 +410,7 @@ Windows PowerShell:
 
 ```powershell
 .\tools\run_cpp_example.ps1 activity_feed
+.\tools\run_cpp_example.ps1 agent_chat
 .\tools\run_cpp_example.ps1 calculator
 .\tools\run_cpp_example.ps1 cells
 .\tools\run_cpp_example.ps1 contacts_manager
@@ -420,6 +429,7 @@ Raw macOS/Linux POSIX shell form:
 
 ```bash
 ./uimd generate cpp/examples --target cpp && cmake --build cpp/build --target activity_feed && cpp/build/examples/activity_feed/activity_feed
+./uimd generate cpp/examples --target cpp && cmake --build cpp/build --target agent_chat && cpp/build/examples/agent_chat/agent_chat
 ./uimd generate cpp/examples --target cpp && cmake --build cpp/build --target calculator && cpp/build/examples/calculator/calculator
 ./uimd generate cpp/examples --target cpp && cmake --build cpp/build --target cells && cpp/build/examples/cells/cells
 ./uimd generate cpp/examples --target cpp && cmake --build cpp/build --target contacts_manager && cpp/build/examples/contacts_manager/contacts_manager
@@ -450,6 +460,7 @@ POSIX:
 
 ```bash
 python3 tools/uimd_dev.py run-csharp-example activity_feed
+python3 tools/uimd_dev.py run-csharp-example agent_chat
 python3 tools/uimd_dev.py run-csharp-example calculator
 python3 tools/uimd_dev.py run-csharp-example cells
 python3 tools/uimd_dev.py run-csharp-example contacts_manager
@@ -468,6 +479,7 @@ Raw macOS/Linux POSIX shell form:
 
 ```bash
 ./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/activity_feed/activity_feed.csproj --configuration Release && dotnet csharp/examples/activity_feed/bin/Release/net10.0/activity_feed.dll
+./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/agent_chat/agent_chat.csproj --configuration Release && dotnet csharp/examples/agent_chat/bin/Release/net10.0/agent_chat.dll
 ./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/calculator/calculator.csproj --configuration Release && dotnet csharp/examples/calculator/bin/Release/net10.0/calculator.dll
 ./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/cells/cells.csproj --configuration Release && dotnet csharp/examples/cells/bin/Release/net10.0/cells.dll
 ./uimd generate csharp/examples --target csharp && dotnet build csharp/examples/contacts_manager/contacts_manager.csproj --configuration Release && dotnet csharp/examples/contacts_manager/bin/Release/net10.0/contacts_manager.dll
@@ -503,6 +515,7 @@ the directory from which the command was invoked:
 
 ```bash
 ./uimd generate go/examples/activity_feed --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/activity_feed build -o activity_feed . && ./go/examples/activity_feed/activity_feed
+./uimd generate go/examples/agent_chat --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/agent_chat build -o agent_chat . && ./go/examples/agent_chat/agent_chat
 ./uimd generate go/examples/calculator --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/calculator build -o calculator . && ./go/examples/calculator/calculator
 ./uimd generate go/examples/cells --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/cells build -o cells . && ./go/examples/cells/cells
 ./uimd generate go/examples/contacts_manager --target go && GOCACHE=/tmp/uimd-go-cache go -C go/examples/contacts_manager build -o contacts_manager . && ./go/examples/contacts_manager/contacts_manager
@@ -540,6 +553,7 @@ application distribution, and runs its launcher from the repository root.
 
 ```bash
 ./uimd generate python/examples/activity_feed --target java --output-dir java/examples/activity_feed && ./java/gradlew -p java/examples/activity_feed installDist --console=plain && ./java/examples/activity_feed/build/install/activity_feed/bin/activity_feed
+./uimd generate python/examples/agent_chat --target java --output-dir java/examples/agent_chat && ./java/gradlew -p java/examples/agent_chat installDist --console=plain && ./java/examples/agent_chat/build/install/agent_chat/bin/agent_chat
 ./uimd generate python/examples/calculator --target java --output-dir java/examples/calculator && ./java/gradlew -p java/examples/calculator installDist --console=plain && ./java/examples/calculator/build/install/calculator/bin/calculator
 ./uimd generate python/examples/cells --target java --output-dir java/examples/cells && ./java/gradlew -p java/examples/cells installDist --console=plain && ./java/examples/cells/build/install/cells/bin/cells
 ./uimd generate python/examples/contacts_manager --target java --output-dir java/examples/contacts_manager && ./java/gradlew -p java/examples/contacts_manager installDist --console=plain && ./java/examples/contacts_manager/build/install/contacts_manager/bin/contacts_manager
@@ -615,6 +629,7 @@ builds a release binary, and runs it from the repository working directory.
 
 ```bash
 ./uimd generate rust/examples/activity_feed --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/activity_feed/Cargo.toml
+./uimd generate rust/examples/agent_chat --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/agent_chat/Cargo.toml
 ./uimd generate rust/examples/calculator --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/calculator/Cargo.toml
 ./uimd generate rust/examples/cells --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/cells/Cargo.toml
 ./uimd generate rust/examples/contacts_manager --target rust && python3 tools/cargo_with_progress.py run --release --manifest-path rust/examples/contacts_manager/Cargo.toml
@@ -635,6 +650,7 @@ macOS SwiftPM:
 
 ```bash
 ./uimd generate swift/examples/activity_feed --target swift && swift build -c release --package-path swift/examples/activity_feed && swift run -c release --package-path swift/examples/activity_feed activity_feed
+./uimd generate swift/examples/agent_chat --target swift && swift build -c release --package-path swift/examples/agent_chat && swift run -c release --package-path swift/examples/agent_chat agent_chat
 ./uimd generate swift/examples/calculator --target swift && swift build -c release --package-path swift/examples/calculator && swift run -c release --package-path swift/examples/calculator calculator
 ./uimd generate swift/examples/cells --target swift && swift build -c release --package-path swift/examples/cells && swift run -c release --package-path swift/examples/cells cells
 ./uimd generate swift/examples/contacts_manager --target swift && swift build -c release --package-path swift/examples/contacts_manager && swift run -c release --package-path swift/examples/contacts_manager contacts_manager
@@ -751,6 +767,7 @@ explicitly running the Python tester implementation.
 ```bash
 PYTHONPATH=python:src python3 -m pytest python/tests
 PYTHONPATH=python:src python3 -m pytest python/tests/test_activity_feed.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_agent_chat.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplication::test_terminal_buffer_erases_obsolete_raw_rectangles_before_repaint
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_listbox_item_activation_can_consume_enter_before_default_commit
@@ -989,6 +1006,7 @@ UIMD_HOME=/tmp/uimd-home-from-script /tmp/uimd-home-from-script/bin/uimd doctor 
 ```bash
 ./uimd mcp-test python/examples tests/mcp/all_examples.yaml
 ./uimd mcp-test python/examples/activity_feed/activity_feed.py tests/mcp/activity_feed.yaml
+./uimd mcp-test python/examples/agent_chat/agent_chat.py tests/mcp/agent_chat.yaml
 ./uimd mcp-test python/examples/calculator/calculator.py tests/mcp/calculator.yaml
 ./uimd mcp-test python/examples/cells/cells.py tests/mcp/cells.yaml
 ./uimd mcp-test python/examples/contacts_manager/contacts_manager.py tests/mcp/contacts_manager.yaml
@@ -1012,6 +1030,7 @@ POSIX:
 
 ```bash
 ./tools/mcp_cpp_example.sh activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./tools/mcp_cpp_example.sh agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
 ./tools/mcp_cpp_example.sh contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1031,6 +1050,7 @@ Windows over SSH / cmd.exe:
 
 ```bat
 .\tools\mcp_cpp_example.cmd activity_feed tests\mcp\activity_feed.yaml --mcp-fast --compare-app-size 90x35
+.\tools\mcp_cpp_example.cmd agent_chat tests\mcp\agent_chat.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd calculator tests\mcp\calculator.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd cells tests\mcp\cells.yaml --mcp-fast --compare-app-size 90x35
 .\tools\mcp_cpp_example.cmd contacts_manager tests\mcp\contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1050,6 +1070,7 @@ Windows PowerShell:
 
 ```powershell
 .\tools\mcp_cpp_example.ps1 activity_feed tests\mcp\activity_feed.yaml -McpFast -CompareAppSize 90x35
+.\tools\mcp_cpp_example.ps1 agent_chat tests\mcp\agent_chat.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 calculator tests\mcp\calculator.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 cells tests\mcp\cells.yaml -McpFast -CompareAppSize 90x35
 .\tools\mcp_cpp_example.ps1 contacts_manager tests\mcp\contacts_manager.yaml -McpFast -CompareAppSize 90x35
@@ -1070,6 +1091,7 @@ Raw POSIX form:
 ```bash
 ./uimd mcp-test cpp/build/examples tests/mcp/all_examples.yaml
 ./uimd mcp-test cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml
+./uimd mcp-test cpp/build/examples/agent_chat/agent_chat tests/mcp/agent_chat.yaml
 ./uimd mcp-test cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml
 ./uimd mcp-test cpp/build/examples/cells/cells tests/mcp/cells.yaml
 ./uimd mcp-test cpp/build/examples/contacts_manager/contacts_manager tests/mcp/contacts_manager.yaml
@@ -1099,6 +1121,7 @@ POSIX:
 
 ```bash
 python3 tools/uimd_dev.py mcp-csharp-example activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-csharp-example agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
 python3 tools/uimd_dev.py mcp-csharp-example contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1119,6 +1142,7 @@ Raw POSIX form:
 ```bash
 ./uimd mcp-test --backend python --headless csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/activity_feed/bin/Release/net10.0/activity_feed.dll tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless csharp/examples/agent_chat/bin/Release/net10.0/agent_chat.dll tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/calculator/bin/Release/net10.0/calculator.dll tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/cells/bin/Release/net10.0/cells.dll tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless csharp/examples/contacts_manager/bin/Release/net10.0/contacts_manager.dll tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1146,6 +1170,7 @@ Raw macOS POSIX per-app form:
 
 ```bash
 ./uimd mcp-test --headless --compare cpp/build/examples/activity_feed/activity_feed swift/examples/activity_feed/.build/release/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --headless --compare cpp/build/examples/agent_chat/agent_chat swift/examples/agent_chat/.build/release/agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --headless --compare cpp/build/examples/calculator/calculator swift/examples/calculator/.build/release/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --headless --compare cpp/build/examples/cells/cells swift/examples/cells/.build/release/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --headless --compare cpp/build/examples/contacts_manager/contacts_manager swift/examples/contacts_manager/.build/release/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1176,6 +1201,7 @@ Raw macOS/Linux POSIX per-app form:
 
 ```bash
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed go/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/agent_chat/agent_chat go/examples/agent_chat/agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator go/examples/calculator/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/cells/cells go/examples/cells/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/contacts_manager/contacts_manager go/examples/contacts_manager/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1208,6 +1234,7 @@ Windows PowerShell headless per-app form:
 
 ```powershell
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\activity_feed\Release\activity_feed.exe go\examples\activity_feed\activity_feed.exe tests\mcp\activity_feed.yaml --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\agent_chat\Release\agent_chat.exe go\examples\agent_chat\agent_chat.exe tests\mcp\agent_chat.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\calculator\Release\calculator.exe go\examples\calculator\calculator.exe tests\mcp\calculator.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\cells\Release\cells.exe go\examples\cells\cells.exe tests\mcp\cells.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\examples\contacts_manager\Release\contacts_manager.exe go\examples\contacts_manager\contacts_manager.exe tests\mcp\contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1246,6 +1273,7 @@ POSIX comparisons.
 ```bash
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples rust/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed rust/examples/activity_feed/target/release/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/agent_chat/agent_chat rust/examples/agent_chat/target/release/agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator rust/examples/calculator/target/release/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/cells/cells rust/examples/cells/target/release/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/contacts_manager/contacts_manager rust/examples/contacts_manager/target/release/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1271,6 +1299,7 @@ comparisons.
 ```bash
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples java/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed java/examples/activity_feed/build/install/activity_feed/bin/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/agent_chat/agent_chat java/examples/agent_chat/build/install/agent_chat/bin/agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator java/examples/calculator/build/install/calculator/bin/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/cells/cells java/examples/cells/build/install/cells/bin/cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/contacts_manager/contacts_manager java/examples/contacts_manager/build/install/contacts_manager/bin/contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
@@ -1296,6 +1325,7 @@ POSIX:
 
 ```bash
 ./tools/mcp_compare_example.sh activity_feed tests/mcp/activity_feed.yaml --mcp-fast
+./tools/mcp_compare_example.sh agent_chat tests/mcp/agent_chat.yaml --mcp-fast
 ./tools/mcp_compare_example.sh calculator tests/mcp/calculator.yaml --mcp-fast
 ./tools/mcp_compare_example.sh cells tests/mcp/cells.yaml --mcp-fast
 ./tools/mcp_compare_example.sh contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast
@@ -1315,6 +1345,7 @@ Windows over SSH / cmd.exe:
 
 ```bat
 .\tools\mcp_compare_example.cmd activity_feed tests\mcp\activity_feed.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd agent_chat tests\mcp\agent_chat.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd calculator tests\mcp\calculator.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd cells tests\mcp\cells.yaml --mcp-fast
 .\tools\mcp_compare_example.cmd contacts_manager tests\mcp\contacts_manager.yaml --mcp-fast
@@ -1334,6 +1365,7 @@ Windows PowerShell:
 
 ```powershell
 .\tools\mcp_compare_example.ps1 activity_feed tests\mcp\activity_feed.yaml -McpFast
+.\tools\mcp_compare_example.ps1 agent_chat tests\mcp\agent_chat.yaml -McpFast
 .\tools\mcp_compare_example.ps1 calculator tests\mcp\calculator.yaml -McpFast
 .\tools\mcp_compare_example.ps1 cells tests\mcp\cells.yaml -McpFast
 .\tools\mcp_compare_example.ps1 contacts_manager tests\mcp\contacts_manager.yaml -McpFast
@@ -1366,6 +1398,7 @@ Raw POSIX form:
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll java/regressions/uimd/parity/source_separator_scroll/build/install/source_separator_scroll/bin/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus java/regressions/uimd/parity/stale_scrollview_focus/build/install/stale_scrollview_focus/bin/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/agent_chat/agent_chat.py cpp/build/examples/agent_chat/agent_chat tests/mcp/agent_chat.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/calculator/calculator.py cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/cells/cells.py cpp/build/examples/cells/cells tests/mcp/cells.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --compare python/examples/contacts_manager/contacts_manager.py cpp/build/examples/contacts_manager/contacts_manager tests/mcp/contacts_manager.yaml --compare-app-size 90x35 --mcp-fast
@@ -1396,6 +1429,7 @@ Raw Windows PowerShell form:
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe java\regressions\uimd\parity\source_separator_scroll\build\install\source_separator_scroll\bin\source_separator_scroll.bat tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe java\regressions\uimd\parity\stale_scrollview_focus\build\install\stale_scrollview_focus\bin\stale_scrollview_focus.bat tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\agent_chat\agent_chat.py cpp\build-windows\examples\agent_chat\Release\agent_chat.exe tests\mcp\agent_chat.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
 Raw Windows cmd.exe form:
@@ -1413,6 +1447,7 @@ Raw Windows cmd.exe form:
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe java\regressions\uimd\parity\source_separator_scroll\build\install\source_separator_scroll\bin\source_separator_scroll.bat tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe java\regressions\uimd\parity\stale_scrollview_focus\build\install\stale_scrollview_focus\bin\stale_scrollview_focus.bat tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\agent_chat\agent_chat.py cpp\build-windows\examples\agent_chat\Release\agent_chat.exe tests\mcp\agent_chat.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
 ## Project Scaffold Smoke Test

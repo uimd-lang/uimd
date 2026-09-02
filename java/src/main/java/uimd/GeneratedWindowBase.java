@@ -30,6 +30,11 @@ public class GeneratedWindowBase extends Window
         super(title);
     }
 
+    public boolean tick()
+    {
+        return false;
+    }
+
     public List<GeneratedLayoutEntry> generatedLayout()
     {
         return Collections.unmodifiableList(generatedLayout);

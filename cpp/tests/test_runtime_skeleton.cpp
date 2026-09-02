@@ -2079,6 +2079,20 @@ int main() {
     assert(cachedHeights[0] == 1);
     assert(cachedHeights[3] == 1);
 
+    ui::ScrollView nativeChildCacheScroll{"native-child-cache"};
+    constexpr ui::Size kNativeChildCacheViewport{8, 2};
+    nativeChildCacheScroll.clearChildren();
+    assert(!nativeChildCacheScroll.scrollToTop(kNativeChildCacheViewport));
+    nativeChildCacheScroll.addChild<ui::Label>("first", "First");
+    nativeChildCacheScroll.addChild<ui::Label>("second", "Second");
+    nativeChildCacheScroll.addChild<ui::Label>("third", "Third");
+    assert(nativeChildCacheScroll.cachedChildHeights().size() == 3);
+    assert(nativeChildCacheScroll.contentHeight(kNativeChildCacheViewport.width) == 3);
+    assert(nativeChildCacheScroll.scrollToTop(kNativeChildCacheViewport));
+    assert(nativeChildCacheScroll.viewOffset() == 1);
+    assert(nativeChildCacheScroll.handleWheel(-1, kNativeChildCacheViewport));
+    assert(nativeChildCacheScroll.viewOffset() == 0);
+
     ui::ScrollView autoScroll{"auto"};
     autoScroll.setAutoScroll(true);
     autoScroll.addChild(ui::renderPlainText("A", 1, 1, widgetStyle));

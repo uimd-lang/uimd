@@ -1,0 +1,115 @@
+- name: agent_chat
+  app: python/examples/agent_chat/agent_chat.py
+  tests:
+    - tool: get_window
+      assert:
+        title: Agent Chat Simulation
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "Ready · 1 message"
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "Step applied · 2 messages"
+    - tool: activate_element
+      compare_snapshot: false
+      arguments:
+        element_id: start_button
+    - tool: get_element
+      compare_snapshot: false
+      compare_fields: []
+      arguments:
+        element_id: status
+      assert:
+        value:
+          regex: '^Running · [0-9]+ messages$'
+    - tool: activate_element
+      compare_snapshot: false
+      arguments:
+        element_id: pause_button
+    - tool: get_element
+      compare_snapshot: false
+      compare_fields: []
+      arguments:
+        element_id: status
+      assert:
+        value:
+          regex: '^Paused · [0-9]+ messages$'
+    - tool: activate_element
+      compare_snapshot: false
+      arguments:
+        element_id: reset_button
+    - tool: get_element
+      compare_snapshot: false
+      arguments:
+        element_id: status
+      assert:
+        value: "Ready · 1 message"
+    - tool: get_render_snapshot_compact
+    - tool: scroll
+      arguments:
+        element_id: transcript
+        delta: 10
+    - tool: get_render_snapshot_compact
+    - tool: scroll
+      arguments:
+        element_id: transcript
+        delta: -10
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "Step applied · 2 messages"
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "Step applied · 10 messages"
+    - tool: get_render_snapshot_compact
+    - tool: activate_element
+      arguments:
+        element_id: reset_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "Ready · 1 message"

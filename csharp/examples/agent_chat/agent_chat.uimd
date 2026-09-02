@@ -1,0 +1,133 @@
+# Agent Chat Simulation
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: window
+status: draft
+description: "Deterministic simulated agent chat for rich transcript and large ScrollView testing."
+tags: [example, simulation, scrollview]
+```
+
+## Definition
+
+```yaml
+uses:
+  - transcript/transcript
+```
+
+## Members
+
+```yaml
+title:
+  type: label
+  text: "Agent Chat Simulation"
+  description: "Application title."
+  expose: false
+
+simulation_badge:
+  type: label
+  text: "SIMULATED · OFFLINE"
+  description: "Clarifies that the transcript performs no real agent or tool work."
+  expose: false
+
+quit_button:
+  type: button
+  title: Quit
+  description: "Close the Agent Chat Simulation example."
+
+start_button:
+  type: button
+  title: Start
+  description: "Run one hundred deterministic simulated messages over three minutes."
+
+pause_button:
+  type: button
+  title: Pause
+  description: "Pause the timed simulation without discarding progress."
+
+next_step_button:
+  type: button
+  title: "Next step"
+  description: "Apply one deterministic scripted chat step."
+
+reset_button:
+  type: button
+  title: Reset
+  description: "Reset the transcript to its initial message."
+
+load_stress_button:
+  type: button
+  title: "Load 50k"
+  description: "Load an approximately fifty-thousand-row deterministic stress transcript."
+
+transcript:
+  type: transcript
+  cpp-class: "agent_chat_example::Transcript"
+  cpp-header: transcript/transcript.hpp
+  description: "Scrollable deterministic simulated agent transcript."
+
+status:
+  type: label
+  text: "Ready · 1 message"
+  description: "Shows deterministic simulation progress and transcript size."
+```
+
+## Style
+
+```yaml
+include: dark
+this:
+  border-width: 0
+  background: "#030712"
+@header:
+  background: "#111827"
+  padding: 0, 1, 0, 1
+@title:
+  color: "#f8fafc"
+  text-align: center
+@simulation_badge:
+  color: "#c4b5fd"
+  text-align: right
+@actions:
+  background: "#172033"
+  padding: 1, 1, 1, 1
+button:
+  background: "#334155"
+  color: "#e2e8f0"
+  focus-background: "#2563eb"
+@load_stress_button:
+  background: "#6d28d9"
+  focus-background: "#7c3aed"
+@quit_button:
+  background: "#7f1d1d"
+  focus-background: "#dc2626"
+@content:
+  background: "#030712"
+@transcript:
+  background: "#00000000"
+@status:
+  background: "#0f172a"
+  color: "#93c5fd"
+  padding: 0, 1, 0, 1
+```
+
+## User Interface
+
+```ui
++-header-**--------------------------------------------------------------------+
+| title..**......................... simulation_badge.... quit_button......... |
++-actions-**-------------------------------------------------------------------+
+| start_button pause_button next_step_button reset_button load_stress_button.. |
++-content-**-------------------------------------------------------------------+
+| transcript..**.............................................................. |
+| ............................................................................ |
+* *........................................................................... |
+* *........................................................................... |
+| ............................................................................ |
++------------------------------------------------------------------------------+
+| status..**.................................................................. |
++------------------------------------------------------------------------------+
+```

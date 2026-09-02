@@ -1147,12 +1147,14 @@ class UIBase(UIInstance):
 
     def tick(self):
         """Called by the application loop on each idle timeout. Propagates to embedded child controls."""
+        changed = False
         for elem in self._elements.values():
             if hasattr(elem, 'tick'):
-                elem.tick()
+                changed = bool(elem.tick()) or changed
             child = getattr(elem, '_child_instance', None)
             if child is not None:
-                child.tick()
+                changed = bool(child.tick()) or changed
+        return changed
 
     def get_cell_rect(self, cell_name):
         """Get the resolved rectangle for a named structural cell."""
@@ -3060,22 +3062,6 @@ class UIBase(UIInstance):
             height_mode = layout_entry.get("height_mode", DIMENSION_AUTO)
             layout_margin_right = int(layout_entry.get("margin_right", 0) or 0)
             layout_margin_bottom = int(layout_entry.get("margin_bottom", 0) or 0)
-            available_width = max(
-                MIN_LAYOUT_SIZE,
-                cell.width - relative_col - layout_margin_right - margin_right - pad_right,
-            )
-            available_height = max(
-                MIN_LAYOUT_SIZE,
-                cell.height - relative_row - layout_margin_bottom - margin_bottom - pad_bottom,
-            )
-
-            if width_mode == DIMENSION_FIT_CONTENT or width_value == FIT_CONTENT:
-                elem.width = min(available_width, self._element_fit_width(elem, int(layout_entry.get("chars_width", 0) or 0)))
-            elif width_value is None or width_value == "None":
-                elem.width = available_width
-            else:
-                elem.width = max(MIN_LAYOUT_SIZE, int(width_value))
-
             source_cell_width = int(layout_entry.get("cell_chars_width", 0) or 0)
             cell_width_mode = layout_entry.get("cell_width_mode", DIMENSION_AUTO)
             touches_source_right_edge = layout_margin_right == 0
@@ -3094,7 +3080,35 @@ class UIBase(UIInstance):
                 and source_cell_width > 0
                 and cell_width_delta > 0
                 and width_mode != DIMENSION_EXPANDED
+                and not can_preserve_right_edge
             )
+            trailing_group_shift = cell_width_delta if can_preserve_trailing_group else 0
+            available_width = max(
+                MIN_LAYOUT_SIZE,
+                cell.width
+                - relative_col
+                - trailing_group_shift
+                - layout_margin_right
+                - margin_right
+                - pad_right,
+            )
+            available_height = max(
+                MIN_LAYOUT_SIZE,
+                cell.height - relative_row - layout_margin_bottom - margin_bottom - pad_bottom,
+            )
+
+            if width_mode == DIMENSION_FIT_CONTENT or width_value == FIT_CONTENT:
+                elem.width = min(available_width, self._element_fit_width(elem, int(layout_entry.get("chars_width", 0) or 0)))
+            elif width_value is None or width_value == "None":
+                elem.width = available_width
+            else:
+                requested_width = max(MIN_LAYOUT_SIZE, int(width_value))
+                elem.width = (
+                    min(available_width, requested_width)
+                    if pad_left or pad_right
+                    else requested_width
+                )
+
             if can_preserve_right_edge:
                 elem.col = max(
                     relative_col,

@@ -188,6 +188,7 @@ pub trait EditFieldRowUIEvents
     #[deprecated(since = "0.5.4", note = "use on_preview_key; removal in UIMD 0.7.0")]
     fn handle_key_before_focused(&mut self, _ui: &mut EditFieldRowUI, _key: &str, _name: &str, _edit_mode: bool) -> bool { false }
     fn handle_key(&mut self, _ui: &mut EditFieldRowUI, _key: &str) -> bool { false }
+    fn tick(&mut self, _ui: &mut EditFieldRowUI) -> bool { false }
     fn on_window_closed(&mut self, _ui: &mut EditFieldRowUI, _window: uimd::GeneratedWindow) {}
     fn mcp_tool_names(&self) -> Vec<String> { Vec::new() }
     fn handle_mcp_tool(&mut self, _ui: &mut EditFieldRowUI, _name: &str, _arguments: &Map<String, Value>) -> Option<Value> { None }
@@ -246,6 +247,7 @@ impl<H: EditFieldRowUIEvents> uimd::GeneratedApplication for EditFieldRowUIRunti
     }
 
     fn handle_key(&mut self, key: &str) -> bool { self.handler.handle_key(self.ui, key) }
+    fn tick(&mut self) -> bool { self.handler.tick(self.ui) }
     fn handle_generated_window_closed(&mut self, window: uimd::GeneratedWindow) { self.handler.on_window_closed(self.ui, window); }
     fn mcp_tool_names(&self) -> Vec<String> { self.handler.mcp_tool_names() }
     fn handle_mcp_tool(&mut self, name: &str, arguments: &Map<String, Value>) -> Option<Value> { self.handler.handle_mcp_tool(self.ui, name, arguments) }

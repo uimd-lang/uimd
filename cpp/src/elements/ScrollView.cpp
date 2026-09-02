@@ -227,6 +227,15 @@ void ScrollView::restoreScrollPosition(ScrollViewPosition position) {
     pendingTerminalScrollDelta_ = 0;
 }
 
+Element& ScrollView::addChild(std::unique_ptr<Element> child) {
+    Element& added = Element::addChild(std::move(child));
+    invalidateHeightCache();
+    if (autoScroll_) {
+        viewOffset_ = 0;
+    }
+    return added;
+}
+
 void ScrollView::addChild(RenderedContent child) {
     children_.push_back(std::move(child));
     invalidateHeightCache();

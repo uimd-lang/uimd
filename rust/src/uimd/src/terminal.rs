@@ -1699,6 +1699,10 @@ pub fn run_interactive_terminal<A: GeneratedApplication>(
             dirty = true;
             last_animated_render_at = now;
         }
+        if app.window().modal_depth() == 0
+        {
+            dirty = app.tick() || dirty;
+        }
         if dirty
         {
             let rendered = crate::render_generated_application(app, &mut state, &options);

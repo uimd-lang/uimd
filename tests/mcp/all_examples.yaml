@@ -4,6 +4,7 @@
 - include: formular.yaml
 - include: widget_gallery.yaml
 - include: activity_feed.yaml
+- include: agent_chat.yaml
 - include: image_browser_compare.yaml
 - include: image_gallery_compare.yaml
 - include: image_gallery_sixel_info_compare.yaml

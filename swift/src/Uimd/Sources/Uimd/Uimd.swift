@@ -4288,6 +4288,11 @@ open class GeneratedWindowBase
         return false
     }
 
+    open func tick() -> Bool
+    {
+        false
+    }
+
     open func generatedScrollView() -> ScrollView?
     {
         nil
@@ -4484,7 +4489,7 @@ open class GeneratedWindowBase
                 continue
             }
             let element = entry.name.isEmpty ? nil : self.element(named: entry.name)
-            let entrySize = renderSizeFor(entry, cellRect: cell.rect, element: element)
+            let entrySize = renderSizeFor(layout, entry: entry, cellRect: cell.rect, element: element)
             result.width = max(result.width, cell.rect.col + paddingLeft(entry.cellStyle) + entry.relative.col + entrySize.width)
             result.height = max(result.height, cell.rect.row + paddingTop(entry.cellStyle) + entry.relative.row + entrySize.height)
         }
@@ -4763,7 +4768,7 @@ open class GeneratedWindowBase
         }
         func drawEntry(_ entry: GeneratedLayoutEntry, element: UIElement, cellRect: Rect, elementEditMode: Bool)
         {
-            let size = renderSizeFor(entry, cellRect: cellRect, element: element)
+            let size = renderSizeFor(layout, entry: entry, cellRect: cellRect, element: element)
             let rect = Rect(
                 row: renderRowFor(layout, entry: entry, cellRect: cellRect, size: size),
                 col: renderColFor(layout, entry: entry, cellRect: cellRect, size: size),
@@ -5273,7 +5278,7 @@ open class GeneratedWindowBase
                 {
                     text = String(text.dropFirst().dropLast())
                 }
-                let size = renderSizeFor(entry, cellRect: cell.rect, element: nil)
+                let size = renderSizeFor(layout, entry: entry, cellRect: cell.rect, element: nil)
                 let rect = Rect(
                     row: renderRowFor(layout, entry: entry, cellRect: cell.rect, size: size),
                     col: renderColFor(layout, entry: entry, cellRect: cell.rect, size: size),
@@ -5452,7 +5457,7 @@ public func syncGeneratedWindowElementFrames(
         {
             continue
         }
-        let size = renderSizeFor(entry, cellRect: cell.rect, element: element)
+        let size = renderSizeFor(window.layout, entry: entry, cellRect: cell.rect, element: element)
         element.frame = Rect(
             row: frame.row + renderRowFor(window.layout, entry: entry, cellRect: cell.rect, size: size),
             col: frame.col + renderColFor(window.layout, entry: entry, cellRect: cell.rect, size: size),
@@ -7156,6 +7161,8 @@ final class GeneratedRuntimeController
                 copyNotificationExpiresAt = nil
                 dirty = true
             }
+            let tickWindow = rootOptions.windowStack?.topFrame?.window ?? rootWindow
+            dirty = tickWindow.tick() || dirty
             if dirty
             {
                 terminalFrameBuffer?.setContent(renderContent())
@@ -15820,9 +15827,28 @@ private func dimensionWithin(_ dimension: AxisDimension, available: Int, fallbac
     return max(1, requested)
 }
 
-private func renderSizeFor(_ entry: GeneratedLayoutEntry, cellRect: Rect, element: UIElement?) -> Size
+private func renderSizeFor(
+    _ layout: [GeneratedLayoutEntry],
+    entry: GeneratedLayoutEntry,
+    cellRect: Rect,
+    element: UIElement?
+) -> Size
 {
-    let availableWidth = cellRect.width - paddingLeft(entry.cellStyle) - paddingRight(entry.cellStyle) - entry.relative.col - entry.marginRight
+    let cellWidthDelta = max(0, cellRect.width - entry.cellCharsSize.width)
+    let followsExpandedEntry = hasExpandedEntryBeforeInSourceRow(layout, entry: entry)
+    let canPreserveRightEdge = entry.marginRight == 0
+        && axisIsExpanded(entry.cellWidth)
+        && entry.cellCharsSize.width > 0
+        && cellRect.width > entry.cellCharsSize.width
+        && !axisIsExpanded(entry.width)
+    let canPreserveTrailingGroup = followsExpandedEntry
+        && axisIsExpanded(entry.cellWidth)
+        && entry.cellCharsSize.width > 0
+        && cellWidthDelta > 0
+        && !axisIsExpanded(entry.width)
+        && !canPreserveRightEdge
+    let trailingGroupShift = canPreserveTrailingGroup ? cellWidthDelta : 0
+    let availableWidth = cellRect.width - paddingLeft(entry.cellStyle) - paddingRight(entry.cellStyle) - entry.relative.col - trailingGroupShift - entry.marginRight
     let availableHeight = cellRect.height - paddingTop(entry.cellStyle) - paddingBottom(entry.cellStyle) - entry.relative.row - entry.marginBottom
     let fallbackWidth = entry.charsSize.width > 0 ? entry.charsSize.width : entry.sourceCell.width
     var fallbackHeight = entry.charsSize.height > 0 ? entry.charsSize.height : entry.sourceCell.height
@@ -15839,7 +15865,9 @@ private func renderSizeFor(_ entry: GeneratedLayoutEntry, cellRect: Rect, elemen
         )
     }
     return Size(
-        width: dimensionWithin(entry.width, available: availableWidth, fallback: fallbackWidth),
+        width: paddingLeft(entry.cellStyle) != 0 || paddingRight(entry.cellStyle) != 0
+            ? min(max(1, availableWidth), dimensionWithin(entry.width, available: availableWidth, fallback: fallbackWidth))
+            : dimensionWithin(entry.width, available: availableWidth, fallback: fallbackWidth),
         height: dimensionWithin(entry.height, available: availableHeight, fallback: fallbackHeight)
     )
 }

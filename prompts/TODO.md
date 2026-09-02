@@ -4,6 +4,300 @@
 
 Date: 2026-06-21
 
+- [x] **Finish Agent Chat right-edge text rendering and make `Start` a timed
+  simulation across every supported port.** Requested by the user on
+  2026-09-02 after manual C# validation. The visible phase labels still lose
+  their final character (`patch`, `test failure`, `structured data`, and
+  `final`), so reproduce the complete header-width/ScrollView-indicator path
+  rather than relying on the earlier short `request` assertion. Fix the
+  canonical shared layout/runtime owner 1:1 for Python, C++, C#, Go, Rust,
+  Swift, and Java without padding or truncation workarounds in the example.
+  Change Agent Chat `Start` from an immediate ten-message batch into the same
+  deterministic, progressively timed simulation on every port; keep `Pause`,
+  `Next step`, `Reset`, bottom-follow behavior, and bounded MCP tests
+  deterministic. Record the port parity matrix before implementation, add
+  focused regressions for every reported phase label and time transition,
+  regenerate/build affected outputs, and compare at
+  `--compare-app-size 90x35`.
+
+  **Pre-implementation parity matrix (2026-09-02):** The canonical Python
+  layout path is `src/uimd/runtime/UIBase.py::_resolve_layout_geometry`; the
+  corresponding C++/C#/Go/Rust/Swift/Java `renderSizeFor` plus trailing-group
+  placement paths all resolve a padded fixed/auto width before shifting an
+  element that follows an expanded sibling. Consequently every port can move
+  the right-aligned Agent Chat phase one column beyond the content boundary
+  and clip its last character. Apply one shared final-position-aware available
+  width rule in all seven runtimes and validate `patch`, `test failure`,
+  `structured data`, and `final` through the complete nested transcript, while
+  preserving unpadded overlay geometry. The canonical simulation behavior is
+  `python/examples/agent_chat/agent_chat.py`; the C++, C#, Go, Rust, Swift, and
+  Java example implementations currently drain the same scripted steps
+  synchronously. Replace that with the same monotonic-clock state machine on
+  every port: 100 deterministic retained messages over 180 seconds, the first
+  event applied immediately, idle ticks applying due events, Pause retaining
+  progress, Next step applying exactly one event while paused, Reset restoring
+  the initial message, and Load 50k stopping the timed run. Runtime idle-loop
+  ownership is `UIApplication`/generated-window runtime in each port; add only
+  an optional/default tick hook so previously generated applications remain
+  source- and binary-contract compatible. Focused gates are deterministic
+  fake-clock Python/C++/port logic tests, the existing Agent Chat MCP scenario
+  without wall-clock waits, full nested phase-label rendering, all seven
+  Agent Chat builds, C++/every-port compare at 90x35, and the affected
+  preceding-version compatibility fixtures.
+
+  **Completed on 2026-09-02:** The clipping owner was the shared layout
+  resolver: a right-aligned element following an expanded sibling received
+  its width before the trailing group was shifted, leaving the element one
+  column beyond the padded content edge. Python, C++, C#, Go, Rust, Swift,
+  and Java now apply the same final-position-aware available-width rule.
+  The complete nested transcript regression verifies `request`, `patch`,
+  `test failure`, `structured data`, and `final`; the synchronized `.uimd`
+  files are byte-identical across all source copies. `Start` now runs the
+  same monotonic-clock simulation in every port, retaining exactly 100
+  messages over 180 seconds, with immediate first progress, idle tick
+  delivery, Pause/Next/Reset semantics, bottom following, and deterministic
+  fake-clock tests. Real PTY probes verified idle progress from two to three
+  messages without further input on all seven ports. Focused C++/port MCP
+  compares passed at 90x35 (Python and Swift: 18 assertions each; C#, Go,
+  Rust, and Java: 42 each), preceding-version compatibility passed 7/7, and
+  the affected runtime/build gates passed, including Rust 164/164 tests and
+  Clippy after the final active-window tick parity correction. No ScrollView
+  profiling or virtualization was included; that work remains in the
+  separate open #16 task below.
+
+- [ ] **Optimize large ScrollView histories and resolve GitHub issue
+  [#16](https://github.com/uimd-lang/uimd/issues/16) across all language
+  ports.** Keep this separate from the correctness and timed-simulation repair
+  above. The current `Load 50K` path materializes 5,556 reusable messages for
+  approximately 50,000 rendered rows; C++ remains responsive with mouse-wheel
+  input, Rust/C# are noticeably slower, and Python/Go/Java/Swift become very
+  slow. Do not implement isolated per-language shortcuts or weaken the stress
+  workload.
+
+  - [ ] Instrument the identical stress path and measure child construction,
+    layout/height resolution, visible-range calculation, rendering, terminal
+    diff, and keyboard/event-queue processing separately. Compare operation
+    counts as well as timings, audit Rust against C++ structurally, and treat
+    unexplained port-only extra work as a parity defect before optimizing.
+  - [ ] Design and implement one shared ScrollView virtualization contract in
+    the Python reference and port it 1:1 to C++, C#, Go, Rust, Swift, and Java.
+    It must keep focus/edit/selection, dynamic reusable identity, variable
+    heights, mouse hit testing, keyboard and wheel scrolling, auto-scroll,
+    indicators, MCP snapshots, and post-event cleanup behavior compatible with
+    existing applications while limiting per-frame work to the visible range.
+
+- [x] **Diagnose the C++ Agent Chat transcript that does not respond to
+  scrolling.** Reported by the user on 2026-09-01 while manually running the
+  newly generated C++ `agent_chat` example. Reproduce physical mouse-wheel and
+  keyboard/scroll-tool behavior after loading enough transcript entries,
+  identify whether the owner is the new nested reusable/ScrollView wiring or
+  shared runtime input routing, and do not add an example-specific scroll
+  workaround. Python is the semantic reference; C++, C#, Go, Rust, Swift, and
+  Java must be classified because they use the same UI and nested transcript
+  contract. Focused validation must cover actual offset movement and visible
+  content change at `--compare-app-size 90x35`, plus a real PTY wheel path if
+  the defect is in physical input dispatch. The same user review also found
+  that the new window omits the standard top-right `Quit` button used by the
+  other full examples; add it to the one canonical `.uimd` source and preserve
+  identical generated event/close behavior in every language port.
+
+  **Parity matrix and diagnosis (2026-09-01):** Python
+  `src/uimd/runtime/UIScrollView.py` and C++
+  `cpp/src/elements/ScrollView.cpp` use the same line-offset convention:
+  positive deltas move toward the beginning and negative deltas toward the
+  end. A 90x35 real-PTY SGR wheel probe changed the rendered transcript in
+  both Python and C++ after `Start`; the MCP `scroll` tool likewise changed
+  both snapshots for a positive delta. The apparent no-op is boundary state,
+  not a C++ routing defect: `Start` deliberately calls `scrollToBottom()`,
+  `Load 50k` calls `scrollToTop()`, and `Reset` contains only one message.
+  Therefore Python and C++ runtime/input paths are verified and unchanged;
+  C#, Go, Rust, Swift, and Java use the same generated nested ScrollView
+  contract and need no runtime fix. The example/UI layer is affected only by
+  the omitted Quit action: add the same member, top-right layout, generated
+  hook, and standard close transition to Python, C++, C#, Go, Rust, Swift,
+  and Java. Focused gates: Python and C++ offset assertions, C++ real-PTY
+  wheel and Quit checks, identical `.uimd` hashes, all seven focused builds
+  and logic tests, and C++/every-port MCP compare at 90x35.
+
+  **Completed on 2026-09-01:** no ScrollView or input-runtime defect was
+  found. The physical C++ SGR wheel reproduction and the focused Python/C++
+  offset regressions prove that the transcript moves and its visible frame
+  changes once the wheel points away from the active boundary. Immediately
+  after `Start` the transcript is at the bottom, so scrolling farther down is
+  correctly a no-op; `Load 50k` starts at the top, and `Reset` has too little
+  content to scroll. No runtime, generator, public API, or compatibility
+  surface changed.
+
+  The canonical Agent Chat UI now includes the missing top-right `Quit`
+  button and every port implements its normal generated close hook. Python,
+  C++, C#, Go, Rust, Swift, and Java generation, focused build, and logic
+  gates passed. Python Agent Chat tests passed 5/5; the C++ logic regression
+  checks real transcript offset movement; and a direct C++ PTY probe passed
+  both physical mouse-wheel scrolling and Quit process teardown. All three
+  Agent Chat `.uimd` sources are byte-identical across their synchronized
+  Python, C++, C#, Go, Rust, and Swift copies, with Java generated directly
+  from the canonical Python source. MCP parity at `--compare-app-size 90x35`
+  passed Python/C++ with 12 assertions and C++ versus each of C#, Go, Rust,
+  Swift, and Java with 26 assertions and no failed steps. The full repository
+  suite was not repeated because this follow-up changes only the new,
+  previously uncommitted example and its focused regression surface.
+
+  **Reopened on 2026-09-01 after the exact stress-path reproduction:** the
+  user's real C++ terminal screenshot after `Load 50k` shows that physical
+  wheel input does not produce an observable scroll and that the final
+  character of right-aligned entry header text is clipped at the viewport's
+  right edge. The earlier PTY/MCP gate exercised only the ten-message `Start`
+  scenario and therefore did not validate this report. Reproduce `Load 50k`
+  itself, measure callback/render latency and offset movement, and inspect the
+  shared ScrollView child-width/overflow-indicator contract before editing.
+  Treat the no-scroll symptom as the GitHub #16 large-history performance
+  reproduction unless evidence proves a distinct input bug. Classify Python,
+  C++, C#, Go, Rust, Swift, and Java; fix the canonical shared owner 1:1 and
+  do not reduce the stress data, add an example-only delay, or pad the example
+  to hide a runtime clipping/virtualization defect. Focused validation must
+  exercise real physical wheel input after `Load 50k`, assert bounded response
+  time plus changed visible content/offset, and assert that right-edge content
+  remains visible without being overwritten by the ScrollView indicator.
+
+  **Exact diagnosis and corrected parity matrix (2026-09-01):** this stress
+  failure is distinct from GitHub #16. C++ `ScrollView` exposes the inherited
+  `Element::addChild` overloads, so native child insertion does not call
+  `ScrollView::invalidateHeightCache()`. `clearChildren()` followed by
+  `scrollToTop()` validly caches an empty list; the subsequent 5,556 generated
+  reusable children leave that cache intact, making `contentHeight()` and
+  `maxViewOffset()` remain zero even though rendering can still visit the
+  children. The real SGR wheel is routed to the correct nested ScrollView but
+  therefore has no legal offset to change. The Python reference
+  `UIScrollView.add_child`, C# `ScrollView.AddChild`, Rust `Element::add_child`,
+  and Swift `ScrollView.addChild` invalidate their cached layout; Go and Java
+  derive native-child height directly and have no equivalent stale cache.
+  Only `cpp/include/ui/elements/ScrollView.hpp` and
+  `cpp/src/elements/ScrollView.cpp` require the cache-invalidation fix, with a
+  C++ runtime regression that primes the empty cache before native insertion.
+
+  The clipped phase suffix is a separate shared layout defect. Python, C++,
+  C#, Go, Rust, Swift, and Java all preserve an auto/fixed ASCII footprint even
+  when cell padding and the layout's trailing margin make less content width
+  available. Left-aligned text hides the error, while the right-aligned
+  `request` phase renders its last character in the cell's clipped right
+  padding. The required shared behavior is to constrain the resolved element
+  width to the available padded cell content width before alignment and
+  rendering. Apply the same width constraint in every runtime and retain the
+  canonical Agent Chat `.uimd` unchanged; validate the full `request` suffix
+  in rendered output on every port.
+
+  **Completed on 2026-09-02:** C++ `ScrollView` now owns both public
+  `addChild` entry points and invalidates its existing child-height cache after
+  every native insertion, matching the Python/C#/Rust/Swift contract. The
+  regression primes the empty cache, inserts native children, and proves that
+  content height, maximum offset, and wheel scrolling immediately reflect the
+  new children. Go and Java remain unchanged because they compute native-child
+  height directly and cannot retain this stale cache. The exact C++ `Load 50k`
+  logic path and a real SGR mouse-wheel PTY replay now change both the scroll
+  offset and visible transcript; the PTY load completed in 2.150 seconds and
+  the tested wheel update in 0.538 seconds.
+
+  The shared Python, C++, C#, Go, Rust, Swift, and Java layout runtimes now
+  constrain a fixed/auto element footprint to the cell's available content
+  width when horizontal cell padding is present. This keeps the complete
+  right-aligned `request` suffix inside its content area while preserving the
+  established unpadded overlay geometry; the existing raw-image overlay test
+  and the new Agent Chat frame assertion cover both branches. No `.uimd`
+  layout, example-specific workaround, generated public API, deprecation
+  surface, or preceding-version application contract changed.
+
+  Final validation regenerated and built all supported platforms and examples
+  with `./tools/rebuild_all.sh`, refreshed the parity manifest, and passed the
+  focused Python suite 67/67, C++ runtime plus Agent Chat logic tests, the real
+  C++ PTY stress reproduction, and Agent Chat MCP compares for Python/C++ and
+  C++ against C#, Go, Swift, Rust, and Java at
+  `--compare-app-size 90x35`. The complete no-rebuild test inventory passed
+  every unit/lint gate other than four host-load startup/timeout failures and
+  passed all example comparisons (Python/C++ 1056/1056 and 2006/2006 for each
+  of C#, Swift, Go, Java, and Rust) plus all base/Go/Java/Rust regression parity
+  gates. Each load-related failure then passed unchanged in isolation: Python
+  HTTP transport 3/3, Java direct terminal 12/12 groups, Rust direct terminal
+  8/8 groups, and Swift previous-version compatibility 1/1 (26.68-second
+  build). Full-run log:
+  `.uimd/test-logs/test-all-20260902-003222-908244.log`. All synchronized Agent
+  Chat `.uimd` files have byte-identical hashes and `git diff --check` passes.
+  GitHub #16 remains open as the separate transcript-virtualization and
+  large-history performance task; this repair restores correct scrolling and
+  clipping without claiming that virtualization is implemented.
+
+- [x] **Add the deterministic Agent Chat Simulation example across every
+  supported language port.** Requested by the user on 2026-09-01 as a visual
+  and performance reproduction surface for GitHub issue
+  [#16](https://github.com/uimd-lang/uimd/issues/16), without implementing
+  ScrollView virtualization in this task. Start from one canonical UI under
+  `python/examples/agent_chat`, generate the identical UI for C++, C#, Go,
+  Rust, Swift, and Java, and implement the same deterministic scripted chat
+  state machine in every port. The example is a simulation only: no network,
+  LLM, command execution, filesystem mutation, prompt editor, or Send action.
+  It must cover prose, lists, code, diffs, tables, simulated tool activity,
+  errors, structured data, Unicode, streaming-like growth, and status changes.
+  Keep the normal parity scenario small and place the approximately 50,000-row
+  stress history behind an explicit `Load 50k` action so aggregate tests do
+  not execute it accidentally.
+
+  **Initial parity matrix:** Python example logic is the scenario/data
+  reference; the same generated inheritance hooks and state transitions must
+  be implemented in `cpp/examples/agent_chat`, `csharp/examples/agent_chat`,
+  `go/examples/agent_chat`, `rust/examples/agent_chat`,
+  `swift/examples/agent_chat`, and `java/examples/agent_chat`. All ports must
+  generate from the canonical Python `.uimd` source without platform-specific
+  layouts. Shared runtimes, the native generator, and public APIs are expected
+  to remain unchanged; if the example exposes a general ScrollView, rendering,
+  event, or generator defect, stop and record/fix it through the cross-platform
+  bug workflow rather than adding an example workaround. Validation requires
+  canonical generation, focused builds for every port, a bounded normal MCP
+  scenario and C++/every-port compare at `--compare-app-size 90x35`, explicit
+  documentation of all run/test entry points, source-identity checks, and
+  blast-radius-appropriate aggregate validation.
+
+  **Completed on 2026-09-01:** the canonical example now lives under
+  `python/examples/agent_chat` and the same UI and deterministic state machine
+  are implemented for C++, C#, Go, Rust, Swift, and Java. The normal scenario
+  contains eleven scripted steps, two streaming-style replacements, and ten
+  retained transcript messages. The explicit `Load 50k` action constructs
+  5,556 deterministic rich entries representing approximately 50,000 rendered
+  rows; ordinary aggregate and compare scenarios never trigger that action.
+  The transcript covers prose, plans and lists, simulated tool output, a
+  comparison table, source code, a patch, a simulated failure, YAML/JSON,
+  Unicode, status changes, reset, pause, and deterministic completion. It does
+  not perform network, LLM, command, or filesystem work and has no prompt
+  editor or Send action.
+
+  **Final parity audit:** `agent_chat.uimd`, `transcript/transcript.uimd`, and
+  `chat_entry/chat_entry.uimd` are byte-for-byte identical in Python, C++, C#,
+  Go, Rust, and Swift; Java is generated directly from the canonical Python
+  source into its output directory. Every port keeps the same initial entry,
+  eleven steps, replacement flags, status transitions, stress count, eight
+  stress templates, child ownership, scroll-to-top/bottom behavior, and
+  generated event hooks. The only structural differences are the smallest
+  language-runtime adapters for owning generated child windows and dynamic
+  versus static strings. No shared runtime, native generator, public API,
+  deprecation surface, or existing application contract changed. During the
+  initial compare, inconsistent ASCII-grid row widths in the new canonical UI
+  hid generated members; those malformed new-example sources were corrected
+  identically before the final regeneration rather than masked in a runtime,
+  port, snapshot, or test.
+
+  The final full `./tools/rebuild_all.sh` regenerated and built all supported
+  platforms and examples successfully and refreshed the artifact manifest.
+  Focused validation passed Python/C++ (12 assertions) and C++ against each of
+  C#, Go, Rust, Swift, and Java (23 assertions each), always at
+  `--compare-app-size 90x35`. Python example/resource tests passed 5/5, the
+  C++ `example_agent_chat_logic` CTest passed 1/1, and C#, Go, Rust, Swift,
+  and Java logic executables all returned exit code zero. The canonical Python
+  stress action was also exercised directly and produced exactly 5,556 entries
+  with the expected `~50000 rows` status. All run, logic-test, and MCP compare
+  commands are recorded in `docs/example_cli_commands.md`, and
+  `tests/mcp/all_examples.yaml` includes the bounded scenario. GitHub issue
+  #16 remains open: this task intentionally adds the requested deterministic
+  reproduction/performance surface but does not implement ScrollView
+  virtualization.
+
 - [x] **Fix GitHub issue
   [#15: C++ terminal renderer leaves stale Sixel graphics after closing an image modal](https://github.com/uimd-lang/uimd/issues/15).**
   Selected by the user on 2026-08-31. Reproduce the reported real-terminal

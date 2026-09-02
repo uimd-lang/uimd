@@ -150,6 +150,10 @@ public:
         return false;
     }
 
+    virtual bool tick() {
+        return false;
+    }
+
     virtual bool activateGeneratedControl() {
         return false;
     }

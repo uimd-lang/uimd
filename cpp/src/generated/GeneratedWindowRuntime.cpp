@@ -531,7 +531,13 @@ void resolveRuntimeCellsWithFitPass(const GeneratedWindowBase& window,
                                     std::vector<ResolvedRuntimeCell>& resolvedCells);
 [[nodiscard]] const ResolvedRuntimeCell* resolvedCellFor(const std::vector<ResolvedRuntimeCell>& cells,
                                                         const GeneratedLayoutEntry& entry);
-[[nodiscard]] Size renderSizeFor(const GeneratedLayoutEntry& entry, Rect cellRect, const Element* element);
+[[nodiscard]] bool hasExpandedEntryBeforeInSourceRow(
+    const std::vector<GeneratedLayoutEntry>& layout,
+    const GeneratedLayoutEntry& entry);
+[[nodiscard]] Size renderSizeFor(const std::vector<GeneratedLayoutEntry>& layout,
+                                 const GeneratedLayoutEntry& entry,
+                                 Rect cellRect,
+                                 const Element* element);
 [[nodiscard]] GeneratedWindowMode windowMode(const GeneratedWindowBase& window);
 [[nodiscard]] int borderWidthHorizontal(const Style& style);
 [[nodiscard]] int borderWidthVertical(const Style& style);
@@ -1448,7 +1454,7 @@ void syncWindowElementFramesTo(GeneratedWindowBase& window, Rect frame, bool for
         if (cell == nullptr) {
             continue;
         }
-        const Size size = renderSizeFor(entry, cell->rect, element);
+        const Size size = renderSizeFor(window.generatedLayout(), entry, cell->rect, element);
         const int row = frame.row + renderRowFor(window.generatedLayout(), entry, cell->rect, size);
         const int col = frame.col + renderColFor(window.generatedLayout(), entry, cell->rect, size);
         element->setFrame(Rect{row, col, size.width, size.height});
@@ -2777,9 +2783,23 @@ void fillRect(TerminalBuffer& buffer, Rect rect, const Style& style) {
     return std::max(kMinimumRenderableSize, fallback);
 }
 
-[[nodiscard]] Size renderSizeFor(const GeneratedLayoutEntry& entry, Rect cellRect, const Element* element = nullptr) {
+[[nodiscard]] Size renderSizeFor(const std::vector<GeneratedLayoutEntry>& layout,
+                                 const GeneratedLayoutEntry& entry,
+                                 Rect cellRect,
+                                 const Element* element = nullptr) {
+    const int cellWidthDelta = std::max(0, cellRect.width - entry.sourceCell.width);
+    const bool followsExpandedEntry = hasExpandedEntryBeforeInSourceRow(layout, entry);
+    const bool canPreserveRightEdge =
+        entry.marginRight == 0 && entry.cellWidth.mode == DimensionMode::Expanded &&
+        entry.sourceCell.width > 0 && cellRect.width > entry.sourceCell.width &&
+        entry.width.mode != DimensionMode::Expanded;
+    const bool canPreserveTrailingGroup =
+        followsExpandedEntry && entry.cellWidth.mode == DimensionMode::Expanded &&
+        entry.sourceCell.width > 0 && cellWidthDelta > 0 &&
+        entry.width.mode != DimensionMode::Expanded && !canPreserveRightEdge;
+    const int trailingGroupShift = canPreserveTrailingGroup ? cellWidthDelta : 0;
     const int availableWidth = cellRect.width - paddingLeft(entry.cellStyle) - paddingRight(entry.cellStyle) -
-                               entry.relative.col - entry.marginRight;
+                               entry.relative.col - trailingGroupShift - entry.marginRight;
     const int availableHeight = cellRect.height - paddingTop(entry.cellStyle) - paddingBottom(entry.cellStyle) -
                                 entry.relative.row - entry.marginBottom;
     const int fallbackWidth = entry.charsSize.width > 0 ? entry.charsSize.width : entry.sourceCell.width;
@@ -2798,7 +2818,10 @@ void fillRect(TerminalBuffer& buffer, Rect rect, const Style& style) {
         };
     }
     return Size{
-        dimensionWithin(entry.width, availableWidth, fallbackWidth),
+        (paddingLeft(entry.cellStyle) != 0 || paddingRight(entry.cellStyle) != 0)
+            ? std::min(std::max(kMinimumRenderableSize, availableWidth),
+                       dimensionWithin(entry.width, availableWidth, fallbackWidth))
+            : dimensionWithin(entry.width, availableWidth, fallbackWidth),
         dimensionWithin(entry.height, availableHeight, fallbackHeight),
     };
 }
@@ -3204,7 +3227,7 @@ void applyActiveScrollViewFocusBackgroundGaps(TerminalBuffer& buffer,
         if (cell == nullptr) {
             return std::nullopt;
         }
-        const Size size = renderSizeFor(entry, cell->rect, element);
+        const Size size = renderSizeFor(window.generatedLayout(), entry, cell->rect, element);
         const int row = renderRowFor(window.generatedLayout(), entry, cell->rect, size);
         const int col = renderColFor(window.generatedLayout(), entry, cell->rect, size);
         return Rect{row, col, size.width, size.height};
@@ -3429,7 +3452,7 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
             if (text.size() >= 2 && text.front() == '"' && text.back() == '"') {
                 text = text.substr(1, text.size() - 2);
             }
-            const Size size = renderSizeFor(entry, cellRect);
+            const Size size = renderSizeFor(window.generatedLayout(), entry, cellRect);
             const int row = renderRowFor(window.generatedLayout(), entry, cellRect, size);
             if (row >= buffer.height()) {
                 return;
@@ -3458,7 +3481,7 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
     const bool scrollViewSelfFocused =
         !suppressActiveScrollViewScopeVisuals &&
         dynamic_cast<ScrollView*>(element) != nullptr && focused && !activeScrollViewFocused;
-    Size size = renderSizeFor(entry, cellRect, element);
+    Size size = renderSizeFor(window.generatedLayout(), entry, cellRect, element);
     const bool elementEditActive = element == focusedElement && editMode &&
         (activeScrollView == nullptr || activeScrollViewEditElement == element);
     int row = renderRowFor(window.generatedLayout(), entry, cellRect, size);
@@ -10261,7 +10284,7 @@ Size generatedWindowContentSizeForWidth(const GeneratedWindowBase& window, int w
             continue;
         }
         const Element* element = entry.name.empty() ? nullptr : findElement(window, entry.name);
-        const Size entrySize = renderSizeFor(entry, cell->rect, element);
+        const Size entrySize = renderSizeFor(window.generatedLayout(), entry, cell->rect, element);
         result.width = std::max(result.width, cell->rect.col + paddingLeft(entry.cellStyle) +
                                               entry.relative.col + entrySize.width);
         result.height = std::max(result.height, cell->rect.row + paddingTop(entry.cellStyle) +
@@ -10502,6 +10525,17 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
         }
         if (!notification.empty() && now >= notificationExpiresAt) {
             dirty = true;
+        }
+        {
+            std::lock_guard<std::recursive_mutex> uiLock(mcpState.uiMutex);
+            GeneratedWindowBase* activeWindow = &window;
+            if (options.windowStack != nullptr) {
+                if (GeneratedWindowStackFrame* frame = options.windowStack->top();
+                    frame != nullptr && frame->window != nullptr) {
+                    activeWindow = frame->window;
+                }
+            }
+            dirty = activeWindow->tick() || dirty;
         }
         const std::size_t currentWindowStackSize = options.windowStack == nullptr ? 0 : options.windowStack->frames().size();
         if (currentWindowStackSize != previousWindowStackSize) {

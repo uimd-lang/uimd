@@ -2331,7 +2331,8 @@ class UIApplication:
                         self._last_render_at = time.monotonic()
                         self.clear_dirty()
                     if not controlled_render and self.active_window and hasattr(self.active_window, 'tick'):
-                        self.active_window.tick()
+                        if self.active_window.tick():
+                            self.mark_dirty()
                     time.sleep(INPUT_POLL_TIMEOUT)
             finally:
                 if close_mcp_server is not None:
@@ -2417,7 +2418,8 @@ class UIApplication:
                 key = self._read_key(fd)
                 if key is None:
                     if self.active_window and hasattr(self.active_window, 'tick'):
-                        self.active_window.tick()
+                        if self.active_window.tick():
+                            self.mark_dirty()
                     continue
                 self.handle_key(key)
         except KeyboardInterrupt:
@@ -2464,7 +2466,8 @@ class UIApplication:
                 key = self._read_windows_console_key()
                 if key is None:
                     if self.active_window and hasattr(self.active_window, 'tick'):
-                        self.active_window.tick()
+                        if self.active_window.tick():
+                            self.mark_dirty()
                     continue
                 self.handle_key(key)
         except KeyboardInterrupt:

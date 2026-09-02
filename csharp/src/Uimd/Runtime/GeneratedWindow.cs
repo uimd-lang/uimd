@@ -85,6 +85,11 @@ public class GeneratedWindowBase : Window
     {
     }
 
+    public virtual bool Tick()
+    {
+        return false;
+    }
+
     public IReadOnlyList<GeneratedLayoutEntry> GeneratedLayout => generatedLayout;
     public Style GeneratedWindowStyle => generatedWindowStyle;
     public IReadOnlyList<GeneratedAppToolMetadata> McpAppTools => mcpAppTools;
@@ -1110,7 +1115,7 @@ public static class GeneratedWindowRuntime
                 continue;
             }
             Element? element = string.IsNullOrEmpty(entry.Name) ? null : FindElement(window, entry.Name);
-            Size entrySize = RenderSizeFor(entry, cell.Rect, element);
+            Size entrySize = RenderSizeFor(window.GeneratedLayout, entry, cell.Rect, element);
             result = new Size(
                 Math.Max(result.Width, cell.Rect.Col + PaddingLeft(entry.CellStyle) + entry.Relative.Col + entrySize.Width),
                 Math.Max(result.Height, cell.Rect.Row + PaddingTop(entry.CellStyle) + entry.Relative.Row + entrySize.Height));
@@ -1505,6 +1510,7 @@ public static class GeneratedWindowRuntime
                     notification = "";
                     renderNeeded = true;
                 }
+                renderNeeded = controller.TickActiveWindow() || renderNeeded;
                 if (renderNeeded)
                 {
                     RenderControllerToConsole(controller, terminalSize, terminalBuffer, notification);
@@ -2637,7 +2643,7 @@ public static class GeneratedWindowRuntime
                 {
                     text = text[1..^1];
                 }
-                Size staticSize = RenderSizeFor(entry, cellRect, null);
+                Size staticSize = RenderSizeFor(window.GeneratedLayout, entry, cellRect, null);
                 int staticRow = RenderRowFor(window.GeneratedLayout, entry, cellRect, staticSize);
                 if (staticRow >= buffer.Height)
                 {
@@ -2657,7 +2663,7 @@ public static class GeneratedWindowRuntime
             }
             return;
         }
-        Size size = RenderSizeFor(entry, cellRect, element);
+        Size size = RenderSizeFor(window.GeneratedLayout, entry, cellRect, element);
         int row = RenderRowFor(window.GeneratedLayout, entry, cellRect, size);
         int col = RenderColFor(window.GeneratedLayout, entry, cellRect, size);
         Rect clip = EntryContentClip(cellRect, entry.CellStyle);
@@ -5753,9 +5759,31 @@ public static class GeneratedWindowRuntime
             lhs.SourceCell.Height == rhs.SourceCell.Height;
     }
 
-    private static Size RenderSizeFor(GeneratedLayoutEntry entry, Rect cellRect, Element? element)
+    private static Size RenderSizeFor(
+        IReadOnlyList<GeneratedLayoutEntry> layout,
+        GeneratedLayoutEntry entry,
+        Rect cellRect,
+        Element? element)
     {
-        int availableWidth = cellRect.Width - PaddingLeft(entry.CellStyle) - PaddingRight(entry.CellStyle) - entry.Relative.Col - entry.MarginRight;
+        int cellWidthDelta = Math.Max(0, cellRect.Width - entry.CellCharsSize.Width);
+        bool followsExpandedEntry = layout.Any(other =>
+            SameSourceCell(other, entry) &&
+            other.Relative.Row == entry.Relative.Row &&
+            other.Relative.Col < entry.Relative.Col &&
+            other.Width.Mode == DimensionMode.Expanded);
+        bool canPreserveRightEdge = entry.MarginRight == 0 &&
+            entry.CellWidth.Mode == DimensionMode.Expanded &&
+            entry.CellCharsSize.Width > 0 &&
+            cellRect.Width > entry.CellCharsSize.Width &&
+            entry.Width.Mode != DimensionMode.Expanded;
+        bool canPreserveTrailingGroup = followsExpandedEntry &&
+            entry.CellWidth.Mode == DimensionMode.Expanded &&
+            entry.CellCharsSize.Width > 0 &&
+            cellWidthDelta > 0 &&
+            entry.Width.Mode != DimensionMode.Expanded &&
+            !canPreserveRightEdge;
+        int trailingGroupShift = canPreserveTrailingGroup ? cellWidthDelta : 0;
+        int availableWidth = cellRect.Width - PaddingLeft(entry.CellStyle) - PaddingRight(entry.CellStyle) - entry.Relative.Col - trailingGroupShift - entry.MarginRight;
         int availableHeight = cellRect.Height - PaddingTop(entry.CellStyle) - PaddingBottom(entry.CellStyle) - entry.Relative.Row - entry.MarginBottom;
         int fallbackWidth = entry.CharsSize.Width > 0 ? entry.CharsSize.Width : entry.SourceCell.Width;
         int fallbackHeight = entry.CharsSize.Height > 0 ? entry.CharsSize.Height : entry.SourceCell.Height;
@@ -5773,7 +5801,9 @@ public static class GeneratedWindowRuntime
                 DimensionWithin(entry.Height, availableHeight, fallbackHeight));
         }
         return new Size(
-            DimensionWithin(entry.Width, availableWidth, fallbackWidth),
+            PaddingLeft(entry.CellStyle) != 0 || PaddingRight(entry.CellStyle) != 0
+                ? Math.Min(Math.Max(MinimumRenderableSize, availableWidth), DimensionWithin(entry.Width, availableWidth, fallbackWidth))
+                : DimensionWithin(entry.Width, availableWidth, fallbackWidth),
             DimensionWithin(entry.Height, availableHeight, fallbackHeight));
     }
 
@@ -5899,7 +5929,7 @@ public static class GeneratedWindowRuntime
             {
                 continue;
             }
-            Size elementSize = RenderSizeFor(entry, cell.Rect, element);
+            Size elementSize = RenderSizeFor(window.GeneratedLayout, entry, cell.Rect, element);
             int row = frame.Row + RenderRowFor(window.GeneratedLayout, entry, cell.Rect, elementSize);
             int col = frame.Col + RenderColFor(window.GeneratedLayout, entry, cell.Rect, elementSize);
             element.Frame = new Rect(row, col, elementSize.Width, elementSize.Height);
@@ -6243,6 +6273,11 @@ public sealed class McpController
         bool requested = copyNotificationRequested;
         copyNotificationRequested = false;
         return requested;
+    }
+
+    public bool TickActiveWindow()
+    {
+        return Current.Window.Tick();
     }
 
     public void MouseClickAt(Point position)

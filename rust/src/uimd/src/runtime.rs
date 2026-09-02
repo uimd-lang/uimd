@@ -53,6 +53,7 @@ pub trait GeneratedApplication
     #[deprecated(since = "0.5.4", note = "use handle_preview_key; removal in UIMD 0.7.0")]
     fn handle_key_before_focused(&mut self, _key: &str, _name: &str, _edit_mode: bool) -> bool { false }
     fn handle_key(&mut self, _key: &str) -> bool { false }
+    fn tick(&mut self) -> bool { false }
     fn handle_generated_window_closed(&mut self, _window: GeneratedWindow) {}
     fn mcp_tool_names(&self) -> Vec<String> { Vec::new() }
     fn handle_mcp_tool(&mut self, _name: &str, _arguments: &serde_json::Map<String, Value>) -> Option<Value> { None }
@@ -7407,7 +7408,7 @@ pub fn generated_window_content_size_for_width(
             continue;
         };
         let element = window.find_element(&item.content);
-        let size = render_size_for(item, cell.rect, element.as_ref());
+        let size = render_size_for(&window.layout, item, cell.rect, element.as_ref());
         let padding = item.cell_style.padding_values();
         result.width = max(
             result.width,
@@ -7611,10 +7612,34 @@ fn dimension_within(mode: &str, value: i32, available: i32, fallback: i32) -> i3
     }
 }
 
-fn render_size_for(item: &LayoutItem, cell_rect: Rect, element: Option<&ElementRef>) -> Size
+fn render_size_for(
+    layout: &[LayoutItem],
+    item: &LayoutItem,
+    cell_rect: Rect,
+    element: Option<&ElementRef>,
+) -> Size
 {
     let padding = item.cell_style.padding_values();
-    let available_width = cell_rect.width - padding[1] - padding[3] - item.col - item.margin_right;
+    let width_delta = max(0, cell_rect.width - item.cell_chars_width);
+    let follows_expanded_entry = has_expanded_before_in_row(layout, item);
+    let can_preserve_right_edge = item.margin_right == 0
+        && dimension_mode(&item.cell_width_mode, item.cell_width) == "expanded"
+        && item.cell_chars_width > 0
+        && cell_rect.width > item.cell_chars_width
+        && dimension_mode(&item.width_mode, item.width) != "expanded";
+    let can_preserve_trailing_group = follows_expanded_entry
+        && dimension_mode(&item.cell_width_mode, item.cell_width) == "expanded"
+        && item.cell_chars_width > 0
+        && width_delta > 0
+        && dimension_mode(&item.width_mode, item.width) != "expanded"
+        && !can_preserve_right_edge;
+    let trailing_group_shift = if can_preserve_trailing_group { width_delta } else { 0 };
+    let available_width = cell_rect.width
+        - padding[1]
+        - padding[3]
+        - item.col
+        - trailing_group_shift
+        - item.margin_right;
     let available_height = cell_rect.height - padding[0] - padding[2] - item.row - item.margin_bottom;
     let fallback_width = max(1, if item.chars_width > 0 { item.chars_width } else { item.cell_chars_width });
     let mut fallback_height = max(1, if item.chars_height > 0 { item.chars_height } else { item.cell_chars_height });
@@ -7632,7 +7657,17 @@ fn render_size_for(item: &LayoutItem, cell_rect: Rect, element: Option<&ElementR
     }
     Size
     {
-        width: dimension_within(&item.width_mode, item.width, available_width, fallback_width),
+        width: if padding[1] != 0 || padding[3] != 0
+        {
+            min(
+                max(1, available_width),
+                dimension_within(&item.width_mode, item.width, available_width, fallback_width),
+            )
+        }
+        else
+        {
+            dimension_within(&item.width_mode, item.width, available_width, fallback_width)
+        },
         height: dimension_within(&item.height_mode, item.height, available_height, fallback_height),
     }
 }
@@ -7689,7 +7724,7 @@ fn resolved_item_rect(
     element: Option<&ElementRef>,
 ) -> Rect
 {
-    let size = render_size_for(item, cell_rect, element);
+    let size = render_size_for(layout, item, cell_rect, element);
     let padding = item.cell_style.padding_values();
     let base_col = padding[3] + item.col;
     let width_delta = max(0, cell_rect.width - item.cell_chars_width);

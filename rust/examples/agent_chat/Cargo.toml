@@ -1,0 +1,12 @@
+[package]
+name = "agent_chat"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "agent_chat"
+path = "agent_chat.rs"
+
+[dependencies]
+serde_json = "1"
+uimd = { path = "../../src/uimd" }
