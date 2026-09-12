@@ -154,6 +154,7 @@ env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml
 python3 tools/cargo_with_progress.py clippy --manifest-path rust/src/uimd/Cargo.toml --all-targets -- -D warnings
 swift test --package-path swift/src/Uimd
+python3 tools/cpp_scrollview_callback_rebuild_pty.py --cpp-build-dir cpp/build
 python3 tools/swift_direct_terminal_smoke.py --cpp-build-dir cpp/build
 python3 tools/go_direct_terminal_smoke.py --cpp-build-dir cpp/build --go-examples-dir go/examples
 python3 tools/rust_direct_terminal_smoke.py --cpp-build-dir cpp/build --rust-examples-dir rust/examples
@@ -1158,6 +1159,216 @@ Raw POSIX form:
 ./uimd mcp-test --backend python --headless csharp/examples/widget_gallery/bin/Release/net10.0/widget_gallery.dll tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
 ```
 
+## C++/Python MCP Compare Tests
+
+Raw POSIX all-example form:
+
+```bash
+./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-action-delay-ms 1 --mcp-type-delay-ms 1 --step-delay-ms 1 --compare-app-size 90x35
+./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --all --compare python/examples cpp/build/examples --compare-app-size 90x35
+```
+
+Recommended helper commands:
+
+POSIX:
+
+```bash
+./tools/mcp_compare_example.sh activity_feed tests/mcp/activity_feed.yaml --mcp-fast
+./tools/mcp_compare_example.sh agent_chat tests/mcp/agent_chat.yaml --mcp-fast
+./tools/mcp_compare_example.sh calculator tests/mcp/calculator.yaml --mcp-fast
+./tools/mcp_compare_example.sh cells tests/mcp/cells.yaml --mcp-fast
+./tools/mcp_compare_example.sh contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast
+./tools/mcp_compare_example.sh expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast
+./tools/mcp_compare_example.sh formular tests/mcp/formular.yaml --mcp-fast
+./tools/mcp_compare_example.sh image_browser tests/mcp/image_browser_compare.yaml --mcp-fast
+./tools/mcp_compare_example.sh image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast
+./tools/mcp_compare_example.sh image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast
+./tools/mcp_compare_example.sh markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast
+./tools/mcp_compare_example.sh special_elements tests/mcp/special_elements.yaml --mcp-fast
+./tools/mcp_compare_example.sh task_board tests/mcp/task_board_compare.yaml --mcp-fast
+./tools/mcp_compare_example.sh text_editor tests/mcp/text_editor.yaml --mcp-fast
+./tools/mcp_compare_example.sh widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast
+```
+
+Windows cmd.exe:
+
+```bat
+.\tools\mcp_compare_example.cmd activity_feed tests\mcp\activity_feed.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd agent_chat tests\mcp\agent_chat.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd calculator tests\mcp\calculator.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd cells tests\mcp\cells.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd contacts_manager tests\mcp\contacts_manager.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd expense_tracker tests\mcp\expense_tracker_compare.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd formular tests\mcp\formular.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd image_browser tests\mcp\image_browser_compare.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd image_gallery tests\mcp\image_gallery_compare.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd markdown_viewer tests\mcp\markdown_viewer.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd special_elements tests\mcp\special_elements.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd task_board tests\mcp\task_board_compare.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd text_editor tests\mcp\text_editor.yaml --mcp-fast
+.\tools\mcp_compare_example.cmd widget_gallery tests\mcp\widget_gallery.yaml --mcp-fast
+```
+
+Windows PowerShell:
+
+```powershell
+.\tools\mcp_compare_example.ps1 activity_feed tests\mcp\activity_feed.yaml -McpFast
+.\tools\mcp_compare_example.ps1 agent_chat tests\mcp\agent_chat.yaml -McpFast
+.\tools\mcp_compare_example.ps1 calculator tests\mcp\calculator.yaml -McpFast
+.\tools\mcp_compare_example.ps1 cells tests\mcp\cells.yaml -McpFast
+.\tools\mcp_compare_example.ps1 contacts_manager tests\mcp\contacts_manager.yaml -McpFast
+.\tools\mcp_compare_example.ps1 expense_tracker tests\mcp\expense_tracker_compare.yaml -McpFast
+.\tools\mcp_compare_example.ps1 formular tests\mcp\formular.yaml -McpFast
+.\tools\mcp_compare_example.ps1 image_browser tests\mcp\image_browser_compare.yaml -McpFast
+.\tools\mcp_compare_example.ps1 image_gallery tests\mcp\image_gallery_compare.yaml -McpFast
+.\tools\mcp_compare_example.ps1 image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml -McpFast
+.\tools\mcp_compare_example.ps1 markdown_viewer tests\mcp\markdown_viewer.yaml -McpFast
+.\tools\mcp_compare_example.ps1 special_elements tests\mcp\special_elements.yaml -McpFast
+.\tools\mcp_compare_example.ps1 task_board tests\mcp\task_board_compare.yaml -McpFast
+.\tools\mcp_compare_example.ps1 text_editor tests\mcp\text_editor.yaml -McpFast
+.\tools\mcp_compare_example.ps1 widget_gallery tests\mcp\widget_gallery.yaml -McpFast
+```
+
+Raw POSIX per-app form:
+
+```bash
+./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/agent_chat/agent_chat.py cpp/build/examples/agent_chat/agent_chat tests/mcp/agent_chat.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/calculator/calculator.py cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/cells/cells.py cpp/build/examples/cells/cells tests/mcp/cells.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/contacts_manager/contacts_manager.py cpp/build/examples/contacts_manager/contacts_manager tests/mcp/contacts_manager.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/expense_tracker/expense_tracker.py cpp/build/examples/expense_tracker/expense_tracker tests/mcp/expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/formular/formular.py cpp/build/examples/formular/formular tests/mcp/formular.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/image_browser/image_browser.py cpp/build/examples/image_browser/image_browser tests/mcp/image_browser_compare.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/image_gallery/image_gallery.py cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_compare.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/image_gallery/image_gallery.py cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/markdown_viewer/markdown_viewer.py cpp/build/examples/markdown_viewer/markdown_viewer tests/mcp/markdown_viewer.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/special_elements/special_elements.py cpp/build/examples/special_elements/special_elements tests/mcp/special_elements.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/task_board/task_board.py cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/text_editor/text_editor.py cpp/build/examples/text_editor/text_editor tests/mcp/text_editor.yaml --compare-app-size 90x35 --mcp-fast
+./uimd mcp-test --compare python/examples/widget_gallery/widget_gallery.py cpp/build/examples/widget_gallery/widget_gallery tests/mcp/widget_gallery.yaml --compare-app-size 90x35 --mcp-fast
+```
+
+Raw Windows PowerShell form:
+
+```powershell
+.\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\agent_chat\agent_chat.py cpp\build-windows\examples\agent_chat\Release\agent_chat.exe tests\mcp\agent_chat.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\calculator\calculator.py cpp\build-windows\examples\calculator\Release\calculator.exe tests\mcp\calculator.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\cells\cells.py cpp\build-windows\examples\cells\Release\cells.exe tests\mcp\cells.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\contacts_manager\contacts_manager.py cpp\build-windows\examples\contacts_manager\Release\contacts_manager.exe tests\mcp\contacts_manager.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\expense_tracker\expense_tracker.py cpp\build-windows\examples\expense_tracker\Release\expense_tracker.exe tests\mcp\expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\formular\formular.py cpp\build-windows\examples\formular\Release\formular.exe tests\mcp\formular.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\image_browser\image_browser.py cpp\build-windows\examples\image_browser\Release\image_browser.exe tests\mcp\image_browser_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\image_gallery\image_gallery.py cpp\build-windows\examples\image_gallery\Release\image_gallery.exe tests\mcp\image_gallery_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\image_gallery\image_gallery.py cpp\build-windows\examples\image_gallery\Release\image_gallery.exe tests\mcp\image_gallery_sixel_info_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\markdown_viewer\markdown_viewer.py cpp\build-windows\examples\markdown_viewer\Release\markdown_viewer.exe tests\mcp\markdown_viewer.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\special_elements\special_elements.py cpp\build-windows\examples\special_elements\Release\special_elements.exe tests\mcp\special_elements.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\task_board\task_board.py cpp\build-windows\examples\task_board\Release\task_board.exe tests\mcp\task_board_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\text_editor\text_editor.py cpp\build-windows\examples\text_editor\Release\text_editor.exe tests\mcp\text_editor.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.ps1 mcp-test --compare python\examples\widget_gallery\widget_gallery.py cpp\build-windows\examples\widget_gallery\Release\widget_gallery.exe tests\mcp\widget_gallery.yaml --compare-app-size 90x35 --mcp-fast
+```
+
+Raw Windows cmd.exe form:
+
+```bat
+.\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
+.\uimd.cmd mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\agent_chat\agent_chat.py cpp\build-windows\examples\agent_chat\Release\agent_chat.exe tests\mcp\agent_chat.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\calculator\calculator.py cpp\build-windows\examples\calculator\Release\calculator.exe tests\mcp\calculator.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\cells\cells.py cpp\build-windows\examples\cells\Release\cells.exe tests\mcp\cells.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\contacts_manager\contacts_manager.py cpp\build-windows\examples\contacts_manager\Release\contacts_manager.exe tests\mcp\contacts_manager.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\expense_tracker\expense_tracker.py cpp\build-windows\examples\expense_tracker\Release\expense_tracker.exe tests\mcp\expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\formular\formular.py cpp\build-windows\examples\formular\Release\formular.exe tests\mcp\formular.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\image_browser\image_browser.py cpp\build-windows\examples\image_browser\Release\image_browser.exe tests\mcp\image_browser_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\image_gallery\image_gallery.py cpp\build-windows\examples\image_gallery\Release\image_gallery.exe tests\mcp\image_gallery_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\image_gallery\image_gallery.py cpp\build-windows\examples\image_gallery\Release\image_gallery.exe tests\mcp\image_gallery_sixel_info_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\markdown_viewer\markdown_viewer.py cpp\build-windows\examples\markdown_viewer\Release\markdown_viewer.exe tests\mcp\markdown_viewer.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\special_elements\special_elements.py cpp\build-windows\examples\special_elements\Release\special_elements.exe tests\mcp\special_elements.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\task_board\task_board.py cpp\build-windows\examples\task_board\Release\task_board.exe tests\mcp\task_board_compare.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\text_editor\text_editor.py cpp\build-windows\examples\text_editor\Release\text_editor.exe tests\mcp\text_editor.yaml --compare-app-size 90x35 --mcp-fast
+.\uimd.cmd mcp-test --compare python\examples\widget_gallery\widget_gallery.py cpp\build-windows\examples\widget_gallery\Release\widget_gallery.exe tests\mcp\widget_gallery.yaml --compare-app-size 90x35 --mcp-fast
+```
+
+## Python/C# MCP Compare Tests
+
+Raw all-example forms:
+
+```bash
+./uimd mcp-test --backend python --headless --compare python/examples csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
+```
+
+```powershell
+.\uimd.ps1 mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
+```
+
+```bat
+.\uimd.cmd mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
+```
+
+## C++/C# MCP Compare Tests
+
+Raw POSIX all-example form:
+
+```bash
+./uimd mcp-test --backend python --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
+```
+
+Recommended per-app helper commands:
+
+```bash
+python3 tools/uimd_dev.py mcp-compare-csharp-example activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example cells tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example formular tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example image_browser tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example special_elements tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example task_board tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example text_editor tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+python3 tools/uimd_dev.py mcp-compare-csharp-example widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+```
+
+Raw POSIX per-app form:
+
+```bash
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed csharp/examples/activity_feed/bin/Release/net10.0/activity_feed.dll tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/agent_chat/agent_chat csharp/examples/agent_chat/bin/Release/net10.0/agent_chat.dll tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator csharp/examples/calculator/bin/Release/net10.0/calculator.dll tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/cells/cells csharp/examples/cells/bin/Release/net10.0/cells.dll tests/mcp/cells.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/contacts_manager/contacts_manager csharp/examples/contacts_manager/bin/Release/net10.0/contacts_manager.dll tests/mcp/contacts_manager.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/expense_tracker/expense_tracker csharp/examples/expense_tracker/bin/Release/net10.0/expense_tracker.dll tests/mcp/expense_tracker_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/formular/formular csharp/examples/formular/bin/Release/net10.0/formular.dll tests/mcp/formular.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_browser/image_browser csharp/examples/image_browser/bin/Release/net10.0/image_browser.dll tests/mcp/image_browser_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery csharp/examples/image_gallery/bin/Release/net10.0/image_gallery.dll tests/mcp/image_gallery_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/image_gallery/image_gallery csharp/examples/image_gallery/bin/Release/net10.0/image_gallery.dll tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/markdown_viewer/markdown_viewer csharp/examples/markdown_viewer/bin/Release/net10.0/markdown_viewer.dll tests/mcp/markdown_viewer.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/special_elements/special_elements csharp/examples/special_elements/bin/Release/net10.0/special_elements.dll tests/mcp/special_elements.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/task_board/task_board csharp/examples/task_board/bin/Release/net10.0/task_board.dll tests/mcp/task_board_compare.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/text_editor/text_editor csharp/examples/text_editor/bin/Release/net10.0/text_editor.dll tests/mcp/text_editor.yaml --mcp-fast --compare-app-size 90x35
+./uimd mcp-test --backend python --headless --compare cpp/build/examples/widget_gallery/widget_gallery csharp/examples/widget_gallery/bin/Release/net10.0/widget_gallery.dll tests/mcp/widget_gallery.yaml --mcp-fast --compare-app-size 90x35
+```
+
+Raw Windows PowerShell all-example form:
+
+```powershell
+.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
+```
+
+Raw Windows cmd.exe all-example form:
+
+```bat
+.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
+```
+
 ## C++/Swift MCP Compare Tests
 
 Raw macOS POSIX all-example form:
@@ -1317,137 +1528,39 @@ comparisons.
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus java/regressions/uimd/parity/stale_scrollview_focus/build/install/stale_scrollview_focus/bin/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --mcp-fast --compare-app-size 90x35
 ```
 
-## Compare MCP Tests
-
-Recommended cross-platform helper commands:
-
-POSIX:
-
-```bash
-./tools/mcp_compare_example.sh activity_feed tests/mcp/activity_feed.yaml --mcp-fast
-./tools/mcp_compare_example.sh agent_chat tests/mcp/agent_chat.yaml --mcp-fast
-./tools/mcp_compare_example.sh calculator tests/mcp/calculator.yaml --mcp-fast
-./tools/mcp_compare_example.sh cells tests/mcp/cells.yaml --mcp-fast
-./tools/mcp_compare_example.sh contacts_manager tests/mcp/contacts_manager.yaml --mcp-fast
-./tools/mcp_compare_example.sh expense_tracker tests/mcp/expense_tracker_compare.yaml --mcp-fast
-./tools/mcp_compare_example.sh formular tests/mcp/formular.yaml --mcp-fast
-./tools/mcp_compare_example.sh image_browser tests/mcp/image_browser_compare.yaml --mcp-fast
-./tools/mcp_compare_example.sh image_gallery tests/mcp/image_gallery_compare.yaml --mcp-fast
-./tools/mcp_compare_example.sh image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --mcp-fast
-./tools/mcp_compare_example.sh markdown_viewer tests/mcp/markdown_viewer.yaml --mcp-fast
-./tools/mcp_compare_example.sh special_elements tests/mcp/special_elements.yaml --mcp-fast
-./tools/mcp_compare_example.sh task_board tests/mcp/task_board_compare.yaml --mcp-fast
-./tools/mcp_compare_example.sh text_editor tests/mcp/text_editor.yaml --mcp-fast
-./tools/mcp_compare_example.sh widget_gallery tests/mcp/widget_gallery.yaml --mcp-fast
-```
-
-Windows over SSH / cmd.exe:
-
-```bat
-.\tools\mcp_compare_example.cmd activity_feed tests\mcp\activity_feed.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd agent_chat tests\mcp\agent_chat.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd calculator tests\mcp\calculator.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd cells tests\mcp\cells.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd contacts_manager tests\mcp\contacts_manager.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd expense_tracker tests\mcp\expense_tracker_compare.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd formular tests\mcp\formular.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd image_browser tests\mcp\image_browser_compare.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd image_gallery tests\mcp\image_gallery_compare.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd markdown_viewer tests\mcp\markdown_viewer.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd special_elements tests\mcp\special_elements.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd task_board tests\mcp\task_board_compare.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd text_editor tests\mcp\text_editor.yaml --mcp-fast
-.\tools\mcp_compare_example.cmd widget_gallery tests\mcp\widget_gallery.yaml --mcp-fast
-```
-
-Windows PowerShell:
-
-```powershell
-.\tools\mcp_compare_example.ps1 activity_feed tests\mcp\activity_feed.yaml -McpFast
-.\tools\mcp_compare_example.ps1 agent_chat tests\mcp\agent_chat.yaml -McpFast
-.\tools\mcp_compare_example.ps1 calculator tests\mcp\calculator.yaml -McpFast
-.\tools\mcp_compare_example.ps1 cells tests\mcp\cells.yaml -McpFast
-.\tools\mcp_compare_example.ps1 contacts_manager tests\mcp\contacts_manager.yaml -McpFast
-.\tools\mcp_compare_example.ps1 expense_tracker tests\mcp\expense_tracker_compare.yaml -McpFast
-.\tools\mcp_compare_example.ps1 formular tests\mcp\formular.yaml -McpFast
-.\tools\mcp_compare_example.ps1 image_browser tests\mcp\image_browser_compare.yaml -McpFast
-.\tools\mcp_compare_example.ps1 image_gallery tests\mcp\image_gallery_compare.yaml -McpFast
-.\tools\mcp_compare_example.ps1 image_gallery tests\mcp\image_gallery_sixel_info_compare.yaml -McpFast
-.\tools\mcp_compare_example.ps1 markdown_viewer tests\mcp\markdown_viewer.yaml -McpFast
-.\tools\mcp_compare_example.ps1 special_elements tests\mcp\special_elements.yaml -McpFast
-.\tools\mcp_compare_example.ps1 task_board tests\mcp\task_board_compare.yaml -McpFast
-.\tools\mcp_compare_example.ps1 text_editor tests\mcp\text_editor.yaml -McpFast
-.\tools\mcp_compare_example.ps1 widget_gallery tests\mcp\widget_gallery.yaml -McpFast
-```
+## Regression MCP Compare Tests
 
 Raw POSIX form:
 
 ```bash
-./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-action-delay-ms 1 --mcp-type-delay-ms 1 --step-delay-ms 1 --compare-app-size 90x35
-./uimd mcp-test --all --compare python/examples cpp/build/examples --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --all --compare python/examples cpp/build/examples --compare-app-size 90x35
-./uimd mcp-test --headless --compare python/examples csharp/examples tests/mcp/all_examples.yaml --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --headless --all --compare cpp/build/examples csharp/examples --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless --all --compare cpp/build/examples swift/examples --mcp-fast --compare-app-size 90x35
-./uimd mcp-test --backend python --headless --all --compare cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python cpp/build/regressions/uimd/parity tests/regressions/uimd/parity/all.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --compare tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll go/regressions/uimd/parity/source_separator_scroll/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus go/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/source_separator_scroll/source_separator_scroll java/regressions/uimd/parity/source_separator_scroll/build/install/source_separator_scroll/bin/source_separator_scroll tests/regressions/uimd/parity/source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 ./uimd mcp-test --backend python --headless --compare cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus java/regressions/uimd/parity/stale_scrollview_focus/build/install/stale_scrollview_focus/bin/stale_scrollview_focus tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/activity_feed/activity_feed.py cpp/build/examples/activity_feed/activity_feed tests/mcp/activity_feed.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/agent_chat/agent_chat.py cpp/build/examples/agent_chat/agent_chat tests/mcp/agent_chat.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/calculator/calculator.py cpp/build/examples/calculator/calculator tests/mcp/calculator.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/cells/cells.py cpp/build/examples/cells/cells tests/mcp/cells.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/contacts_manager/contacts_manager.py cpp/build/examples/contacts_manager/contacts_manager tests/mcp/contacts_manager.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/expense_tracker/expense_tracker.py cpp/build/examples/expense_tracker/expense_tracker tests/mcp/expense_tracker_compare.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/formular/formular.py cpp/build/examples/formular/formular tests/mcp/formular.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/image_browser/image_browser.py cpp/build/examples/image_browser/image_browser tests/mcp/image_browser_compare.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/image_gallery/image_gallery.py cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_compare.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/image_gallery/image_gallery.py cpp/build/examples/image_gallery/image_gallery tests/mcp/image_gallery_sixel_info_compare.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/markdown_viewer/markdown_viewer.py cpp/build/examples/markdown_viewer/markdown_viewer tests/mcp/markdown_viewer.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/special_elements/special_elements.py cpp/build/examples/special_elements/special_elements tests/mcp/special_elements.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/task_board/task_board.py cpp/build/examples/task_board/task_board tests/mcp/task_board_compare.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/text_editor/text_editor.py cpp/build/examples/text_editor/text_editor tests/mcp/text_editor.yaml --compare-app-size 90x35 --mcp-fast
-./uimd mcp-test --compare python/examples/widget_gallery/widget_gallery.py cpp/build/examples/widget_gallery/widget_gallery tests/mcp/widget_gallery.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
 Raw Windows PowerShell form:
 
 ```powershell
-.\uimd.ps1 mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
-.\uimd.ps1 mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
-.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
-.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
-.\uimd.ps1 mcp-test --backend python --headless --all --compare cpp\build-windows\examples java\examples --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.ps1 mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe java\regressions\uimd\parity\source_separator_scroll\build\install\source_separator_scroll\bin\source_separator_scroll.bat tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.ps1 mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe java\regressions\uimd\parity\stale_scrollview_focus\build\install\stale_scrollview_focus\bin\stale_scrollview_focus.bat tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
-.\uimd.ps1 mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
-.\uimd.ps1 mcp-test --compare python\examples\agent_chat\agent_chat.py cpp\build-windows\examples\agent_chat\Release\agent_chat.exe tests\mcp\agent_chat.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
 Raw Windows cmd.exe form:
 
 ```bat
-.\uimd.cmd mcp-test --all --compare python\examples cpp\build-windows\examples --mcp-fast --compare-app-size 90x35
-.\uimd.cmd mcp-test --backend python --headless --compare python\examples csharp\examples tests\mcp\all_examples.yaml --mcp-fast --compare-app-size 90x35
-.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples csharp\examples --mcp-fast --compare-app-size 90x35
-.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples go\examples --mcp-fast --compare-app-size 90x35
-.\uimd.cmd mcp-test --backend python --headless --all --compare cpp\build-windows\examples java\examples --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python cpp\build-windows\regressions\uimd\parity tests\regressions\uimd\parity\all.yaml --mcp-fast --compare-app-size 90x35
 .\uimd.cmd mcp-test --compare tests\regressions\uimd\parity\python\stale_scrollview_focus\stale_scrollview_focus.py cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe go\regressions\uimd\parity\source_separator_scroll\source_separator_scroll.exe tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe go\regressions\uimd\parity\stale_scrollview_focus\stale_scrollview_focus.exe tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\source_separator_scroll\Release\source_separator_scroll.exe java\regressions\uimd\parity\source_separator_scroll\build\install\source_separator_scroll\bin\source_separator_scroll.bat tests\regressions\uimd\parity\source_separator_scroll.yaml --compare-app-size 90x35 --mcp-fast
 .\uimd.cmd mcp-test --backend python --headless --compare cpp\build-windows\regressions\uimd\parity\stale_scrollview_focus\Release\stale_scrollview_focus.exe java\regressions\uimd\parity\stale_scrollview_focus\build\install\stale_scrollview_focus\bin\stale_scrollview_focus.bat tests\regressions\uimd\parity\stale_scrollview_focus.yaml --compare-app-size 90x35 --mcp-fast
-.\uimd.cmd mcp-test --compare python\examples\activity_feed\activity_feed.py cpp\build-windows\examples\activity_feed\Release\activity_feed.exe tests\mcp\activity_feed.yaml --compare-app-size 90x35 --mcp-fast
-.\uimd.cmd mcp-test --compare python\examples\agent_chat\agent_chat.py cpp\build-windows\examples\agent_chat\Release\agent_chat.exe tests\mcp\agent_chat.yaml --compare-app-size 90x35 --mcp-fast
 ```
 
 ## Project Scaffold Smoke Test

@@ -696,6 +696,10 @@ def run_swift_direct_terminal_smoke(build_dir: Path) -> None:
     run([sys.executable, "tools/swift_direct_terminal_smoke.py", "--cpp-build-dir", build_dir])
 
 
+def run_cpp_scrollview_callback_rebuild_pty(build_dir: Path) -> None:
+    run([sys.executable, "tools/cpp_scrollview_callback_rebuild_pty.py", "--cpp-build-dir", build_dir])
+
+
 def run_go_direct_terminal_smoke(build_dir: Path) -> None:
     run(
         [
@@ -1556,6 +1560,16 @@ def test_all(args: argparse.Namespace) -> None:
         else:
             record_skipped_phase(phases, "Rust runtime tests", "Rust validation is not enabled on Windows")
             record_skipped_phase(phases, "Rust clippy", "Rust validation is not enabled on Windows")
+        if is_windows():
+            record_skipped_phase(phases, "C++ ScrollView callback rebuild PTY", "POSIX PTY is required")
+        else:
+            run_full_test_phase(
+                phases,
+                "C++ ScrollView callback rebuild PTY",
+                lambda: run_cpp_scrollview_callback_rebuild_pty(build_dir),
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
+            )
         if validate_swift:
             run_full_test_phase(
                 phases,

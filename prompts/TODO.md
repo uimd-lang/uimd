@@ -4,6 +4,84 @@
 
 Date: 2026-06-21
 
+- [x] **Resolve GitHub issue
+  [#17](https://github.com/uimd-lang/uimd/issues/17): C++ runtime SIGSEGV
+  after `ScrollView::clearChildren()` during a button-callback render.**
+  Selected by the user on 2026-09-12. A mouse-driven callback rebuilds a
+  ScrollView by calling `clearChildren()` and then `addChild(...)`; the next
+  render can reach an already-freed child through retained runtime state and
+  crash in `dynamic_cast<ScrollView*>`. The affected area is shared
+  post-event cleanup and dynamic ScrollView/reusable-child ownership, with the
+  reported failure in `cpp/src/generated/GeneratedWindowRuntime.cpp` and
+  `cpp/src/elements/ScrollView.cpp`. Reproduce the callback-time rebuild with
+  the real mouse transition, trace every retained focus/edit/selection/mouse/
+  active-scroll pointer, and identify the canonical Python behavior before
+  editing. Record the full supported-port parity matrix, repair the shared
+  owner without an example workaround, add a focused use-after-free
+  regression, rebuild the affected outputs, run focused parity and direct-PTY
+  validation, and verify preceding-version compatibility. Preserve all
+  existing uncommitted Agent Chat/virtualization work in the `sdk-work`
+  working tree.
+
+  **Pre-implementation parity matrix (2026-09-12):** Python
+  `src/uimd/runtime/UIBase.py::_handle_mouse_event` and
+  `src/uimd/runtime/UIScrollView.py::clear_children` are the semantic
+  reference: a button or checkbox mouse press activates and returns
+  immediately, and `clear_children()` clears child focus/scope state before
+  releasing children. C++ matches that activation order inside
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::handleMousePress`, but the
+  direct-terminal mouse loop later reuses the pre-callback `target` raw
+  pointer in a second `dynamic_cast<ScrollView*>`; if the callback rebuilt a
+  containing `ScrollView`, that pointer can already be invalid. Fix C++ by
+  deciding whether `target` was a `ScrollView` before dispatching the callback
+  and never dereferencing `target` afterward. The tool/MCP C++ press path
+  already returns after activation and clears invalid active ScrollView scope,
+  so verify it only. C#, Go, Rust, Swift, and Java use managed/ARC/Rc
+  references or immediate activation paths for this transition and do not have
+  the same raw-pointer lifetime hazard; verify their press ordering and
+  classify them unaffected. Add a focused C++ regression around the existing
+  `stale_scrollview_focus` app, run a real direct-PTY mouse press over the
+  destructive callback, rebuild the affected C++ regression target, run the
+  focused parity check at `--compare-app-size 90x35`, and run the C++
+  preceding-version compatibility gate because runtime behavior changed.
+
+  **Completed on 2026-09-12:** The crash owner was the direct-terminal C++
+  mouse-press loop in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`. It classified `target` with
+  `dynamic_cast<ScrollView*>`, dispatched `handleMousePress`, and then
+  classified the same raw pointer again. A button/checkbox callback can replace
+  the page or clear/rebuild the containing `ScrollView` before that second
+  cast. The fix records `targetWasScrollView` before callback dispatch and
+  uses only that boolean afterward, matching Python's immediate-return mouse
+  activation behavior without touching app/example logic or public APIs. C++'s
+  MCP/tool press path already returned through the safe activation path; C#,
+  Go, Rust, Swift, and Java were classified unaffected for this raw-pointer
+  lifetime defect because their equivalent transition keeps a managed/ARC/Rc
+  local reference or returns immediately after activation and does not
+  dereference a freed raw target after the callback.
+
+  Added `tools/cpp_scrollview_callback_rebuild_pty.py` as the focused
+  physical-input regression. It launches the existing
+  `stale_scrollview_focus` C++ regression, clicks the row `Open` button through
+  SGR mouse input, and asserts that the edit page renders without abnormal
+  termination. Documented the command in `docs/example_cli_commands.md` and
+  wired it into `tools/uimd_dev.py` for the POSIX full-test flow. Validation:
+  `cmake --build cpp/build --target uimd_regression_stale_scrollview_focus -j2`;
+  `python3 tools/cpp_scrollview_callback_rebuild_pty.py --cpp-build-dir
+  cpp/build`; focused rebuild/manifest for Python/C++/C#/Go with Java/Rust/
+  Swift intentionally skipped as unaffected by this C++ raw-pointer fix;
+  `./uimd mcp-test --compare
+  tests/regressions/uimd/parity/python/stale_scrollview_focus/stale_scrollview_focus.py
+  cpp/build/regressions/uimd/parity/stale_scrollview_focus/stale_scrollview_focus
+  tests/regressions/uimd/parity/stale_scrollview_focus.yaml --compare-app-size
+  90x35 --mcp-fast` passed 12 assertions; `python3
+  tools/previous_version_compatibility.py --only cpp` passed 1/1; `ctest
+  --test-dir cpp/build --output-on-failure` passed 28/28; and `git diff
+  --check` passed. Full Java rebuild could not run inside the sandbox because
+  Gradle's local lock socket was blocked, but Java was not an affected port for
+  this defect and the Java source path was audited.
+
+
 - [x] **Finish Agent Chat right-edge text rendering and make `Start` a timed
   simulation across every supported port.** Requested by the user on
   2026-09-02 after manual C# validation. The visible phase labels still lose

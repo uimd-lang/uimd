@@ -10846,7 +10846,8 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                     handledInput = true;
                     continue;
                 }
-                if (dynamic_cast<ScrollView*>(target) == nullptr) {
+                const bool targetWasScrollView = dynamic_cast<ScrollView*>(target) != nullptr;
+                if (!targetWasScrollView) {
                     scrollSelection = ScrollSelection{};
                 }
                 clearLabelSelectionsInWindow(window);
@@ -10864,7 +10865,7 @@ int runGeneratedWindow(GeneratedWindowBase& window, GeneratedWindowRuntimeOption
                                                 scrollViewLastDescendant, mouseSelectionElement,
                                                 mouseSelectionAnchor, &mouseClickCandidate, focusable, target,
                                                 position) || handledInput;
-                if (dynamic_cast<ScrollView*>(target) != nullptr &&
+                if (targetWasScrollView &&
                     handleScrollSelectionPress(layoutElements(window), scrollSelection, position)) {
                     handledInput = true;
                 }
