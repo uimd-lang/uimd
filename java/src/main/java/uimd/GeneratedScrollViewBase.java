@@ -112,6 +112,46 @@ public class GeneratedScrollViewBase extends GeneratedWindowBase
         scrollView().clearChildren();
     }
 
+    public void setVirtualDataSource(VirtualScrollDataSource value)
+    {
+        scrollView().setVirtualDataSource(value);
+    }
+
+    public void clearVirtualDataSource()
+    {
+        scrollView().clearVirtualDataSource();
+    }
+
+    public void virtualItemsInserted(int index, int count)
+    {
+        scrollView().virtualItemsInserted(index, count);
+    }
+
+    public void virtualItemsRemoved(int index, int count)
+    {
+        scrollView().virtualItemsRemoved(index, count);
+    }
+
+    public void virtualItemsReplaced(int index, int count)
+    {
+        scrollView().virtualItemsReplaced(index, count);
+    }
+
+    public void invalidateVirtualHeights()
+    {
+        scrollView().invalidateVirtualHeights();
+    }
+
+    public void invalidateVirtualHeights(int index, int count)
+    {
+        scrollView().invalidateVirtualHeights(index, count);
+    }
+
+    public VirtualScrollDiagnostics virtualDiagnostics()
+    {
+        return scrollView().virtualDiagnostics();
+    }
+
     public <T extends Element> T addChild(T child)
     {
         return scrollView().addChild(child);

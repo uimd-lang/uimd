@@ -2935,17 +2935,25 @@ pub(crate) fn perform_mouse_wheel<A: GeneratedApplication>(
         return true;
     }
     let Some(target) = element_at(app, point.col, point.row) else { return false };
-    if scroll_element(&target, delta).is_ok()
+    if wheel_element(&target, delta).is_ok()
     {
         return true;
     }
     if let Some(scope) = crate::containing_scroll_proxy(app.active_window(), &target)
-        && scroll_element(&scope, delta).is_ok()
+        && wheel_element(&scope, delta).is_ok()
     {
         return true;
     }
     if let Some(parent) = containing_element_scroll_view(&target)
-        && scroll_element(&parent, delta).is_ok()
+        && wheel_element(&parent, delta).is_ok()
+    {
+        return true;
+    }
+    if let Some(scroll_view) = scroll_view_at_position(
+        app.active_window(),
+        point.col,
+        point.row,
+    ) && wheel_element(&scroll_view, delta).is_ok()
     {
         return true;
     }
@@ -3285,6 +3293,37 @@ fn scroll_element(element: &ElementRef, delta: i32) -> Result<(), String>
         value.scroll_by(scroll_delta);
     }
     Ok(())
+}
+
+fn wheel_element(element: &ElementRef, delta: i32) -> Result<(), String>
+{
+    let mut value = element.borrow_mut();
+    let frame = value.frame;
+    let viewport = Size
+    {
+        width: frame.width,
+        height: frame.height,
+    };
+    if value
+        .child_window()
+        .is_some_and(crate::GeneratedWindow::is_generated_scroll_view)
+    {
+        if let Some(child) = value.child_window_mut()
+        {
+            child.handle_wheel(delta, viewport);
+            child.consume_terminal_scroll_delta();
+        }
+        return Ok(());
+    }
+
+    if value.kind() == ElementKind::ScrollView
+    {
+        value.handle_wheel(delta, viewport);
+        value.consume_terminal_scroll_delta();
+        return Ok(());
+    }
+    drop(value);
+    scroll_element(element, delta)
 }
 
 fn containing_element_scroll_view(element: &ElementRef) -> Option<ElementRef>
@@ -7028,5 +7067,68 @@ mod tests
 
         assert_eq!(status.borrow().selected_value(), "Todo");
         assert_eq!(result["value"], "Todo");
+    }
+
+    #[test]
+    fn physical_wheel_over_virtual_row_uses_viewport_limited_scroll_step()
+    {
+        const VIEWPORT_WIDTH: i32 = 12;
+        const VIEWPORT_HEIGHT: i32 = 12;
+        const LOGICAL_ROWS: usize = 100;
+        let scroll = crate::new_scroll_view("items", 0);
+        scroll.borrow_mut().frame = Rect
+        {
+            row: 0,
+            col: 0,
+            width: VIEWPORT_WIDTH,
+            height: VIEWPORT_HEIGHT,
+        };
+        scroll.set_virtual_data_source(
+            crate::VirtualScrollDataSource::new(
+                || LOGICAL_ROWS,
+                |index| index.to_string(),
+                |index, recycled|
+                {
+                    let row = recycled.unwrap_or_else(||
+                    {
+                        crate::new_label("virtual-row", "").into_element()
+                    });
+                    row.borrow_mut().set_text(format!("Row {index}"));
+                    row.borrow_mut().frame = Rect
+                    {
+                        row: 0,
+                        col: 0,
+                        width: VIEWPORT_WIDTH,
+                        height: 1,
+                    };
+                    row
+                },
+            )
+            .with_estimated_height(|_| 1),
+        );
+        let viewport = Size { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT };
+        let _ = scroll.child_views(viewport);
+        let _ = scroll.scroll_to_top(viewport);
+        let before = scroll.view_offset();
+
+        let mut app = TestApp { window: crate::GeneratedWindow::new("root") };
+        app.window.add_element(scroll.clone());
+        let options = GeneratedWindowRuntimeOptions::default();
+        let mut state = RuntimeState::new(&app.window, &options, viewport);
+
+        assert!(perform_mouse_wheel(
+            &mut app,
+            &mut state,
+            &options,
+            viewport,
+            1,
+            1,
+            -1,
+        ));
+        assert_eq!(
+            before - scroll.view_offset(),
+            4,
+            "wheel over a materialized virtual row must reach its ScrollView and use the canonical step",
+        );
     }
 }

@@ -1,6 +1,6 @@
 using Uimd;
 
-const int RegressionCount = 7;
+const int RegressionCount = 13;
 int passed = 0;
 passed += RunRegression("ScrollView scoped confirm keeps a fresh edit session", RunKeepEditModeRegression);
 passed += RunRegression("ScrollView scoped confirm rebases focus after mutation", RunFocusRebaseRegression);
@@ -9,6 +9,12 @@ passed += RunRegression("ComboBox mouse reaches every rendered option row", RunC
 passed += RunRegression("Reusable ScrollView focus underlays alpha descendants", RunAlphaScrollFocusRegression);
 passed += RunRegression("Modal mouse clicks preserve local text cursor coordinates", RunModalMouseCursorRegression);
 passed += RunRegression("Obsolete raw image rectangles are erased before repaint", RunRawImageTeardownRegression);
+passed += RunRegression("Virtual ScrollView bounds one million logical rows", RunVirtualScrollViewRegression);
+passed += RunRegression("Virtual ScrollView refreshes one variable-height row", RunVirtualScrollViewReplaceRegression);
+passed += RunRegression("Virtual ScrollView mutations preserve the visible anchor", RunVirtualScrollViewAnchorRegression);
+passed += RunRegression("Virtual ScrollView preserves an anchor inside a gap", RunVirtualScrollViewGapAnchorRegression);
+passed += RunRegression("Virtual ScrollView invalidates one height range", RunVirtualScrollViewHeightRangeRegression);
+passed += RunRegression("Fit-content ignores trailing ASCII sketch rows", RunFitContentTrailingSketchRegression);
 Console.WriteLine($"{passed}/{RegressionCount} checks passed");
 if (passed != RegressionCount)
 {
@@ -205,6 +211,243 @@ static void RunRawImageTeardownRegression()
     Require(!selectiveFrame.Contains("RAW-UNCHANGED"), "unrelated raw payload was retransmitted");
 }
 
+static void RunVirtualScrollViewRegression()
+{
+    const int LogicalCount = 1_000_000;
+    const int ViewportWidth = 12;
+    const int ViewportHeight = 5;
+    const int MaterializedLimit = 20;
+    const int RenderedLimit = 10;
+    int created = 0;
+    int reused = 0;
+    ScrollView scrollView = new("virtual", 1);
+    scrollView.SetVirtualDataSource(new VirtualScrollDataSource
+    {
+        ItemCount = () => LogicalCount,
+        ItemKey = index => index,
+        Materialize = (index, recycled) =>
+        {
+            Label label;
+            if (recycled is Label recycledLabel)
+            {
+                label = recycledLabel;
+                ++reused;
+            }
+            else
+            {
+                label = new Label("virtual-row");
+                ++created;
+            }
+            label.SetText(index.ToString());
+            label.Frame = new Rect(0, 0, ViewportWidth, 1);
+            return label;
+        },
+        EstimatedHeight = _ => 1,
+    });
+    Size viewport = new(ViewportWidth, ViewportHeight);
+    List<ScrollViewChildView> top = scrollView.ChildViews(viewport);
+    VirtualScrollDiagnostics topDiagnostics = scrollView.VirtualDiagnostics();
+    Require(top.Count > 0, "virtual ScrollView did not materialize its first viewport");
+    Require(topDiagnostics.LogicalItems == LogicalCount, "virtual ScrollView lost its logical count");
+    Require(topDiagnostics.MaterializedRows < MaterializedLimit, "virtual ScrollView materialized an unbounded top range");
+    Require(topDiagnostics.LastRowsConsidered < MaterializedLimit, "virtual ScrollView scanned an unbounded top range");
+    Require(topDiagnostics.LastRowsRendered < RenderedLimit, "virtual ScrollView rendered past its viewport");
+    Require(created < MaterializedLimit, "virtual ScrollView created too many row components");
+
+    const int Middle = LogicalCount / 2;
+    Require(scrollView.ScrollTo(Middle, viewport), "virtual ScrollView did not jump to the middle");
+    List<ScrollViewChildView> middle = scrollView.ChildViews(viewport);
+    VirtualScrollDiagnostics middleDiagnostics = scrollView.VirtualDiagnostics();
+    Require(middle.Any(view => view.Visible && view.Index == Middle), "virtual ScrollView did not expose the middle row");
+    Require(middleDiagnostics.MaterializedRows < MaterializedLimit, "virtual ScrollView retained an unbounded middle range");
+    Require(middleDiagnostics.LastRowsConsidered < MaterializedLimit, "virtual ScrollView scanned an unbounded middle range");
+    Require(reused > 0, "virtual ScrollView did not recycle rows after a distant jump");
+}
+
+static void RunVirtualScrollViewReplaceRegression()
+{
+    const int RowCount = 3;
+    const int ViewportWidth = 8;
+    int[] heights = Enumerable.Repeat(1, RowCount).ToArray();
+    ScrollView scrollView = new("variable-virtual");
+    scrollView.SetVirtualDataSource(new VirtualScrollDataSource
+    {
+        ItemCount = () => RowCount,
+        ItemKey = index => index,
+        Materialize = (index, recycled) =>
+        {
+            Label label = recycled as Label ?? new Label("variable-virtual-row");
+            label.SetText(index.ToString());
+            label.Frame = new Rect(0, 0, ViewportWidth, heights[index]);
+            return label;
+        },
+        EstimatedHeight = _ => 1,
+    });
+    Size viewport = new(ViewportWidth, RowCount);
+    _ = scrollView.ChildViews(viewport);
+    Require(scrollView.ContentHeight(ViewportWidth) == RowCount, "virtual baseline height was incorrect");
+    const int ChangedIndex = 1;
+    const int ChangedHeight = 2;
+    heights[ChangedIndex] = ChangedHeight;
+    scrollView.VirtualItemsReplaced(ChangedIndex);
+    _ = scrollView.ChildViews(viewport);
+    Require(
+        scrollView.ContentHeight(ViewportWidth) == RowCount + ChangedHeight - 1,
+        "virtual targeted replacement did not update the measured height");
+
+    string stableKey = "stable";
+    List<string> observedSelections = new();
+    ScrollView stableScrollView = new("stable-virtual");
+    stableScrollView.SetVirtualDataSource(new VirtualScrollDataSource
+    {
+        ItemCount = () => 1,
+        ItemKey = _ => stableKey,
+        Materialize = (_, recycled) =>
+        {
+            if (recycled is TextInput existing)
+            {
+                observedSelections.Add(existing.SelectionText());
+                return existing;
+            }
+            return new TextInput("stable-virtual-row", "selected");
+        },
+        EstimatedHeight = _ => 1,
+    });
+    Size stableViewport = new(ViewportWidth, 1);
+    TextInput selected = (TextInput)stableScrollView.ChildViews(stableViewport).Single().Element!;
+    selected.SelectRange(0, 3);
+    stableScrollView.VirtualItemsReplaced(0);
+    TextInput replaced = (TextInput)stableScrollView.ChildViews(stableViewport).Single().Element!;
+    Require(ReferenceEquals(selected, replaced), "same-key virtual replacement discarded row identity");
+    Require(observedSelections[^1] == "sel", "same-key materializer did not receive transient selection");
+    Require(replaced.SelectionText() == "sel", "same-key virtual replacement cleared transient selection");
+    stableKey = "replacement";
+    stableScrollView.VirtualItemsReplaced(0);
+    TextInput rekeyed = (TextInput)stableScrollView.ChildViews(stableViewport).Single().Element!;
+    Require(observedSelections[^1] == "", "rekeyed virtual materializer received stale selection");
+    Require(rekeyed.SelectionText() == "", "rekeyed virtual row retained stale selection");
+}
+
+static void RunVirtualScrollViewAnchorRegression()
+{
+    const int AnchorIndex = 20;
+    const int ViewportWidth = 8;
+    List<string> values = Enumerable.Range(0, 40).Select(index => $"row-{index}").ToList();
+    ScrollView scrollView = new("anchor-virtual");
+    scrollView.SetVirtualDataSource(new VirtualScrollDataSource
+    {
+        ItemCount = () => values.Count,
+        ItemKey = index => values[index],
+        Materialize = (index, recycled) =>
+        {
+            Label label = recycled as Label ?? new Label("anchor-virtual-row");
+            label.SetText(values[index]);
+            label.Frame = new Rect(0, 0, ViewportWidth, 1);
+            return label;
+        },
+        EstimatedHeight = _ => 1,
+    });
+    Size viewport = new(ViewportWidth, 3);
+    Require(scrollView.ScrollTo(AnchorIndex, viewport), "virtual ScrollView did not select its anchor");
+    Require(
+        scrollView.ChildViews(viewport).Any(view => view.Visible && view.Index == AnchorIndex),
+        "virtual anchor was not initially visible");
+
+    values.Insert(0, "inserted");
+    scrollView.VirtualItemsInserted(0);
+    Require(
+        scrollView.ChildViews(viewport).Any(view => view.Visible && view.Index == AnchorIndex + 1),
+        "insertion before the viewport moved the visible anchor");
+
+    values.RemoveAt(AnchorIndex + 1);
+    scrollView.VirtualItemsRemoved(AnchorIndex + 1);
+    Require(
+        scrollView.ChildViews(viewport).Any(view => view.Visible && view.Index == AnchorIndex + 1),
+        "removing the anchor did not select its next logical row");
+
+    int previousCount = values.Count;
+    values.Clear();
+    scrollView.VirtualItemsRemoved(0, previousCount);
+    Require(scrollView.ChildViews(viewport).Count == 0,
+        "full removal after the source mutation retained virtual rows");
+}
+
+static void RunVirtualScrollViewHeightRangeRegression()
+{
+    const int ViewportWidth = 8;
+    int[] heights = [2, 3, 4];
+    ScrollView scrollView = new("height-virtual");
+    scrollView.SetVirtualDataSource(new VirtualScrollDataSource
+    {
+        ItemCount = () => heights.Length,
+        ItemKey = index => index,
+        Materialize = (index, recycled) =>
+        {
+            Label label = recycled as Label ?? new Label("height-virtual-row");
+            label.SetText(index.ToString());
+            label.Frame = new Rect(0, 0, ViewportWidth, heights[index]);
+            return label;
+        },
+        EstimatedHeight = _ => 1,
+    });
+    Size viewport = new(ViewportWidth, 2);
+    for (int index = 0; index < heights.Length; ++index)
+    {
+        _ = scrollView.ScrollTo(index, viewport);
+        _ = scrollView.ChildViews(viewport);
+    }
+    Require(scrollView.ContentHeight(ViewportWidth) == 9, "virtual measured height baseline was incorrect");
+
+    scrollView.InvalidateVirtualHeights(1, 1);
+
+    Require(
+        scrollView.ContentHeight(ViewportWidth) == 7,
+        "range invalidation discarded measurements outside its target");
+}
+
+static void RunVirtualScrollViewGapAnchorRegression()
+{
+    const int RowHeight = 2;
+    const int Gap = 1;
+    const int ViewportWidth = 8;
+    ScrollView scrollView = new("gap-anchor-virtual", Gap);
+    scrollView.SetVirtualDataSource(new VirtualScrollDataSource
+    {
+        ItemCount = () => 4,
+        ItemKey = index => index,
+        Materialize = (index, recycled) =>
+        {
+            Label label = recycled as Label ?? new Label("gap-anchor-row");
+            label.SetText($"gap-{index}");
+            label.Frame = new Rect(0, 0, ViewportWidth, RowHeight);
+            return label;
+        },
+        EstimatedHeight = _ => RowHeight,
+    });
+    Size viewport = new(ViewportWidth, 3);
+    _ = scrollView.ChildViews(viewport);
+    _ = scrollView.ScrollToTop(viewport);
+    Require(scrollView.ScrollLines(-RowHeight, viewport), "virtual ScrollView could not enter the first gap");
+    ScrollViewChildView beforeWidthChange = scrollView.ChildViews(viewport).First(view => view.Visible);
+    Require(beforeWidthChange.Index == 1 && beforeWidthChange.Frame.Row == 1,
+        "virtual anchor was not inside the first gap");
+
+    ScrollViewChildView afterWidthChange = scrollView.ChildViews(new Size(ViewportWidth + 1, 3))
+        .First(view => view.Visible);
+    Require(afterWidthChange.Index == 1 && afterWidthChange.Frame.Row == 1,
+        "width rebuild moved a virtual anchor out of its gap");
+}
+
+static void RunFitContentTrailingSketchRegression()
+{
+    TrailingSketchFitContentWindow window = new();
+    Size content = GeneratedWindowRuntime.GeneratedWindowContentSizeForWidth(
+        window,
+        TrailingSketchFitContentWindow.SketchWidth);
+    Require(content.Height == TrailingSketchFitContentWindow.RenderedHeight,
+        $"fit-content height was {content.Height}, expected {TrailingSketchFitContentWindow.RenderedHeight}");
+}
+
 static void AssertModalMouseCursor(bool multiline, int clickCol)
 {
     GeneratedWindowBase root = new("Root");
@@ -265,6 +508,34 @@ internal sealed class ComboMouseWindow : GeneratedWindowBase
                 CellHeight = AxisDimension.Expanded(),
                 CharsSize = new Size(TestLayout.ControlWidth, TestLayout.ControlHeight),
                 CellCharsSize = new Size(TestLayout.ControlWidth, TestLayout.ControlHeight),
+            },
+        });
+    }
+}
+
+internal sealed class TrailingSketchFitContentWindow : GeneratedWindowBase
+{
+    public const int SketchWidth = 20;
+    public const int RenderedHeight = 2;
+    private const int SketchHeight = 5;
+
+    public TrailingSketchFitContentWindow() : base("Trailing sketch fit content")
+    {
+        AddElement(new Label("body", "one\ntwo"));
+        SetGeneratedLayout(new[]
+        {
+            new GeneratedLayoutEntry
+            {
+                Name = "body",
+                Type = "spanlabel",
+                Relative = new Rect(0, 0, SketchWidth, SketchHeight),
+                SourceCell = new Rect(0, 0, SketchWidth, SketchHeight),
+                Width = AxisDimension.Fixed(SketchWidth),
+                Height = AxisDimension.FitContent(),
+                CellWidth = AxisDimension.Fixed(SketchWidth),
+                CellHeight = AxisDimension.FitContent(),
+                CharsSize = new Size(SketchWidth, SketchHeight),
+                CellCharsSize = new Size(SketchWidth, SketchHeight),
             },
         });
     }

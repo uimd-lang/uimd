@@ -58,6 +58,9 @@ constexpr int kAlphaFocusScrollSize = 3;
 constexpr int kScopedConfirmWidth = 12;
 constexpr int kScopedConfirmHeight = 3;
 constexpr int kListBoxActivationHeight = 2;
+constexpr int kFitContentSketchWidth = 20;
+constexpr int kFitContentSketchHeight = 5;
+constexpr int kFitContentRenderedHeight = 2;
 
 const ui::Color kReusableFocusParentBackground{"#172033"};
 const ui::Color kReusableFocusBackground{"#ffffff14"};
@@ -1503,6 +1506,35 @@ int main() {
     assert(sourceSeparatorChildViews.size() == 1);
     assert(sourceSeparatorChildViews.front().frame.height == kSourceSeparatorContentHeight);
 
+    class TrailingSketchFitContentWindow : public ui::GeneratedWindowBase {
+    public:
+        TrailingSketchFitContentWindow() : ui::GeneratedWindowBase("Trailing Sketch Fit Content") {
+            addElement<ui::Label>("body", "one\ntwo");
+            setGeneratedLayout({
+                ui::GeneratedLayoutEntry{
+                    .name = "body",
+                    .type = "spanlabel",
+                    .relative = ui::Rect{0, 0, kFitContentSketchWidth, kFitContentSketchHeight},
+                    .sourceCell = ui::Rect{0, 0, kFitContentSketchWidth, kFitContentSketchHeight},
+                    .width = ui::AxisDimension::fixed(kFitContentSketchWidth),
+                    .height = ui::AxisDimension::fitContent(),
+                    .cellWidth = ui::AxisDimension::fixed(kFitContentSketchWidth),
+                    .cellHeight = ui::AxisDimension::fitContent(),
+                    .charsSize = ui::Size{kFitContentSketchWidth, kFitContentSketchHeight},
+                    .cellCharsSize = ui::Size{kFitContentSketchWidth, kFitContentSketchHeight},
+                },
+            });
+        }
+    };
+
+    TrailingSketchFitContentWindow trailingSketchFitContentWindow;
+    assert(
+        ui::generatedWindowContentSizeForWidth(
+            trailingSketchFitContentWindow,
+            kFitContentSketchWidth
+        ).height == kFitContentRenderedHeight
+    );
+
     class PaddedCellGeneratedWindow : public ui::GeneratedWindowBase {
     public:
         PaddedCellGeneratedWindow() : ui::GeneratedWindowBase("Padded") {
@@ -2101,6 +2133,268 @@ int main() {
     autoScroll.addChild(ui::renderPlainText("D", 1, 1, widgetStyle));
     assert(ui::renderedText(autoScroll.render(ui::Size{1, 2}))[0] == "^");
     assert(ui::renderedText(autoScroll.render(ui::Size{1, 2}))[1] == "D");
+
+    constexpr int kVirtualLogicalRowCount = 1'000'000;
+    constexpr int kVirtualViewportWidth = 12;
+    constexpr int kVirtualViewportHeight = 5;
+    constexpr int kVirtualRowHeight = 1;
+    constexpr int kVirtualGap = 1;
+    constexpr int kVirtualMaterializedLimit = 20;
+    constexpr int kVirtualRenderedLimit = 10;
+    int virtualCreated = 0;
+    int virtualReused = 0;
+    ui::ScrollView virtualScroll{"virtual", kVirtualGap};
+    virtualScroll.setVirtualDataSource(ui::VirtualScrollDataSource{
+        .itemCount = []
+        {
+            return kVirtualLogicalRowCount;
+        },
+        .itemKey = [](int index)
+        {
+            return std::to_string(index);
+        },
+        .materialize = [&virtualCreated, &virtualReused](int index, std::unique_ptr<ui::Element> recycled)
+        {
+            if (recycled)
+            {
+                auto* label = dynamic_cast<ui::Label*>(recycled.get());
+                assert(label != nullptr);
+                label->setText(std::to_string(index));
+                label->setFrame(ui::Rect{0, 0, kVirtualViewportWidth, kVirtualRowHeight});
+                ++virtualReused;
+                return recycled;
+            }
+            auto label = std::make_unique<ui::Label>("virtual-row", std::to_string(index));
+            label->setFrame(ui::Rect{0, 0, kVirtualViewportWidth, kVirtualRowHeight});
+            ++virtualCreated;
+            return std::unique_ptr<ui::Element>(std::move(label));
+        },
+        .estimatedHeight = [](int)
+        {
+            return kVirtualRowHeight;
+        },
+    });
+    const ui::Size virtualViewport{kVirtualViewportWidth, kVirtualViewportHeight};
+    const std::vector<ui::ScrollViewChildView> virtualTopViews = virtualScroll.childViews(virtualViewport);
+    const ui::VirtualScrollDiagnostics virtualTopDiagnostics = virtualScroll.virtualDiagnostics();
+    assert(!virtualTopViews.empty());
+    assert(virtualTopDiagnostics.logicalItems == kVirtualLogicalRowCount);
+    assert(virtualTopDiagnostics.materializedRows < kVirtualMaterializedLimit);
+    assert(virtualTopDiagnostics.lastRowsConsidered < kVirtualMaterializedLimit);
+    assert(virtualTopDiagnostics.lastRowsRendered < kVirtualRenderedLimit);
+    assert(virtualCreated < kVirtualMaterializedLimit);
+
+    constexpr int kVirtualMiddleRow = kVirtualLogicalRowCount / 2;
+    assert(virtualScroll.scrollTo(kVirtualMiddleRow, virtualViewport));
+    const std::vector<ui::ScrollViewChildView> virtualMiddleViews = virtualScroll.childViews(virtualViewport);
+    const ui::VirtualScrollDiagnostics virtualMiddleDiagnostics = virtualScroll.virtualDiagnostics();
+    assert(std::any_of(virtualMiddleViews.begin(), virtualMiddleViews.end(), [](const auto& view)
+    {
+        return view.visible && view.index == kVirtualMiddleRow;
+    }));
+    assert(virtualMiddleDiagnostics.materializedRows < kVirtualMaterializedLimit);
+    assert(virtualMiddleDiagnostics.lastRowsConsidered < kVirtualMaterializedLimit);
+    assert(virtualMiddleDiagnostics.lastRowsRendered < kVirtualRenderedLimit);
+    assert(virtualReused > 0);
+
+    constexpr int kVariableVirtualRowCount = 3;
+    constexpr int kVariableVirtualViewportWidth = 8;
+    constexpr int kVariableVirtualViewportHeight = 3;
+    std::vector<int> variableVirtualHeights(kVariableVirtualRowCount, kVirtualRowHeight);
+    ui::ScrollView variableVirtualScroll{"variable-virtual"};
+    variableVirtualScroll.setVirtualDataSource(ui::VirtualScrollDataSource{
+        .itemCount = []
+        {
+            return kVariableVirtualRowCount;
+        },
+        .itemKey = [](int index)
+        {
+            return std::to_string(index);
+        },
+        .materialize = [&variableVirtualHeights](int index, std::unique_ptr<ui::Element> recycled)
+        {
+            if (recycled)
+            {
+                auto* label = dynamic_cast<ui::Label*>(recycled.get());
+                assert(label != nullptr);
+                label->setText(std::to_string(index));
+                label->setFrame(ui::Rect{0, 0, kVariableVirtualViewportWidth, variableVirtualHeights[index]});
+                return recycled;
+            }
+            auto label = std::make_unique<ui::Label>("variable-virtual-row", std::to_string(index));
+            label->setFrame(ui::Rect{0, 0, kVariableVirtualViewportWidth, variableVirtualHeights[index]});
+            return std::unique_ptr<ui::Element>(std::move(label));
+        },
+        .estimatedHeight = [](int)
+        {
+            return kVirtualRowHeight;
+        },
+    });
+    const ui::Size variableVirtualViewport{kVariableVirtualViewportWidth, kVariableVirtualViewportHeight};
+    (void)variableVirtualScroll.childViews(variableVirtualViewport);
+    assert(variableVirtualScroll.contentHeight(kVariableVirtualViewportWidth) == kVariableVirtualRowCount);
+    constexpr int kVariableChangedRow = 1;
+    constexpr int kVariableChangedHeight = 2;
+    variableVirtualHeights[kVariableChangedRow] = kVariableChangedHeight;
+    variableVirtualScroll.virtualItemsReplaced(kVariableChangedRow);
+    (void)variableVirtualScroll.childViews(variableVirtualViewport);
+    assert(variableVirtualScroll.contentHeight(kVariableVirtualViewportWidth) ==
+           kVariableVirtualRowCount + kVariableChangedHeight - kVirtualRowHeight);
+    variableVirtualScroll.invalidateVirtualHeights(kVariableChangedRow, 1);
+    assert(variableVirtualScroll.contentHeight(kVariableVirtualViewportWidth) == kVariableVirtualRowCount);
+
+    std::string stableVirtualKey = "stable";
+    std::vector<std::string> observedVirtualSelections;
+    ui::ScrollView stableVirtualScroll{"stable-virtual"};
+    stableVirtualScroll.setVirtualDataSource(ui::VirtualScrollDataSource{
+        .itemCount = []
+        {
+            return 1;
+        },
+        .itemKey = [&stableVirtualKey](int)
+        {
+            return stableVirtualKey;
+        },
+        .materialize = [&observedVirtualSelections](int, std::unique_ptr<ui::Element> recycled)
+        {
+            if (recycled)
+            {
+                auto* input = dynamic_cast<ui::TextInput*>(recycled.get());
+                assert(input != nullptr);
+                observedVirtualSelections.push_back(input->selectedText());
+                return recycled;
+            }
+            return std::unique_ptr<ui::Element>(
+                std::make_unique<ui::TextInput>("stable-virtual-row", "selected"));
+        },
+        .estimatedHeight = [](int)
+        {
+            return 1;
+        },
+    });
+    const ui::Size stableVirtualViewport{8, 1};
+    const auto initialStableViews = stableVirtualScroll.childViews(stableVirtualViewport);
+    auto* selectedVirtualInput = dynamic_cast<ui::TextInput*>(initialStableViews.front().element);
+    assert(selectedVirtualInput != nullptr);
+    selectedVirtualInput->selectRange(0, 3);
+    stableVirtualScroll.virtualItemsReplaced(0);
+    const auto replacedStableViews = stableVirtualScroll.childViews(stableVirtualViewport);
+    assert(replacedStableViews.front().element == selectedVirtualInput);
+    assert(observedVirtualSelections.back() == "sel");
+    assert(selectedVirtualInput->selectedText() == "sel");
+    stableVirtualKey = "replacement";
+    stableVirtualScroll.virtualItemsReplaced(0);
+    const auto rekeyedStableViews = stableVirtualScroll.childViews(stableVirtualViewport);
+    const auto* rekeyedVirtualInput = dynamic_cast<const ui::TextInput*>(rekeyedStableViews.front().element);
+    assert(rekeyedVirtualInput != nullptr);
+    assert(observedVirtualSelections.back().empty());
+    assert(rekeyedVirtualInput->selectedText().empty());
+
+    std::vector<std::string> anchoredVirtualRows;
+    for (int index = 0; index < 100; ++index)
+    {
+        anchoredVirtualRows.push_back(std::to_string(index));
+    }
+    ui::ScrollView anchoredVirtualScroll{"anchored-virtual"};
+    anchoredVirtualScroll.setVirtualDataSource(ui::VirtualScrollDataSource{
+        .itemCount = [&anchoredVirtualRows]
+        {
+            return static_cast<int>(anchoredVirtualRows.size());
+        },
+        .itemKey = [&anchoredVirtualRows](int index)
+        {
+            return anchoredVirtualRows[static_cast<std::size_t>(index)];
+        },
+        .materialize = [&anchoredVirtualRows](int index, std::unique_ptr<ui::Element> recycled)
+        {
+            auto label = recycled
+                ? std::unique_ptr<ui::Label>(dynamic_cast<ui::Label*>(recycled.release()))
+                : std::make_unique<ui::Label>("anchored-virtual-row");
+            assert(label != nullptr);
+            label->setText(anchoredVirtualRows[static_cast<std::size_t>(index)]);
+            label->setFrame(ui::Rect{0, 0, kVirtualViewportWidth, kVirtualRowHeight});
+            return std::unique_ptr<ui::Element>(std::move(label));
+        },
+        .estimatedHeight = [](int)
+        {
+            return kVirtualRowHeight;
+        },
+    });
+    (void)anchoredVirtualScroll.childViews(virtualViewport);
+    assert(anchoredVirtualScroll.scrollTo(50, virtualViewport));
+    const auto visibleAnchor = [&anchoredVirtualScroll, virtualViewport]() -> ui::ScrollViewChildView
+    {
+        const auto views = anchoredVirtualScroll.childViews(virtualViewport);
+        const auto found = std::find_if(views.begin(), views.end(), [](const auto& view)
+        {
+            return view.visible;
+        });
+        assert(found != views.end());
+        return *found;
+    };
+    assert(visibleAnchor().index == 50);
+    anchoredVirtualRows.insert(anchoredVirtualRows.begin(), {"before-a", "before-b"});
+    anchoredVirtualScroll.virtualItemsInserted(0, 2);
+    assert(visibleAnchor().index == 52);
+    anchoredVirtualRows.erase(anchoredVirtualRows.begin() + 52);
+    anchoredVirtualScroll.virtualItemsRemoved(52);
+    const ui::ScrollViewChildView afterAnchorRemoval = visibleAnchor();
+    assert(afterAnchorRemoval.index == 50);
+    const auto* afterAnchorLabel = dynamic_cast<const ui::Label*>(afterAnchorRemoval.element);
+    assert(afterAnchorLabel != nullptr);
+    assert(afterAnchorLabel->text() == "51");
+
+    constexpr int kGapAnchorRowHeight = 2;
+    constexpr int kGapAnchorGap = 1;
+    constexpr int kGapAnchorRowCount = 4;
+    ui::ScrollView gapAnchorScroll{"gap-anchor-virtual", kGapAnchorGap};
+    gapAnchorScroll.setVirtualDataSource(ui::VirtualScrollDataSource{
+        .itemCount = []
+        {
+            return kGapAnchorRowCount;
+        },
+        .itemKey = [](int index)
+        {
+            return std::to_string(index);
+        },
+        .materialize = [](int index, std::unique_ptr<ui::Element> recycled)
+        {
+            auto label = recycled
+                ? std::unique_ptr<ui::Label>(dynamic_cast<ui::Label*>(recycled.release()))
+                : std::make_unique<ui::Label>("gap-anchor-row");
+            assert(label != nullptr);
+            label->setText("gap-" + std::to_string(index));
+            label->setFrame(ui::Rect{0, 0, kVirtualViewportWidth, kGapAnchorRowHeight});
+            return std::unique_ptr<ui::Element>(std::move(label));
+        },
+        .estimatedHeight = [](int)
+        {
+            return kGapAnchorRowHeight;
+        },
+    });
+    const ui::Size gapAnchorViewport{kVirtualViewportWidth, 3};
+    (void)gapAnchorScroll.childViews(gapAnchorViewport);
+    (void)gapAnchorScroll.scrollToTop(gapAnchorViewport);
+    assert(gapAnchorScroll.scrollLines(-kGapAnchorRowHeight, gapAnchorViewport));
+    const auto gapAnchorVisible = [](const std::vector<ui::ScrollViewChildView>& views)
+        -> ui::ScrollViewChildView
+    {
+        const auto found = std::find_if(views.begin(), views.end(), [](const auto& view)
+        {
+            return view.visible;
+        });
+        assert(found != views.end());
+        return *found;
+    };
+    const ui::ScrollViewChildView beforeGapWidthChange =
+        gapAnchorVisible(gapAnchorScroll.childViews(gapAnchorViewport));
+    assert(beforeGapWidthChange.index == 1);
+    assert(beforeGapWidthChange.frame.row == 1);
+
+    const ui::ScrollViewChildView afterGapWidthChange =
+        gapAnchorVisible(gapAnchorScroll.childViews(ui::Size{kVirtualViewportWidth + 1, 3}));
+    assert(afterGapWidthChange.index == 1);
+    assert(afterGapWidthChange.frame.row == 1);
 
     ui::FrameBufferView frameView{"frame"};
     frameView.setFrames(

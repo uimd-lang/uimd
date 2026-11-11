@@ -215,10 +215,8 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
 std::vector<ui::GeneratedLayoutEntry> buildLayout()
 {
     return {
-        ui::GeneratedLayoutEntry{.name = "body", .type = "spanlabel", .cellName = "body_panel", .relative = ui::Rect{0, 1, 536870911, 6}, .sourceCell = ui::Rect{2, 0, 73, 6}, .width = dimension("expanded", 536870911), .height = dimension("auto", 6), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 6), .charsSize = ui::Size{71, 6}, .cellCharsSize = ui::Size{73, 6}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#0b1220"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"color", "#d1d5db"}, {"user-select", "text"}})},
-        ui::GeneratedLayoutEntry{.name = "detail", .type = "label", .cellName = "footer", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{9, 0, 73, 1}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{71, 1}, .cellCharsSize = ui::Size{73, 1}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#111827"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#64748b"}, {"user-select", "text"}})},
-        ui::GeneratedLayoutEntry{.name = "role", .type = "label", .cellName = "header", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{0, 0, 73, 1}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{48, 1}, .cellCharsSize = ui::Size{73, 1}, .marginRight = 24, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#162033"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#a7f3d0"}})},
-        ui::GeneratedLayoutEntry{.name = "phase", .type = "label", .cellName = "header", .relative = ui::Rect{0, 50, 22, 1}, .sourceCell = ui::Rect{0, 0, 73, 1}, .width = dimension("auto", 22), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{22, 1}, .cellCharsSize = ui::Size{73, 1}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#162033"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#c4b5fd"}, {"text-align", "right"}})},
+        ui::GeneratedLayoutEntry{.name = "heading", .type = "spanlabel", .cellName = "body_panel", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{0, 0, 73, 5}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("fit-content", 536870910), .charsSize = ui::Size{71, 1}, .cellCharsSize = ui::Size{73, 5}, .marginRight = 1, .marginBottom = 4, .cellStyle = makeStyle({{"background", "#00000000"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"color", "#a7f3d0"}, {"user-select", "text"}})},
+        ui::GeneratedLayoutEntry{.name = "body", .type = "spanlabel", .cellName = "body_panel", .relative = ui::Rect{1, 1, 536870911, 536870910}, .sourceCell = ui::Rect{0, 0, 73, 5}, .width = dimension("expanded", 536870911), .height = dimension("fit-content", 536870910), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("fit-content", 536870910), .charsSize = ui::Size{71, 4}, .cellCharsSize = ui::Size{73, 5}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#00000000"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"color", "#cbd5e1"}, {"user-select", "text"}})},
     };
 }
 
@@ -238,7 +236,7 @@ format: uimd
 format-version: 1
 kind: component
 status: draft
-description: "Fixed-height simulated agent chat entry for prose and structured transcript blocks."
+description: "Heron-style assistant text entry."
 tags: [component, simulation]
 ```
 
@@ -251,25 +249,16 @@ extends: uicontrol
 ## Members
 
 ```yaml
-role:
-  type: label
-  text: Agent
-  description: "Simulated transcript speaker or activity type."
-
-phase:
-  type: label
-  text: response
-  description: "Deterministic scenario phase."
+heading:
+  type: spanlabel
+  text: "Assistant"
+  description: "Assistant role label."
 
 body:
   type: spanlabel
   text: ""
-  description: "Selectable simulated transcript content."
+  description: "Selectable Markdown-style transcript prose."
 
-detail:
-  type: label
-  text: "simulated · no external action"
-  description: "Simulation-only activity detail."
 ```
 
 ## Style
@@ -278,59 +267,36 @@ detail:
 this:
   border-width: 0
   background: "#00000000"
-@header:
-  background: "#162033"
-  padding: 0, 1, 0, 1
-@role:
-  color: "#a7f3d0"
-@phase:
-  color: "#c4b5fd"
-  text-align: right
 @body_panel:
-  background: "#0b1220"
-  padding: 1, 1, 1, 1
-@body:
-  color: "#d1d5db"
-  word-wrap: false
-  user-select: text
-@footer:
-  background: "#111827"
+  background: "#00000000"
   padding: 0, 1, 0, 1
-@detail:
-  color: "#64748b"
+@heading:
+  color: "#a7f3d0"
+  user-select: text
+@body:
+  color: "#cbd5e1"
+  word-wrap: true
   user-select: text
 ```
 
 ## User Interface
 
 ```ui
-+-header-**---------------------------------------------------------------+
-| role..**........................................ phase................. |
 +-body_panel-**-----------------------------------------------------------+
+| heading..**............................................................ |
 | body..**............................................................... |
 | ....................................................................... |
-| ....................................................................... |
-| ....................................................................... |
-| ....................................................................... |
-| ....................................................................... |
-+-footer-**---------------------------------------------------------------+
-| detail..**............................................................. |
+# #...................................................................... |
+# #...................................................................... |
 +-------------------------------------------------------------------------+
 ```
-)UI_MCP_MD", "Fixed-height simulated agent chat entry for prose and structured transcript blocks.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"role", "Simulated transcript speaker or activity type.", true}, ui::GeneratedElementMetadata{"phase", "Deterministic scenario phase.", true}, ui::GeneratedElementMetadata{"body", "Selectable simulated transcript content.", true}, ui::GeneratedElementMetadata{"detail", "Simulation-only activity detail.", true}});
+)UI_MCP_MD", "Heron-style assistant text entry.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"heading", "Assistant role label.", true}, ui::GeneratedElementMetadata{"body", "Selectable Markdown-style transcript prose.", true}});
     setMcpAppTools(std::vector<ui::GeneratedAppToolMetadata>{});
     setGeneratedWindowStyle(makeStyle({{"background", "#00000000"}, {"border-color", "transparent"}, {"border-width", "0"}}));
-    role = &static_cast<ui::Label&>(addElement<ui::Label>("role", "Agent"));
-    role->setStyle(makeStyle({{"background", "transparent"}, {"color", "#a7f3d0"}}));
-    role->setCursorStyle(makeStyle({{"background", "#b8d7ff"}, {"color", "#000000"}}));
-    phase = &static_cast<ui::Label&>(addElement<ui::Label>("phase", "response"));
-    phase->setStyle(makeStyle({{"background", "transparent"}, {"color", "#c4b5fd"}, {"text-align", "right"}}));
-    phase->setCursorStyle(makeStyle({{"background", "#b8d7ff"}, {"color", "#000000"}}));
+    heading = &static_cast<ui::Label&>(addElement<ui::Label>("heading", "Assistant"));
+    heading->setStyle(makeStyle({{"color", "#a7f3d0"}, {"user-select", "text"}}));
     body = &static_cast<ui::Label&>(addElement<ui::Label>("body", ""));
-    body->setStyle(makeStyle({{"color", "#d1d5db"}, {"user-select", "text"}}));
-    detail = &static_cast<ui::Label&>(addElement<ui::Label>("detail", "simulated · no external action"));
-    detail->setStyle(makeStyle({{"background", "transparent"}, {"color", "#64748b"}, {"user-select", "text"}}));
-    detail->setCursorStyle(makeStyle({{"background", "#b8d7ff"}, {"color", "#000000"}}));
+    body->setStyle(makeStyle({{"color", "#cbd5e1"}, {"user-select", "text"}}));
 }
 
 bool ChatEntryUI::shouldClose() const

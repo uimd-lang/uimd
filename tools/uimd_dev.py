@@ -747,6 +747,25 @@ def run_java_mcp_transport_smoke() -> None:
     run([sys.executable, "tools/java_mcp_transport_smoke.py"])
 
 
+def run_agent_chat_scroll_input_parity(
+    *,
+    include_java: bool,
+    include_rust: bool,
+    include_swift: bool,
+) -> None:
+    platforms = ["python", "cpp", "csharp", "go"]
+    if include_rust:
+        platforms.append("rust")
+    if include_swift:
+        platforms.append("swift")
+    if include_java:
+        platforms.append("java")
+    command: list[str | Path] = [sys.executable, "tools/agent_chat_scroll_input_parity.py"]
+    for platform in platforms:
+        command.extend(["--platform", platform])
+    run(command)
+
+
 def generate_regression_parity_if_available(
     uimd: Path,
     *,
@@ -1647,6 +1666,20 @@ def test_all(args: argparse.Namespace) -> None:
         else:
             record_skipped_phase(phases, "Rust direct terminal smoke", "Rust validation is not enabled on Windows")
             record_skipped_phase(phases, "Rust MCP transport smoke", "Rust validation is not enabled on Windows")
+        if is_windows():
+            record_skipped_phase(phases, "Agent Chat physical scroll parity", "POSIX PTY is required")
+        else:
+            run_full_test_phase(
+                phases,
+                "Agent Chat physical scroll parity",
+                lambda: run_agent_chat_scroll_input_parity(
+                    include_java=validate_java,
+                    include_rust=validate_rust,
+                    include_swift=validate_swift,
+                ),
+                report_kind="smoke",
+                continue_on_failure=args.keep_going,
+            )
         run_full_test_phase(
             phases,
             "MCP example compare",

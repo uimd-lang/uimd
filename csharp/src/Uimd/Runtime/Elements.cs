@@ -3954,10 +3954,28 @@ public readonly record struct ScrollViewChildView(
     int Index,
     bool Clipped);
 
+public sealed class VirtualScrollDataSource
+{
+    public required Func<int> ItemCount { get; init; }
+    public required Func<int, object> ItemKey { get; init; }
+    public required Func<int, Element?, Element> Materialize { get; init; }
+    public Func<int, int>? EstimatedHeight { get; init; }
+}
+
+public readonly record struct VirtualScrollDiagnostics(
+    int LogicalItems,
+    int MaterializedRows,
+    int RecycledRows,
+    int LastRowsMeasured,
+    int LastRowsConsidered,
+    int LastRowsRendered);
+
 public class ScrollView : Element
 {
     private const int DefaultWheelScrollLines = 4;
     private const int WheelScrollViewportFraction = 3;
+    private const int VirtualScrollOverscanViewports = 1;
+    private const int VirtualScrollLayoutStabilizationPasses = 2;
 
     public int Gap { get; private set; }
     public bool AutoScroll { get; private set; }
@@ -3972,6 +3990,15 @@ public class ScrollView : Element
     private List<int>? cachedChildHeights;
     private int lastNaturalSkip;
     private int pendingTerminalScrollDelta;
+    private VirtualScrollDataSource? virtualDataSource;
+    private VirtualHeightIndex? virtualHeightIndex;
+    private int? virtualHeightWidth;
+    private readonly SortedDictionary<int, VirtualMaterializedRow> virtualMaterialized = new();
+    private readonly List<Element> virtualRecyclePool = new();
+    private Element? virtualPinnedElement;
+    private int virtualLastRowsMeasured;
+    private int virtualLastRowsConsidered;
+    private int virtualLastRowsRendered;
 
     public ScrollView(string name, int gap = 0) : base(name)
     {
@@ -3981,6 +4008,7 @@ public class ScrollView : Element
     public void SetGap(int gap)
     {
         Gap = Math.Max(0, gap);
+        RebuildVirtualHeightIndex();
         InvalidateHeightCache();
     }
 
@@ -4006,7 +4034,9 @@ public class ScrollView : Element
     public void RestoreScrollPosition(ScrollViewPosition position)
     {
         _ = DynamicRenderedChildren(Math.Max(1, Frame.Width));
-        int total = renderedChildren.Count + Children.Count;
+        int total = virtualDataSource is null
+            ? renderedChildren.Count + Children.Count
+            : VirtualCount();
         ScrollOffset = Math.Clamp(position.ScrollOffset, 0, Math.Max(0, total - 1));
         ViewOffset = Math.Max(0, position.ViewOffset);
         AutoScroll = position.AutoScroll;
@@ -4025,6 +4055,11 @@ public class ScrollView : Element
 
     public void ClearChildren()
     {
+        if (virtualDataSource is not null)
+        {
+            ClearVirtualDataSource();
+            return;
+        }
         Children.Clear();
         renderedChildren.Clear();
         dynamicChildrenWidth = null;
@@ -4036,6 +4071,10 @@ public class ScrollView : Element
 
     public T AddChild<T>(T child) where T : Element
     {
+        if (virtualDataSource is not null)
+        {
+            ClearVirtualDataSource();
+        }
         Children.Add(child);
         InvalidateHeightCache();
         if (AutoScroll)
@@ -4047,6 +4086,10 @@ public class ScrollView : Element
 
     public void AddChild(List<List<TerminalCell>> child)
     {
+        if (virtualDataSource is not null)
+        {
+            ClearVirtualDataSource();
+        }
         renderedChildren.Add(child);
         InvalidateHeightCache();
         if (AutoScroll)
@@ -4067,11 +4110,229 @@ public class ScrollView : Element
         InvalidateHeightCache();
     }
 
+    public void SetVirtualDataSource(VirtualScrollDataSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.ItemCount is null || source.ItemKey is null || source.Materialize is null)
+        {
+            throw new ArgumentException(
+                "virtual ScrollView requires ItemCount, ItemKey, and Materialize callbacks",
+                nameof(source));
+        }
+        if (source.ItemCount() < 0)
+        {
+            throw new ArgumentException("virtual ScrollView item count must not be negative", nameof(source));
+        }
+        Children.Clear();
+        renderedChildren.Clear();
+        virtualMaterialized.Clear();
+        virtualRecyclePool.Clear();
+        virtualDataSource = source;
+        virtualHeightIndex = null;
+        virtualHeightWidth = null;
+        ScrollOffset = 0;
+        ViewOffset = 0;
+        lastNaturalSkip = 0;
+        InvalidateHeightCache();
+    }
+
+    public void ClearVirtualDataSource()
+    {
+        if (virtualDataSource is null)
+        {
+            return;
+        }
+        Children.Clear();
+        virtualMaterialized.Clear();
+        virtualRecyclePool.Clear();
+        virtualDataSource = null;
+        virtualHeightIndex = null;
+        virtualHeightWidth = null;
+        virtualPinnedElement = null;
+        ScrollOffset = 0;
+        ViewOffset = 0;
+        lastNaturalSkip = 0;
+        InvalidateHeightCache();
+    }
+
+    public void VirtualItemsInserted(int index, int count = 1)
+    {
+        if (virtualDataSource is null || count <= 0)
+        {
+            return;
+        }
+        index = Math.Max(0, index);
+        VirtualAnchor? anchor = CaptureVirtualAnchor();
+        List<KeyValuePair<int, VirtualMaterializedRow>> rows = virtualMaterialized.ToList();
+        virtualMaterialized.Clear();
+        foreach ((int oldIndex, VirtualMaterializedRow row) in rows)
+        {
+            virtualMaterialized[oldIndex >= index ? oldIndex + count : oldIndex] = row;
+        }
+        SyncVirtualChildren();
+        RebuildVirtualHeightIndex();
+        if (anchor is not null && index <= anchor.Value.Index)
+        {
+            anchor = anchor.Value with { Index = anchor.Value.Index + count };
+        }
+        RestoreVirtualAnchor(anchor);
+    }
+
+    public void VirtualItemsRemoved(int index, int count = 1)
+    {
+        if (virtualDataSource is null || count <= 0)
+        {
+            return;
+        }
+        int first = Math.Max(0, index);
+        int end = first + count;
+        VirtualAnchor? anchor = CaptureVirtualAnchor();
+        List<KeyValuePair<int, VirtualMaterializedRow>> rows = virtualMaterialized.ToList();
+        virtualMaterialized.Clear();
+        foreach ((int oldIndex, VirtualMaterializedRow row) in rows)
+        {
+            if (oldIndex >= first && oldIndex < end)
+            {
+                Children.Remove(row.Element);
+                RecycleVirtualChild(row.Element);
+                if (ReferenceEquals(virtualPinnedElement, row.Element))
+                {
+                    virtualPinnedElement = null;
+                }
+                continue;
+            }
+            virtualMaterialized[oldIndex >= end ? oldIndex - count : oldIndex] = row;
+        }
+        SyncVirtualChildren();
+        RebuildVirtualHeightIndex();
+        if (anchor is not null)
+        {
+            VirtualAnchor value = anchor.Value;
+            if (value.Index >= end)
+            {
+                value = value with { Index = value.Index - count };
+            }
+            else if (value.Index >= first)
+            {
+                value = value with
+                {
+                    Index = Math.Min(first, Math.Max(0, VirtualCount() - 1)),
+                    Within = 0,
+                };
+            }
+            anchor = value;
+        }
+        RestoreVirtualAnchor(anchor);
+    }
+
+    public void VirtualItemsReplaced(int index, int count = 1)
+    {
+        if (virtualDataSource is null || count <= 0)
+        {
+            return;
+        }
+        int first = Math.Max(0, index);
+        int end = Math.Min(VirtualCount(), first + count);
+        VirtualAnchor? anchor = CaptureVirtualAnchor();
+        for (int itemIndex = first; itemIndex < end; ++itemIndex)
+        {
+            if (virtualMaterialized.TryGetValue(itemIndex, out VirtualMaterializedRow? row))
+            {
+                object key = virtualDataSource.ItemKey(itemIndex) ??
+                    throw new InvalidOperationException("virtual ScrollView item key must not be null");
+                if (Equals(row.Key, key))
+                {
+                    Element refreshed = virtualDataSource.Materialize(itemIndex, row.Element) ??
+                        throw new InvalidOperationException("virtual ScrollView materializer must return a child");
+                    if (!ReferenceEquals(refreshed, row.Element))
+                    {
+                        Children.Remove(row.Element);
+                        RecycleVirtualChild(row.Element);
+                    }
+                    virtualMaterialized[itemIndex] = new VirtualMaterializedRow(key, refreshed);
+                }
+                else
+                {
+                    virtualMaterialized.Remove(itemIndex);
+                    Children.Remove(row.Element);
+                    RecycleVirtualChild(row.Element);
+                }
+            }
+            if (virtualHeightIndex is not null && itemIndex < virtualHeightIndex.Count)
+            {
+                virtualHeightIndex.ResetItemHeight(itemIndex);
+            }
+        }
+        SyncVirtualChildren();
+        RestoreVirtualAnchor(anchor);
+    }
+
+    public void InvalidateVirtualHeights()
+    {
+        VirtualAnchor? anchor = CaptureVirtualAnchor();
+        RebuildVirtualHeightIndex();
+        RestoreVirtualAnchor(anchor);
+    }
+
+    public void InvalidateVirtualHeights(int index, int count)
+    {
+        if (virtualHeightIndex is null || count <= 0)
+        {
+            return;
+        }
+        VirtualAnchor? anchor = CaptureVirtualAnchor();
+        int first = Math.Clamp(index, 0, virtualHeightIndex.Count);
+        int end = Math.Clamp(first + count, first, virtualHeightIndex.Count);
+        for (int itemIndex = first; itemIndex < end; ++itemIndex)
+        {
+            virtualHeightIndex.ResetItemHeight(itemIndex);
+        }
+        RestoreVirtualAnchor(anchor);
+    }
+
+    public bool HasVirtualDataSource()
+    {
+        return virtualDataSource is not null;
+    }
+
+    public VirtualScrollDiagnostics VirtualDiagnostics()
+    {
+        return new VirtualScrollDiagnostics(
+            VirtualCount(),
+            virtualMaterialized.Count,
+            virtualRecyclePool.Count,
+            virtualLastRowsMeasured,
+            virtualLastRowsConsidered,
+            virtualLastRowsRendered);
+    }
+
+    public void SetVirtualPinnedElement(Element? element)
+    {
+        virtualPinnedElement = element;
+    }
+
     public bool ScrollBy(int delta, Size viewport)
     {
         Style style = EffectiveStyle();
         Size paddedViewport = PaddedViewportSize(viewport, style);
-        return ScrollTo(ScrollOffset + delta, paddedViewport);
+        if (virtualDataSource is not null)
+        {
+            EnsureVirtualHeightIndex(paddedViewport);
+            if (virtualHeightIndex is null)
+            {
+                return false;
+            }
+            int naturalSkip = MaxViewOffset(paddedViewport);
+            int actualSkip = naturalSkip - Math.Min(ViewOffset, naturalSkip);
+            return ScrollToPadded(virtualHeightIndex.IndexAtOffset(actualSkip) + delta, paddedViewport);
+        }
+        return ScrollToPadded(ScrollOffset + delta, paddedViewport);
+    }
+
+    public bool ScrollTo(int index, Size viewport)
+    {
+        Style style = EffectiveStyle();
+        return ScrollToPadded(index, PaddedViewportSize(viewport, style));
     }
 
     public bool ScrollLines(int delta, Size viewport)
@@ -4184,6 +4445,13 @@ public class ScrollView : Element
 
     public int ContentHeight(int width)
     {
+        if (virtualDataSource is not null)
+        {
+            EnsureVirtualHeightIndex(new Size(Math.Max(1, width), Math.Max(1, Frame.Height)));
+            return virtualHeightIndex is null
+                ? 0
+                : (int)Math.Min(int.MaxValue, virtualHeightIndex.ContentHeight());
+        }
         EnsureHeightCache(Math.Max(1, width));
         if (cachedChildHeights is null || cachedChildHeights.Count == 0)
         {
@@ -4214,6 +4482,41 @@ public class ScrollView : Element
         int paddingTop = ConstrainedPaddingTop(size, style);
         int paddingLeft = ConstrainedPaddingLeft(size, style);
         Size viewport = PaddedViewportSize(size, style);
+        if (virtualDataSource is not null)
+        {
+            RefreshVirtualMaterialization(viewport);
+            EnsureVirtualHeightIndex(viewport);
+            List<ScrollViewChildView> virtualViews = new();
+            virtualLastRowsRendered = 0;
+            if (virtualHeightIndex is null)
+            {
+                return virtualViews;
+            }
+            int naturalSkip = MaxViewOffset(viewport);
+            int virtualSkip = naturalSkip - Math.Min(ViewOffset, naturalSkip);
+            int viewportTop = paddingTop;
+            int viewportBottom = paddingTop + viewport.Height;
+            foreach ((int virtualItemIndex, VirtualMaterializedRow row) in virtualMaterialized)
+            {
+                int childHeight = virtualHeightIndex.ItemHeight(virtualItemIndex);
+                long relativeRow = virtualHeightIndex.ExtentBefore(virtualItemIndex) - virtualSkip;
+                int localRow = (int)Math.Clamp(relativeRow + paddingTop, int.MinValue, int.MaxValue);
+                int visibleTop = Math.Max(localRow, viewportTop);
+                int visibleBottom = Math.Min(localRow + childHeight, viewportBottom);
+                bool visible = visibleBottom > visibleTop;
+                if (visible)
+                {
+                    ++virtualLastRowsRendered;
+                }
+                virtualViews.Add(new ScrollViewChildView(
+                    row.Element,
+                    new Rect(localRow, paddingLeft, Math.Max(1, viewport.Width), childHeight),
+                    visible,
+                    virtualItemIndex,
+                    visible && (visibleTop > localRow || visibleBottom < localRow + childHeight)));
+            }
+            return virtualViews;
+        }
         _ = DynamicRenderedChildren(viewport.Width);
         EnsureHeightCache(viewport.Width);
         int skip = ActualSkip(viewport);
@@ -4489,8 +4792,28 @@ public class ScrollView : Element
         return false;
     }
 
-    private bool ScrollTo(int index, Size paddedViewport)
+    private bool ScrollToPadded(int index, Size paddedViewport)
     {
+        if (virtualDataSource is not null)
+        {
+            EnsureVirtualHeightIndex(paddedViewport);
+            int virtualTotal = VirtualCount();
+            if (virtualTotal == 0 || virtualHeightIndex is null)
+            {
+                bool changed = ViewOffset != 0 || ScrollOffset != 0;
+                ViewOffset = 0;
+                ScrollOffset = 0;
+                return changed;
+            }
+            int targetIndex = Math.Clamp(index, 0, virtualTotal - 1);
+            int naturalSkip = MaxViewOffset(paddedViewport);
+            int targetSkip = (int)Math.Min(naturalSkip, virtualHeightIndex.ExtentBefore(targetIndex));
+            int previous = ViewOffset;
+            ScrollOffset = 0;
+            ViewOffset = naturalSkip - targetSkip;
+            AutoScroll = ViewOffset == 0;
+            return ViewOffset != previous;
+        }
         _ = DynamicRenderedChildren(Math.Max(1, paddedViewport.Width));
         int total = renderedChildren.Count + Children.Count;
         if (total == 0)
@@ -4542,6 +4865,342 @@ public class ScrollView : Element
         {
             ViewOffset = naturalSkip;
         }
+    }
+
+    private int VirtualCount()
+    {
+        if (virtualDataSource is null)
+        {
+            return 0;
+        }
+        int count = virtualDataSource.ItemCount();
+        if (count < 0)
+        {
+            throw new InvalidOperationException("virtual ScrollView item count must not be negative");
+        }
+        return count;
+    }
+
+    private int VirtualEstimateForWidth(int width)
+    {
+        if (virtualDataSource is null)
+        {
+            throw new InvalidOperationException("virtual ScrollView estimate requested without a data source");
+        }
+        if (virtualDataSource.EstimatedHeight is not null)
+        {
+            int estimate = virtualDataSource.EstimatedHeight(Math.Max(1, width));
+            if (estimate <= 0)
+            {
+                throw new InvalidOperationException("virtual ScrollView estimated height must be positive");
+            }
+            return estimate;
+        }
+        if (VirtualCount() <= 0)
+        {
+            throw new InvalidOperationException("empty virtual ScrollView has no representative row height");
+        }
+        return NativeChildHeight(MaterializeVirtualChild(0), Math.Max(1, width));
+    }
+
+    private VirtualAnchor? CaptureVirtualAnchor(int? viewportHeight = null)
+    {
+        if (virtualHeightIndex is null || virtualHeightIndex.Count <= 0)
+        {
+            return null;
+        }
+        int height = Math.Max(
+            1,
+            viewportHeight ?? (int)Math.Max(1L, virtualHeightIndex.ContentHeight() - lastNaturalSkip));
+        int naturalSkip = (int)Math.Min(
+            int.MaxValue,
+            Math.Max(0L, virtualHeightIndex.ContentHeight() - height));
+        int actualSkip = naturalSkip - Math.Min(ViewOffset, naturalSkip);
+        int itemIndex = virtualHeightIndex.IndexAtOffset(actualSkip);
+        return new VirtualAnchor(
+            itemIndex,
+            actualSkip - virtualHeightIndex.ExtentBefore(itemIndex),
+            height);
+    }
+
+    private void RestoreVirtualAnchor(VirtualAnchor? anchor)
+    {
+        if (AutoScroll)
+        {
+            ViewOffset = 0;
+            return;
+        }
+        if (anchor is null || virtualHeightIndex is null || virtualHeightIndex.Count <= 0)
+        {
+            ViewOffset = 0;
+            lastNaturalSkip = 0;
+            return;
+        }
+        int itemIndex = Math.Clamp(anchor.Value.Index, 0, virtualHeightIndex.Count - 1);
+        long anchorSpan = virtualHeightIndex.ItemHeight(itemIndex);
+        if (itemIndex + 1 < virtualHeightIndex.Count)
+        {
+            anchorSpan += virtualHeightIndex.Gap;
+        }
+        long within = Math.Clamp(
+            anchor.Value.Within,
+            0,
+            anchorSpan - 1);
+        int naturalSkip = (int)Math.Min(
+            int.MaxValue,
+            Math.Max(
+                0L,
+                virtualHeightIndex.ContentHeight() - Math.Max(1, anchor.Value.ViewportHeight)));
+        int actualSkip = (int)Math.Clamp(
+            virtualHeightIndex.ExtentBefore(itemIndex) + within,
+            0,
+            naturalSkip);
+        ViewOffset = naturalSkip - actualSkip;
+        lastNaturalSkip = naturalSkip;
+    }
+
+    private void RebuildVirtualHeightIndex(int? width = null)
+    {
+        if (virtualDataSource is null)
+        {
+            virtualHeightIndex = null;
+            virtualHeightWidth = null;
+            return;
+        }
+        width ??= virtualHeightWidth;
+        if (!width.HasValue)
+        {
+            virtualHeightIndex = null;
+            return;
+        }
+        int renderWidth = Math.Max(1, width.Value);
+        int count = VirtualCount();
+        virtualHeightWidth = renderWidth;
+        if (count <= 0)
+        {
+            virtualHeightIndex = null;
+            return;
+        }
+        virtualHeightIndex = new VirtualHeightIndex(count, VirtualEstimateForWidth(renderWidth), Gap);
+        foreach ((int itemIndex, VirtualMaterializedRow row) in virtualMaterialized)
+        {
+            if (itemIndex < count)
+            {
+                virtualHeightIndex.SetItemHeight(itemIndex, NativeChildHeight(row.Element, renderWidth));
+            }
+        }
+    }
+
+    private void EnsureVirtualHeightIndex(Size viewport)
+    {
+        if (virtualDataSource is null)
+        {
+            return;
+        }
+        int width = Math.Max(1, viewport.Width);
+        int count = VirtualCount();
+        if (virtualHeightIndex is null ||
+            virtualHeightWidth != width ||
+            virtualHeightIndex.Count != count ||
+            virtualHeightIndex.Gap != Gap)
+        {
+            VirtualAnchor? anchor = CaptureVirtualAnchor(viewport.Height);
+            RebuildVirtualHeightIndex(width);
+            RestoreVirtualAnchor(anchor);
+        }
+    }
+
+    private Element MaterializeVirtualChild(int index)
+    {
+        if (virtualDataSource is null)
+        {
+            throw new InvalidOperationException("virtual ScrollView materialization requested without a data source");
+        }
+        object key = virtualDataSource.ItemKey(index) ??
+            throw new InvalidOperationException("virtual ScrollView item key must not be null");
+        if (virtualMaterialized.TryGetValue(index, out VirtualMaterializedRow? current) &&
+            Equals(current.Key, key))
+        {
+            return current.Element;
+        }
+        if (current is not null)
+        {
+            Children.Remove(current.Element);
+            RecycleVirtualChild(current.Element);
+            virtualMaterialized.Remove(index);
+        }
+
+        Element? recycled = null;
+        if (virtualRecyclePool.Count > 0)
+        {
+            int last = virtualRecyclePool.Count - 1;
+            recycled = virtualRecyclePool[last];
+            virtualRecyclePool.RemoveAt(last);
+            ResetVirtualChildForReuse(recycled);
+        }
+        Element child = virtualDataSource.Materialize(index, recycled) ??
+            throw new InvalidOperationException("virtual ScrollView materializer must return a child");
+        virtualMaterialized[index] = new VirtualMaterializedRow(key, child);
+        Children.Add(child);
+        return child;
+    }
+
+    private void RecycleVirtualChild(Element child)
+    {
+        ResetVirtualChildForReuse(child);
+        virtualRecyclePool.Add(child);
+    }
+
+    private static void ResetVirtualChildForReuse(Element child)
+    {
+        if (child is Label label)
+        {
+            label.ClearSelection();
+        }
+        if (child is TextInput textInput)
+        {
+            textInput.ClearSelection();
+        }
+        if (child is ReusableElement reusable && reusable.Child is not null)
+        {
+            foreach (Element element in reusable.Child.Elements)
+            {
+                ResetVirtualChildForReuse(element);
+            }
+        }
+        foreach (Element nested in child.Children)
+        {
+            ResetVirtualChildForReuse(nested);
+        }
+    }
+
+    private void SyncVirtualChildren()
+    {
+        Children.Clear();
+        Children.AddRange(virtualMaterialized.Values.Select(row => row.Element));
+    }
+
+    private void RefreshVirtualMaterialization(Size viewport)
+    {
+        EnsureVirtualHeightIndex(viewport);
+        virtualLastRowsMeasured = 0;
+        virtualLastRowsConsidered = 0;
+        int count = VirtualCount();
+        if (count <= 0 || virtualHeightIndex is null)
+        {
+            foreach (VirtualMaterializedRow row in virtualMaterialized.Values)
+            {
+                RecycleVirtualChild(row.Element);
+            }
+            virtualMaterialized.Clear();
+            Children.Clear();
+            return;
+        }
+
+        int height = Math.Max(1, viewport.Height);
+        int naturalSkip = (int)Math.Min(
+            int.MaxValue,
+            Math.Max(0L, virtualHeightIndex.ContentHeight() - height));
+        SyncViewOffsetForNaturalSkip(naturalSkip);
+        lastNaturalSkip = naturalSkip;
+        int actualSkip = naturalSkip - Math.Min(ViewOffset, naturalSkip);
+        int anchorIndex = virtualHeightIndex.IndexAtOffset(actualSkip);
+        long anchorWithin = actualSkip - virtualHeightIndex.ExtentBefore(anchorIndex);
+        HashSet<int> required = new();
+
+        for (int pass = 0; pass < VirtualScrollLayoutStabilizationPasses; ++pass)
+        {
+            long overscan = (long)height * VirtualScrollOverscanViewports;
+            long rangeStart = Math.Max(0, actualSkip - overscan);
+            long rangeEnd = Math.Min(
+                virtualHeightIndex.ContentHeight(),
+                (long)actualSkip + height + overscan);
+            int first = virtualHeightIndex.IndexAtOffset(rangeStart);
+            if (pass == 0)
+            {
+                int coarseLast = virtualHeightIndex.IndexAtOffset(rangeEnd);
+                foreach ((int oldIndex, VirtualMaterializedRow oldRow) in virtualMaterialized.ToList())
+                {
+                    bool keep = oldIndex >= first && oldIndex <= coarseLast;
+                    bool pinned = ReferenceEquals(oldRow.Element, virtualPinnedElement);
+                    if (keep || pinned)
+                    {
+                        continue;
+                    }
+                    virtualMaterialized.Remove(oldIndex);
+                    Children.Remove(oldRow.Element);
+                    RecycleVirtualChild(oldRow.Element);
+                }
+            }
+
+            int itemIndex = first;
+            long rowOffset = virtualHeightIndex.ExtentBefore(first);
+            bool considered = false;
+            while (itemIndex < count && (rowOffset < rangeEnd || !considered))
+            {
+                considered = true;
+                ++virtualLastRowsConsidered;
+                Element child = MaterializeVirtualChild(itemIndex);
+                int measured = NativeChildHeight(child, viewport.Width);
+                ++virtualLastRowsMeasured;
+                virtualHeightIndex.SetItemHeight(itemIndex, measured);
+                int childHeight = virtualHeightIndex.ItemHeight(itemIndex);
+                required.Add(itemIndex);
+                rowOffset += childHeight + virtualHeightIndex.Gap;
+                ++itemIndex;
+            }
+
+            int nextNatural = (int)Math.Min(
+                int.MaxValue,
+                Math.Max(0L, virtualHeightIndex.ContentHeight() - height));
+            if (AutoScroll)
+            {
+                ViewOffset = 0;
+            }
+            else
+            {
+                long refined = virtualHeightIndex.ExtentBefore(anchorIndex) + anchorWithin;
+                int refinedSkip = (int)Math.Clamp(refined, 0, nextNatural);
+                ViewOffset = nextNatural - refinedSkip;
+            }
+            int nextActual = nextNatural - Math.Min(ViewOffset, nextNatural);
+            naturalSkip = nextNatural;
+            if (nextActual == actualSkip)
+            {
+                actualSkip = nextActual;
+                break;
+            }
+            actualSkip = nextActual;
+        }
+
+        if (virtualPinnedElement is not null)
+        {
+            foreach ((int index, VirtualMaterializedRow row) in virtualMaterialized)
+            {
+                if (ReferenceEquals(row.Element, virtualPinnedElement))
+                {
+                    required.Add(index);
+                    break;
+                }
+            }
+        }
+        foreach ((int index, VirtualMaterializedRow row) in virtualMaterialized.ToList())
+        {
+            if (required.Contains(index))
+            {
+                continue;
+            }
+            virtualMaterialized.Remove(index);
+            Children.Remove(row.Element);
+            RecycleVirtualChild(row.Element);
+        }
+        int recycleLimit = required.Count;
+        if (virtualRecyclePool.Count > recycleLimit)
+        {
+            virtualRecyclePool.RemoveRange(0, virtualRecyclePool.Count - recycleLimit);
+        }
+        SyncVirtualChildren();
+        lastNaturalSkip = naturalSkip;
     }
 
     private int MaxChildrenInViewport(Size viewport)
@@ -4712,6 +5371,122 @@ public class ScrollView : Element
             }
         }
         return foreground;
+    }
+
+    private sealed record VirtualMaterializedRow(object Key, Element Element);
+
+    private readonly record struct VirtualAnchor(int Index, long Within, int ViewportHeight);
+
+    private sealed class VirtualHeightIndex
+    {
+        private readonly int estimatedHeight;
+        private readonly Dictionary<int, long> tree = new();
+
+        public VirtualHeightIndex(int count, int estimatedHeight, int gap)
+        {
+            Count = Math.Max(0, count);
+            this.estimatedHeight = Math.Max(1, estimatedHeight);
+            Gap = Math.Max(0, gap);
+        }
+
+        public int Count { get; }
+        public int Gap { get; }
+        private int UnitHeight => estimatedHeight + Gap;
+
+        public long ExtentBefore(int index)
+        {
+            int end = Math.Clamp(index, 0, Count);
+            return (long)end * UnitHeight + DeltaPrefix(end);
+        }
+
+        public long ContentHeight()
+        {
+            return Count <= 0 ? 0 : Math.Max(0, ExtentBefore(Count) - Gap);
+        }
+
+        public int ItemHeight(int index)
+        {
+            if (index < 0 || index >= Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index));
+            }
+            long delta = DeltaPrefix(index + 1) - DeltaPrefix(index);
+            return Math.Max(1, estimatedHeight + (int)delta);
+        }
+
+        public bool SetItemHeight(int index, int height)
+        {
+            height = Math.Max(1, height);
+            long previousDelta = ItemHeight(index) - estimatedHeight;
+            long nextDelta = height - estimatedHeight;
+            long change = nextDelta - previousDelta;
+            for (int treeIndex = index + 1; change != 0 && treeIndex <= Count; treeIndex += treeIndex & -treeIndex)
+            {
+                long value = tree.GetValueOrDefault(treeIndex) + change;
+                if (value == 0)
+                {
+                    tree.Remove(treeIndex);
+                }
+                else
+                {
+                    tree[treeIndex] = value;
+                }
+            }
+            return change != 0;
+        }
+
+        public bool ResetItemHeight(int index)
+        {
+            return SetItemHeight(index, estimatedHeight);
+        }
+
+        public int IndexAtOffset(long offset)
+        {
+            if (Count <= 0)
+            {
+                return 0;
+            }
+            long target = Math.Clamp(offset, 0, ContentHeight());
+            int index = 0;
+            long prefix = 0;
+            int bit = HighestPowerOfTwoAtMost(Count);
+            while (bit > 0)
+            {
+                int candidate = index + bit;
+                if (candidate <= Count)
+                {
+                    int nodeWidth = candidate & -candidate;
+                    long nodeExtent = (long)nodeWidth * UnitHeight + tree.GetValueOrDefault(candidate);
+                    if (prefix + nodeExtent <= target)
+                    {
+                        index = candidate;
+                        prefix += nodeExtent;
+                    }
+                }
+                bit >>= 1;
+            }
+            return Math.Min(index, Count - 1);
+        }
+
+        private long DeltaPrefix(int end)
+        {
+            long total = 0;
+            for (int index = Math.Clamp(end, 0, Count); index > 0; index -= index & -index)
+            {
+                total += tree.GetValueOrDefault(index);
+            }
+            return total;
+        }
+
+        private static int HighestPowerOfTwoAtMost(int value)
+        {
+            int bit = 1;
+            while (bit <= value / 2)
+            {
+                bit <<= 1;
+            }
+            return bit;
+        }
     }
 
     private List<List<List<TerminalCell>>> DynamicRenderedChildren(int width)

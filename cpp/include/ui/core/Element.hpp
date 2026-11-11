@@ -12,6 +12,8 @@
 
 namespace ui {
 
+class ScrollView;
+
 inline constexpr std::string_view kCommitModeStandard = "standard";
 inline constexpr std::string_view kCommitModeLeave = "leave";
 
@@ -163,6 +165,8 @@ public:
     }
 
 private:
+    friend class ScrollView;
+
     void setParent(Element* parent) {
         parent_ = parent;
     }

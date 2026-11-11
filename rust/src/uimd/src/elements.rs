@@ -14,6 +14,8 @@ pub const COMMIT_MODE_LEAVE: &str = "leave";
 pub const DEFAULT_SCROLL_VIEW_GAP: i32 = 0;
 pub const DEFAULT_WHEEL_SCROLL_LINES: i32 = 4;
 pub const WHEEL_SCROLL_VIEWPORT_FRACTION: i32 = 3;
+pub const VIRTUAL_SCROLL_OVERSCAN_VIEWPORTS: i32 = 1;
+pub const VIRTUAL_SCROLL_LAYOUT_STABILIZATION_PASSES: i32 = 2;
 pub const SCROLL_INDICATOR_ABOVE: &str = "^";
 pub const SCROLL_INDICATOR_BELOW: &str = "v";
 
@@ -915,6 +917,51 @@ impl ScrollViewRef
             .scroll_view()
             .expect("ScrollViewRef must contain ScrollView state")
             .invalidate_dynamic_children();
+    }
+
+    pub fn set_virtual_data_source(&self, source: VirtualScrollDataSource)
+    {
+        self.borrow_mut().set_virtual_data_source(source);
+    }
+
+    pub fn clear_virtual_data_source(&self)
+    {
+        self.borrow_mut().clear_virtual_data_source();
+    }
+
+    pub fn virtual_items_inserted(&self, index: usize, count: usize)
+    {
+        self.borrow().virtual_items_inserted(index, count);
+    }
+
+    pub fn virtual_items_removed(&self, index: usize, count: usize)
+    {
+        self.borrow().virtual_items_removed(index, count);
+    }
+
+    pub fn virtual_items_replaced(&self, index: usize, count: usize)
+    {
+        self.borrow().virtual_items_replaced(index, count);
+    }
+
+    pub fn invalidate_virtual_heights(&self)
+    {
+        self.borrow().invalidate_virtual_heights();
+    }
+
+    pub fn invalidate_virtual_height_range(&self, index: usize, count: usize)
+    {
+        self.borrow().invalidate_virtual_height_range(index, count);
+    }
+
+    pub fn has_virtual_data_source(&self) -> bool
+    {
+        self.borrow().has_virtual_data_source()
+    }
+
+    pub fn virtual_diagnostics(&self) -> VirtualScrollDiagnostics
+    {
+        self.borrow().virtual_diagnostics()
     }
 
     pub fn set_auto_scroll(&self, auto_scroll: bool)
@@ -1861,6 +1908,206 @@ pub struct ScrollViewPosition
     pub auto_scroll: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct VirtualScrollDiagnostics
+{
+    pub logical_items: usize,
+    pub materialized_rows: usize,
+    pub recycled_rows: usize,
+    pub last_rows_measured: usize,
+    pub last_rows_considered: usize,
+    pub last_rows_rendered: usize,
+}
+
+#[derive(Clone)]
+pub struct VirtualScrollDataSource
+{
+    item_count: Rc<dyn Fn() -> usize>,
+    item_key: Rc<dyn Fn(usize) -> String>,
+    materialize: Rc<dyn Fn(usize, Option<ElementRef>) -> ElementRef>,
+    estimated_height: Option<Rc<dyn Fn(i32) -> i32>>,
+}
+
+impl std::fmt::Debug for VirtualScrollDataSource
+{
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
+    {
+        formatter
+            .debug_struct("VirtualScrollDataSource")
+            .finish_non_exhaustive()
+    }
+}
+
+impl VirtualScrollDataSource
+{
+    pub fn new<ItemCount, ItemKey, Materialize>(
+        item_count: ItemCount,
+        item_key: ItemKey,
+        materialize: Materialize,
+    ) -> Self
+    where
+        ItemCount: Fn() -> usize + 'static,
+        ItemKey: Fn(usize) -> String + 'static,
+        Materialize: Fn(usize, Option<ElementRef>) -> ElementRef + 'static,
+    {
+        Self
+        {
+            item_count: Rc::new(item_count),
+            item_key: Rc::new(item_key),
+            materialize: Rc::new(materialize),
+            estimated_height: None,
+        }
+    }
+
+    pub fn with_estimated_height<EstimatedHeight>(
+        mut self,
+        estimated_height: EstimatedHeight,
+    ) -> Self
+    where
+        EstimatedHeight: Fn(i32) -> i32 + 'static,
+    {
+        self.estimated_height = Some(Rc::new(estimated_height));
+        self
+    }
+}
+
+#[derive(Clone, Debug)]
+struct VirtualMaterializedRow
+{
+    key: String,
+    element: ElementRef,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct VirtualScrollAnchor
+{
+    index: usize,
+    within: i64,
+    viewport_height: i32,
+}
+
+#[derive(Clone, Debug)]
+struct VirtualHeightIndex
+{
+    count: usize,
+    estimated_height: i32,
+    gap: i32,
+    tree: BTreeMap<usize, i64>,
+}
+
+impl VirtualHeightIndex
+{
+    fn new(count: usize, estimated_height: i32, gap: i32) -> Self
+    {
+        Self
+        {
+            count,
+            estimated_height: max(1, estimated_height),
+            gap: max(0, gap),
+            tree: BTreeMap::new(),
+        }
+    }
+
+    fn unit_height(&self) -> i32
+    {
+        self.estimated_height + self.gap
+    }
+
+    fn delta_prefix(&self, end: usize) -> i64
+    {
+        let mut total = 0_i64;
+        let mut index = min(end, self.count);
+        while index > 0
+        {
+            total += self.tree.get(&index).copied().unwrap_or_default();
+            index -= index & index.wrapping_neg();
+        }
+        total
+    }
+
+    fn extent_before(&self, index: usize) -> i64
+    {
+        let end = min(index, self.count);
+        end as i64 * i64::from(self.unit_height()) + self.delta_prefix(end)
+    }
+
+    fn content_height(&self) -> i64
+    {
+        if self.count == 0
+        {
+            0
+        }
+        else
+        {
+            max(0_i64, self.extent_before(self.count) - i64::from(self.gap))
+        }
+    }
+
+    fn item_height(&self, index: usize) -> i32
+    {
+        assert!(index < self.count, "virtual ScrollView item index out of range");
+        let delta = self.delta_prefix(index + 1) - self.delta_prefix(index);
+        max(1, self.estimated_height + delta as i32)
+    }
+
+    fn set_item_height(&mut self, index: usize, height: i32) -> bool
+    {
+        let height = max(1, height);
+        let previous_delta = self.item_height(index) - self.estimated_height;
+        let next_delta = height - self.estimated_height;
+        let change = i64::from(next_delta - previous_delta);
+        let mut tree_index = index + 1;
+        while change != 0 && tree_index <= self.count
+        {
+            let value = self.tree.get(&tree_index).copied().unwrap_or_default() + change;
+            if value == 0
+            {
+                self.tree.remove(&tree_index);
+            }
+            else
+            {
+                self.tree.insert(tree_index, value);
+            }
+            tree_index += tree_index & tree_index.wrapping_neg();
+        }
+        change != 0
+    }
+
+    fn reset_item_height(&mut self, index: usize) -> bool
+    {
+        self.set_item_height(index, self.estimated_height)
+    }
+
+    fn index_at_offset(&self, offset: i64) -> usize
+    {
+        if self.count == 0
+        {
+            return 0;
+        }
+        let target = offset.clamp(0, self.content_height());
+        let mut index = 0_usize;
+        let mut prefix = 0_i64;
+        let mut bit = 1_usize << (usize::BITS - self.count.leading_zeros() - 1);
+        while bit > 0
+        {
+            let candidate = index + bit;
+            if candidate <= self.count
+            {
+                let node_width = candidate & candidate.wrapping_neg();
+                let node_extent = node_width as i64 * i64::from(self.unit_height())
+                    + self.tree.get(&candidate).copied().unwrap_or_default();
+                if prefix + node_extent <= target
+                {
+                    index = candidate;
+                    prefix += node_extent;
+                }
+            }
+            bit >>= 1;
+        }
+        min(index, self.count - 1)
+    }
+}
+
 #[derive(Clone)]
 struct ScrollViewDynamicChildrenRenderer
 {
@@ -1893,6 +2140,13 @@ pub struct ScrollViewState
     cached_child_heights_width: Cell<Option<i32>>,
     cached_child_heights: RefCell<Option<Vec<i32>>>,
     descendant_focus_style: Option<Style>,
+    virtual_data_source: Option<VirtualScrollDataSource>,
+    virtual_height_index: RefCell<Option<VirtualHeightIndex>>,
+    virtual_height_width: Cell<Option<i32>>,
+    virtual_materialized: RefCell<BTreeMap<usize, VirtualMaterializedRow>>,
+    virtual_recycle_pool: RefCell<Vec<ElementRef>>,
+    virtual_pinned_element: RefCell<Option<ElementRef>>,
+    virtual_diagnostics: Cell<VirtualScrollDiagnostics>,
 }
 
 impl Default for ScrollViewState
@@ -1922,6 +2176,13 @@ impl ScrollViewState
             cached_child_heights_width: Cell::new(None),
             cached_child_heights: RefCell::new(None),
             descendant_focus_style: None,
+            virtual_data_source: None,
+            virtual_height_index: RefCell::new(None),
+            virtual_height_width: Cell::new(None),
+            virtual_materialized: RefCell::new(BTreeMap::new()),
+            virtual_recycle_pool: RefCell::new(Vec::new()),
+            virtual_pinned_element: RefCell::new(None),
+            virtual_diagnostics: Cell::new(VirtualScrollDiagnostics::default()),
         }
     }
 
@@ -1933,6 +2194,7 @@ impl ScrollViewState
     pub fn set_gap(&mut self, gap: i32)
     {
         self.gap = max(0, gap);
+        self.rebuild_virtual_height_index(None);
         self.invalidate_height_cache();
     }
 
@@ -2032,6 +2294,202 @@ impl ScrollViewState
         self.invalidate_height_cache();
     }
 
+    pub fn set_virtual_data_source(&mut self, source: VirtualScrollDataSource)
+    {
+        self.rendered_children.borrow_mut().clear();
+        self.virtual_materialized.borrow_mut().clear();
+        self.virtual_recycle_pool.borrow_mut().clear();
+        self.virtual_data_source = Some(source);
+        self.virtual_height_index.replace(None);
+        self.virtual_height_width.set(None);
+        self.virtual_pinned_element.replace(None);
+        self.scroll_offset.set(0);
+        self.view_offset.set(0);
+        self.last_natural_skip.set(0);
+        self.invalidate_height_cache();
+    }
+
+    pub fn clear_virtual_data_source(&mut self)
+    {
+        if self.virtual_data_source.is_none()
+        {
+            return;
+        }
+        self.virtual_materialized.borrow_mut().clear();
+        self.virtual_recycle_pool.borrow_mut().clear();
+        self.virtual_data_source = None;
+        self.virtual_height_index.replace(None);
+        self.virtual_height_width.set(None);
+        self.virtual_pinned_element.replace(None);
+        self.scroll_offset.set(0);
+        self.view_offset.set(0);
+        self.last_natural_skip.set(0);
+        self.invalidate_height_cache();
+    }
+
+    pub fn has_virtual_data_source(&self) -> bool
+    {
+        self.virtual_data_source.is_some()
+    }
+
+    pub fn virtual_diagnostics(&self) -> VirtualScrollDiagnostics
+    {
+        let mut diagnostics = self.virtual_diagnostics.get();
+        diagnostics.logical_items = self.virtual_count();
+        diagnostics.materialized_rows = self.virtual_materialized.borrow().len();
+        diagnostics.recycled_rows = self.virtual_recycle_pool.borrow().len();
+        diagnostics
+    }
+
+    pub fn set_virtual_pinned_element(&self, element: Option<ElementRef>)
+    {
+        self.virtual_pinned_element.replace(element);
+    }
+
+    pub fn virtual_items_inserted(&self, index: usize, count: usize)
+    {
+        if self.virtual_data_source.is_none() || count == 0
+        {
+            return;
+        }
+        let mut anchor = self.capture_virtual_anchor(None);
+        let rows = std::mem::take(&mut *self.virtual_materialized.borrow_mut());
+        let shifted = rows
+            .into_iter()
+            .map(|(old_index, row)|
+            {
+                (if old_index >= index { old_index + count } else { old_index }, row)
+            })
+            .collect();
+        self.virtual_materialized.replace(shifted);
+        self.rebuild_virtual_height_index(None);
+        if let Some(value) = anchor.as_mut()
+            && index <= value.index
+        {
+            value.index = value.index.saturating_add(count);
+        }
+        self.restore_virtual_anchor(anchor);
+    }
+
+    pub fn virtual_items_removed(&self, index: usize, count: usize)
+    {
+        if self.virtual_data_source.is_none() || count == 0
+        {
+            return;
+        }
+        let mut anchor = self.capture_virtual_anchor(None);
+        let end = index.saturating_add(count);
+        let rows = std::mem::take(&mut *self.virtual_materialized.borrow_mut());
+        let pinned = self.virtual_pinned_element.borrow().clone();
+        let mut shifted = BTreeMap::new();
+        for (old_index, row) in rows
+        {
+            if old_index >= index && old_index < end
+            {
+                if pinned
+                    .as_ref()
+                    .is_some_and(|value| Rc::ptr_eq(value, &row.element))
+                {
+                    self.virtual_pinned_element.replace(None);
+                }
+                self.recycle_virtual_child(row.element);
+                continue;
+            }
+            shifted.insert(
+                if old_index >= end { old_index - count } else { old_index },
+                row,
+            );
+        }
+        self.virtual_materialized.replace(shifted);
+        self.rebuild_virtual_height_index(None);
+        if let Some(value) = anchor.as_mut()
+        {
+            if value.index >= end
+            {
+                value.index -= count;
+            }
+            else if value.index >= index
+            {
+                value.index = min(index, self.virtual_count().saturating_sub(1));
+                value.within = 0;
+            }
+        }
+        self.restore_virtual_anchor(anchor);
+    }
+
+    pub fn virtual_items_replaced(&self, index: usize, count: usize)
+    {
+        if self.virtual_data_source.is_none() || count == 0
+        {
+            return;
+        }
+        let anchor = self.capture_virtual_anchor(None);
+        let end = min(self.virtual_count(), index.saturating_add(count));
+        for item in min(index, end)..end
+        {
+            let row = { self.virtual_materialized.borrow_mut().remove(&item) };
+            if let Some(row) = row
+            {
+                let source = self
+                    .virtual_data_source
+                    .as_ref()
+                    .expect("virtual ScrollView replacement requires a data source");
+                let next_key = (source.item_key)(item);
+                if row.key == next_key
+                {
+                    let refreshed = (source.materialize)(item, Some(row.element.clone()));
+                    if !Rc::ptr_eq(&refreshed, &row.element)
+                    {
+                        self.recycle_virtual_child(row.element);
+                    }
+                    self.virtual_materialized.borrow_mut().insert(
+                        item,
+                        VirtualMaterializedRow
+                        {
+                            key: next_key,
+                            element: refreshed,
+                        },
+                    );
+                }
+                else
+                {
+                    self.recycle_virtual_child(row.element);
+                }
+            }
+            if let Some(height_index) = self.virtual_height_index.borrow_mut().as_mut()
+                && item < height_index.count
+            {
+                height_index.reset_item_height(item);
+            }
+        }
+        self.restore_virtual_anchor(anchor);
+    }
+
+    pub fn invalidate_virtual_heights(&self)
+    {
+        let anchor = self.capture_virtual_anchor(None);
+        self.rebuild_virtual_height_index(None);
+        self.restore_virtual_anchor(anchor);
+    }
+
+    pub fn invalidate_virtual_height_range(&self, index: usize, count: usize)
+    {
+        if self.virtual_data_source.is_none() || count == 0
+        {
+            return;
+        }
+        let anchor = self.capture_virtual_anchor(None);
+        if let Some(height_index) = self.virtual_height_index.borrow_mut().as_mut()
+        {
+            let end = min(height_index.count, index.saturating_add(count));
+            for item in min(index, end)..end
+            {
+                height_index.reset_item_height(item);
+            }
+        }
+        self.restore_virtual_anchor(anchor);
+    }
+
     pub(crate) fn refresh_dynamic_children(&self, width: i32)
     {
         let width = max(1, width);
@@ -2060,6 +2518,420 @@ impl ScrollViewState
     pub(crate) fn rendered_child_count(&self) -> usize
     {
         self.rendered_children.borrow().len()
+    }
+
+    fn virtual_count(&self) -> usize
+    {
+        self.virtual_data_source
+            .as_ref()
+            .map_or(0, |source| (source.item_count)())
+    }
+
+    fn virtual_estimate_for_width(&self, width: i32) -> i32
+    {
+        let source = self
+            .virtual_data_source
+            .as_ref()
+            .expect("virtual ScrollView estimate requested without a data source");
+        if let Some(estimated_height) = source.estimated_height.as_ref()
+        {
+            let estimate = estimated_height(max(1, width));
+            assert!(estimate > 0, "virtual ScrollView estimated height must be positive");
+            return estimate;
+        }
+        assert!(
+            self.virtual_count() > 0,
+            "empty virtual ScrollView has no representative row height",
+        );
+        let child = self.materialize_virtual_child(0);
+        virtual_child_height(&child, max(1, width))
+    }
+
+    fn rebuild_virtual_height_index(&self, width: Option<i32>)
+    {
+        if self.virtual_data_source.is_none()
+        {
+            self.virtual_height_index.replace(None);
+            self.virtual_height_width.set(None);
+            return;
+        }
+        let width = width.or(self.virtual_height_width.get());
+        let Some(width) = width else
+        {
+            self.virtual_height_index.replace(None);
+            return;
+        };
+        let width = max(1, width);
+        let count = self.virtual_count();
+        self.virtual_height_width.set(Some(width));
+        if count == 0
+        {
+            self.virtual_height_index.replace(None);
+            return;
+        }
+        let mut height_index = VirtualHeightIndex::new(
+            count,
+            self.virtual_estimate_for_width(width),
+            self.gap,
+        );
+        for (item, row) in self.virtual_materialized.borrow().iter()
+        {
+            if *item < count
+            {
+                height_index.set_item_height(
+                    *item,
+                    virtual_child_height(&row.element, width),
+                );
+            }
+        }
+        self.virtual_height_index.replace(Some(height_index));
+    }
+
+    fn capture_virtual_anchor(&self, viewport_height: Option<i32>) -> Option<VirtualScrollAnchor>
+    {
+        if self.auto_scroll.get()
+        {
+            return None;
+        }
+        let height_index = self.virtual_height_index.borrow();
+        let height_index = height_index.as_ref()?;
+        if height_index.count == 0
+        {
+            return None;
+        }
+        let content_height = height_index.content_height();
+        let inferred_height = max(
+            1_i64,
+            content_height - i64::from(max(0, self.last_natural_skip.get())),
+        );
+        let viewport_height = max(
+            1,
+            viewport_height.unwrap_or(min(i64::from(i32::MAX), inferred_height) as i32),
+        );
+        let natural_skip = min(
+            i64::from(i32::MAX),
+            max(0_i64, content_height - i64::from(viewport_height)),
+        ) as i32;
+        let actual_skip = natural_skip - min(self.view_offset.get(), natural_skip);
+        let index = height_index.index_at_offset(i64::from(actual_skip));
+        Some(VirtualScrollAnchor
+        {
+            index,
+            within: i64::from(actual_skip) - height_index.extent_before(index),
+            viewport_height,
+        })
+    }
+
+    fn restore_virtual_anchor(&self, anchor: Option<VirtualScrollAnchor>)
+    {
+        if self.auto_scroll.get()
+        {
+            self.view_offset.set(0);
+            return;
+        }
+        let Some(anchor) = anchor else
+        {
+            return;
+        };
+        let height_index = self.virtual_height_index.borrow();
+        let Some(height_index) = height_index.as_ref() else
+        {
+            self.view_offset.set(0);
+            self.last_natural_skip.set(0);
+            return;
+        };
+        if height_index.count == 0
+        {
+            self.view_offset.set(0);
+            self.last_natural_skip.set(0);
+            return;
+        }
+        let index = min(anchor.index, height_index.count - 1);
+        let anchor_span = i64::from(height_index.item_height(index))
+            + if index + 1 < height_index.count
+            {
+                i64::from(height_index.gap)
+            }
+            else
+            {
+                0
+            };
+        let within = anchor.within.clamp(0, anchor_span - 1);
+        let natural_skip = min(
+            i64::from(i32::MAX),
+            max(
+                0_i64,
+                height_index.content_height() - i64::from(anchor.viewport_height),
+            ),
+        ) as i32;
+        let actual_skip = (height_index.extent_before(index) + within)
+            .clamp(0, i64::from(natural_skip)) as i32;
+        self.view_offset.set(natural_skip - actual_skip);
+        self.last_natural_skip.set(natural_skip);
+    }
+
+    fn ensure_virtual_height_index(&self, width: i32)
+    {
+        if self.virtual_data_source.is_none()
+        {
+            return;
+        }
+        let width = max(1, width);
+        let count = self.virtual_count();
+        let rebuild = self
+            .virtual_height_index
+            .borrow()
+            .as_ref()
+            .is_none_or(|index|
+            {
+                self.virtual_height_width.get() != Some(width)
+                    || index.count != count
+                    || index.gap != self.gap
+            });
+        if rebuild
+        {
+            let anchor = self.capture_virtual_anchor(None);
+            self.rebuild_virtual_height_index(Some(width));
+            self.restore_virtual_anchor(anchor);
+        }
+    }
+
+    fn materialize_virtual_child(&self, index: usize) -> ElementRef
+    {
+        let source = self
+            .virtual_data_source
+            .as_ref()
+            .expect("virtual ScrollView materialization requested without a data source");
+        let key = (source.item_key)(index);
+        if let Some(current) = self.virtual_materialized.borrow().get(&index)
+            && current.key == key
+        {
+            return current.element.clone();
+        }
+        if let Some(current) = self.virtual_materialized.borrow_mut().remove(&index)
+        {
+            self.recycle_virtual_child(current.element);
+        }
+        let recycled = self.virtual_recycle_pool.borrow_mut().pop();
+        if let Some(child) = recycled.as_ref()
+        {
+            reset_virtual_child_for_reuse(child);
+        }
+        let child = (source.materialize)(index, recycled);
+        self.virtual_materialized.borrow_mut().insert(
+            index,
+            VirtualMaterializedRow
+            {
+                key,
+                element: child.clone(),
+            },
+        );
+        child
+    }
+
+    fn recycle_virtual_child(&self, child: ElementRef)
+    {
+        reset_virtual_child_for_reuse(&child);
+        self.virtual_recycle_pool.borrow_mut().push(child);
+    }
+
+    pub(crate) fn virtual_children(&self) -> Vec<ElementRef>
+    {
+        self.virtual_materialized
+            .borrow()
+            .values()
+            .map(|row| row.element.clone())
+            .collect()
+    }
+
+    fn refresh_virtual_materialization(&self, viewport: crate::Size)
+    {
+        self.ensure_virtual_height_index(viewport.width);
+        let mut diagnostics = self.virtual_diagnostics.get();
+        diagnostics.last_rows_measured = 0;
+        diagnostics.last_rows_considered = 0;
+        let count = self.virtual_count();
+        if count == 0 || self.virtual_height_index.borrow().is_none()
+        {
+            let rows = std::mem::take(&mut *self.virtual_materialized.borrow_mut());
+            for row in rows.into_values()
+            {
+                self.recycle_virtual_child(row.element);
+            }
+            self.virtual_diagnostics.set(diagnostics);
+            return;
+        }
+
+        let height = max(1, viewport.height);
+        let content_height = self
+            .virtual_height_index
+            .borrow()
+            .as_ref()
+            .expect("virtual height index")
+            .content_height();
+        let mut natural_skip = min(
+            i64::from(i32::MAX),
+            max(0_i64, content_height - i64::from(height)),
+        ) as i32;
+        self.sync_view_offset_for_natural_skip(natural_skip);
+        self.last_natural_skip.set(natural_skip);
+        let mut actual_skip = natural_skip - min(self.view_offset.get(), natural_skip);
+        let (anchor_index, anchor_within) =
+        {
+            let index = self.virtual_height_index.borrow();
+            let index = index.as_ref().expect("virtual height index");
+            let anchor_index = index.index_at_offset(i64::from(actual_skip));
+            (
+                anchor_index,
+                i64::from(actual_skip) - index.extent_before(anchor_index),
+            )
+        };
+        let mut required = BTreeMap::new();
+
+        for pass in 0..VIRTUAL_SCROLL_LAYOUT_STABILIZATION_PASSES
+        {
+            let (range_end, first) =
+            {
+                let index = self.virtual_height_index.borrow();
+                let index = index.as_ref().expect("virtual height index");
+                let overscan = i64::from(height * VIRTUAL_SCROLL_OVERSCAN_VIEWPORTS);
+                let start = max(0_i64, i64::from(actual_skip) - overscan);
+                let end = min(
+                    index.content_height(),
+                    i64::from(actual_skip + height) + overscan,
+                );
+                (end, index.index_at_offset(start))
+            };
+            if pass == 0
+            {
+                let coarse_last = self
+                    .virtual_height_index
+                    .borrow()
+                    .as_ref()
+                    .expect("virtual height index")
+                    .index_at_offset(range_end);
+                let pinned = self.virtual_pinned_element.borrow().clone();
+                let rows = std::mem::take(&mut *self.virtual_materialized.borrow_mut());
+                let mut kept = BTreeMap::new();
+                for (old_index, row) in rows
+                {
+                    let is_pinned = pinned
+                        .as_ref()
+                        .is_some_and(|value| Rc::ptr_eq(value, &row.element));
+                    if (old_index >= first && old_index <= coarse_last) || is_pinned
+                    {
+                        kept.insert(old_index, row);
+                    }
+                    else
+                    {
+                        self.recycle_virtual_child(row.element);
+                    }
+                }
+                self.virtual_materialized.replace(kept);
+            }
+
+            let mut item = first;
+            let mut row_offset = self
+                .virtual_height_index
+                .borrow()
+                .as_ref()
+                .expect("virtual height index")
+                .extent_before(first);
+            let mut considered = false;
+            while item < count && (row_offset < range_end || !considered)
+            {
+                considered = true;
+                diagnostics.last_rows_considered += 1;
+                let child = self.materialize_virtual_child(item);
+                let measured = virtual_child_height(&child, viewport.width);
+                diagnostics.last_rows_measured += 1;
+                self.virtual_height_index
+                    .borrow_mut()
+                    .as_mut()
+                    .expect("virtual height index")
+                    .set_item_height(item, measured);
+                let (child_height, gap) =
+                {
+                    let index = self.virtual_height_index.borrow();
+                    let index = index.as_ref().expect("virtual height index");
+                    (index.item_height(item), index.gap)
+                };
+                required.insert(item, ());
+                row_offset += i64::from(child_height + gap);
+                item += 1;
+            }
+
+            let next_natural =
+            {
+                let content_height = self
+                    .virtual_height_index
+                    .borrow()
+                    .as_ref()
+                    .expect("virtual height index")
+                    .content_height();
+                min(
+                    i64::from(i32::MAX),
+                    max(0_i64, content_height - i64::from(height)),
+                ) as i32
+            };
+            if self.auto_scroll.get()
+            {
+                self.view_offset.set(0);
+            }
+            else
+            {
+                let refined = self
+                    .virtual_height_index
+                    .borrow()
+                    .as_ref()
+                    .expect("virtual height index")
+                    .extent_before(anchor_index)
+                    + anchor_within;
+                let refined_skip = refined.clamp(0, i64::from(next_natural)) as i32;
+                self.view_offset.set(next_natural - refined_skip);
+            }
+            let next_actual = next_natural - min(self.view_offset.get(), next_natural);
+            natural_skip = next_natural;
+            if next_actual == actual_skip
+            {
+                break;
+            }
+            actual_skip = next_actual;
+        }
+
+        if let Some(pinned) = self.virtual_pinned_element.borrow().as_ref()
+            && let Some((index, _)) = self
+                .virtual_materialized
+                .borrow()
+                .iter()
+                .find(|(_, row)| Rc::ptr_eq(&row.element, pinned))
+        {
+            required.insert(*index, ());
+        }
+        let rows = std::mem::take(&mut *self.virtual_materialized.borrow_mut());
+        let mut kept = BTreeMap::new();
+        for (index, row) in rows
+        {
+            if required.contains_key(&index)
+            {
+                kept.insert(index, row);
+            }
+            else
+            {
+                self.recycle_virtual_child(row.element);
+            }
+        }
+        self.virtual_materialized.replace(kept);
+        let recycle_limit = required.len();
+        let recycle_count = self.virtual_recycle_pool.borrow().len();
+        if recycle_count > recycle_limit
+        {
+            self.virtual_recycle_pool
+                .borrow_mut()
+                .drain(..recycle_count - recycle_limit);
+        }
+        self.last_natural_skip.set(natural_skip);
+        self.virtual_diagnostics.set(diagnostics);
     }
 
     pub fn invalidate_height_cache(&self)
@@ -2112,6 +2984,15 @@ impl ScrollViewState
 
     pub fn content_height(&self, width: i32, native_child_heights: &[i32]) -> i32
     {
+        if self.virtual_data_source.is_some()
+        {
+            self.ensure_virtual_height_index(width);
+            return self
+                .virtual_height_index
+                .borrow()
+                .as_ref()
+                .map_or(0, |index| min(i64::from(i32::MAX), index.content_height()) as i32);
+        }
         let heights = self.cached_child_heights(width, native_child_heights);
         let offset = self.scroll_offset.get().clamp(0, heights.len() as i32) as usize;
         let count = heights.len().saturating_sub(offset);
@@ -2159,6 +3040,30 @@ impl ScrollViewState
         native_child_heights: &[i32],
     ) -> Option<ScrollViewContentWindow>
     {
+        if self.virtual_data_source.is_some()
+        {
+            self.ensure_virtual_height_index(viewport.width);
+            if self.virtual_count() == 0
+            {
+                self.last_natural_skip.set(0);
+                return Some(ScrollViewContentWindow
+                {
+                    viewport,
+                    actual_skip: 0,
+                    natural_skip: 0,
+                    gap: max(0, self.gap),
+                });
+            }
+            let natural_skip = self.max_view_offset(viewport, native_child_heights);
+            let clamped_view_offset = min(self.view_offset.get(), natural_skip);
+            return Some(ScrollViewContentWindow
+            {
+                viewport,
+                actual_skip: natural_skip - clamped_view_offset,
+                natural_skip,
+                gap: max(0, self.gap),
+            });
+        }
         self.refresh_dynamic_children(max(1, viewport.width));
         let total = self.rendered_children.borrow().len() + native_child_heights.len();
         if total == 0
@@ -2217,6 +3122,32 @@ impl ScrollViewState
         native_child_heights: &[i32],
     ) -> bool
     {
+        if self.virtual_data_source.is_some()
+        {
+            self.ensure_virtual_height_index(viewport.width);
+            let count = self.virtual_count();
+            let previous = self.view_offset.get();
+            if count == 0
+            {
+                self.scroll_offset.set(0);
+                self.view_offset.set(0);
+                return previous != 0;
+            }
+            let target = index.clamp(0, count.saturating_sub(1) as i32) as usize;
+            let natural_skip = self.max_view_offset(viewport, native_child_heights);
+            let target_skip = self
+                .virtual_height_index
+                .borrow()
+                .as_ref()
+                .map_or(0, |height_index|
+                {
+                    min(i64::from(natural_skip), height_index.extent_before(target)) as i32
+                });
+            self.scroll_offset.set(0);
+            self.view_offset.set(natural_skip - target_skip);
+            self.auto_scroll.set(self.view_offset.get() == 0);
+            return self.view_offset.get() != previous;
+        }
         self.refresh_dynamic_children(max(1, viewport.width));
         let total = self.rendered_children.borrow().len() + native_child_heights.len();
         let previous = self.scroll_offset.get();
@@ -2242,6 +3173,21 @@ impl ScrollViewState
         native_child_heights: &[i32],
     ) -> bool
     {
+        if self.virtual_data_source.is_some()
+        {
+            self.ensure_virtual_height_index(viewport.width);
+            let Some(height_index) = self.virtual_height_index.borrow().as_ref().cloned() else
+            {
+                return false;
+            };
+            let natural_skip = self.max_view_offset(viewport, native_child_heights);
+            let actual_skip = natural_skip - min(self.view_offset.get(), natural_skip);
+            return self.scroll_to(
+                height_index.index_at_offset(i64::from(actual_skip)) as i32 + delta,
+                viewport,
+                native_child_heights,
+            );
+        }
         self.scroll_to(
             self.scroll_offset.get() + delta,
             viewport,
@@ -2341,6 +3287,11 @@ impl ScrollViewState
 
     pub fn can_scroll_up(&self) -> bool
     {
+        if self.virtual_data_source.is_some()
+        {
+            let natural_skip = max(0, self.last_natural_skip.get());
+            return natural_skip - min(self.view_offset.get(), natural_skip) > 0;
+        }
         self.scroll_offset.get() > 0
     }
 
@@ -2350,6 +3301,11 @@ impl ScrollViewState
         native_child_heights: &[i32],
     ) -> bool
     {
+        if self.virtual_data_source.is_some()
+        {
+            let _ = self.max_view_offset(viewport, native_child_heights);
+            return self.view_offset.get() > 0;
+        }
         self.refresh_dynamic_children(max(1, viewport.width));
         let total = self.rendered_children.borrow().len() + native_child_heights.len();
         total > 0
@@ -2423,6 +3379,38 @@ impl ScrollViewState
         native_child_heights: &[i32],
     ) -> bool
     {
+        if self.virtual_data_source.is_some()
+        {
+            self.ensure_virtual_height_index(viewport.width);
+            let count = self.virtual_count();
+            if index >= count
+            {
+                return false;
+            }
+            let (row, child_height) =
+            {
+                let height_index = self.virtual_height_index.borrow();
+                let height_index = height_index.as_ref().expect("virtual height index");
+                (height_index.extent_before(index), height_index.item_height(index))
+            };
+            let natural_skip = self.max_view_offset(viewport, native_child_heights);
+            let current_actual_skip = natural_skip - min(self.view_offset.get(), natural_skip);
+            let mut next_actual_skip = i64::from(current_actual_skip);
+            if row < i64::from(current_actual_skip)
+            {
+                next_actual_skip = row;
+            }
+            else if row + i64::from(child_height)
+                > i64::from(current_actual_skip + max(1, viewport.height))
+            {
+                next_actual_skip = row + i64::from(child_height - max(1, viewport.height));
+            }
+            let next_actual_skip = next_actual_skip.clamp(0, i64::from(natural_skip)) as i32;
+            let previous = self.view_offset.get();
+            self.view_offset.set(natural_skip - next_actual_skip);
+            self.auto_scroll.set(self.view_offset.get() == 0);
+            return self.view_offset.get() != previous;
+        }
         let heights = self.cached_child_heights(viewport.width, native_child_heights);
         let scroll_offset = self.scroll_offset.get().clamp(0, heights.len() as i32) as usize;
         if index < scroll_offset || index >= heights.len()
@@ -2474,7 +3462,14 @@ impl ScrollViewState
     )
     {
         self.refresh_dynamic_children(max(1, viewport.width));
-        let total = self.rendered_children.borrow().len() + native_child_heights.len();
+        let total = if self.virtual_data_source.is_some()
+        {
+            self.virtual_count()
+        }
+        else
+        {
+            self.rendered_children.borrow().len() + native_child_heights.len()
+        };
         self.scroll_offset
             .set(position.scroll_offset.clamp(0, max(0, total as i32 - 1)));
         self.view_offset.set(max(0, position.view_offset));
@@ -2495,6 +3490,34 @@ impl ScrollViewState
         });
         self.last_natural_skip.set(natural_skip);
         self.pending_terminal_scroll_delta.set(0);
+    }
+}
+
+fn virtual_child_height(child: &ElementRef, width: i32) -> i32
+{
+    let child = child.borrow();
+    child.child_window().map_or_else(
+        || max(1, child.frame.height),
+        |window| crate::generated_window_content_size_for_width(window, max(1, width)).height,
+    )
+}
+
+fn reset_virtual_child_for_reuse(child: &ElementRef)
+{
+    let (children, child_window_elements) =
+    {
+        let mut child = child.borrow_mut();
+        child.clear_selection();
+        let children = child.children.clone();
+        let child_window_elements = child
+            .child_window()
+            .map(|window| window.elements().to_vec())
+            .unwrap_or_default();
+        (children, child_window_elements)
+    };
+    for nested in children.iter().chain(child_window_elements.iter())
+    {
+        reset_virtual_child_for_reuse(nested);
     }
 }
 
@@ -2769,7 +3792,13 @@ impl Element
 
     fn scroll_view_native_child_heights(&self, width: i32) -> Vec<i32>
     {
-        self.children
+        let virtual_children = self
+            .scroll_view()
+            .filter(|state| state.has_virtual_data_source())
+            .map(ScrollViewState::virtual_children);
+        virtual_children
+            .as_deref()
+            .unwrap_or(&self.children)
             .iter()
             .map(|child|
             {
@@ -3876,6 +4905,14 @@ impl Element
 
     pub fn add_child<T: Into<ElementRef>>(&mut self, child: T)
     {
+        if self
+            .scroll_view()
+            .is_some_and(ScrollViewState::has_virtual_data_source)
+        {
+            self.scroll_view_mut()
+                .expect("ScrollView state")
+                .clear_virtual_data_source();
+        }
         let child = child.into();
         assert!(
             is_live_element(&child),
@@ -3903,8 +4940,9 @@ impl Element
 
     pub fn clear_children(&mut self)
     {
-        if let Some(scroll_view) = self.scroll_view()
+        if let Some(scroll_view) = self.scroll_view_mut()
         {
+            scroll_view.clear_virtual_data_source();
             scroll_view.clear_children_state();
         }
         self.clear_child_elements();
@@ -3960,6 +4998,69 @@ impl Element
         self.scroll_view()
             .expect("dynamic children invalidated on a non-ScrollView element")
             .invalidate_dynamic_children();
+    }
+
+    pub fn set_virtual_data_source(&mut self, source: VirtualScrollDataSource)
+    {
+        self.clear_child_elements();
+        self.scroll_view_mut()
+            .expect("virtual data source set on a non-ScrollView element")
+            .set_virtual_data_source(source);
+    }
+
+    pub fn clear_virtual_data_source(&mut self)
+    {
+        self.scroll_view_mut()
+            .expect("virtual data source cleared on a non-ScrollView element")
+            .clear_virtual_data_source();
+    }
+
+    pub fn virtual_items_inserted(&self, index: usize, count: usize)
+    {
+        self.scroll_view()
+            .expect("virtual insertion sent to a non-ScrollView element")
+            .virtual_items_inserted(index, count);
+    }
+
+    pub fn virtual_items_removed(&self, index: usize, count: usize)
+    {
+        self.scroll_view()
+            .expect("virtual removal sent to a non-ScrollView element")
+            .virtual_items_removed(index, count);
+    }
+
+    pub fn virtual_items_replaced(&self, index: usize, count: usize)
+    {
+        self.scroll_view()
+            .expect("virtual replacement sent to a non-ScrollView element")
+            .virtual_items_replaced(index, count);
+    }
+
+    pub fn invalidate_virtual_heights(&self)
+    {
+        self.scroll_view()
+            .expect("virtual heights invalidated on a non-ScrollView element")
+            .invalidate_virtual_heights();
+    }
+
+    pub fn invalidate_virtual_height_range(&self, index: usize, count: usize)
+    {
+        self.scroll_view()
+            .expect("virtual heights invalidated on a non-ScrollView element")
+            .invalidate_virtual_height_range(index, count);
+    }
+
+    pub fn has_virtual_data_source(&self) -> bool
+    {
+        self.scroll_view()
+            .is_some_and(ScrollViewState::has_virtual_data_source)
+    }
+
+    pub fn virtual_diagnostics(&self) -> VirtualScrollDiagnostics
+    {
+        self.scroll_view()
+            .expect("virtual diagnostics requested from a non-ScrollView element")
+            .virtual_diagnostics()
     }
 
     pub fn set_auto_scroll(&self, auto_scroll: bool)
@@ -4090,10 +5191,67 @@ impl Element
     {
         let padding = self.scroll_view_padding(viewport);
         let viewport = self.scroll_view_padded_viewport(viewport);
-        let native_heights = self.scroll_view_native_child_heights(viewport.width);
         let scroll_view = self
             .scroll_view()
             .expect("child views requested from a non-ScrollView element");
+        if scroll_view.has_virtual_data_source()
+        {
+            scroll_view.refresh_virtual_materialization(viewport);
+            let Some(window) = scroll_view.content_window(viewport, &[]) else
+            {
+                return Vec::new();
+            };
+            let viewport_top = padding[0];
+            let viewport_bottom = padding[0] + viewport.height;
+            let mut diagnostics = scroll_view.virtual_diagnostics.get();
+            diagnostics.last_rows_rendered = 0;
+            let height_index = scroll_view.virtual_height_index.borrow();
+            let Some(height_index) = height_index.as_ref() else
+            {
+                scroll_view.virtual_diagnostics.set(diagnostics);
+                return Vec::new();
+            };
+            let views = scroll_view
+                .virtual_materialized
+                .borrow()
+                .iter()
+                .map(|(index, row)|
+                {
+                    let height = height_index.item_height(*index);
+                    let local_row = (i64::from(padding[0])
+                        + height_index.extent_before(*index)
+                        - i64::from(window.actual_skip))
+                        .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+                        as i32;
+                    let visible_top = max(local_row, viewport_top);
+                    let visible_bottom = min(local_row + height, viewport_bottom);
+                    let visible = visible_bottom > visible_top;
+                    if visible
+                    {
+                        diagnostics.last_rows_rendered += 1;
+                    }
+                    ScrollViewChildView
+                    {
+                        element: Some(row.element.clone()),
+                        frame: Rect
+                        {
+                            row: local_row,
+                            col: padding[3],
+                            width: viewport.width,
+                            height,
+                        },
+                        visible,
+                        index: min(*index, i32::MAX as usize) as i32,
+                        clipped: visible
+                            && (visible_top > local_row
+                                || visible_bottom < local_row + height),
+                    }
+                })
+                .collect();
+            scroll_view.virtual_diagnostics.set(diagnostics);
+            return views;
+        }
+        let native_heights = self.scroll_view_native_child_heights(viewport.width);
         let Some(window) = scroll_view.content_window(viewport, &native_heights) else
         {
             return Vec::new();
@@ -7631,6 +8789,353 @@ mod tests
         assert!(scroll
             .content_window(crate::Size { width: 6, height: 3 })
             .is_some());
+    }
+
+    #[test]
+    fn virtual_scroll_view_bounds_one_million_logical_rows()
+    {
+        const LOGICAL_COUNT: usize = 1_000_000;
+        const VIEWPORT_WIDTH: i32 = 12;
+        const VIEWPORT_HEIGHT: i32 = 5;
+        const MATERIALIZED_LIMIT: usize = 20;
+        const RENDERED_LIMIT: usize = 10;
+        let created = Rc::new(Cell::new(0_usize));
+        let reused = Rc::new(Cell::new(0_usize));
+        let materializer_created = created.clone();
+        let materializer_reused = reused.clone();
+        let source = VirtualScrollDataSource::new(
+            || LOGICAL_COUNT,
+            |index| index.to_string(),
+            move |index, recycled|
+            {
+                let was_recycled = recycled.is_some();
+                let child = recycled.unwrap_or_else(||
+                {
+                    materializer_created.set(materializer_created.get() + 1);
+                    new_label("virtual-row", "").into_element()
+                });
+                if was_recycled
+                {
+                    materializer_reused.set(materializer_reused.get() + 1);
+                }
+                child.borrow_mut().set_text(index.to_string());
+                child.borrow_mut().set_frame(Rect
+                {
+                    row: 0,
+                    col: 0,
+                    width: VIEWPORT_WIDTH,
+                    height: 1,
+                });
+                child
+            },
+        )
+        .with_estimated_height(|_| 1);
+        let scroll = new_scroll_view("virtual", 1);
+        scroll.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: VIEWPORT_WIDTH,
+            height: VIEWPORT_HEIGHT,
+        });
+        scroll.set_virtual_data_source(source);
+        let viewport = crate::Size
+        {
+            width: VIEWPORT_WIDTH,
+            height: VIEWPORT_HEIGHT,
+        };
+        let top = scroll.child_views(viewport);
+        let top_diagnostics = scroll.virtual_diagnostics();
+        assert!(!top.is_empty());
+        assert_eq!(top_diagnostics.logical_items, LOGICAL_COUNT);
+        assert!(top_diagnostics.materialized_rows < MATERIALIZED_LIMIT);
+        assert!(top_diagnostics.last_rows_considered < MATERIALIZED_LIMIT);
+        assert!(top_diagnostics.last_rows_rendered < RENDERED_LIMIT);
+        assert!(created.get() < MATERIALIZED_LIMIT);
+
+        const MIDDLE: i32 = (LOGICAL_COUNT / 2) as i32;
+        assert!(scroll.scroll_to(MIDDLE, viewport));
+        let middle = scroll.child_views(viewport);
+        let middle_diagnostics = scroll.virtual_diagnostics();
+        assert!(middle.iter().any(|view| view.visible && view.index == MIDDLE));
+        assert!(middle_diagnostics.materialized_rows < MATERIALIZED_LIMIT);
+        assert!(middle_diagnostics.last_rows_considered < MATERIALIZED_LIMIT);
+        assert!(reused.get() > 0);
+    }
+
+    #[test]
+    fn virtual_scroll_view_targeted_replace_updates_variable_height()
+    {
+        const ROW_COUNT: usize = 3;
+        const VIEWPORT_WIDTH: i32 = 8;
+        let heights = Rc::new(RefCell::new(vec![1_i32; ROW_COUNT]));
+        let materializer_heights = heights.clone();
+        let source = VirtualScrollDataSource::new(
+            || ROW_COUNT,
+            |index| index.to_string(),
+            move |index, recycled|
+            {
+                let child = recycled.unwrap_or_else(||
+                    new_label("variable-virtual-row", "").into_element());
+                child.borrow_mut().set_text(index.to_string());
+                child.borrow_mut().set_frame(Rect
+                {
+                    row: 0,
+                    col: 0,
+                    width: VIEWPORT_WIDTH,
+                    height: materializer_heights.borrow()[index],
+                });
+                child
+            },
+        )
+        .with_estimated_height(|_| 1);
+        let scroll = new_scroll_view("variable-virtual", 0);
+        scroll.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: VIEWPORT_WIDTH,
+            height: ROW_COUNT as i32,
+        });
+        scroll.set_virtual_data_source(source);
+        let viewport = crate::Size
+        {
+            width: VIEWPORT_WIDTH,
+            height: ROW_COUNT as i32,
+        };
+        let _ = scroll.child_views(viewport);
+        assert_eq!(scroll.content_height_for_width(VIEWPORT_WIDTH), ROW_COUNT as i32);
+        const CHANGED_INDEX: usize = 1;
+        const CHANGED_HEIGHT: i32 = 2;
+        heights.borrow_mut()[CHANGED_INDEX] = CHANGED_HEIGHT;
+        scroll.virtual_items_replaced(CHANGED_INDEX, 1);
+        let _ = scroll.child_views(viewport);
+        assert_eq!(
+            scroll.content_height_for_width(VIEWPORT_WIDTH),
+            ROW_COUNT as i32 + CHANGED_HEIGHT - 1,
+        );
+    }
+
+    #[test]
+    fn virtual_scroll_view_stable_key_preserves_state_and_rekey_clears_it()
+    {
+        let key = Rc::new(RefCell::new("stable".to_string()));
+        let observed_selections = Rc::new(RefCell::new(Vec::<String>::new()));
+        let item_key = key.clone();
+        let materializer_selections = observed_selections.clone();
+        let source = VirtualScrollDataSource::new(
+            || 1,
+            move |_| item_key.borrow().clone(),
+            move |_, recycled|
+            {
+                if let Some(child) = recycled
+                {
+                    materializer_selections
+                        .borrow_mut()
+                        .push(child.borrow().selected_text());
+                    return child;
+                }
+                new_text_input("stable-virtual-row", "selected", 0).into_element()
+            },
+        )
+        .with_estimated_height(|_| 1);
+        let scroll = new_scroll_view("stable-virtual", 0);
+        let viewport = crate::Size { width: 8, height: 1 };
+        scroll.set_virtual_data_source(source);
+        let selected = scroll
+            .child_views(viewport)
+            .into_iter()
+            .find_map(|view| view.element)
+            .expect("materialized stable row");
+        selected.borrow_mut().select_range(0, 3);
+        scroll.virtual_items_replaced(0, 1);
+        let replaced = scroll
+            .child_views(viewport)
+            .into_iter()
+            .find_map(|view| view.element)
+            .expect("replaced stable row");
+        assert!(Rc::ptr_eq(&selected, &replaced));
+        assert_eq!(observed_selections.borrow().last().map(String::as_str), Some("sel"));
+        assert_eq!(replaced.borrow().selected_text(), "sel");
+
+        *key.borrow_mut() = "replacement".to_string();
+        scroll.virtual_items_replaced(0, 1);
+        let rekeyed = scroll
+            .child_views(viewport)
+            .into_iter()
+            .find_map(|view| view.element)
+            .expect("rekeyed stable row");
+        assert_eq!(observed_selections.borrow().last().map(String::as_str), Some(""));
+        assert_eq!(rekeyed.borrow().selected_text(), "");
+    }
+
+    #[test]
+    fn virtual_scroll_view_mutations_preserve_the_visible_anchor()
+    {
+        const VIEWPORT_WIDTH: i32 = 8;
+        const VIEWPORT_HEIGHT: i32 = 3;
+        const ANCHOR_INDEX: i32 = 20;
+        let values = Rc::new(RefCell::new(
+            (0..40).map(|index| format!("row-{index}")).collect::<Vec<_>>(),
+        ));
+        let count_values = values.clone();
+        let key_values = values.clone();
+        let materializer_values = values.clone();
+        let source = VirtualScrollDataSource::new(
+            move || count_values.borrow().len(),
+            move |index| key_values.borrow()[index].clone(),
+            move |index, recycled|
+            {
+                let child = recycled.unwrap_or_else(||
+                    new_label("anchor-virtual-row", "").into_element());
+                child.borrow_mut().set_text(materializer_values.borrow()[index].clone());
+                child.borrow_mut().set_frame(Rect
+                {
+                    row: 0,
+                    col: 0,
+                    width: VIEWPORT_WIDTH,
+                    height: 1,
+                });
+                child
+            },
+        )
+        .with_estimated_height(|_| 1);
+        let scroll = new_scroll_view("anchor-virtual", 0);
+        let viewport = crate::Size
+        {
+            width: VIEWPORT_WIDTH,
+            height: VIEWPORT_HEIGHT,
+        };
+        scroll.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: VIEWPORT_WIDTH,
+            height: VIEWPORT_HEIGHT,
+        });
+        scroll.set_virtual_data_source(source);
+        assert!(scroll.scroll_to(ANCHOR_INDEX, viewport));
+        let before = scroll.child_views(viewport);
+        assert!(before.iter().any(|view| view.visible && view.index == ANCHOR_INDEX));
+
+        values.borrow_mut().insert(0, "inserted".to_string());
+        scroll.virtual_items_inserted(0, 1);
+        let after_insert = scroll.child_views(viewport);
+        assert!(after_insert
+            .iter()
+            .any(|view| view.visible && view.index == ANCHOR_INDEX + 1));
+
+        values.borrow_mut().remove((ANCHOR_INDEX + 1) as usize);
+        scroll.virtual_items_removed((ANCHOR_INDEX + 1) as usize, 1);
+        let after_remove = scroll.child_views(viewport);
+        assert!(after_remove
+            .iter()
+            .any(|view| view.visible && view.index == ANCHOR_INDEX + 1));
+
+        const GAP_ROW_HEIGHT: i32 = 2;
+        const GAP: i32 = 1;
+        let gap_source = VirtualScrollDataSource::new(
+            || 4,
+            |index| index.to_string(),
+            |index, recycled|
+            {
+                let child = recycled.unwrap_or_else(||
+                    new_label("gap-anchor-row", "").into_element());
+                child.borrow_mut().set_text(format!("gap-{index}"));
+                child.borrow_mut().set_frame(Rect
+                {
+                    row: 0,
+                    col: 0,
+                    width: VIEWPORT_WIDTH,
+                    height: GAP_ROW_HEIGHT,
+                });
+                child
+            },
+        )
+        .with_estimated_height(|_| GAP_ROW_HEIGHT);
+        let gap_scroll = new_scroll_view("gap-anchor-virtual", GAP);
+        gap_scroll.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: VIEWPORT_WIDTH,
+            height: VIEWPORT_HEIGHT,
+        });
+        gap_scroll.set_virtual_data_source(gap_source);
+        let _ = gap_scroll.child_views(viewport);
+        let _ = gap_scroll.scroll_to_top(viewport);
+        assert!(gap_scroll.scroll_lines(-GAP_ROW_HEIGHT, viewport));
+        let before_width_change = gap_scroll
+            .child_views(viewport)
+            .into_iter()
+            .find(|view| view.visible)
+            .expect("visible row before virtual width rebuild");
+        assert_eq!(before_width_change.index, 1);
+        assert_eq!(before_width_change.frame.row, 1);
+
+        let after_width_change = gap_scroll
+            .child_views(crate::Size
+            {
+                width: VIEWPORT_WIDTH + 1,
+                height: VIEWPORT_HEIGHT,
+            })
+            .into_iter()
+            .find(|view| view.visible)
+            .expect("visible row after virtual width rebuild");
+        assert_eq!(after_width_change.index, 1);
+        assert_eq!(after_width_change.frame.row, 1);
+    }
+
+    #[test]
+    fn virtual_scroll_view_range_height_invalidation_preserves_other_measurements()
+    {
+        const VIEWPORT_WIDTH: i32 = 8;
+        let heights = Rc::new(RefCell::new(vec![2_i32, 3, 4]));
+        let count_heights = heights.clone();
+        let materializer_heights = heights.clone();
+        let source = VirtualScrollDataSource::new(
+            move || count_heights.borrow().len(),
+            |index| index.to_string(),
+            move |index, recycled|
+            {
+                let child = recycled.unwrap_or_else(||
+                    new_label("height-virtual-row", "").into_element());
+                child.borrow_mut().set_text(index.to_string());
+                child.borrow_mut().set_frame(Rect
+                {
+                    row: 0,
+                    col: 0,
+                    width: VIEWPORT_WIDTH,
+                    height: materializer_heights.borrow()[index],
+                });
+                child
+            },
+        )
+        .with_estimated_height(|_| 1);
+        let scroll = new_scroll_view("height-virtual", 0);
+        let viewport = crate::Size
+        {
+            width: VIEWPORT_WIDTH,
+            height: 2,
+        };
+        scroll.borrow_mut().set_frame(Rect
+        {
+            row: 0,
+            col: 0,
+            width: viewport.width,
+            height: viewport.height,
+        });
+        scroll.set_virtual_data_source(source);
+        for index in 0..heights.borrow().len()
+        {
+            let _ = scroll.scroll_to(index as i32, viewport);
+            let _ = scroll.child_views(viewport);
+        }
+        assert_eq!(scroll.content_height_for_width(VIEWPORT_WIDTH), 9);
+
+        scroll.invalidate_virtual_height_range(1, 1);
+
+        assert_eq!(scroll.content_height_for_width(VIEWPORT_WIDTH), 7);
     }
 
     #[test]

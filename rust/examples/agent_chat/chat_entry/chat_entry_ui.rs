@@ -6,10 +6,8 @@ use serde_json::{Map, Value};
 pub struct ChatEntryUI
 {
     pub base: uimd::GeneratedWindow,
-    pub role: uimd::LabelRef,
-    pub phase: uimd::LabelRef,
+    pub heading: uimd::SpanLabelRef,
     pub body: uimd::SpanLabelRef,
-    pub detail: uimd::LabelRef,
 }
 
 impl ChatEntryUI
@@ -21,43 +19,17 @@ impl ChatEntryUI
         uimd::LayoutItem {
             element_type: "spanlabel".to_string(),
             row: 0, col: 1,
-            cell_row: 2, cell_col: 0,
-            cell_chars_width: 73, cell_chars_height: 6,
-            cell_name: "body_panel".to_string(), cell_width: 0, cell_height: 6,
-            cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
-            width: uimd::EXPANDED, height: 6,
-            width_mode: "expanded".to_string(), height_mode: "auto".to_string(),
-            chars_width: 71, chars_height: 6,
-            margin_right: 1, margin_bottom: 0,
-            content: "body".to_string(),
-            cell_style: uimd::Style {
-        background: Some(uimd::Color::new("#0b1220")),
-        padding_bottom: Some(1),
-        padding_left: Some(1),
-        padding_right: Some(1),
-        padding_top: Some(1),
-        ..Default::default()
-    },
-            element_style: uimd::Style {
-        color: Some(uimd::Color::new("#d1d5db")),
-        user_select: Some("text".to_string()),
-        ..Default::default()
-    },
-        },
-        uimd::LayoutItem {
-            element_type: "label".to_string(),
-            row: 0, col: 1,
-            cell_row: 9, cell_col: 0,
-            cell_chars_width: 73, cell_chars_height: 1,
-            cell_name: "footer".to_string(), cell_width: 0, cell_height: 1,
-            cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
+            cell_row: 0, cell_col: 0,
+            cell_chars_width: 73, cell_chars_height: 5,
+            cell_name: "body_panel".to_string(), cell_width: 0, cell_height: uimd::FIT_CONTENT,
+            cell_width_mode: "expanded".to_string(), cell_height_mode: "fit-content".to_string(),
             width: uimd::EXPANDED, height: 1,
             width_mode: "expanded".to_string(), height_mode: "auto".to_string(),
             chars_width: 71, chars_height: 1,
-            margin_right: 1, margin_bottom: 0,
-            content: "detail".to_string(),
+            margin_right: 1, margin_bottom: 4,
+            content: "heading".to_string(),
             cell_style: uimd::Style {
-        background: Some(uimd::Color::new("#111827")),
+        background: Some(uimd::Color::new("#00000000")),
         padding_bottom: Some(0),
         padding_left: Some(1),
         padding_right: Some(1),
@@ -65,52 +37,25 @@ impl ChatEntryUI
         ..Default::default()
     },
             element_style: uimd::Style {
-        background: Some(uimd::Color::new("transparent")),
-        color: Some(uimd::Color::new("#64748b")),
+        color: Some(uimd::Color::new("#a7f3d0")),
         user_select: Some("text".to_string()),
         ..Default::default()
     },
         },
         uimd::LayoutItem {
-            element_type: "label".to_string(),
-            row: 0, col: 1,
+            element_type: "spanlabel".to_string(),
+            row: 1, col: 1,
             cell_row: 0, cell_col: 0,
-            cell_chars_width: 73, cell_chars_height: 1,
-            cell_name: "header".to_string(), cell_width: 0, cell_height: 1,
-            cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
-            width: uimd::EXPANDED, height: 1,
-            width_mode: "expanded".to_string(), height_mode: "auto".to_string(),
-            chars_width: 48, chars_height: 1,
-            margin_right: 24, margin_bottom: 0,
-            content: "role".to_string(),
-            cell_style: uimd::Style {
-        background: Some(uimd::Color::new("#162033")),
-        padding_bottom: Some(0),
-        padding_left: Some(1),
-        padding_right: Some(1),
-        padding_top: Some(0),
-        ..Default::default()
-    },
-            element_style: uimd::Style {
-        background: Some(uimd::Color::new("transparent")),
-        color: Some(uimd::Color::new("#a7f3d0")),
-        ..Default::default()
-    },
-        },
-        uimd::LayoutItem {
-            element_type: "label".to_string(),
-            row: 0, col: 50,
-            cell_row: 0, cell_col: 0,
-            cell_chars_width: 73, cell_chars_height: 1,
-            cell_name: "header".to_string(), cell_width: 0, cell_height: 1,
-            cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
-            width: 22, height: 1,
-            width_mode: "auto".to_string(), height_mode: "auto".to_string(),
-            chars_width: 22, chars_height: 1,
+            cell_chars_width: 73, cell_chars_height: 5,
+            cell_name: "body_panel".to_string(), cell_width: 0, cell_height: uimd::FIT_CONTENT,
+            cell_width_mode: "expanded".to_string(), cell_height_mode: "fit-content".to_string(),
+            width: uimd::EXPANDED, height: uimd::FIT_CONTENT,
+            width_mode: "expanded".to_string(), height_mode: "fit-content".to_string(),
+            chars_width: 71, chars_height: 4,
             margin_right: 1, margin_bottom: 0,
-            content: "phase".to_string(),
+            content: "body".to_string(),
             cell_style: uimd::Style {
-        background: Some(uimd::Color::new("#162033")),
+        background: Some(uimd::Color::new("#00000000")),
         padding_bottom: Some(0),
         padding_left: Some(1),
         padding_right: Some(1),
@@ -118,9 +63,8 @@ impl ChatEntryUI
         ..Default::default()
     },
             element_style: uimd::Style {
-        background: Some(uimd::Color::new("transparent")),
-        color: Some(uimd::Color::new("#c4b5fd")),
-        text_align: Some("right".to_string()),
+        color: Some(uimd::Color::new("#cbd5e1")),
+        user_select: Some("text".to_string()),
         ..Default::default()
     },
         },
@@ -144,104 +88,46 @@ impl ChatEntryUI
         text_align: Some("center".to_string()),
         ..Default::default()
     });
-        base.set_generated_named_style("header", uimd::Style {
-        background: Some(uimd::Color::new("#162033")),
+        base.set_generated_named_style("body_panel", uimd::Style {
+        background: Some(uimd::Color::new("#00000000")),
         padding_bottom: Some(0),
         padding_left: Some(1),
         padding_right: Some(1),
         padding_top: Some(0),
         ..Default::default()
     });
-        base.set_generated_named_style("role", uimd::Style {
+        base.set_generated_named_style("heading", uimd::Style {
         color: Some(uimd::Color::new("#a7f3d0")),
-        ..Default::default()
-    });
-        base.set_generated_named_style("phase", uimd::Style {
-        color: Some(uimd::Color::new("#c4b5fd")),
-        text_align: Some("right".to_string()),
-        ..Default::default()
-    });
-        base.set_generated_named_style("body_panel", uimd::Style {
-        background: Some(uimd::Color::new("#0b1220")),
-        padding_bottom: Some(1),
-        padding_left: Some(1),
-        padding_right: Some(1),
-        padding_top: Some(1),
+        user_select: Some("text".to_string()),
         ..Default::default()
     });
         base.set_generated_named_style("body", uimd::Style {
-        color: Some(uimd::Color::new("#d1d5db")),
+        color: Some(uimd::Color::new("#cbd5e1")),
         user_select: Some("text".to_string()),
         ..Default::default()
     });
-        base.set_generated_named_style("footer", uimd::Style {
-        background: Some(uimd::Color::new("#111827")),
-        padding_bottom: Some(0),
-        padding_left: Some(1),
-        padding_right: Some(1),
-        padding_top: Some(0),
-        ..Default::default()
-    });
-        base.set_generated_named_style("detail", uimd::Style {
-        color: Some(uimd::Color::new("#64748b")),
-        user_select: Some("text".to_string()),
-        ..Default::default()
-    });
-        base.set_mcp_metadata(true, "ChatEntry", "# Agent Chat Entry\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: \"Fixed-height simulated agent chat entry for prose and structured transcript blocks.\"\ntags: [component, simulation]\n```\n\n## Definition\n\n```yaml\nextends: uicontrol\n```\n\n## Members\n\n```yaml\nrole:\n  type: label\n  text: Agent\n  description: \"Simulated transcript speaker or activity type.\"\n\nphase:\n  type: label\n  text: response\n  description: \"Deterministic scenario phase.\"\n\nbody:\n  type: spanlabel\n  text: \"\"\n  description: \"Selectable simulated transcript content.\"\n\ndetail:\n  type: label\n  text: \"simulated · no external action\"\n  description: \"Simulation-only activity detail.\"\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: \"#00000000\"\n@header:\n  background: \"#162033\"\n  padding: 0, 1, 0, 1\n@role:\n  color: \"#a7f3d0\"\n@phase:\n  color: \"#c4b5fd\"\n  text-align: right\n@body_panel:\n  background: \"#0b1220\"\n  padding: 1, 1, 1, 1\n@body:\n  color: \"#d1d5db\"\n  word-wrap: false\n  user-select: text\n@footer:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@detail:\n  color: \"#64748b\"\n  user-select: text\n```\n\n## User Interface\n\n```ui\n+-header-**---------------------------------------------------------------+\n| role..**........................................ phase................. |\n+-body_panel-**-----------------------------------------------------------+\n| body..**............................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n+-footer-**---------------------------------------------------------------+\n| detail..**............................................................. |\n+-------------------------------------------------------------------------+\n```\n", "Fixed-height simulated agent chat entry for prose and structured transcript blocks.");
-        base.set_mcp_element_metadata(vec![uimd::GeneratedElementMetadata::new("role", "Simulated transcript speaker or activity type.", true), uimd::GeneratedElementMetadata::new("phase", "Deterministic scenario phase.", true), uimd::GeneratedElementMetadata::new("body", "Selectable simulated transcript content.", true), uimd::GeneratedElementMetadata::new("detail", "Simulation-only activity detail.", true)]);
+        base.set_mcp_metadata(true, "ChatEntry", "# Agent Chat Entry\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: \"Heron-style assistant text entry.\"\ntags: [component, simulation]\n```\n\n## Definition\n\n```yaml\nextends: uicontrol\n```\n\n## Members\n\n```yaml\nheading:\n  type: spanlabel\n  text: \"Assistant\"\n  description: \"Assistant role label.\"\n\nbody:\n  type: spanlabel\n  text: \"\"\n  description: \"Selectable Markdown-style transcript prose.\"\n\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: \"#00000000\"\n@body_panel:\n  background: \"#00000000\"\n  padding: 0, 1, 0, 1\n@heading:\n  color: \"#a7f3d0\"\n  user-select: text\n@body:\n  color: \"#cbd5e1\"\n  word-wrap: true\n  user-select: text\n```\n\n## User Interface\n\n```ui\n+-body_panel-**-----------------------------------------------------------+\n| heading..**............................................................ |\n| body..**............................................................... |\n| ....................................................................... |\n# #...................................................................... |\n# #...................................................................... |\n+-------------------------------------------------------------------------+\n```\n", "Heron-style assistant text entry.");
+        base.set_mcp_element_metadata(vec![uimd::GeneratedElementMetadata::new("heading", "Assistant role label.", true), uimd::GeneratedElementMetadata::new("body", "Selectable Markdown-style transcript prose.", true)]);
         base.set_mcp_app_tools(vec![]);
-        let role = uimd::new_label("role", "Agent");
-        base.add_element(role.clone());
-        role.borrow_mut().set_style(uimd::Style {
-        background: Some(uimd::Color::new("transparent")),
+        let heading = uimd::new_span_label("heading", "Assistant");
+        base.add_element(heading.clone());
+        heading.borrow_mut().set_style(uimd::Style {
         color: Some(uimd::Color::new("#a7f3d0")),
-        ..Default::default()
-    });
-        role.borrow_mut().set_cursor_style(uimd::Style {
-        background: Some(uimd::Color::new("#b8d7ff")),
-        color: Some(uimd::Color::new("#000000")),
-        ..Default::default()
-    });
-        let phase = uimd::new_label("phase", "response");
-        base.add_element(phase.clone());
-        phase.borrow_mut().set_style(uimd::Style {
-        background: Some(uimd::Color::new("transparent")),
-        color: Some(uimd::Color::new("#c4b5fd")),
-        text_align: Some("right".to_string()),
-        ..Default::default()
-    });
-        phase.borrow_mut().set_cursor_style(uimd::Style {
-        background: Some(uimd::Color::new("#b8d7ff")),
-        color: Some(uimd::Color::new("#000000")),
+        user_select: Some("text".to_string()),
         ..Default::default()
     });
         let body = uimd::new_span_label("body", "");
         base.add_element(body.clone());
         body.borrow_mut().set_style(uimd::Style {
-        color: Some(uimd::Color::new("#d1d5db")),
+        color: Some(uimd::Color::new("#cbd5e1")),
         user_select: Some("text".to_string()),
-        ..Default::default()
-    });
-        let detail = uimd::new_label("detail", "simulated · no external action");
-        base.add_element(detail.clone());
-        detail.borrow_mut().set_style(uimd::Style {
-        background: Some(uimd::Color::new("transparent")),
-        color: Some(uimd::Color::new("#64748b")),
-        user_select: Some("text".to_string()),
-        ..Default::default()
-    });
-        detail.borrow_mut().set_cursor_style(uimd::Style {
-        background: Some(uimd::Color::new("#b8d7ff")),
-        color: Some(uimd::Color::new("#000000")),
         ..Default::default()
     });
         Self
         {
             base,
-            role,
-            phase,
+            heading,
             body,
-            detail,
         }
     }
 

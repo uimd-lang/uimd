@@ -5,13 +5,17 @@ from uimd.runtime import UIScrollView
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../chat_entry'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../code_entry'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../table_entry'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../user_entry'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../reasoning_entry'))
 
 
 class TranscriptUI(UIScrollView):
     """Generated UI window from markdown definition."""
 
     _mcp_enabled = True
-    _mcp_source_md = '# Agent Chat Transcript\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: "Scrollable collection of deterministic simulated agent chat entries."\ntags: [component, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nextends: uiscrollview\nuses:\n  - ../chat_entry/chat_entry\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: "#00000000"\n@panel:\n  gap: 1\n  padding: 1, 1, 1, 1\n  background: "#00000000"\n```\n\n## User Interface\n\n```ui\n+-panel-**----------------------------------------------------------------+\n|                                                                         |\n|                                                                         |\n*                                                                         |\n*                                                                         |\n|                                                                         |\n+-------------------------------------------------------------------------+\n```\n'
+    _mcp_source_md = '# Agent Chat Transcript\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: "Scrollable collection of deterministic simulated agent chat entries."\ntags: [component, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nextends: uiscrollview\nuses:\n  - ../chat_entry/chat_entry\n  - ../code_entry/code_entry\n  - ../table_entry/table_entry\n  - ../user_entry/user_entry\n  - ../reasoning_entry/reasoning_entry\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: "#00000000"\n@panel:\n  gap: 1\n  padding: 1, 1, 1, 1\n  background: "#00000000"\n```\n\n## User Interface\n\n```ui\n+-panel-**----------------------------------------------------------------+\n|                                                                         |\n|                                                                         |\n*                                                                         |\n*                                                                         |\n|                                                                         |\n+-------------------------------------------------------------------------+\n```\n'
     _mcp_agent_metadata = {'window': {'description': 'Scrollable collection of deterministic simulated agent chat entries.'}, 'elements': {}}
     _mcp_app_tools = {}
 

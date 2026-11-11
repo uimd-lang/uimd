@@ -4,6 +4,14 @@
 use serde_json::{Map, Value};
 #[path = "../chat_entry/chat_entry_ui.rs"]
 mod uimd_dependency_chat_entry;
+#[path = "../code_entry/code_entry_ui.rs"]
+mod uimd_dependency_code_entry;
+#[path = "../table_entry/table_entry_ui.rs"]
+mod uimd_dependency_table_entry;
+#[path = "../user_entry/user_entry_ui.rs"]
+mod uimd_dependency_user_entry;
+#[path = "../reasoning_entry/reasoning_entry_ui.rs"]
+mod uimd_dependency_reasoning_entry;
 
 pub struct TranscriptUI
 {
@@ -90,7 +98,7 @@ impl TranscriptUI
         padding_top: Some(1),
         ..Default::default()
     });
-        base.set_mcp_metadata(true, "Transcript", "# Agent Chat Transcript\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: \"Scrollable collection of deterministic simulated agent chat entries.\"\ntags: [component, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nextends: uiscrollview\nuses:\n  - ../chat_entry/chat_entry\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: \"#00000000\"\n@panel:\n  gap: 1\n  padding: 1, 1, 1, 1\n  background: \"#00000000\"\n```\n\n## User Interface\n\n```ui\n+-panel-**----------------------------------------------------------------+\n|                                                                         |\n|                                                                         |\n*                                                                         |\n*                                                                         |\n|                                                                         |\n+-------------------------------------------------------------------------+\n```\n", "Scrollable collection of deterministic simulated agent chat entries.");
+        base.set_mcp_metadata(true, "Transcript", "# Agent Chat Transcript\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: \"Scrollable collection of deterministic simulated agent chat entries.\"\ntags: [component, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nextends: uiscrollview\nuses:\n  - ../chat_entry/chat_entry\n  - ../code_entry/code_entry\n  - ../table_entry/table_entry\n  - ../user_entry/user_entry\n  - ../reasoning_entry/reasoning_entry\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: \"#00000000\"\n@panel:\n  gap: 1\n  padding: 1, 1, 1, 1\n  background: \"#00000000\"\n```\n\n## User Interface\n\n```ui\n+-panel-**----------------------------------------------------------------+\n|                                                                         |\n|                                                                         |\n*                                                                         |\n*                                                                         |\n|                                                                         |\n+-------------------------------------------------------------------------+\n```\n", "Scrollable collection of deterministic simulated agent chat entries.");
         base.set_mcp_element_metadata(vec![]);
         base.set_mcp_app_tools(vec![]);
         Self

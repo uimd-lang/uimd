@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,35 @@ type explicitGeneratedKeyOwner struct {
 	*generatedKeyDispatchUI
 	previewCalls  int
 	fallbackCalls int
+}
+
+func TestGeneratedFitContentHeightIgnoresTrailingASCIISketchRows(t *testing.T) {
+	const (
+		sketchWidth    = 20
+		sketchHeight   = 5
+		renderedHeight = 2
+	)
+	window := NewGeneratedWindowBase("Trailing sketch fit content")
+	window.AddElement(NewLabel("body", "one\ntwo"))
+	window.SetGeneratedLayout([]LayoutItem{{
+		Content:         "body",
+		CellCharsWidth:  sketchWidth,
+		CellCharsHeight: sketchHeight,
+		CellWidth:       sketchWidth,
+		CellHeight:      FitContent,
+		CellWidthMode:   "fixed",
+		CellHeightMode:  "fit-content",
+		Width:           sketchWidth,
+		Height:          FitContent,
+		WidthMode:       "fixed",
+		HeightMode:      "fit-content",
+		CharsWidth:      sketchWidth,
+		CharsHeight:     sketchHeight,
+	}})
+
+	if height := GeneratedWindowContentSizeForWidth(window, sketchWidth).Height; height != renderedHeight {
+		t.Fatalf("fit-content height = %d, want %d", height, renderedHeight)
+	}
 }
 
 func (owner *explicitGeneratedKeyOwner) OnPreviewKey(KeyEvent) bool {
@@ -975,8 +1005,8 @@ func TestClosedComboBoxMousePressOpensInsideScrollViewScope(t *testing.T) {
 
 func TestDirectMouseWheelScrollsContainingScrollView(t *testing.T) {
 	scrollView := NewScrollView("items", 0)
-	scrollView.SetFrame(Rect{Row: 0, Col: 0, Width: 12, Height: 2})
-	for index := 0; index < 4; index++ {
+	scrollView.SetFrame(Rect{Row: 0, Col: 0, Width: 12, Height: 12})
+	for index := 0; index < 20; index++ {
 		button := NewButton(fmt.Sprintf("item_%d", index), fmt.Sprintf("Item %d", index))
 		button.SetFrame(Rect{Width: 12, Height: 1})
 		scrollView.AddChild(button)
@@ -984,16 +1014,298 @@ func TestDirectMouseWheelScrollsContainingScrollView(t *testing.T) {
 	window := NewGeneratedWindowBase("Test")
 	window.AddElement(scrollView)
 	state := newRuntimeState(window, GeneratedWindowRuntimeOptions{})
-	size := Size{Width: 20, Height: 4}
-	_ = scrollView.Render(Size{Width: 12, Height: 2}, ElementRenderState{})
+	size := Size{Width: 20, Height: 14}
+	_ = scrollView.Render(Size{Width: 12, Height: 12}, ElementRenderState{})
 	syncScrollViewChildFrames(scrollView, scrollView.ElementFrame())
 
 	if !state.handleDirectMouse(directMouseEvent{Name: "scroll", X: 1, Y: 1, Delta: -1}, size) {
 		t.Fatal("mouse wheel over a ScrollView descendant was not handled")
 	}
-	if scrollView.ViewOffset != 1 {
-		t.Fatalf("ScrollView offset = %d, want 1", scrollView.ViewOffset)
+	if scrollView.ViewOffset != 4 {
+		t.Fatalf("ScrollView offset = %d, want canonical four-row wheel step", scrollView.ViewOffset)
 	}
+}
+
+func TestVirtualScrollViewBoundsOneMillionLogicalRows(t *testing.T) {
+	const logicalCount = 1_000_000
+	const viewportWidth = 12
+	const viewportHeight = 5
+	const materializedLimit = 20
+	const renderedLimit = 10
+	created := 0
+	reused := 0
+	scrollView := NewScrollView("virtual", 1)
+	scrollView.SetVirtualDataSource(VirtualScrollDataSource{
+		ItemCount: func() int {
+			return logicalCount
+		},
+		ItemKey: func(index int) string {
+			return strconv.Itoa(index)
+		},
+		Materialize: func(index int, recycled Element) Element {
+			label, ok := recycled.(*Label)
+			if ok {
+				reused++
+			} else {
+				label = NewLabel("virtual-row", "")
+				created++
+			}
+			label.SetText(strconv.Itoa(index))
+			label.SetFrame(Rect{Row: 0, Col: 0, Width: viewportWidth, Height: 1})
+			return label
+		},
+		EstimatedHeight: func(int) int {
+			return 1
+		},
+	})
+	viewport := Size{Width: viewportWidth, Height: viewportHeight}
+	_ = scrollView.Render(viewport, ElementRenderState{})
+	top := scrollView.VirtualDiagnostics()
+	if top.LogicalItems != logicalCount {
+		t.Fatalf("logical rows = %d, want %d", top.LogicalItems, logicalCount)
+	}
+	if top.MaterializedRows >= materializedLimit || top.LastRowsConsidered >= materializedLimit {
+		t.Fatalf("top materialization is unbounded: %+v", top)
+	}
+	if top.LastRowsRendered >= renderedLimit || created >= materializedLimit {
+		t.Fatalf("top rendering is unbounded: diagnostics=%+v created=%d", top, created)
+	}
+
+	const middle = logicalCount / 2
+	if !scrollView.ScrollTo(middle) {
+		t.Fatal("virtual ScrollView did not jump to the middle")
+	}
+	rendered := scrollView.Render(viewport, ElementRenderState{})
+	middleDiagnostics := scrollView.VirtualDiagnostics()
+	var firstRow strings.Builder
+	for _, cell := range rendered[0] {
+		firstRow.WriteString(cell.Text)
+	}
+	if !strings.HasPrefix(firstRow.String(), strconv.Itoa(middle)) {
+		t.Fatalf("first visible row = %q, want prefix %d", firstRow.String(), middle)
+	}
+	if middleDiagnostics.MaterializedRows >= materializedLimit ||
+		middleDiagnostics.LastRowsConsidered >= materializedLimit {
+		t.Fatalf("middle materialization is unbounded: %+v", middleDiagnostics)
+	}
+	if reused == 0 {
+		t.Fatal("virtual ScrollView did not recycle rows after a distant jump")
+	}
+}
+
+func TestVirtualScrollViewTargetedReplaceUpdatesVariableHeight(t *testing.T) {
+	const rowCount = 3
+	const viewportWidth = 8
+	heights := []int{1, 1, 1}
+	scrollView := NewScrollView("variable-virtual", 0)
+	scrollView.SetVirtualDataSource(VirtualScrollDataSource{
+		ItemCount: func() int {
+			return rowCount
+		},
+		ItemKey: func(index int) string {
+			return strconv.Itoa(index)
+		},
+		Materialize: func(index int, recycled Element) Element {
+			label, ok := recycled.(*Label)
+			if !ok {
+				label = NewLabel("variable-virtual-row", "")
+			}
+			label.SetText(strconv.Itoa(index))
+			label.SetFrame(Rect{Row: 0, Col: 0, Width: viewportWidth, Height: heights[index]})
+			return label
+		},
+		EstimatedHeight: func(int) int {
+			return 1
+		},
+	})
+	viewport := Size{Width: viewportWidth, Height: rowCount}
+	_ = scrollView.Render(viewport, ElementRenderState{})
+	if scrollView.contentHeight() != rowCount {
+		t.Fatalf("baseline height = %d, want %d", scrollView.contentHeight(), rowCount)
+	}
+	const changedIndex = 1
+	const changedHeight = 2
+	heights[changedIndex] = changedHeight
+	scrollView.VirtualItemsReplaced(changedIndex, 1)
+	_ = scrollView.Render(viewport, ElementRenderState{})
+	want := rowCount + changedHeight - 1
+	if scrollView.contentHeight() != want {
+		t.Fatalf("height after targeted replace = %d, want %d", scrollView.contentHeight(), want)
+	}
+}
+
+func TestVirtualScrollViewStableKeyPreservesStateAndRekeyClearsIt(t *testing.T) {
+	key := "stable"
+	observedSelections := []string{}
+	scrollView := NewScrollView("stable-virtual", 0)
+	scrollView.SetVirtualDataSource(VirtualScrollDataSource{
+		ItemCount: func() int { return 1 },
+		ItemKey:   func(int) string { return key },
+		Materialize: func(_ int, recycled Element) Element {
+			if input, ok := recycled.(*TextInput); ok {
+				observedSelections = append(observedSelections, input.SelectionText())
+				return input
+			}
+			return NewTextInput("stable-virtual-row", "selected", 0)
+		},
+		EstimatedHeight: func(int) int { return 1 },
+	})
+	viewport := Size{Width: 8, Height: 1}
+	_ = scrollView.Render(viewport, ElementRenderState{})
+	selected := scrollView.virtualMaterialized[0].element.(*TextInput)
+	selected.SetSelection(0, 3)
+	scrollView.VirtualItemsReplaced(0, 1)
+	_ = scrollView.Render(viewport, ElementRenderState{})
+	replaced := scrollView.virtualMaterialized[0].element.(*TextInput)
+	if selected != replaced {
+		t.Fatal("same-key virtual replacement discarded row identity")
+	}
+	if got := observedSelections[len(observedSelections)-1]; got != "sel" {
+		t.Fatalf("same-key materializer selection = %q, want sel", got)
+	}
+	if got := replaced.SelectionText(); got != "sel" {
+		t.Fatalf("same-key replacement selection = %q, want sel", got)
+	}
+	key = "replacement"
+	scrollView.VirtualItemsReplaced(0, 1)
+	_ = scrollView.Render(viewport, ElementRenderState{})
+	rekeyed := scrollView.virtualMaterialized[0].element.(*TextInput)
+	if got := observedSelections[len(observedSelections)-1]; got != "" {
+		t.Fatalf("rekeyed materializer received stale selection %q", got)
+	}
+	if got := rekeyed.SelectionText(); got != "" {
+		t.Fatalf("rekeyed row retained stale selection %q", got)
+	}
+}
+
+func TestVirtualScrollViewMutationsPreserveVisibleAnchor(t *testing.T) {
+	const anchorIndex = 20
+	const viewportWidth = 8
+	values := make([]string, 40)
+	for index := range values {
+		values[index] = fmt.Sprintf("row-%d", index)
+	}
+	scrollView := NewScrollView("anchor-virtual", 0)
+	scrollView.SetFrame(Rect{Width: viewportWidth, Height: 3})
+	scrollView.SetVirtualDataSource(VirtualScrollDataSource{
+		ItemCount: func() int { return len(values) },
+		ItemKey:   func(index int) string { return values[index] },
+		Materialize: func(index int, recycled Element) Element {
+			label, ok := recycled.(*Label)
+			if !ok {
+				label = NewLabel("anchor-virtual-row", "")
+			}
+			label.SetText(values[index])
+			label.SetFrame(Rect{Width: viewportWidth, Height: 1})
+			return label
+		},
+		EstimatedHeight: func(int) int { return 1 },
+	})
+	viewport := Size{Width: viewportWidth, Height: 3}
+	_ = scrollView.Render(viewport, ElementRenderState{})
+	if !scrollView.ScrollTo(anchorIndex) {
+		t.Fatal("virtual ScrollView did not select its anchor")
+	}
+	if got := renderedRowText(scrollView.Render(viewport, ElementRenderState{}), 0); !strings.HasPrefix(got, values[anchorIndex]) {
+		t.Fatalf("initial visible anchor = %q, want %q", got, values[anchorIndex])
+	}
+
+	values = append([]string{"inserted"}, values...)
+	scrollView.VirtualItemsInserted(0, 1)
+	if got := renderedRowText(scrollView.Render(viewport, ElementRenderState{}), 0); !strings.HasPrefix(got, "row-20") {
+		t.Fatalf("visible anchor after insertion = %q, want row-20", got)
+	}
+
+	values = append(values[:anchorIndex+1], values[anchorIndex+2:]...)
+	scrollView.VirtualItemsRemoved(anchorIndex+1, 1)
+	if got := renderedRowText(scrollView.Render(viewport, ElementRenderState{}), 0); !strings.HasPrefix(got, "row-21") {
+		t.Fatalf("visible anchor after removal = %q, want row-21", got)
+	}
+
+	previousCount := len(values)
+	values = nil
+	scrollView.VirtualItemsRemoved(0, previousCount)
+	if diagnostics := scrollView.VirtualDiagnostics(); diagnostics.LogicalItems != 0 || diagnostics.MaterializedRows != 0 {
+		t.Fatalf("full removal retained virtual rows: %+v", diagnostics)
+	}
+
+	const gapAnchorRowHeight = 2
+	const gapAnchorGap = 1
+	gapAnchor := NewScrollView("gap-anchor-virtual", gapAnchorGap)
+	gapAnchor.SetFrame(Rect{Width: viewportWidth, Height: 3})
+	gapAnchor.SetVirtualDataSource(VirtualScrollDataSource{
+		ItemCount: func() int { return 4 },
+		ItemKey:   func(index int) string { return strconv.Itoa(index) },
+		Materialize: func(index int, recycled Element) Element {
+			label, ok := recycled.(*Label)
+			if !ok {
+				label = NewLabel("gap-anchor-row", "")
+			}
+			label.SetText(fmt.Sprintf("gap-%d", index))
+			label.SetFrame(Rect{Width: viewportWidth, Height: gapAnchorRowHeight})
+			return label
+		},
+		EstimatedHeight: func(int) int { return gapAnchorRowHeight },
+	})
+	gapViewport := Size{Width: viewportWidth, Height: 3}
+	_ = gapAnchor.Render(gapViewport, ElementRenderState{})
+	gapAnchor.ScrollToTop()
+	if !gapAnchor.ScrollBy(gapAnchorRowHeight) {
+		t.Fatal("virtual ScrollView could not enter the first gap")
+	}
+	beforeWidthChange := gapAnchor.Render(gapViewport, ElementRenderState{})
+	if got := renderedRowText(beforeWidthChange, 1); !strings.HasPrefix(got, "gap-1") {
+		t.Fatalf("visible row inside gap = %q, want gap-1 on row 1", got)
+	}
+
+	gapAnchor.SetFrame(Rect{Width: viewportWidth + 1, Height: 3})
+	afterWidthChange := gapAnchor.Render(Size{Width: viewportWidth + 1, Height: 3}, ElementRenderState{})
+	if got := renderedRowText(afterWidthChange, 1); !strings.HasPrefix(got, "gap-1") {
+		t.Fatalf("visible row after width rebuild = %q, want gap-1 on row 1", got)
+	}
+}
+
+func TestVirtualScrollViewRangeHeightInvalidationPreservesOtherMeasurements(t *testing.T) {
+	const viewportWidth = 8
+	heights := []int{2, 3, 4}
+	scrollView := NewScrollView("height-virtual", 0)
+	scrollView.SetFrame(Rect{Width: viewportWidth, Height: 2})
+	scrollView.SetVirtualDataSource(VirtualScrollDataSource{
+		ItemCount: func() int { return len(heights) },
+		ItemKey:   func(index int) string { return strconv.Itoa(index) },
+		Materialize: func(index int, recycled Element) Element {
+			label, ok := recycled.(*Label)
+			if !ok {
+				label = NewLabel("height-virtual-row", "")
+			}
+			label.SetText(strconv.Itoa(index))
+			label.SetFrame(Rect{Width: viewportWidth, Height: heights[index]})
+			return label
+		},
+		EstimatedHeight: func(int) int { return 1 },
+	})
+	viewport := Size{Width: viewportWidth, Height: 2}
+	for index := range heights {
+		_ = scrollView.ScrollTo(index)
+		_ = scrollView.Render(viewport, ElementRenderState{})
+	}
+	if got := scrollView.contentHeight(); got != 9 {
+		t.Fatalf("measured height = %d, want 9", got)
+	}
+
+	scrollView.InvalidateVirtualHeightRange(1, 1)
+
+	if got := scrollView.contentHeight(); got != 7 {
+		t.Fatalf("height after range invalidation = %d, want 7", got)
+	}
+}
+
+func renderedRowText(buffer [][]TerminalCell, row int) string {
+	var text strings.Builder
+	for _, cell := range buffer[row] {
+		text.WriteString(cell.Text)
+	}
+	return text.String()
 }
 
 func TestDirectMouseWheelScrollsTextAreaBeforeContainingScrollView(t *testing.T) {

@@ -2861,6 +2861,165 @@ open class ListBox: ComboBox
     }
 }
 
+public struct VirtualScrollDataSource
+{
+    public let itemCount: () -> Int
+    public let itemKey: (Int) -> AnyHashable
+    public let materialize: (Int, UIElement?) -> UIElement
+    public let estimatedHeight: ((Int) -> Int)?
+
+    public init(
+        itemCount: @escaping () -> Int,
+        itemKey: @escaping (Int) -> AnyHashable,
+        materialize: @escaping (Int, UIElement?) -> UIElement,
+        estimatedHeight: ((Int) -> Int)? = nil
+    )
+    {
+        self.itemCount = itemCount
+        self.itemKey = itemKey
+        self.materialize = materialize
+        self.estimatedHeight = estimatedHeight
+    }
+}
+
+public struct VirtualScrollDiagnostics
+{
+    public let logicalItems: Int
+    public let materializedRows: Int
+    public let recycledRows: Int
+    public let lastRowsMeasured: Int
+    public let lastRowsConsidered: Int
+    public let lastRowsRendered: Int
+}
+
+private final class VirtualScrollHeightIndex
+{
+    let count: Int
+    let estimatedHeight: Int
+    let gap: Int
+    private var tree: [Int: Int] = [:]
+
+    init(count: Int, estimatedHeight: Int, gap: Int)
+    {
+        self.count = max(0, count)
+        self.estimatedHeight = max(1, estimatedHeight)
+        self.gap = max(0, gap)
+    }
+
+    var unitHeight: Int
+    {
+        estimatedHeight + gap
+    }
+
+    func extentBefore(_ index: Int) -> Int
+    {
+        let end = clamped(index, lower: 0, upper: count)
+        return end * unitHeight + deltaPrefix(end)
+    }
+
+    func contentHeight() -> Int
+    {
+        count == 0 ? 0 : max(0, extentBefore(count) - gap)
+    }
+
+    func itemHeight(_ index: Int) -> Int
+    {
+        precondition(index >= 0 && index < count, "virtual ScrollView item index out of range")
+        let delta = deltaPrefix(index + 1) - deltaPrefix(index)
+        return max(1, estimatedHeight + delta)
+    }
+
+    @discardableResult
+    func setItemHeight(_ index: Int, _ height: Int) -> Bool
+    {
+        let nextHeight = max(1, height)
+        let previousDelta = itemHeight(index) - estimatedHeight
+        let nextDelta = nextHeight - estimatedHeight
+        let change = nextDelta - previousDelta
+        var treeIndex = index + 1
+        while change != 0 && treeIndex <= count
+        {
+            let nextValue = (tree[treeIndex] ?? 0) + change
+            if nextValue == 0
+            {
+                tree.removeValue(forKey: treeIndex)
+            }
+            else
+            {
+                tree[treeIndex] = nextValue
+            }
+            treeIndex += treeIndex & -treeIndex
+        }
+        return change != 0
+    }
+
+    @discardableResult
+    func resetItemHeight(_ index: Int) -> Bool
+    {
+        setItemHeight(index, estimatedHeight)
+    }
+
+    func indexAtOffset(_ offset: Int) -> Int
+    {
+        guard count > 0 else
+        {
+            return 0
+        }
+        let target = clamped(offset, lower: 0, upper: contentHeight())
+        var index = 0
+        var prefix = 0
+        var bit = 1
+        while bit <= count / 2
+        {
+            bit <<= 1
+        }
+        while bit > 0
+        {
+            let candidate = index + bit
+            if candidate <= count
+            {
+                let nodeWidth = candidate & -candidate
+                let nodeExtent = nodeWidth * unitHeight + (tree[candidate] ?? 0)
+                if prefix + nodeExtent <= target
+                {
+                    index = candidate
+                    prefix += nodeExtent
+                }
+            }
+            bit >>= 1
+        }
+        return min(index, count - 1)
+    }
+
+    private func deltaPrefix(_ end: Int) -> Int
+    {
+        var total = 0
+        var index = clamped(end, lower: 0, upper: count)
+        while index > 0
+        {
+            total += tree[index] ?? 0
+            index -= index & -index
+        }
+        return total
+    }
+}
+
+private struct VirtualScrollMaterializedRow
+{
+    var key: AnyHashable
+    var child: UIElement
+}
+
+private struct VirtualScrollAnchor
+{
+    var index: Int
+    var within: Int
+    let viewportHeight: Int
+}
+
+private let kVirtualScrollOverscanViewports = 1
+private let kVirtualScrollLayoutStabilizationPasses = 2
+
 open class ScrollView: UIElement
 {
     public var gap: Int
@@ -2884,6 +3043,15 @@ open class ScrollView: UIElement
     private var viewOffset = 0
     private var autoScroll = false
     private var lastNaturalSkip = 0
+    private var virtualDataSource: VirtualScrollDataSource?
+    private var virtualHeightIndex: VirtualScrollHeightIndex?
+    private var virtualHeightWidth: Int?
+    private var virtualMaterialized: [Int: VirtualScrollMaterializedRow] = [:]
+    private var virtualRecyclePool: [UIElement] = []
+    private weak var virtualPinnedElement: UIElement?
+    private var virtualLastRowsMeasured = 0
+    private var virtualLastRowsConsidered = 0
+    private var virtualLastRowsRendered = 0
 
     public init(_ name: String, _ gap: Int = 0)
     {
@@ -2910,8 +3078,526 @@ open class ScrollView: UIElement
         }
     }
 
+    public func setVirtualDataSource(_ dataSource: VirtualScrollDataSource)
+    {
+        let count = dataSource.itemCount()
+        precondition(count >= 0, "virtual ScrollView item count must not be negative")
+        if let estimatedHeight = dataSource.estimatedHeight
+        {
+            precondition(estimatedHeight(max(1, frame.width)) > 0, "virtual ScrollView estimated height must be positive")
+        }
+        renderedChildren.removeAll()
+        dynamicChildrenRenderer = nil
+        dynamicChildrenWidth = nil
+        clearChildElements()
+        virtualMaterialized.removeAll()
+        virtualRecyclePool.removeAll()
+        virtualDataSource = dataSource
+        virtualHeightIndex = nil
+        virtualHeightWidth = nil
+        virtualPinnedElement = nil
+        scrollOffset = 0
+        viewOffset = 0
+        lastNaturalSkip = 0
+        invalidateHeightCache()
+    }
+
+    public func clearVirtualDataSource()
+    {
+        guard virtualDataSource != nil else
+        {
+            return
+        }
+        clearChildElements()
+        virtualMaterialized.removeAll()
+        virtualRecyclePool.removeAll()
+        virtualDataSource = nil
+        virtualHeightIndex = nil
+        virtualHeightWidth = nil
+        virtualPinnedElement = nil
+        scrollOffset = 0
+        viewOffset = 0
+        lastNaturalSkip = 0
+        invalidateHeightCache()
+    }
+
+    public func virtualItemsInserted(at index: Int, count: Int = 1)
+    {
+        guard virtualDataSource != nil, count > 0 else
+        {
+            return
+        }
+        let first = max(0, index)
+        var anchor = captureVirtualAnchor()
+        var shifted: [Int: VirtualScrollMaterializedRow] = [:]
+        for (oldIndex, row) in virtualMaterialized
+        {
+            shifted[oldIndex >= first ? oldIndex + count : oldIndex] = row
+        }
+        virtualMaterialized = shifted
+        syncVirtualChildren()
+        rebuildVirtualHeightIndex()
+        if var value = anchor, first <= value.index
+        {
+            value.index += count
+            anchor = value
+        }
+        restoreVirtualAnchor(anchor)
+    }
+
+    public func virtualItemsRemoved(at index: Int, count: Int = 1)
+    {
+        guard virtualDataSource != nil, count > 0 else
+        {
+            return
+        }
+        let first = max(0, index)
+        let end = first + count
+        var anchor = captureVirtualAnchor()
+        var shifted: [Int: VirtualScrollMaterializedRow] = [:]
+        for (oldIndex, row) in Array(virtualMaterialized)
+        {
+            if oldIndex >= first && oldIndex < end
+            {
+                recycleVirtualChild(row.child)
+            }
+            else
+            {
+                shifted[oldIndex >= end ? oldIndex - count : oldIndex] = row
+            }
+        }
+        virtualMaterialized = shifted
+        syncVirtualChildren()
+        rebuildVirtualHeightIndex()
+        if var value = anchor
+        {
+            if value.index >= end
+            {
+                value.index -= count
+            }
+            else if value.index >= first
+            {
+                value.index = min(first, max(0, virtualCount() - 1))
+                value.within = 0
+            }
+            anchor = value
+        }
+        restoreVirtualAnchor(anchor)
+    }
+
+    public func virtualItemsReplaced(at index: Int, count: Int = 1)
+    {
+        guard virtualDataSource != nil, count > 0 else
+        {
+            return
+        }
+        let first = max(0, index)
+        let end = min(virtualCount(), first + count)
+        let anchor = captureVirtualAnchor()
+        for itemIndex in first..<end
+        {
+            if let row = virtualMaterialized[itemIndex], let virtualDataSource
+            {
+                let key = virtualDataSource.itemKey(itemIndex)
+                if key == row.key
+                {
+                    let refreshed = virtualDataSource.materialize(itemIndex, row.child)
+                    if refreshed !== row.child
+                    {
+                        recycleVirtualChild(row.child)
+                    }
+                    virtualMaterialized[itemIndex] = VirtualScrollMaterializedRow(
+                        key: key,
+                        child: refreshed
+                    )
+                }
+                else
+                {
+                    virtualMaterialized.removeValue(forKey: itemIndex)
+                    recycleVirtualChild(row.child)
+                }
+            }
+            if let virtualHeightIndex, itemIndex < virtualHeightIndex.count
+            {
+                virtualHeightIndex.resetItemHeight(itemIndex)
+            }
+        }
+        syncVirtualChildren()
+        restoreVirtualAnchor(anchor)
+    }
+
+    public func invalidateVirtualHeights()
+    {
+        let anchor = captureVirtualAnchor()
+        rebuildVirtualHeightIndex()
+        restoreVirtualAnchor(anchor)
+    }
+
+    public func invalidateVirtualHeights(at index: Int, count: Int)
+    {
+        guard let virtualHeightIndex, count > 0 else
+        {
+            return
+        }
+        let anchor = captureVirtualAnchor()
+        let first = clamped(index, lower: 0, upper: virtualHeightIndex.count)
+        let end = clamped(first + count, lower: first, upper: virtualHeightIndex.count)
+        for itemIndex in first..<end
+        {
+            virtualHeightIndex.resetItemHeight(itemIndex)
+        }
+        restoreVirtualAnchor(anchor)
+    }
+
+    public func virtualDiagnostics() -> VirtualScrollDiagnostics
+    {
+        VirtualScrollDiagnostics(
+            logicalItems: virtualCount(),
+            materializedRows: virtualMaterialized.count,
+            recycledRows: virtualRecyclePool.count,
+            lastRowsMeasured: virtualLastRowsMeasured,
+            lastRowsConsidered: virtualLastRowsConsidered,
+            lastRowsRendered: virtualLastRowsRendered
+        )
+    }
+
+    fileprivate func setVirtualPinnedElement(_ element: UIElement?)
+    {
+        virtualPinnedElement = element
+    }
+
+    private func virtualCount() -> Int
+    {
+        guard let virtualDataSource else
+        {
+            return 0
+        }
+        let count = virtualDataSource.itemCount()
+        precondition(count >= 0, "virtual ScrollView item count must not be negative")
+        return count
+    }
+
+    private func virtualEstimateForWidth(_ width: Int) -> Int?
+    {
+        guard let virtualDataSource else
+        {
+            return nil
+        }
+        if let estimatedHeight = virtualDataSource.estimatedHeight
+        {
+            let value = estimatedHeight(max(1, width))
+            precondition(value > 0, "virtual ScrollView estimated height must be positive")
+            return value
+        }
+        guard virtualCount() > 0 else
+        {
+            return nil
+        }
+        return nativeChildHeight(materializeVirtualChild(0), width: width)
+    }
+
+    private func captureVirtualAnchor(viewportHeight: Int? = nil) -> VirtualScrollAnchor?
+    {
+        guard let virtualHeightIndex, virtualHeightIndex.count > 0 else
+        {
+            return nil
+        }
+        let height = max(
+            1,
+            viewportHeight ?? max(1, virtualHeightIndex.contentHeight() - lastNaturalSkip)
+        )
+        let naturalSkip = max(0, virtualHeightIndex.contentHeight() - height)
+        let actualSkip = naturalSkip - min(viewOffset, naturalSkip)
+        let itemIndex = virtualHeightIndex.indexAtOffset(actualSkip)
+        return VirtualScrollAnchor(
+            index: itemIndex,
+            within: actualSkip - virtualHeightIndex.extentBefore(itemIndex),
+            viewportHeight: height
+        )
+    }
+
+    private func restoreVirtualAnchor(_ anchor: VirtualScrollAnchor?)
+    {
+        if autoScroll
+        {
+            viewOffset = 0
+            return
+        }
+        guard let anchor, let virtualHeightIndex, virtualHeightIndex.count > 0 else
+        {
+            viewOffset = 0
+            lastNaturalSkip = 0
+            return
+        }
+        let itemIndex = clamped(anchor.index, lower: 0, upper: virtualHeightIndex.count - 1)
+        let anchorSpan = virtualHeightIndex.itemHeight(itemIndex)
+            + (itemIndex + 1 < virtualHeightIndex.count ? virtualHeightIndex.gap : 0)
+        let within = clamped(
+            anchor.within,
+            lower: 0,
+            upper: anchorSpan - 1
+        )
+        let naturalSkip = max(
+            0,
+            virtualHeightIndex.contentHeight() - max(1, anchor.viewportHeight)
+        )
+        let actualSkip = clamped(
+            virtualHeightIndex.extentBefore(itemIndex) + within,
+            lower: 0,
+            upper: naturalSkip
+        )
+        viewOffset = naturalSkip - actualSkip
+        lastNaturalSkip = naturalSkip
+    }
+
+    private func rebuildVirtualHeightIndex(_ width: Int? = nil)
+    {
+        guard virtualDataSource != nil else
+        {
+            virtualHeightIndex = nil
+            virtualHeightWidth = nil
+            return
+        }
+        guard let resolvedWidth = width ?? virtualHeightWidth else
+        {
+            virtualHeightIndex = nil
+            return
+        }
+        let renderWidth = max(1, resolvedWidth)
+        let count = virtualCount()
+        guard count > 0, let estimate = virtualEstimateForWidth(renderWidth) else
+        {
+            virtualHeightIndex = nil
+            virtualHeightWidth = renderWidth
+            return
+        }
+        let index = VirtualScrollHeightIndex(count: count, estimatedHeight: estimate, gap: gap)
+        virtualHeightIndex = index
+        virtualHeightWidth = renderWidth
+        for (itemIndex, row) in virtualMaterialized.sorted(by: { $0.key < $1.key }) where itemIndex < count
+        {
+            index.setItemHeight(itemIndex, nativeChildHeight(row.child, width: renderWidth))
+        }
+    }
+
+    private func ensureVirtualHeightIndex(viewport: Rect) -> VirtualScrollHeightIndex?
+    {
+        let count = virtualCount()
+        let width = max(1, viewport.width)
+        if virtualHeightIndex == nil || virtualHeightWidth != width ||
+            virtualHeightIndex?.count != count || virtualHeightIndex?.gap != gap
+        {
+            let anchor = captureVirtualAnchor(viewportHeight: viewport.height)
+            rebuildVirtualHeightIndex(width)
+            restoreVirtualAnchor(anchor)
+        }
+        return virtualHeightIndex
+    }
+
+    private func materializeVirtualChild(_ index: Int) -> UIElement
+    {
+        guard let virtualDataSource else
+        {
+            preconditionFailure("virtual ScrollView data source is not configured")
+        }
+        let key = virtualDataSource.itemKey(index)
+        if let current = virtualMaterialized[index], current.key == key
+        {
+            return current.child
+        }
+        if let current = virtualMaterialized.removeValue(forKey: index)
+        {
+            recycleVirtualChild(current.child)
+        }
+        let recycled = virtualRecyclePool.popLast()
+        if let recycled
+        {
+            resetVirtualChildForReuse(recycled)
+        }
+        let child = virtualDataSource.materialize(index, recycled)
+        virtualMaterialized[index] = VirtualScrollMaterializedRow(key: key, child: child)
+        return child
+    }
+
+    private func recycleVirtualChild(_ child: UIElement)
+    {
+        resetVirtualChildForReuse(child)
+        virtualRecyclePool.append(child)
+    }
+
+    private func syncVirtualChildren()
+    {
+        children = virtualMaterialized.sorted(by: { $0.key < $1.key }).map(\.value.child)
+    }
+
+    private func resetVirtualChildForReuse(_ child: UIElement)
+    {
+        if let textInput = child as? TextInput
+        {
+            textInput.clearSelection()
+        }
+        if let reusable = child as? ReusableElement
+        {
+            reusable.activeFocusedName = nil
+            reusable.activeEditedName = nil
+            reusable.activeEditMode = false
+            reusable.activeScrollView = nil
+            reusable.activeScrollViewEditElement = nil
+            reusable.lastFocusedChildId = nil
+            if let generated = reusable.child
+            {
+                generated.activeEditFocusName = nil
+                for element in generated.elements
+                {
+                    resetVirtualChildForReuse(element)
+                }
+            }
+        }
+        for nested in child.children
+        {
+            resetVirtualChildForReuse(nested)
+        }
+    }
+
+    private func virtualChildIsPinned(_ child: UIElement) -> Bool
+    {
+        guard let virtualPinnedElement else
+        {
+            return false
+        }
+        return child === virtualPinnedElement || elementTreeContains(child, virtualPinnedElement)
+    }
+
+    private func refreshVirtualMaterialization(viewport: Rect) -> [ScrollViewChildView]
+    {
+        guard let heightIndex = ensureVirtualHeightIndex(viewport: viewport) else
+        {
+            for row in virtualMaterialized.values
+            {
+                recycleVirtualChild(row.child)
+            }
+            virtualMaterialized.removeAll()
+            children.removeAll()
+            virtualLastRowsMeasured = 0
+            virtualLastRowsConsidered = 0
+            return []
+        }
+        let count = virtualCount()
+        guard count > 0 else
+        {
+            return []
+        }
+        virtualLastRowsMeasured = 0
+        virtualLastRowsConsidered = 0
+        let viewportHeight = max(1, viewport.height)
+        var naturalSkip = max(0, heightIndex.contentHeight() - viewportHeight)
+        syncViewOffsetForNaturalSkip(naturalSkip)
+        lastNaturalSkip = naturalSkip
+        var actualSkip = naturalSkip - min(viewOffset, naturalSkip)
+        let anchorIndex = heightIndex.indexAtOffset(actualSkip)
+        let anchorWithin = actualSkip - heightIndex.extentBefore(anchorIndex)
+        var required = Set<Int>()
+
+        for pass in 0..<kVirtualScrollLayoutStabilizationPasses
+        {
+            let overscan = viewportHeight * kVirtualScrollOverscanViewports
+            let rangeStart = max(0, actualSkip - overscan)
+            let rangeEnd = min(heightIndex.contentHeight(), actualSkip + viewportHeight + overscan)
+            let first = heightIndex.indexAtOffset(rangeStart)
+            if pass == 0
+            {
+                let coarseLast = heightIndex.indexAtOffset(rangeEnd)
+                for (oldIndex, row) in Array(virtualMaterialized)
+                    where (oldIndex < first || oldIndex > coarseLast) && !virtualChildIsPinned(row.child)
+                {
+                    virtualMaterialized.removeValue(forKey: oldIndex)
+                    recycleVirtualChild(row.child)
+                }
+            }
+            var itemIndex = first
+            var rowOffset = heightIndex.extentBefore(first)
+            var passRequired = Set<Int>()
+            var passHasEntries = false
+            while itemIndex < count && (rowOffset < rangeEnd || !passHasEntries)
+            {
+                virtualLastRowsConsidered += 1
+                let child = materializeVirtualChild(itemIndex)
+                let measured = nativeChildHeight(child, width: viewport.width)
+                virtualLastRowsMeasured += 1
+                heightIndex.setItemHeight(itemIndex, measured)
+                passRequired.insert(itemIndex)
+                passHasEntries = true
+                rowOffset += heightIndex.itemHeight(itemIndex) + heightIndex.gap
+                itemIndex += 1
+            }
+            required.formUnion(passRequired)
+            if autoScroll
+            {
+                viewOffset = 0
+            }
+            else
+            {
+                let refinedNatural = max(0, heightIndex.contentHeight() - viewportHeight)
+                let refinedSkip = clamped(
+                    heightIndex.extentBefore(anchorIndex) + anchorWithin,
+                    lower: 0,
+                    upper: refinedNatural
+                )
+                viewOffset = refinedNatural - refinedSkip
+            }
+            let nextNatural = max(0, heightIndex.contentHeight() - viewportHeight)
+            let nextActual = nextNatural - min(viewOffset, nextNatural)
+            naturalSkip = nextNatural
+            if nextActual == actualSkip
+            {
+                actualSkip = nextActual
+                break
+            }
+            actualSkip = nextActual
+        }
+
+        for (itemIndex, row) in virtualMaterialized where virtualChildIsPinned(row.child)
+        {
+            required.insert(itemIndex)
+        }
+        for (itemIndex, row) in Array(virtualMaterialized) where !required.contains(itemIndex)
+        {
+            virtualMaterialized.removeValue(forKey: itemIndex)
+            recycleVirtualChild(row.child)
+        }
+        let recycleLimit = required.count
+        if virtualRecyclePool.count > recycleLimit
+        {
+            virtualRecyclePool.removeFirst(virtualRecyclePool.count - recycleLimit)
+        }
+        syncVirtualChildren()
+        lastNaturalSkip = naturalSkip
+
+        let viewportTop = viewport.row
+        let viewportBottom = viewportTop + viewportHeight
+        return virtualMaterialized.sorted(by: { $0.key < $1.key }).map
+        {
+            itemIndex, row in
+            let childHeight = heightIndex.itemHeight(itemIndex)
+            let childRow = viewportTop + heightIndex.extentBefore(itemIndex) - actualSkip
+            let childBottom = childRow + childHeight
+            let visible = childBottom > viewportTop && childRow < viewportBottom
+            return ScrollViewChildView(
+                element: row.child,
+                frame: Rect(row: childRow, col: viewport.col, width: viewport.width, height: childHeight),
+                visible: visible,
+                index: itemIndex,
+                clipped: visible && (childRow < viewportTop || childBottom > viewportBottom)
+            )
+        }
+    }
+
     public func addChild(_ child: [[TerminalCell]])
     {
+        if virtualDataSource != nil
+        {
+            clearVirtualDataSource()
+        }
         renderedChildren.append(child)
         dynamicChildrenWidth = nil
         invalidateHeightCache()
@@ -2924,6 +3610,10 @@ open class ScrollView: UIElement
     @discardableResult
     open override func addChild<T: UIElement>(_ child: T) -> T
     {
+        if virtualDataSource != nil
+        {
+            clearVirtualDataSource()
+        }
         let added = super.addChild(child)
         dynamicChildrenWidth = nil
         invalidateHeightCache()
@@ -2936,6 +3626,11 @@ open class ScrollView: UIElement
 
     public func clearChildren()
     {
+        if virtualDataSource != nil
+        {
+            clearVirtualDataSource()
+            return
+        }
         renderedChildren.removeAll()
         clearChildElements()
         dynamicChildrenWidth = nil
@@ -2980,7 +3675,7 @@ open class ScrollView: UIElement
     public func restoreScrollPosition(_ position: ScrollViewPosition)
     {
         _ = currentChildren(width: max(1, frame.width))
-        let total = renderedChildren.count + children.count
+        let total = virtualDataSource == nil ? renderedChildren.count + children.count : virtualCount()
         scrollOffset = clamped(position.scrollOffset, lower: 0, upper: max(0, total - 1))
         viewOffset = max(0, position.viewOffset)
         autoScroll = position.autoScroll
@@ -3001,6 +3696,11 @@ open class ScrollView: UIElement
     public func contentHeight(width: Int? = nil) -> Int
     {
         let renderWidth = max(1, width ?? frame.width)
+        if virtualDataSource != nil
+        {
+            let viewport = Rect(row: 0, col: 0, width: renderWidth, height: max(1, frame.height))
+            return ensureVirtualHeightIndex(viewport: viewport)?.contentHeight() ?? 0
+        }
         ensureHeightCache(width: renderWidth)
         let heights = cachedChildHeights ?? []
         let startIndex = min(max(0, scrollOffset), heights.count)
@@ -3067,6 +3767,30 @@ open class ScrollView: UIElement
     public func scrollTo(_ index: Int, viewport: Size) -> Bool
     {
         let scrollViewport = scrollViewportSize(for: viewport)
+        if virtualDataSource != nil
+        {
+            let count = virtualCount()
+            guard count > 0,
+                  let heightIndex = ensureVirtualHeightIndex(
+                    viewport: Rect(row: 0, col: 0, width: scrollViewport.width, height: scrollViewport.height)
+                  )
+            else
+            {
+                let changed = scrollOffset != 0 || viewOffset != 0
+                scrollOffset = 0
+                viewOffset = 0
+                return changed
+            }
+            let targetIndex = clamped(index, lower: 0, upper: count - 1)
+            let naturalSkip = max(0, heightIndex.contentHeight() - scrollViewport.height)
+            let targetSkip = min(naturalSkip, heightIndex.extentBefore(targetIndex))
+            let previous = viewOffset
+            scrollOffset = 0
+            lastNaturalSkip = naturalSkip
+            viewOffset = naturalSkip - targetSkip
+            autoScroll = viewOffset == 0
+            return viewOffset != previous
+        }
         let total = currentChildren(width: scrollViewport.width).count + children.count
         guard total > 0 else
         {
@@ -3088,7 +3812,18 @@ open class ScrollView: UIElement
     @discardableResult
     public func scrollBy(_ delta: Int, viewport: Size) -> Bool
     {
-        scrollTo(scrollOffset + delta, viewport: viewport)
+        if virtualDataSource != nil
+        {
+            let scrollViewport = generatedScrollViewport(size: viewport, style: style)
+            guard let heightIndex = ensureVirtualHeightIndex(viewport: scrollViewport) else
+            {
+                return false
+            }
+            let naturalSkip = max(0, heightIndex.contentHeight() - max(1, scrollViewport.height))
+            let actualSkip = naturalSkip - min(viewOffset, naturalSkip)
+            return scrollTo(heightIndex.indexAtOffset(actualSkip) + delta, viewport: viewport)
+        }
+        return scrollTo(scrollOffset + delta, viewport: viewport)
     }
 
     @discardableResult
@@ -3197,6 +3932,40 @@ open class ScrollView: UIElement
     {
         let scrollViewport = generatedScrollViewport(size: viewport, style: style)
         let renderWidth = max(1, scrollViewport.width)
+        if virtualDataSource != nil
+        {
+            guard let itemIndex = virtualMaterialized.first(where:
+            {
+                $0.value.child === child || elementTreeContains($0.value.child, child)
+            })?.key,
+            let heightIndex = ensureVirtualHeightIndex(viewport: scrollViewport)
+            else
+            {
+                return false
+            }
+            let targetTop = heightIndex.extentBefore(itemIndex)
+            let targetBottom = targetTop + heightIndex.itemHeight(itemIndex)
+            let naturalSkip = max(0, heightIndex.contentHeight() - max(1, scrollViewport.height))
+            let currentActualSkip = naturalSkip - min(viewOffset, naturalSkip)
+            var nextActualSkip = currentActualSkip
+            if targetTop < currentActualSkip
+            {
+                nextActualSkip = targetTop
+            }
+            else if targetBottom > currentActualSkip + max(1, scrollViewport.height)
+            {
+                nextActualSkip = targetBottom - max(1, scrollViewport.height)
+            }
+            nextActualSkip = clamped(nextActualSkip, lower: 0, upper: naturalSkip)
+            let nextViewOffset = naturalSkip - nextActualSkip
+            guard nextViewOffset != viewOffset else
+            {
+                return false
+            }
+            viewOffset = nextViewOffset
+            autoScroll = viewOffset == 0
+            return true
+        }
         let rendered = currentChildren(width: renderWidth)
         ensureHeightCache(width: renderWidth)
         let heights = cachedChildHeights ?? []
@@ -3261,6 +4030,10 @@ open class ScrollView: UIElement
     public func childViews(size: Size) -> [ScrollViewChildView]
     {
         let viewport = generatedScrollViewport(size: size, style: style)
+        if virtualDataSource != nil
+        {
+            return refreshVirtualMaterialization(viewport: viewport)
+        }
         let renderWidth = max(1, viewport.width)
         let rendered = currentChildren(width: renderWidth)
         ensureHeightCache(width: renderWidth)
@@ -3326,6 +4099,26 @@ open class ScrollView: UIElement
         let fillCell = TerminalCell(" ", foreground: effective.color, background: effective.background)
         var output = Array(repeating: Array(repeating: fillCell, count: width), count: height)
         let viewport = generatedScrollViewport(size: Size(width: width, height: height), style: effective)
+        if virtualDataSource != nil
+        {
+            let childViews = refreshVirtualMaterialization(viewport: viewport)
+            virtualLastRowsRendered = childViews.filter(\.visible).count
+            let naturalSkip = max(
+                0,
+                (ensureVirtualHeightIndex(viewport: viewport)?.contentHeight() ?? 0) - max(1, viewport.height)
+            )
+            syncViewOffsetForNaturalSkip(naturalSkip)
+            lastNaturalSkip = naturalSkip
+            let actualSkip = naturalSkip - min(viewOffset, naturalSkip)
+            applyGeneratedScrollIndicators(
+                content: &output,
+                viewOffset: actualSkip,
+                maxViewOffset: naturalSkip,
+                viewport: Size(width: width, height: height),
+                style: effective
+            )
+            return output
+        }
         let rows = renderedRows(width: max(1, viewport.width), style: effective)
         let maxOffset = max(0, rows.count - max(1, viewport.height))
         syncViewOffsetForNaturalSkip(maxOffset)
@@ -3476,6 +4269,10 @@ open class ScrollView: UIElement
     {
         cachedChildHeightsWidth = nil
         cachedChildHeights = nil
+        if virtualDataSource != nil
+        {
+            virtualHeightIndex = nil
+        }
     }
 
     private func syncViewOffsetForNaturalSkip(_ naturalSkip: Int)
@@ -4462,7 +5259,10 @@ open class GeneratedWindowBase
             mode: generatedRuntimeMode(self),
             resolvedCells: &resolved
         )
-        return resolvedContentExtent(resolved, fallback: natural)
+        return resolvedContentExtent(
+            resolved,
+            fallback: Size(width: kMinimumRenderableSize, height: kMinimumRenderableSize)
+        )
     }
 
     public func generatedContentSizeForWidth(_ width: Int) -> Size
@@ -4478,10 +5278,28 @@ open class GeneratedWindowBase
             self,
             runtimeCells: &runtimeCells,
             content: Rect(row: 0, col: 0, width: max(1, width), height: natural.height),
-            mode: generatedRuntimeMode(self),
+            mode: "normal",
             resolvedCells: &resolved
         )
-        var result = resolvedContentExtent(resolved, fallback: Size(width: max(1, width), height: natural.height))
+        let fitted = runtimeLayoutSize(buildRuntimeTree(
+            runtimeCells,
+            horizontalSeparator: runtimeBorderWidthHorizontal(generatedWindowStyle),
+            verticalSeparator: runtimeBorderWidthVertical(generatedWindowStyle)
+        ))
+        if fitted.height > natural.height
+        {
+            resolveRuntimeCellsWithFitPass(
+                self,
+                runtimeCells: &runtimeCells,
+                content: Rect(row: 0, col: 0, width: max(1, width), height: fitted.height),
+                mode: "normal",
+                resolvedCells: &resolved
+            )
+        }
+        var result = resolvedContentExtent(
+            resolved,
+            fallback: Size(width: max(kMinimumRenderableSize, width), height: kMinimumRenderableSize)
+        )
         for entry in layout
         {
             guard let cell = resolvedCellFor(resolved, entry: entry) else
@@ -4922,6 +5740,23 @@ open class GeneratedWindowBase
                     child.suppressActiveContainerScopeVisuals = previous
                 }
             }
+            if let scrollView = element as? ScrollView
+            {
+                var pinned: UIElement?
+                for candidate in [focusedElementBeforeRender, activeScrollViewEditElement]
+                {
+                    guard let candidate else
+                    {
+                        continue
+                    }
+                    if candidate !== scrollView && elementTreeContains(scrollView, candidate)
+                    {
+                        pinned = candidate
+                        break
+                    }
+                }
+                scrollView.setVirtualPinnedElement(pinned)
+            }
             let rendered = element.render(size: Size(width: rect.width, height: rect.height), state: state)
             childScopeSuppressionRestore?()
             var clip = entryClip
@@ -5188,7 +6023,7 @@ open class GeneratedWindowBase
                         hostViewportRootScrollIndicatorsDepth > 0 && self.generatedScrollView() === scrollView
                     if !useHostViewportForRootScrollViewIndicators
                     {
-                        let viewportSize = Size(width: scrollViewportFrame.width, height: scrollViewportFrame.height)
+                        let viewportSize = Size(width: rect.width, height: rect.height)
                         let indicatorCol = scrollViewportFrame.col + scrollViewportFrame.width - kMinimumRenderableSize
                         let maxViewOffset = scrollView.maxViewOffset(viewport: viewportSize)
                         let viewOffset = scrollView.viewOffsetValue()
@@ -6031,6 +6866,46 @@ open class GeneratedScrollViewBase: GeneratedWindowBase, GeneratedScrollableKeyH
     public func clearChildren()
     {
         scrollView().clearChildren()
+    }
+
+    public func setVirtualDataSource(_ dataSource: VirtualScrollDataSource)
+    {
+        scrollView().setVirtualDataSource(dataSource)
+    }
+
+    public func clearVirtualDataSource()
+    {
+        scrollView().clearVirtualDataSource()
+    }
+
+    public func virtualItemsInserted(at index: Int, count: Int = 1)
+    {
+        scrollView().virtualItemsInserted(at: index, count: count)
+    }
+
+    public func virtualItemsRemoved(at index: Int, count: Int = 1)
+    {
+        scrollView().virtualItemsRemoved(at: index, count: count)
+    }
+
+    public func virtualItemsReplaced(at index: Int, count: Int = 1)
+    {
+        scrollView().virtualItemsReplaced(at: index, count: count)
+    }
+
+    public func invalidateVirtualHeights()
+    {
+        scrollView().invalidateVirtualHeights()
+    }
+
+    public func invalidateVirtualHeights(at index: Int, count: Int)
+    {
+        scrollView().invalidateVirtualHeights(at: index, count: count)
+    }
+
+    public func virtualDiagnostics() -> VirtualScrollDiagnostics
+    {
+        scrollView().virtualDiagnostics()
     }
 
     public func addRenderedChild(_ child: [[TerminalCell]])
@@ -15223,12 +16098,13 @@ private func fitEntryHeight(_ window: GeneratedWindowBase, _ entry: GeneratedLay
     let contentHeight = axisIsFitContent(entry.height)
         ? fitContentHeightFor(element, type: entry.type, fallback: fallback, width: contentWidth)
         : max(1, fallback)
-    return max(1, entry.relative.row + contentHeight + entry.marginBottom)
+    let bottomMargin = axisIsFitContent(entry.cellHeight) ? 0 : entry.marginBottom
+    return max(1, entry.relative.row + contentHeight + bottomMargin)
 }
 
 private func fitCellHeight(_ window: GeneratedWindowBase, _ cellEntry: GeneratedLayoutEntry, resolvedCellWidth: Int? = nil) -> Int
 {
-    var contentHeight = cellEntry.sourceCell.height
+    var contentHeight = kMinimumRenderableSize
     let availableCellWidth = resolvedCellWidth.map
     {
         max(1, $0 - paddingLeft(cellEntry.cellStyle) - paddingRight(cellEntry.cellStyle))

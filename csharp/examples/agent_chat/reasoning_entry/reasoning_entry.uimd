@@ -1,0 +1,66 @@
+# Agent Chat Reasoning Entry
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Animated Heron-style thinking and status message."
+tags: [component, simulation, reasoning]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+heading:
+  type: label
+  text: "Thinking"
+  description: "Animated thinking or activity phase."
+
+body:
+  type: spanlabel
+  text: ""
+  description: "Visible simulated reasoning detail."
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#00000000"
+@panel:
+  background: "#00000000"
+  padding: 0, 1, 0, 1
+@heading:
+  color: "#e5e7eb"
+  text-color-gradient:
+    interval: 90
+    step: 1
+    segment-size: 1
+    colors: ["#000000aa", "#00000077", "#00000044", "#00000011", "#00000000", "#00000000", "#00000000", "#00000000", "#00000011", "#00000044", "#00000077", "#000000aa"]
+@body:
+  color: "#94a3b8"
+  word-wrap: true
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-panel-**-----------------------------------------------------------------+
+| heading..**............................................................. |
+| body..**................................................................ |
+| ........................................................................ |
+# #....................................................................... |
+# #....................................................................... |
++--------------------------------------------------------------------------+
+```

@@ -1,0 +1,59 @@
+# Agent Chat Table Entry
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Heron-style simulated agent Markdown table block."
+tags: [component, simulation]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+heading:
+  type: spanlabel
+  text: "Table"
+  description: "Table title."
+
+table:
+  type: messagetable
+  text: ""
+  description: "Rendered Markdown table content."
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#00000000"
+@table_panel:
+  background: "#00000000"
+  padding: 0, 1, 0, 1
+@heading:
+  color: "#ddd6fe"
+@table:
+  color: "#cbd5e1"
+```
+
+## User Interface
+
+```ui
++-table_panel-**----------------------------------------------------------+
+| heading..**........................................................... .|
+| table..**.............................................................. |
+| ....................................................................... |
+# #...................................................................... |
+# #...................................................................... |
++-------------------------------------------------------------------------+
+```

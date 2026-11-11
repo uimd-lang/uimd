@@ -1,0 +1,61 @@
+# Agent Chat Code Entry
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Heron-style code, activity, command output, or diff block."
+tags: [component, simulation]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+heading:
+  type: spanlabel
+  text: "Code"
+  description: "Code language or activity title."
+
+code:
+  type: label
+  text: ""
+  description: "Selectable formatted code, command output, or diff content."
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#00000000"
+@code_panel:
+  background: "#0f1b2d"
+  padding: 0, 1, 0, 1
+@heading:
+  color: "#ddd6fe"
+@code:
+  color: "#d1d5db"
+  word-wrap: true
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-code_panel-**-----------------------------------------------------------+
+| heading..**............................................................ |
+| code..**............................................................... |
+| ....................................................................... |
+# #...................................................................... |
+# #...................................................................... |
++-------------------------------------------------------------------------+
+```

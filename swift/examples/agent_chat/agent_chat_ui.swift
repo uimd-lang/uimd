@@ -12,6 +12,8 @@ open class AgentChatUI: GeneratedWindowBase
     public var next_step_button: Button!
     public var reset_button: Button!
     public var load_stress_button: Button!
+    public var top: Button!
+    public var end: Button!
     public var transcript: ReusableElement!
     public var status: Label!
 
@@ -21,7 +23,7 @@ open class AgentChatUI: GeneratedWindowBase
         setGeneratedLayout(Self.buildLayout())
         setGeneratedKind("window")
         setGeneratedFocusable(false)
-        setMcpMetadata(enabled: true, className: "AgentChat", source: "# Agent Chat Simulation\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: window\nstatus: draft\ndescription: \"Deterministic simulated agent chat for rich transcript and large ScrollView testing.\"\ntags: [example, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nuses:\n  - transcript/transcript\n```\n\n## Members\n\n```yaml\ntitle:\n  type: label\n  text: \"Agent Chat Simulation\"\n  description: \"Application title.\"\n  expose: false\n\nsimulation_badge:\n  type: label\n  text: \"SIMULATED · OFFLINE\"\n  description: \"Clarifies that the transcript performs no real agent or tool work.\"\n  expose: false\n\nquit_button:\n  type: button\n  title: Quit\n  description: \"Close the Agent Chat Simulation example.\"\n\nstart_button:\n  type: button\n  title: Start\n  description: \"Run one hundred deterministic simulated messages over three minutes.\"\n\npause_button:\n  type: button\n  title: Pause\n  description: \"Pause the timed simulation without discarding progress.\"\n\nnext_step_button:\n  type: button\n  title: \"Next step\"\n  description: \"Apply one deterministic scripted chat step.\"\n\nreset_button:\n  type: button\n  title: Reset\n  description: \"Reset the transcript to its initial message.\"\n\nload_stress_button:\n  type: button\n  title: \"Load 50k\"\n  description: \"Load an approximately fifty-thousand-row deterministic stress transcript.\"\n\ntranscript:\n  type: transcript\n  cpp-class: \"agent_chat_example::Transcript\"\n  cpp-header: transcript/transcript.hpp\n  description: \"Scrollable deterministic simulated agent transcript.\"\n\nstatus:\n  type: label\n  text: \"Ready · 1 message\"\n  description: \"Shows deterministic simulation progress and transcript size.\"\n```\n\n## Style\n\n```yaml\ninclude: dark\nthis:\n  border-width: 0\n  background: \"#030712\"\n@header:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@title:\n  color: \"#f8fafc\"\n  text-align: center\n@simulation_badge:\n  color: \"#c4b5fd\"\n  text-align: right\n@actions:\n  background: \"#172033\"\n  padding: 1, 1, 1, 1\nbutton:\n  background: \"#334155\"\n  color: \"#e2e8f0\"\n  focus-background: \"#2563eb\"\n@load_stress_button:\n  background: \"#6d28d9\"\n  focus-background: \"#7c3aed\"\n@quit_button:\n  background: \"#7f1d1d\"\n  focus-background: \"#dc2626\"\n@content:\n  background: \"#030712\"\n@transcript:\n  background: \"#00000000\"\n@status:\n  background: \"#0f172a\"\n  color: \"#93c5fd\"\n  padding: 0, 1, 0, 1\n```\n\n## User Interface\n\n```ui\n+-header-**--------------------------------------------------------------------+\n| title..**......................... simulation_badge.... quit_button......... |\n+-actions-**-------------------------------------------------------------------+\n| start_button pause_button next_step_button reset_button load_stress_button.. |\n+-content-**-------------------------------------------------------------------+\n| transcript..**.............................................................. |\n| ............................................................................ |\n* *........................................................................... |\n* *........................................................................... |\n| ............................................................................ |\n+------------------------------------------------------------------------------+\n| status..**.................................................................. |\n+------------------------------------------------------------------------------+\n```\n", description: "Deterministic simulated agent chat for rich transcript and large ScrollView testing.")
+        setMcpMetadata(enabled: true, className: "AgentChat", source: "# Agent Chat Simulation\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: window\nstatus: draft\ndescription: \"Deterministic simulated agent chat for rich transcript and large ScrollView testing.\"\ntags: [example, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nuses:\n  - transcript/transcript\n```\n\n## Members\n\n```yaml\ntitle:\n  type: label\n  text: \"Agent Chat Simulation\"\n  description: \"Application title.\"\n  expose: false\n\nsimulation_badge:\n  type: label\n  text: \"SIMULATED · OFFLINE\"\n  description: \"Clarifies that the transcript performs no real agent or tool work.\"\n  expose: false\n\nquit_button:\n  type: button\n  title: Quit\n  description: \"Close the Agent Chat Simulation example.\"\n\nstart_button:\n  type: button\n  title: Start\n  description: \"Run one hundred deterministic simulated messages over three minutes.\"\n\npause_button:\n  type: button\n  title: Pause\n  description: \"Pause the timed simulation without discarding progress.\"\n\nnext_step_button:\n  type: button\n  title: \"Next step\"\n  description: \"Apply one deterministic scripted chat step.\"\n\nreset_button:\n  type: button\n  title: Reset\n  description: \"Reset the transcript to its initial message.\"\n\nload_stress_button:\n  type: button\n  title: \"Load 50k\"\n  description: \"Load an approximately fifty-thousand-row deterministic stress transcript.\"\n\ntop:\n  type: button\n  title: Top\n  description: \"Scroll the transcript to its first message.\"\n\nend:\n  type: button\n  title: Bottom\n  description: \"Scroll the transcript to its newest message.\"\n\ntranscript:\n  type: transcript\n  cpp-class: \"agent_chat_example::Transcript\"\n  cpp-header: transcript/transcript.hpp\n  description: \"Scrollable deterministic simulated agent transcript.\"\n\nstatus:\n  type: label\n  text: \"Ready · 1 message\"\n  description: \"Shows deterministic simulation progress and transcript size.\"\n```\n\n## Style\n\n```yaml\ninclude: dark\nthis:\n  border-width: 0\n  background: \"#030712\"\n@header:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@title:\n  color: \"#f8fafc\"\n  text-align: center\n@simulation_badge:\n  color: \"#c4b5fd\"\n  text-align: right\n@actions:\n  background: \"#172033\"\n  padding: 1, 1, 1, 1\nbutton:\n  background: \"#334155\"\n  color: \"#e2e8f0\"\n  focus-background: \"#2563eb\"\n@load_stress_button:\n  background: \"#6d28d9\"\n  focus-background: \"#7c3aed\"\n@quit_button:\n  background: \"#7f1d1d\"\n  focus-background: \"#dc2626\"\n@content:\n  background: \"#030712\"\n@transcript:\n  background: \"#00000000\"\n@status:\n  background: \"#0f172a\"\n  color: \"#93c5fd\"\n  padding: 0, 1, 0, 1\n```\n\n## User Interface\n\n```ui\n+-header-**------------------------------------------------------------------------------+\n| title..**......................... simulation_badge.... quit_button................... |\n+-actions-**-----------------------------------------------------------------------------+\n| start_button pause_button next_step_button reset_button load_stress_button top end.... |\n+-content-**-----------------------------------------------------------------------------+\n| transcript..**........................................................................ |\n| ...................................................................................... |\n* *..................................................................................... |\n* *..................................................................................... |\n| ...................................................................................... |\n+----------------------------------------------------------------------------------------+\n| status..**............................................................................ |\n+----------------------------------------------------------------------------------------+\n```\n", description: "Deterministic simulated agent chat for rich transcript and large ScrollView testing.")
         setMcpAppTools([])
         setGeneratedWindowStyle({
                     var style = Style()
@@ -173,6 +175,44 @@ open class AgentChatUI: GeneratedWindowBase
                     style.color = Color("#64748b")
                     return style
                 }())
+        top = addElement(Button("top", "Top"))
+        top.setStyle({
+                    var style = Style()
+                    style.background = Color("#334155")
+                    style.color = Color("#e2e8f0")
+                    return style
+                }())
+        top.setFocusStyle({
+                    var style = Style()
+                    style.background = Color("#2563eb")
+                    style.color = Color("#ffffff")
+                    return style
+                }())
+        top.setDisabledStyle({
+                    var style = Style()
+                    style.background = Color("#1f2937")
+                    style.color = Color("#64748b")
+                    return style
+                }())
+        end = addElement(Button("end", "Bottom"))
+        end.setStyle({
+                    var style = Style()
+                    style.background = Color("#334155")
+                    style.color = Color("#e2e8f0")
+                    return style
+                }())
+        end.setFocusStyle({
+                    var style = Style()
+                    style.background = Color("#2563eb")
+                    style.color = Color("#ffffff")
+                    return style
+                }())
+        end.setDisabledStyle({
+                    var style = Style()
+                    style.background = Color("#1f2937")
+                    style.color = Color("#64748b")
+                    return style
+                }())
         transcript = addElement(ReusableElement("transcript"))
         transcript.setStyle({
                     var style = Style()
@@ -222,14 +262,14 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "button",
                 cellName: "actions",
                 relative: Rect(row: 0, col: 1, width: 12, height: 1),
-                sourceCell: Rect(row: 2, col: 0, width: 78, height: 1),
+                sourceCell: Rect(row: 2, col: 0, width: 88, height: 1),
                 width: .auto(12),
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
                 charsSize: Size(width: 12, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
-                marginRight: 65,
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 75,
                 marginBottom: 0,
                 cellStyle: {
                     var style = Style()
@@ -252,13 +292,13 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "label",
                 cellName: "",
                 relative: Rect(row: 0, col: 1, width: 536870911, height: 1),
-                sourceCell: Rect(row: 10, col: 0, width: 78, height: 1),
+                sourceCell: Rect(row: 10, col: 0, width: 88, height: 1),
                 width: .expanded,
                 height: .auto(1),
-                cellWidth: .auto(78),
+                cellWidth: .auto(88),
                 cellHeight: .auto(1),
-                charsSize: Size(width: 76, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
+                charsSize: Size(width: 86, height: 1),
+                cellCharsSize: Size(width: 88, height: 1),
                 marginRight: 1,
                 marginBottom: 0,
                 cellStyle: Style(),
@@ -278,14 +318,14 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "label",
                 cellName: "header",
                 relative: Rect(row: 0, col: 1, width: 536870911, height: 1),
-                sourceCell: Rect(row: 0, col: 0, width: 78, height: 1),
+                sourceCell: Rect(row: 0, col: 0, width: 88, height: 1),
                 width: .expanded,
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
                 charsSize: Size(width: 34, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
-                marginRight: 43,
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 53,
                 marginBottom: 0,
                 cellStyle: {
                     var style = Style()
@@ -309,13 +349,13 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "transcript",
                 cellName: "content",
                 relative: Rect(row: 0, col: 1, width: 536870911, height: 536870911),
-                sourceCell: Rect(row: 4, col: 0, width: 78, height: 5),
+                sourceCell: Rect(row: 4, col: 0, width: 88, height: 5),
                 width: .expanded,
                 height: .expanded,
                 cellWidth: .expanded,
                 cellHeight: .expanded,
-                charsSize: Size(width: 76, height: 5),
-                cellCharsSize: Size(width: 78, height: 5),
+                charsSize: Size(width: 86, height: 5),
+                cellCharsSize: Size(width: 88, height: 5),
                 marginRight: 1,
                 marginBottom: 0,
                 cellStyle: {
@@ -334,14 +374,14 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "button",
                 cellName: "actions",
                 relative: Rect(row: 0, col: 14, width: 12, height: 1),
-                sourceCell: Rect(row: 2, col: 0, width: 78, height: 1),
+                sourceCell: Rect(row: 2, col: 0, width: 88, height: 1),
                 width: .auto(12),
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
                 charsSize: Size(width: 12, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
-                marginRight: 52,
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 62,
                 marginBottom: 0,
                 cellStyle: {
                     var style = Style()
@@ -364,14 +404,14 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "button",
                 cellName: "actions",
                 relative: Rect(row: 0, col: 27, width: 16, height: 1),
-                sourceCell: Rect(row: 2, col: 0, width: 78, height: 1),
+                sourceCell: Rect(row: 2, col: 0, width: 88, height: 1),
                 width: .auto(16),
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
                 charsSize: Size(width: 16, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
-                marginRight: 35,
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 45,
                 marginBottom: 0,
                 cellStyle: {
                     var style = Style()
@@ -394,14 +434,14 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "label",
                 cellName: "header",
                 relative: Rect(row: 0, col: 36, width: 20, height: 1),
-                sourceCell: Rect(row: 0, col: 0, width: 78, height: 1),
+                sourceCell: Rect(row: 0, col: 0, width: 88, height: 1),
                 width: .auto(20),
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
                 charsSize: Size(width: 20, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
-                marginRight: 22,
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 32,
                 marginBottom: 0,
                 cellStyle: {
                     var style = Style()
@@ -425,14 +465,14 @@ open class AgentChatUI: GeneratedWindowBase
                 type: "button",
                 cellName: "actions",
                 relative: Rect(row: 0, col: 44, width: 12, height: 1),
-                sourceCell: Rect(row: 2, col: 0, width: 78, height: 1),
+                sourceCell: Rect(row: 2, col: 0, width: 88, height: 1),
                 width: .auto(12),
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
                 charsSize: Size(width: 12, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
-                marginRight: 22,
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 32,
                 marginBottom: 0,
                 cellStyle: {
                     var style = Style()
@@ -454,15 +494,15 @@ open class AgentChatUI: GeneratedWindowBase
                 name: "load_stress_button",
                 type: "button",
                 cellName: "actions",
-                relative: Rect(row: 0, col: 57, width: 20, height: 1),
-                sourceCell: Rect(row: 2, col: 0, width: 78, height: 1),
-                width: .auto(20),
+                relative: Rect(row: 0, col: 57, width: 18, height: 1),
+                sourceCell: Rect(row: 2, col: 0, width: 88, height: 1),
+                width: .auto(18),
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
-                charsSize: Size(width: 20, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
-                marginRight: 1,
+                charsSize: Size(width: 18, height: 1),
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 13,
                 marginBottom: 0,
                 cellStyle: {
                     var style = Style()
@@ -484,14 +524,14 @@ open class AgentChatUI: GeneratedWindowBase
                 name: "quit_button",
                 type: "button",
                 cellName: "header",
-                relative: Rect(row: 0, col: 57, width: 20, height: 1),
-                sourceCell: Rect(row: 0, col: 0, width: 78, height: 1),
-                width: .auto(20),
+                relative: Rect(row: 0, col: 57, width: 30, height: 1),
+                sourceCell: Rect(row: 0, col: 0, width: 88, height: 1),
+                width: .auto(30),
                 height: .auto(1),
                 cellWidth: .expanded,
                 cellHeight: .auto(1),
-                charsSize: Size(width: 20, height: 1),
-                cellCharsSize: Size(width: 78, height: 1),
+                charsSize: Size(width: 30, height: 1),
+                cellCharsSize: Size(width: 88, height: 1),
                 marginRight: 1,
                 marginBottom: 0,
                 cellStyle: {
@@ -510,6 +550,66 @@ open class AgentChatUI: GeneratedWindowBase
                     return style
                 }()
             ),
+            GeneratedLayoutEntry(
+                name: "top",
+                type: "button",
+                cellName: "actions",
+                relative: Rect(row: 0, col: 76, width: 3, height: 1),
+                sourceCell: Rect(row: 2, col: 0, width: 88, height: 1),
+                width: .auto(3),
+                height: .auto(1),
+                cellWidth: .expanded,
+                cellHeight: .auto(1),
+                charsSize: Size(width: 3, height: 1),
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 9,
+                marginBottom: 0,
+                cellStyle: {
+                    var style = Style()
+                    style.background = Color("#172033")
+                    style.paddingBottom = 1
+                    style.paddingLeft = 1
+                    style.paddingRight = 1
+                    style.paddingTop = 1
+                    return style
+                }(),
+                elementStyle: {
+                    var style = Style()
+                    style.background = Color("#334155")
+                    style.color = Color("#e2e8f0")
+                    return style
+                }()
+            ),
+            GeneratedLayoutEntry(
+                name: "end",
+                type: "button",
+                cellName: "actions",
+                relative: Rect(row: 0, col: 80, width: 7, height: 1),
+                sourceCell: Rect(row: 2, col: 0, width: 88, height: 1),
+                width: .auto(7),
+                height: .auto(1),
+                cellWidth: .expanded,
+                cellHeight: .auto(1),
+                charsSize: Size(width: 7, height: 1),
+                cellCharsSize: Size(width: 88, height: 1),
+                marginRight: 1,
+                marginBottom: 0,
+                cellStyle: {
+                    var style = Style()
+                    style.background = Color("#172033")
+                    style.paddingBottom = 1
+                    style.paddingLeft = 1
+                    style.paddingRight = 1
+                    style.paddingTop = 1
+                    return style
+                }(),
+                elementStyle: {
+                    var style = Style()
+                    style.background = Color("#334155")
+                    style.color = Color("#e2e8f0")
+                    return style
+                }()
+            ),
         ]
     }
 
@@ -519,6 +619,8 @@ open class AgentChatUI: GeneratedWindowBase
     open func onNextStepButtonClick() { }
     open func onResetButtonClick() { }
     open func onLoadStressButtonClick() { }
+    open func onTopClick() { }
+    open func onEndClick() { }
 
     open override func handleGeneratedButton(_ name: String) -> Bool
     {
@@ -550,6 +652,16 @@ open class AgentChatUI: GeneratedWindowBase
         else if name == "load_stress_button"
         {
             onLoadStressButtonClick()
+            return true
+        }
+        else if name == "top"
+        {
+            onTopClick()
+            return true
+        }
+        else if name == "end"
+        {
+            onEndClick()
             return true
         }
         return false

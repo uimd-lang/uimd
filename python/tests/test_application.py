@@ -15,6 +15,7 @@ import runtime.application as application_module
 from runtime.application import MOUSE_WHEEL_COALESCED_MAX_DELTA, UIApplication
 from runtime.uiwindow import UIWindow
 from runtime.UIScrollView import UIScrollView
+from uimd.runtime.UIScrollView import _VirtualHeightIndex
 from runtime.UIBase import _strip_ansi
 from runtime.elements import Button, ComboBox, Label, ListBox, NumberInput, TextArea, TextInput, ViewHost
 from runtime.rendering import (
@@ -2352,6 +2353,194 @@ class TestUIApplicationSizing(unittest.TestCase):
         self.assertEqual(child._window_width, 4)
         self.assertEqual(child._window_height, 2)
         self.assertEqual(lines[:2], ["abcd", "ghij"])
+
+    def test_virtual_height_index_maps_one_million_rows_without_dense_storage(self):
+        index = _VirtualHeightIndex(1_000_000, estimated_height=2, gap=1)
+        changed_row = 500_000
+        changed_offset = index.extent_before(changed_row)
+
+        self.assertEqual(index.index_at_offset(changed_offset), changed_row)
+        self.assertTrue(index.set_item_height(changed_row, 5))
+        self.assertEqual(index.item_height(changed_row), 5)
+        self.assertEqual(index.extent_before(changed_row + 1), changed_offset + 6)
+        self.assertEqual(index.content_height(), 3_000_002)
+        self.assertLessEqual(len(index._tree), 20)
+
+    def test_virtual_scrollview_materializes_only_viewport_and_overscan_rows(self):
+        logical_count = 1_000_000
+        created = []
+
+        def materialize(index, recycled):
+            child = recycled or FixedRenderWindow([""])
+            child._lines = [str(index)]
+            created.append((index, recycled is not None))
+            return child
+
+        view = PlainScrollView(width=12, height=5, gap=1)
+        view.set_virtual_data_source(
+            lambda: logical_count,
+            lambda index: f"row-{index}",
+            materialize,
+            estimated_height=1,
+        )
+
+        first = view.render()
+        first_diagnostics = view.virtual_diagnostics()
+        view.scroll_to(logical_count // 2)
+        middle = view.render()
+        middle_diagnostics = view.virtual_diagnostics()
+
+        self.assertEqual(first[0].strip(), "0")
+        self.assertTrue(middle[0].strip().startswith(str(logical_count // 2)))
+        self.assertLess(first_diagnostics["materialized_rows"], 20)
+        self.assertLess(middle_diagnostics["materialized_rows"], 20)
+        self.assertLess(middle_diagnostics["last_rows_considered"], 20)
+        self.assertLess(middle_diagnostics["last_rows_rendered"], 10)
+        self.assertTrue(any(reused for _index, reused in created))
+
+    def test_virtual_scrollview_targeted_replace_reuses_and_resets_height(self):
+        rows = [["zero"], ["one"], ["two"]]
+
+        def materialize(index, recycled):
+            child = recycled or FixedRenderWindow([""])
+            child._lines = list(rows[index])
+            child._window_height = len(rows[index])
+            return child
+
+        view = PlainScrollView(width=8, height=3)
+        view.set_virtual_data_source(
+            lambda: len(rows),
+            lambda index: index,
+            materialize,
+            estimated_height=1,
+        )
+        self.assertEqual(view.render()[1].strip(), "one")
+
+        rows[1] = ["ONE", "MORE"]
+        view.virtual_items_replaced(1)
+        rendered = view.render()
+
+        self.assertEqual(rendered[1].strip(), "ONE")
+        self.assertTrue(rendered[2].strip().startswith("MORE"))
+        self.assertEqual(view._virtual_height_index.item_height(1), 2)
+
+    def test_virtual_scrollview_stable_key_preserves_state_and_rekey_clears_it(self):
+        key = ["stable"]
+        observed_recycled_selection = []
+
+        def materialize(_index, recycled):
+            if recycled is not None:
+                observed_recycled_selection.append(recycled._selected_text())
+            child = recycled or TextInput(name="virtual-row", value="selected")
+            child.width = 8
+            child.height = 1
+            return child
+
+        view = PlainScrollView(width=8, height=1)
+        view.set_virtual_data_source(
+            lambda: 1,
+            lambda _index: key[0],
+            materialize,
+            estimated_height=1,
+        )
+        view.render()
+        child = view._virtual_materialized[0][1]
+        child._selection_start = 0
+        child.cursor_pos = 3
+
+        view.virtual_items_replaced(0)
+
+        self.assertIs(view._virtual_materialized[0][1], child)
+        self.assertEqual(observed_recycled_selection[-1], "sel")
+        self.assertEqual(child._selected_text(), "sel")
+
+        key[0] = "replacement"
+        view.virtual_items_replaced(0)
+        view.render()
+
+        replacement = view._virtual_materialized[0][1]
+        self.assertEqual(observed_recycled_selection[-1], "")
+        self.assertEqual(replacement._selected_text(), "")
+
+    def test_virtual_scrollview_insert_and_remove_preserve_visible_anchor(self):
+        rows = [str(index) for index in range(100)]
+
+        def materialize(index, recycled):
+            child = recycled or FixedRenderWindow([""])
+            child._lines = [rows[index]]
+            child._window_height = 1
+            return child
+
+        view = PlainScrollView(width=8, height=3)
+        view.set_virtual_data_source(
+            lambda: len(rows),
+            lambda index: rows[index],
+            materialize,
+            estimated_height=1,
+        )
+        view.render()
+        view.scroll_to(50)
+        self.assertTrue(view.render()[0].strip().startswith("50"))
+
+        rows[0:0] = ["before-a", "before-b"]
+        view.virtual_items_inserted(0, 2)
+        self.assertTrue(view.render()[0].strip().startswith("50"))
+
+        del rows[52]
+        view.virtual_items_removed(52)
+        self.assertTrue(view.render()[0].strip().startswith("51"))
+
+        gap_view = PlainScrollView(width=8, height=3, gap=1)
+
+        def materialize_gap(index, recycled):
+            child = recycled or FixedRenderWindow(["", ""])
+            child._lines = [f"gap-{index}", ""]
+            child._window_height = 2
+            return child
+
+        gap_view.set_virtual_data_source(
+            lambda: 4,
+            lambda index: index,
+            materialize_gap,
+            estimated_height=2,
+        )
+        gap_view.render()
+        gap_view.scroll_to_top()
+        self.assertTrue(gap_view.scroll_lines(-2))
+        before_width_change = gap_view.child_view_entries()
+        self.assertEqual(next(entry for entry in before_width_change if entry["visible"])["index"], 1)
+        self.assertEqual(next(entry for entry in before_width_change if entry["visible"])["row"], 1)
+
+        gap_view._viewport["width"] = 9
+        after_width_change = gap_view.child_view_entries()
+
+        self.assertEqual(next(entry for entry in after_width_change if entry["visible"])["index"], 1)
+        self.assertEqual(next(entry for entry in after_width_change if entry["visible"])["row"], 1)
+
+    def test_virtual_scrollview_range_height_invalidation_keeps_other_measurements(self):
+        rows = [["zero", "more"], ["one", "more", "last"], ["two"]]
+
+        def materialize(index, recycled):
+            child = recycled or FixedRenderWindow([""])
+            child._lines = list(rows[index])
+            child._window_height = len(rows[index])
+            return child
+
+        view = PlainScrollView(width=8, height=8)
+        view.set_virtual_data_source(
+            lambda: len(rows),
+            lambda index: index,
+            materialize,
+            estimated_height=1,
+        )
+        view.render()
+        self.assertEqual(view._virtual_height_index.item_height(0), 2)
+        self.assertEqual(view._virtual_height_index.item_height(1), 3)
+
+        view.invalidate_virtual_heights(0, 1)
+
+        self.assertEqual(view._virtual_height_index.item_height(0), 1)
+        self.assertEqual(view._virtual_height_index.item_height(1), 3)
 
     def test_reusable_generated_scrollview_focus_underlays_alpha_descendant_background(self):
         """Direct host focus must remain visible through an alpha child surface."""

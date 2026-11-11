@@ -185,6 +185,16 @@ Before editing, define:
 7. Backward-compatibility requirements for public APIs.
 8. The regression assertions that distinguish the fix from the old behavior.
 
+For physical keyboard, mouse, wheel, or touchpad defects, also define and test
+the complete input contract: parser direction and key naming, movement per
+report, viewport limiting, consecutive-event coalescing and clamp, nested
+control precedence, hit routing over normal and virtualized descendants,
+boundary no-ops, active-scope persistence across intervening renders, and the
+post-event cleanup point. Exercise the real terminal byte sequence through a
+PTY over visible content. An MCP `press_key` or logical `scroll` request does
+not replace this gate because it can bypass the terminal parser, coalescer, or
+physical hit-routing path.
+
 Prefer one shared algorithm and equivalent state machine in every port.
 Language syntax may differ; ownership, state transitions, callback order,
 rendering rules, and edge cases may not.
@@ -247,6 +257,9 @@ Run the smallest meaningful gates after each implementation step:
    MCP, always with `--compare-app-size 90x35`.
 5. Direct PTY smoke for physical keyboard, mouse, terminal lifecycle, images,
    Sixel, or teardown behavior.
+   For physical scrolling, assert equal logical movement for a single report
+   and a coalesced burst, repeat the input with a render between reports, and
+   target visible descendant content rather than only scrollbar padding.
 6. Generator/API snapshot or compile test when public generated code changes.
 
 Inspect unexpected failures as implementation evidence. Do not update

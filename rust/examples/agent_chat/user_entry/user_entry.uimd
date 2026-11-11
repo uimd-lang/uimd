@@ -1,0 +1,53 @@
+# Agent Chat User Entry
+
+## Metadata
+
+```yaml
+format: uimd
+format-version: 1
+kind: component
+status: draft
+description: "Heron-style user message with a separate accent."
+tags: [component, simulation]
+```
+
+## Definition
+
+```yaml
+extends: uicontrol
+```
+
+## Members
+
+```yaml
+body:
+  type: spanlabel
+  text: ""
+  description: "Selectable user prompt."
+```
+
+## Style
+
+```yaml
+this:
+  border-width: 0
+  background: "#00000000"
+@panel:
+  background: "#111827"
+  padding: 0, 1, 0, 1
+@body:
+  color: "#e0f2fe"
+  word-wrap: true
+  user-select: text
+```
+
+## User Interface
+
+```ui
++-panel-**-----------------------------------------------------------------+
+| body..**................................................................ |
+| ........................................................................ |
+# #....................................................................... |
+# #....................................................................... |
++--------------------------------------------------------------------------+
+```

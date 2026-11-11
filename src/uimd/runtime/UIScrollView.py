@@ -7,6 +7,83 @@ from uimd.runtime.style import Color, Style
 COPYABLE_LABEL_TYPES = {"label", "spanlabel"}
 MOUSE_WHEEL_DELTA_UP = 1
 MOUSE_WHEEL_DELTA_DOWN = -1
+VIRTUAL_SCROLL_OVERSCAN_VIEWPORTS = 1
+VIRTUAL_SCROLL_LAYOUT_STABILIZATION_PASSES = 2
+
+
+class _VirtualHeightIndex:
+    """Sparse Fenwick tree over an implicit estimated row-height baseline."""
+
+    def __init__(self, count, estimated_height, gap):
+        self.count = max(0, int(count or 0))
+        self.estimated_height = max(1, int(estimated_height or 0))
+        self.gap = max(0, int(gap or 0))
+        self._tree = {}
+
+    @property
+    def unit_height(self):
+        return self.estimated_height + self.gap
+
+    def _delta_prefix(self, end):
+        total = 0
+        index = max(0, min(int(end), self.count))
+        while index > 0:
+            total += self._tree.get(index, 0)
+            index -= index & -index
+        return total
+
+    def extent_before(self, index):
+        end = max(0, min(int(index), self.count))
+        return end * self.unit_height + self._delta_prefix(end)
+
+    def content_height(self):
+        if self.count <= 0:
+            return 0
+        return max(0, self.extent_before(self.count) - self.gap)
+
+    def item_height(self, index):
+        index = int(index)
+        if index < 0 or index >= self.count:
+            raise IndexError("virtual ScrollView item index out of range")
+        delta = self._delta_prefix(index + 1) - self._delta_prefix(index)
+        return max(1, self.estimated_height + delta)
+
+    def set_item_height(self, index, height):
+        index = int(index)
+        height = max(1, int(height or 0))
+        previous_delta = self.item_height(index) - self.estimated_height
+        next_delta = height - self.estimated_height
+        change = next_delta - previous_delta
+        tree_index = index + 1
+        while change and tree_index <= self.count:
+            value = self._tree.get(tree_index, 0) + change
+            if value:
+                self._tree[tree_index] = value
+            else:
+                self._tree.pop(tree_index, None)
+            tree_index += tree_index & -tree_index
+        return change != 0
+
+    def reset_item_height(self, index):
+        return self.set_item_height(index, self.estimated_height)
+
+    def index_at_offset(self, offset):
+        if self.count <= 0:
+            return 0
+        target = max(0, min(int(offset or 0), self.content_height()))
+        index = 0
+        prefix = 0
+        bit = 1 << (self.count.bit_length() - 1)
+        while bit:
+            candidate = index + bit
+            if candidate <= self.count:
+                node_width = candidate & -candidate
+                node_extent = node_width * self.unit_height + self._tree.get(candidate, 0)
+                if prefix + node_extent <= target:
+                    index = candidate
+                    prefix += node_extent
+            bit >>= 1
+        return min(index, self.count - 1)
 
 
 class UIScrollView(UIControl):
@@ -45,6 +122,17 @@ class UIScrollView(UIControl):
         self._pending_terminal_scroll_delta = 0
         self._selected_focus_child = None
         self._pending_proxy_focus_restore = False
+        self._virtual_item_count = None
+        self._virtual_item_key = None
+        self._virtual_materialize = None
+        self._virtual_estimated_height = None
+        self._virtual_height_index = None
+        self._virtual_height_width = None
+        self._virtual_materialized = {}
+        self._virtual_recycle_pool = []
+        self._virtual_last_rows_measured = 0
+        self._virtual_last_rows_considered = 0
+        self._virtual_last_rows_rendered = 0
 
     def _apply_container_state_styles(self, selector_name):
         props = getattr(self, "_compiled_styles", {}).get(selector_name, {})
@@ -80,6 +168,8 @@ class UIScrollView(UIControl):
 
     def add_child(self, child):
         """Add a child control to the scroll view."""
+        if self._virtual_item_count is not None:
+            self.clear_virtual_data_source()
         self._children.append(child)
         child.parent = self
         child._app = self._app
@@ -91,12 +181,190 @@ class UIScrollView(UIControl):
 
     def clear_children(self):
         """Remove all child controls and clear focus that points into them."""
+        if self._virtual_item_count is not None:
+            self.clear_virtual_data_source()
+            return
         self._clear_removed_child_focus()
         self._children.clear()
+        self._virtual_materialized.clear()
+        self._virtual_recycle_pool.clear()
         self._cached_child_heights = None
         self._scroll_offset = 0
         self._view_offset = 0
         self.invalidate_layout()
+
+    def set_virtual_data_source(
+        self,
+        item_count,
+        item_key,
+        materialize,
+        estimated_height=None,
+    ):
+        """Use a lazy logical-row source instead of retained child instances.
+
+        ``item_count`` is either a callable or an integer. ``item_key(index)``
+        returns a stable, hashable identity. ``materialize(index, recycled)``
+        updates and returns a child; ``recycled`` is either a reusable child or
+        ``None``. ``estimated_height`` may be an integer or ``callable(width)``.
+        When omitted, the runtime measures the first materialized row.
+        """
+        if not callable(item_count) and int(item_count or 0) < 0:
+            raise ValueError("virtual ScrollView item count must not be negative")
+        if not callable(item_key):
+            raise TypeError("virtual ScrollView item_key must be callable")
+        if not callable(materialize):
+            raise TypeError("virtual ScrollView materialize must be callable")
+        if estimated_height is not None and not callable(estimated_height):
+            if int(estimated_height or 0) <= 0:
+                raise ValueError("virtual ScrollView estimated height must be positive")
+
+        if self._children:
+            self._clear_removed_child_focus()
+        self._children.clear()
+        self._virtual_materialized.clear()
+        self._virtual_recycle_pool.clear()
+        self._virtual_item_count = item_count
+        self._virtual_item_key = item_key
+        self._virtual_materialize = materialize
+        self._virtual_estimated_height = estimated_height
+        self._virtual_height_index = None
+        self._virtual_height_width = None
+        self._cached_child_heights = None
+        self._scroll_offset = 0
+        self._view_offset = 0
+        self._last_natural_skip = 0
+        self.invalidate_layout()
+
+    def clear_virtual_data_source(self):
+        """Leave virtual mode and release materialized and recycled rows."""
+        if self._virtual_item_count is None:
+            return
+        if self._children:
+            self._clear_removed_child_focus()
+        self._children.clear()
+        self._virtual_materialized.clear()
+        self._virtual_recycle_pool.clear()
+        self._virtual_item_count = None
+        self._virtual_item_key = None
+        self._virtual_materialize = None
+        self._virtual_estimated_height = None
+        self._virtual_height_index = None
+        self._virtual_height_width = None
+        self._cached_child_heights = None
+        self._scroll_offset = 0
+        self._view_offset = 0
+        self._last_natural_skip = 0
+        self.invalidate_layout()
+
+    def virtual_items_inserted(self, index, count=1):
+        """Notify virtual mode that logical items were inserted at ``index``."""
+        count = max(0, int(count or 0))
+        if count == 0:
+            return
+        index = max(0, int(index or 0))
+        anchor = self._capture_virtual_anchor()
+        shifted = {}
+        for old_index, value in self._virtual_materialized.items():
+            shifted[old_index + count if old_index >= index else old_index] = value
+        self._virtual_materialized = shifted
+        self._sync_virtual_children_list()
+        self._virtual_rebuild_height_index()
+        if anchor is not None and index <= anchor[0]:
+            anchor = (anchor[0] + count, anchor[1], anchor[2])
+        self._restore_virtual_anchor(anchor)
+        self.invalidate_layout()
+
+    def virtual_items_removed(self, index, count=1):
+        """Notify virtual mode that logical items were removed at ``index``."""
+        count = max(0, int(count or 0))
+        if count == 0:
+            return
+        first = max(0, int(index or 0))
+        end = first + count
+        anchor = self._capture_virtual_anchor()
+        shifted = {}
+        for old_index, value in self._virtual_materialized.items():
+            if first <= old_index < end:
+                if (
+                    self._child_has_focused_descendant(value[1])
+                    or value[1] is self._selected_focus_child
+                ):
+                    self._clear_removed_child_focus()
+                self._recycle_virtual_child(value[1])
+                continue
+            shifted[old_index - count if old_index >= end else old_index] = value
+        self._virtual_materialized = shifted
+        self._sync_virtual_children_list()
+        self._virtual_rebuild_height_index()
+        if anchor is not None:
+            anchor_index, anchor_within, viewport_height = anchor
+            if anchor_index >= end:
+                anchor_index -= count
+            elif anchor_index >= first:
+                anchor_index = min(first, max(0, self._virtual_count() - 1))
+                anchor_within = 0
+            anchor = (anchor_index, anchor_within, viewport_height)
+        self._restore_virtual_anchor(anchor)
+        self.invalidate_layout()
+
+    def virtual_items_replaced(self, index, count=1):
+        """Invalidate materialized values and heights in a logical range."""
+        first = max(0, int(index or 0))
+        end = min(self._virtual_count(), first + max(0, int(count or 0)))
+        anchor = self._capture_virtual_anchor()
+        for item_index in range(first, end):
+            current = self._virtual_materialized.get(item_index)
+            if current is not None:
+                next_key = self._virtual_item_key(item_index)
+                if current[0] == next_key:
+                    child = self._virtual_materialize(item_index, current[1])
+                    if child is None:
+                        raise ValueError("virtual ScrollView materializer must return a child")
+                    if child is not current[1]:
+                        self._recycle_virtual_child(current[1])
+                        child.parent = self
+                        child._app = self._app
+                        if hasattr(child, "open"):
+                            child.open()
+                    self._virtual_materialized[item_index] = (next_key, child)
+                else:
+                    self._virtual_materialized.pop(item_index, None)
+                    if (
+                        self._child_has_focused_descendant(current[1])
+                        or current[1] is self._selected_focus_child
+                    ):
+                        self._clear_removed_child_focus()
+                    self._recycle_virtual_child(current[1])
+            if self._virtual_height_index is not None and item_index < self._virtual_height_index.count:
+                self._virtual_height_index.reset_item_height(item_index)
+        self._sync_virtual_children_list()
+        self._restore_virtual_anchor(anchor)
+        self.invalidate_layout()
+
+    def invalidate_virtual_heights(self, index=None, count=None):
+        """Discard all or a logical range of measured virtual heights."""
+        anchor = self._capture_virtual_anchor()
+        if index is None:
+            self._virtual_rebuild_height_index()
+        elif self._virtual_height_index is not None:
+            first = max(0, int(index or 0))
+            available = max(0, self._virtual_height_index.count - first)
+            length = available if count is None else max(0, min(int(count or 0), available))
+            for item_index in range(first, first + length):
+                self._virtual_height_index.reset_item_height(item_index)
+        self._restore_virtual_anchor(anchor)
+        self.invalidate_layout()
+
+    def virtual_diagnostics(self):
+        """Return read-only operation counts for virtual benchmark assertions."""
+        return {
+            "logical_items": self._virtual_count(),
+            "materialized_rows": len(self._virtual_materialized),
+            "recycled_rows": len(self._virtual_recycle_pool),
+            "last_rows_measured": self._virtual_last_rows_measured,
+            "last_rows_considered": self._virtual_last_rows_considered,
+            "last_rows_rendered": self._virtual_last_rows_rendered,
+        }
 
     def _clear_removed_child_focus(self):
         proxy = getattr(self, "parent", None)
@@ -222,6 +490,294 @@ class UIScrollView(UIControl):
             return True
         return getattr(self, "_focused", False) and self._child_has_focused_descendant(child)
 
+    def _virtual_count(self):
+        if self._virtual_item_count is None:
+            return 0
+        value = self._virtual_item_count() if callable(self._virtual_item_count) else self._virtual_item_count
+        value = int(value or 0)
+        if value < 0:
+            raise ValueError("virtual ScrollView item count must not be negative")
+        return value
+
+    def _capture_virtual_anchor(self, viewport_height=None):
+        height_index = self._virtual_height_index
+        if height_index is None or height_index.count <= 0:
+            return None
+        if viewport_height is None:
+            viewport_height = max(1, height_index.content_height() - self._last_natural_skip)
+        viewport_height = max(1, int(viewport_height or 1))
+        natural_skip = max(0, height_index.content_height() - viewport_height)
+        actual_skip = natural_skip - min(self._view_offset, natural_skip)
+        item_index = height_index.index_at_offset(actual_skip)
+        return (
+            item_index,
+            actual_skip - height_index.extent_before(item_index),
+            viewport_height,
+        )
+
+    def _restore_virtual_anchor(self, anchor):
+        if self._auto_scroll:
+            self._view_offset = 0
+            return
+        height_index = self._virtual_height_index
+        if anchor is None or height_index is None or height_index.count <= 0:
+            self._view_offset = 0
+            self._last_natural_skip = 0
+            return
+        item_index, within, viewport_height = anchor
+        item_index = max(0, min(int(item_index), height_index.count - 1))
+        anchor_span = height_index.item_height(item_index)
+        if item_index + 1 < height_index.count:
+            anchor_span += height_index.gap
+        within = max(0, min(int(within), anchor_span - 1))
+        natural_skip = max(0, height_index.content_height() - viewport_height)
+        actual_skip = max(
+            0,
+            min(height_index.extent_before(item_index) + within, natural_skip),
+        )
+        self._view_offset = natural_skip - actual_skip
+        self._last_natural_skip = natural_skip
+
+    def _virtual_estimate_for_width(self, width):
+        estimate = self._virtual_estimated_height
+        if callable(estimate):
+            estimate = estimate(width)
+        if estimate is not None:
+            estimate = int(estimate or 0)
+            if estimate <= 0:
+                raise ValueError("virtual ScrollView estimated height must be positive")
+            return estimate
+
+        if self._virtual_count() <= 0:
+            return None
+        child = self._materialize_virtual_child(0)
+        return self._measure_child_height(child, width)
+
+    def _virtual_rebuild_height_index(self, width=None):
+        if self._virtual_item_count is None:
+            self._virtual_height_index = None
+            self._virtual_height_width = None
+            return
+        if width is None:
+            width = self._virtual_height_width
+        if width is None:
+            self._virtual_height_index = None
+            return
+        width = max(1, int(width or 1))
+        count = self._virtual_count()
+        if count <= 0:
+            self._virtual_height_index = None
+            self._virtual_height_width = width
+            return
+        estimate = self._virtual_estimate_for_width(width)
+        viewport = self._get_viewport_rect() or {}
+        self._virtual_height_index = _VirtualHeightIndex(
+            count,
+            estimate,
+            max(0, int(viewport.get("gap", 0) or 0)),
+        )
+        self._virtual_height_width = width
+        for item_index, (_key, child) in sorted(self._virtual_materialized.items()):
+            if item_index >= count:
+                continue
+            self._virtual_height_index.set_item_height(
+                item_index,
+                self._measure_child_height(child, width),
+            )
+
+    def _ensure_virtual_height_index(self, viewport):
+        count = self._virtual_count()
+        width = max(1, int(viewport["width"] or 1))
+        gap = max(0, int(viewport.get("gap", 0) or 0))
+        current = self._virtual_height_index
+        if (
+            current is None
+            or self._virtual_height_width != width
+            or current.count != count
+            or current.gap != gap
+        ):
+            anchor = self._capture_virtual_anchor(viewport.get("height", 1))
+            self._virtual_rebuild_height_index(width)
+            current = self._virtual_height_index
+            self._restore_virtual_anchor(anchor)
+        return current
+
+    def _materialize_virtual_child(self, index):
+        key = self._virtual_item_key(index)
+        try:
+            hash(key)
+        except TypeError as error:
+            raise TypeError("virtual ScrollView item keys must be hashable") from error
+        current = self._virtual_materialized.get(index)
+        if current is not None and current[0] == key:
+            return current[1]
+        if current is not None:
+            if (
+                self._child_has_focused_descendant(current[1])
+                or current[1] is self._selected_focus_child
+            ):
+                self._clear_removed_child_focus()
+            self._recycle_virtual_child(current[1])
+
+        recycled = self._virtual_recycle_pool.pop() if self._virtual_recycle_pool else None
+        if recycled is not None:
+            self._reset_virtual_child_for_reuse(recycled)
+        child = self._virtual_materialize(index, recycled)
+        if child is None:
+            raise ValueError("virtual ScrollView materializer must return a child")
+        child.parent = self
+        child._app = self._app
+        if child is not recycled and hasattr(child, "open"):
+            child.open()
+        self._virtual_materialized[index] = (key, child)
+        return child
+
+    def _recycle_virtual_child(self, child):
+        self._reset_virtual_child_for_reuse(child)
+        self._virtual_recycle_pool.append(child)
+
+    @classmethod
+    def _reset_virtual_child_for_reuse(cls, child):
+        if child is None:
+            return
+        if hasattr(child, "_focused"):
+            child._focused = False
+        for name, value in (
+            ("_focused_element", None),
+            ("_edit_mode", False),
+            ("_edit_snapshot", None),
+            ("_active_scrollview_scope", None),
+            ("_mouse_selection_anchor", None),
+            ("_autoscroll_direction", None),
+        ):
+            if hasattr(child, name):
+                setattr(child, name, value)
+        cls._child_clear_label_selections(child)
+        if (
+            getattr(child, "ELEMENT_TYPE", None) in ("textinput", "textarea")
+            and hasattr(child, "_selection_start")
+        ):
+            child._selection_start = None
+            if hasattr(child, "_mark_dirty"):
+                child._mark_dirty()
+        nested_window = getattr(child, "_child_instance", None)
+        if nested_window is not None:
+            cls._reset_virtual_child_for_reuse(nested_window)
+        for element in getattr(child, "_elements", {}).values() if hasattr(child, "_elements") else []:
+            cls._reset_virtual_child_for_reuse(element)
+        for nested_child in getattr(child, "_children", ()):
+            cls._reset_virtual_child_for_reuse(nested_child)
+
+    def _sync_virtual_children_list(self):
+        self._children = [
+            child
+            for _index, (_key, child) in sorted(self._virtual_materialized.items())
+        ]
+
+    def _refresh_virtual_materialization(self, viewport):
+        height_index = self._ensure_virtual_height_index(viewport)
+        count = self._virtual_count()
+        self._virtual_last_rows_measured = 0
+        self._virtual_last_rows_considered = 0
+        if count <= 0 or height_index is None:
+            for _index, (_key, child) in list(self._virtual_materialized.items()):
+                self._recycle_virtual_child(child)
+            self._virtual_materialized.clear()
+            self._children.clear()
+            return []
+
+        viewport_height = max(1, int(viewport["height"] or 1))
+        natural_skip = max(0, height_index.content_height() - viewport_height)
+        self._sync_view_offset_for_natural_skip(natural_skip)
+        self._last_natural_skip = natural_skip
+        actual_skip = natural_skip - min(self._view_offset, natural_skip)
+        anchor_index = height_index.index_at_offset(actual_skip)
+        anchor_within = actual_skip - height_index.extent_before(anchor_index)
+
+        required = set()
+        entries = []
+        for _pass in range(VIRTUAL_SCROLL_LAYOUT_STABILIZATION_PASSES):
+            overscan = viewport_height * VIRTUAL_SCROLL_OVERSCAN_VIEWPORTS
+            range_start = max(0, actual_skip - overscan)
+            range_end = min(height_index.content_height(), actual_skip + viewport_height + overscan)
+            first = height_index.index_at_offset(range_start)
+            if _pass == 0:
+                coarse_last = height_index.index_at_offset(range_end)
+                for old_index, (_key, old_child) in list(self._virtual_materialized.items()):
+                    if first <= old_index <= coarse_last:
+                        continue
+                    if self._child_has_focused_descendant(old_child) or old_child is self._selected_focus_child:
+                        continue
+                    self._virtual_materialized.pop(old_index, None)
+                    self._recycle_virtual_child(old_child)
+            item_index = first
+            row = height_index.extent_before(first)
+            pass_required = set()
+            pass_entries = []
+            while item_index < count and (row < range_end or not pass_entries):
+                self._virtual_last_rows_considered += 1
+                child = self._materialize_virtual_child(item_index)
+                measured = self._measure_child_height(child, viewport["width"])
+                self._virtual_last_rows_measured += 1
+                height_index.set_item_height(item_index, measured)
+                child_height = height_index.item_height(item_index)
+                pass_required.add(item_index)
+                pass_entries.append((item_index, child, row, child_height))
+                row += child_height + height_index.gap
+                item_index += 1
+            required.update(pass_required)
+            entries = pass_entries
+            if self._auto_scroll:
+                self._view_offset = 0
+            else:
+                refined_skip = height_index.extent_before(anchor_index) + anchor_within
+                refined_natural = max(0, height_index.content_height() - viewport_height)
+                refined_skip = max(0, min(refined_skip, refined_natural))
+                self._view_offset = refined_natural - refined_skip
+            next_natural = max(0, height_index.content_height() - viewport_height)
+            next_actual = next_natural - min(self._view_offset, next_natural)
+            if next_actual == actual_skip:
+                natural_skip = next_natural
+                actual_skip = next_actual
+                break
+            natural_skip = next_natural
+            actual_skip = next_actual
+
+        pinned = {
+            item_index
+            for item_index, (_key, child) in self._virtual_materialized.items()
+            if self._child_has_focused_descendant(child) or child is self._selected_focus_child
+        }
+        required.update(pinned)
+        for item_index, (_key, child) in list(self._virtual_materialized.items()):
+            if item_index in required:
+                continue
+            self._virtual_materialized.pop(item_index, None)
+            self._recycle_virtual_child(child)
+        recycle_limit = len(required)
+        if len(self._virtual_recycle_pool) > recycle_limit:
+            del self._virtual_recycle_pool[:len(self._virtual_recycle_pool) - recycle_limit]
+        self._sync_virtual_children_list()
+        self._last_natural_skip = natural_skip
+
+        result = []
+        viewport_top = viewport["row"]
+        viewport_bottom = viewport_top + viewport_height
+        for item_index, (_key, child) in sorted(self._virtual_materialized.items()):
+            child_height = height_index.item_height(item_index)
+            child_row = viewport_top + height_index.extent_before(item_index) - actual_skip
+            child_bottom = child_row + child_height
+            result.append({
+                "index": item_index,
+                "child": child,
+                "row": child_row,
+                "col": viewport["col"],
+                "width": viewport["width"],
+                "height": child_height,
+                "visible": child_bottom > viewport_top and child_row < viewport_bottom,
+            })
+        return result
+
     @staticmethod
     def _child_has_multiple_focusable_descendants(child):
         focusable = getattr(child, "_local_focusable_elements", None)
@@ -242,6 +798,29 @@ class UIScrollView(UIControl):
 
         Clamps index so that at least one child is visible.
         """
+        if self._virtual_item_count is not None:
+            viewport = self._clamped_viewport_rect()
+            total = self._virtual_count()
+            if not viewport or total == 0:
+                changed = self._view_offset != 0
+                self._view_offset = 0
+                self._scroll_offset = 0
+                if changed:
+                    self.invalidate()
+                return
+            height_index = self._ensure_virtual_height_index(viewport)
+            target_index = max(0, min(int(index or 0), total - 1))
+            natural_skip = max(0, height_index.content_height() - viewport["height"])
+            target_skip = min(natural_skip, height_index.extent_before(target_index))
+            previous = self._view_offset
+            self._scroll_offset = 0
+            self._last_natural_skip = natural_skip
+            self._view_offset = natural_skip - target_skip
+            self._auto_scroll = self._view_offset == 0
+            if self._view_offset != previous:
+                self.invalidate()
+            return
+
         total = len(self._children)
         if total == 0:
             self._scroll_offset = 0
@@ -276,7 +855,7 @@ class UIScrollView(UIControl):
         if not position:
             return False
         previous = self.scroll_position()
-        total = len(self._children)
+        total = self._virtual_count() if self._virtual_item_count is not None else len(self._children)
         self._scroll_offset = max(0, min(int(position.get("scroll_offset", 0) or 0), max(0, total - 1)))
         self._view_offset = max(0, int(position.get("view_offset", 0) or 0))
         self._auto_scroll = bool(position.get("auto_scroll", False))
@@ -305,6 +884,15 @@ class UIScrollView(UIControl):
         Positive delta scrolls down (towards the end), negative scrolls up
         (towards the beginning).
         """
+        if self._virtual_item_count is not None:
+            viewport = self._clamped_viewport_rect()
+            height_index = self._ensure_virtual_height_index(viewport) if viewport else None
+            if height_index is None:
+                return
+            natural_skip = max(0, height_index.content_height() - viewport["height"])
+            actual_skip = natural_skip - min(self._view_offset, natural_skip)
+            self.scroll_to(height_index.index_at_offset(actual_skip) + int(delta or 0))
+            return
         self.scroll_to(self._scroll_offset + delta)
 
     def scroll_lines(self, delta):
@@ -371,10 +959,18 @@ class UIScrollView(UIControl):
 
     def _can_scroll_up(self):
         """Return True if there are children above the current viewport."""
+        if self._virtual_item_count is not None:
+            viewport = self._clamped_viewport_rect()
+            if not viewport:
+                return False
+            maximum = self._max_view_offset()
+            return maximum - min(self._view_offset, maximum) > 0
         return self._scroll_offset > 0
 
     def _can_scroll_down(self):
         """Return True if there are children below the current viewport."""
+        if self._virtual_item_count is not None:
+            return self._view_offset > 0
         total = len(self._children)
         if total == 0:
             return False
@@ -389,6 +985,15 @@ class UIScrollView(UIControl):
         viewport = self._clamped_viewport_rect()
         if not viewport:
             return 0
+        if self._virtual_item_count is not None:
+            height_index = self._ensure_virtual_height_index(viewport)
+            if height_index is None:
+                self._last_natural_skip = 0
+                return 0
+            natural_skip = max(0, height_index.content_height() - viewport["height"])
+            self._sync_view_offset_for_natural_skip(natural_skip)
+            self._last_natural_skip = natural_skip
+            return natural_skip
         children = self._get_children()
         if not children:
             self._last_natural_skip = 0
@@ -424,6 +1029,23 @@ class UIScrollView(UIControl):
         viewport = viewport or self._clamped_viewport_rect()
         if not viewport:
             return None
+        if self._virtual_item_count is not None:
+            if self._virtual_count() == 0:
+                self._last_natural_skip = 0
+                return {
+                    "viewport": viewport,
+                    "actual_skip": 0,
+                    "natural_skip": 0,
+                    "gap": max(0, int(viewport.get("gap", 0) or 0)),
+                }
+            max_offset = self._max_view_offset()
+            clamped_view_offset = min(self._view_offset, max_offset)
+            return {
+                "viewport": viewport,
+                "actual_skip": max_offset - clamped_view_offset,
+                "natural_skip": max_offset,
+                "gap": max(0, int(viewport.get("gap", 0) or 0)),
+            }
         children = self._get_children()
         if not children:
             self._last_natural_skip = 0
@@ -444,6 +1066,9 @@ class UIScrollView(UIControl):
 
     def child_view_entries(self, viewport=None):
         """Return child positions relative to this scrollview's coordinate space."""
+        viewport = viewport or self._clamped_viewport_rect()
+        if self._virtual_item_count is not None:
+            return self._refresh_virtual_materialization(viewport) if viewport else []
         window = self._content_window(viewport)
         if window is None:
             return []
@@ -490,6 +1115,36 @@ class UIScrollView(UIControl):
         viewport = self._clamped_viewport_rect()
         if not viewport:
             return False
+        if self._virtual_item_count is not None:
+            entry = next(
+                (
+                    (item_index, child)
+                    for item_index, (_key, child) in self._virtual_materialized.items()
+                    if self._child_contains_element(child, element)
+                ),
+                None,
+            )
+            height_index = self._ensure_virtual_height_index(viewport)
+            if entry is None or height_index is None:
+                return False
+            item_index, _child = entry
+            target_top = height_index.extent_before(item_index)
+            target_bottom = target_top + height_index.item_height(item_index)
+            natural_skip = max(0, height_index.content_height() - viewport["height"])
+            current_actual_skip = natural_skip - min(self._view_offset, natural_skip)
+            next_actual_skip = current_actual_skip
+            if target_top < current_actual_skip:
+                next_actual_skip = target_top
+            elif target_bottom > current_actual_skip + viewport["height"]:
+                next_actual_skip = target_bottom - viewport["height"]
+            next_actual_skip = max(0, min(natural_skip, next_actual_skip))
+            next_view_offset = natural_skip - next_actual_skip
+            if next_view_offset == self._view_offset:
+                return False
+            self._view_offset = next_view_offset
+            self._auto_scroll = self._view_offset == 0
+            self.invalidate()
+            return True
         children = self._get_children()
         if not children:
             return False
@@ -806,6 +1461,8 @@ class UIScrollView(UIControl):
         if not viewport:
             return super().render_cells() if use_cell_render else super().render()
         self._restore_pending_proxy_focus()
+        if self._virtual_item_count is not None:
+            return self._render_virtual_scroll_content(viewport, use_cell_render)
 
         # Collect base element grid from non-child elements
         elem_grid = self._base_element_grid_for_render(use_cell_render)
@@ -962,6 +1619,96 @@ class UIScrollView(UIControl):
                 focused_descendant_background_map,
             )
         return self._apply_focus_backgrounds(rendered, viewport, child_row_indexes) if use_cell_render else rendered
+
+    def _render_virtual_scroll_content(self, viewport, use_cell_render=False, retry=False):
+        """Render only materialized virtual rows intersecting the viewport."""
+        elem_grid = self._base_element_grid_for_render(use_cell_render)
+        entries = self._refresh_virtual_materialization(viewport)
+        self._virtual_last_rows_rendered = 0
+        child_row_indexes = set()
+        selected_child_row_indexes = set()
+        focused_descendant_background_map = {}
+        h_offset = max(0, int(self._h_offset))
+        viewport_width = viewport["width"]
+        render_width = viewport_width + h_offset
+        viewport_top = viewport["row"]
+        viewport_bottom = viewport_top + viewport["height"]
+        height_changed = False
+
+        for entry in entries:
+            if not entry["visible"]:
+                continue
+            child = entry["child"]
+            child_row = entry["row"]
+            child_height = entry["height"]
+            start = max(viewport_top, child_row) - child_row
+            end = min(viewport_bottom, child_row + child_height) - child_row
+            partial_child = start > 0 or end < child_height
+            rendered_child = (
+                self._render_child_cells(
+                    child,
+                    render_width,
+                    clip={"top": start, "bottom": end} if partial_child else None,
+                )
+                if use_cell_render
+                else self._render_child(child, render_width)
+            )
+            self._virtual_last_rows_rendered += 1
+            if len(rendered_child) != child_height:
+                self._virtual_height_index.set_item_height(entry["index"], len(rendered_child))
+                height_changed = True
+                continue
+            if use_cell_render:
+                rendered_child = self._apply_selected_background_to_focused_child(rendered_child, child)
+                if self._child_has_focused_descendant(child) and self._should_select_focused_child(child):
+                    selected_child_row_indexes.update(
+                        range(max(0, child_row - viewport_top + start), max(0, child_row - viewport_top + end))
+                    )
+                    focus_background = (
+                        getattr(self.focus_style, "background", None)
+                        if self.focus_style is not None
+                        else None
+                    )
+                    focused_descendant_background_map.update(
+                        self._focused_descendant_background_map(focus_background, child)
+                    )
+
+            for source_row in range(start, end):
+                target_row = child_row + source_row
+                if target_row < viewport_top or target_row >= viewport_bottom:
+                    continue
+                line = rendered_child[source_row]
+                if h_offset > 0:
+                    line = (
+                        self._slice_rendered_cells(line, h_offset, viewport_width)
+                        if use_cell_render
+                        else self._slice_rendered_text(line, h_offset, viewport_width)
+                    )
+                elem_grid.setdefault(target_row, {})[viewport["col"]] = line
+                child_row_indexes.add(target_row - viewport_top)
+
+        if height_changed and not retry:
+            self.invalidate_layout()
+            return self._render_virtual_scroll_content(viewport, use_cell_render, retry=True)
+
+        height_index = self._ensure_virtual_height_index(viewport)
+        natural_skip = max(0, height_index.content_height() - viewport["height"]) if height_index else 0
+        actual_skip = natural_skip - min(self._view_offset, natural_skip)
+        if actual_skip > 0:
+            self._add_scroll_indicator(elem_grid, viewport, above=True, use_cell_render=use_cell_render)
+        if self._view_offset > 0:
+            self._add_scroll_indicator(elem_grid, viewport, above=False, use_cell_render=use_cell_render)
+
+        rendered = self._render_cell_frame(elem_grid) if use_cell_render else self._render(elem_grid)
+        if use_cell_render:
+            rendered = self._apply_selected_background_to_viewport_rows(
+                rendered,
+                viewport,
+                selected_child_row_indexes,
+                focused_descendant_background_map,
+            )
+            rendered = self._apply_focus_backgrounds(rendered, viewport, child_row_indexes)
+        return rendered
 
     def _restore_pending_proxy_focus(self):
         if self._suppress_active_scrollview_scope_visuals_for_render():

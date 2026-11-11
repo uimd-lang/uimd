@@ -1847,13 +1847,17 @@ void rememberScrollViewDescendant(ScrollViewLastDescendantMap& remembered,
     const int contentHeight = entry.height.mode == DimensionMode::FitContent
         ? fitContentHeightFor(element, entry.type, fallback, contentWidth)
         : std::max(kMinimumRenderableSize, fallback);
-    return std::max(kMinimumRenderableSize, entry.relative.row + contentHeight + entry.marginBottom);
+    // A fit-content cell shrinks to its live elements. The authored trailing
+    // rows are placeholders for expansion, not a minimum bottom margin.
+    const int bottomMargin = entry.cellHeight.mode == DimensionMode::FitContent
+        ? 0 : entry.marginBottom;
+    return std::max(kMinimumRenderableSize, entry.relative.row + contentHeight + bottomMargin);
 }
 
 [[nodiscard]] int fitCellHeight(const GeneratedWindowBase& window,
                                 const GeneratedLayoutEntry& cellEntry,
                                 std::optional<int> resolvedCellWidth = std::nullopt) {
-    int contentHeight = cellEntry.sourceCell.height;
+    int contentHeight = kMinimumRenderableSize;
     std::optional<int> availableCellWidth;
     if (resolvedCellWidth.has_value()) {
         availableCellWidth = std::max(kMinimumRenderableSize,
@@ -3762,6 +3766,19 @@ void renderEntry(GeneratedWindowBase& window, TerminalBuffer& buffer, const Gene
         std::vector<Rect> renderedChildRects;
         bool childContentAboveViewport = false;
         bool childContentBelowViewport = false;
+        Element* pinnedVirtualChild = nullptr;
+        const Element* pinnedDescendant = focusedElement != nullptr
+            ? focusedElement
+            : activeScrollViewEditElement;
+        if (scrollView->hasVirtualDataSource() && pinnedDescendant != nullptr) {
+            for (const auto& child : scrollView->children()) {
+                if (child != nullptr && elementTreeContains(*child, pinnedDescendant)) {
+                    pinnedVirtualChild = child.get();
+                    break;
+                }
+            }
+        }
+        scrollView->setVirtualPinnedElement(pinnedVirtualChild);
         for (const ScrollViewChildView& childView : scrollView->childViews(scrollViewRenderSize)) {
             const Rect childFrame{
                 row + childView.frame.row,
@@ -4782,6 +4799,12 @@ void escapeElementEdit(Element* element, std::optional<EditSnapshot>& editSnapsh
 }
 
 [[nodiscard]] bool pointOutsideActiveScrollView(Element* activeScrollView, Point position) {
+    if (activeScrollView == nullptr) {
+        return false;
+    }
+    if (!isLiveElementPointer(activeScrollView)) {
+        return true;
+    }
     auto* scrollView = dynamic_cast<ScrollView*>(activeScrollView);
     return scrollView != nullptr && !scrollView->frame().contains(position);
 }
@@ -7190,8 +7213,11 @@ private:
             return context;
         }
         context.activeScrollView = activeScrollViewForWindow(window_);
-        if (const auto* scrollView = dynamic_cast<const ScrollView*>(context.activeScrollView)) {
-            context.activeScrollViewPosition = scrollView->scrollPosition();
+        if (context.activeScrollView != nullptr &&
+            isLiveElementPointer(context.activeScrollView)) {
+            if (const auto* scrollView = dynamic_cast<const ScrollView*>(context.activeScrollView)) {
+                context.activeScrollViewPosition = scrollView->scrollPosition();
+            }
         }
         const std::vector<Element*> focusable = focusableElements(window_, context.activeScrollView);
         context.focused = focusIdentityFor(window_, focusable);
@@ -7222,6 +7248,9 @@ private:
 
     static void restoreBackgroundScrollPosition(const BackgroundFocusCleanupContext& context,
                                                 Element* activeScrollView) {
+        if (activeScrollView == nullptr || !isLiveElementPointer(activeScrollView)) {
+            return;
+        }
         auto* scrollView = dynamic_cast<ScrollView*>(activeScrollView);
         if (scrollView != nullptr && context.activeScrollViewPosition.has_value()) {
             scrollView->restoreScrollPosition(*context.activeScrollViewPosition);
@@ -7310,9 +7339,12 @@ private:
             activeScrollViewEditElement = nullptr;
             activeEditModeRef(window) = false;
         }
-        Element* activeScrollViewProxy = activeScrollViewBelongsToWindow
-            ? generatedScrollViewProxyFor(window, dynamic_cast<ScrollView*>(activeScrollView))
-            : nullptr;
+        Element* activeScrollViewProxy = nullptr;
+        if (activeScrollViewBelongsToWindow &&
+            activeScrollView != nullptr &&
+            isLiveElementPointer(activeScrollView)) {
+            activeScrollViewProxy = generatedScrollViewProxyFor(window, dynamic_cast<ScrollView*>(activeScrollView));
+        }
         if (activeScrollViewBelongsToWindow && (element == activeScrollView || element == activeScrollViewProxy)) {
             activeScrollView = nullptr;
             activeScrollViewEditElement = nullptr;
@@ -10264,7 +10296,9 @@ Size generatedWindowContentSize(const GeneratedWindowBase& window) {
     std::vector<ResolvedRuntimeCell> resolvedCells;
     resolveRuntimeCellsWithFitPass(window, runtimeCells, Rect{0, 0, natural.width, natural.height},
                                    horizontalSeparator, verticalSeparator, windowMode(window), resolvedCells);
-    return resolvedContentExtent(resolvedCells, natural);
+    return resolvedContentExtent(
+        resolvedCells,
+        Size{kMinimumRenderableSize, kMinimumRenderableSize});
 }
 
 Size generatedWindowContentSizeForWidth(const GeneratedWindowBase& window, int width) {
@@ -10276,8 +10310,17 @@ Size generatedWindowContentSizeForWidth(const GeneratedWindowBase& window, int w
     std::vector<ResolvedRuntimeCell> resolvedCells;
     resolveRuntimeCellsWithFitPass(window, runtimeCells,
                                    Rect{0, 0, std::max(kMinimumRenderableSize, width), natural.height},
-                                   horizontalSeparator, verticalSeparator, windowMode(window), resolvedCells);
-    Size result = resolvedContentExtent(resolvedCells, Size{std::max(kMinimumRenderableSize, width), natural.height});
+                                   horizontalSeparator, verticalSeparator, GeneratedWindowMode::Normal, resolvedCells);
+    const Size fitted = layoutSize(buildRuntimeTree(runtimeCells, horizontalSeparator, verticalSeparator));
+    if (fitted.height > natural.height)
+    {
+        resolveRuntimeCellsWithFitPass(window, runtimeCells,
+                                       Rect{0, 0, std::max(kMinimumRenderableSize, width), fitted.height},
+                                       horizontalSeparator, verticalSeparator, GeneratedWindowMode::Normal, resolvedCells);
+    }
+    Size result = resolvedContentExtent(
+        resolvedCells,
+        Size{std::max(kMinimumRenderableSize, width), kMinimumRenderableSize});
     for (const GeneratedLayoutEntry& entry : window.generatedLayout()) {
         const ResolvedRuntimeCell* cell = resolvedCellFor(resolvedCells, entry);
         if (cell == nullptr) {

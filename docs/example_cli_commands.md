@@ -141,6 +141,15 @@ generic `0/1 gate` whenever individual check output is available. On macOS the
 POSIX wrapper also exposes an installed Homebrew `libsixel` library to Python
 children when neither `UIMD_LIBSIXEL_PATH` nor `UIMD_LIBSIXEL_DIR` was supplied.
 
+The previous-version compatibility gate defaults to the frozen UIMD 0.5.8
+applications. It never regenerates fixture code and verifies the retained
+file hashes before and after compiling/running all selected ports. The older
+0.5.3 fixture remains available for historical compatibility checks:
+
+```bash
+python3 tools/previous_version_compatibility.py --fixture-version 0.5.3
+```
+
 Equivalent explicit command sequence:
 
 ```bash
@@ -758,6 +767,7 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py python/tests/te
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k python_and_cpp_tester_backends_have_small_script_parity
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k target_request_failure_diagnostics_include_exit_code_and_bounded_stderr
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k parity_manifest_ignores_gradle_build_outputs
+PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py -k parity_manifest_ignores_finder_metadata_changes
 ```
 
 `./uimd mcp-test` defaults to the C++ tester. Use `--backend python` only when
@@ -773,8 +783,10 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplication::test_terminal_buffer_erases_obsolete_raw_rectangles_before_repaint
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_listbox_item_activation_can_consume_enter_before_default_commit
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_preview_key_receives_stable_repeated_element_id_and_can_consume
+PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_fit_content_cell_height_ignores_trailing_ascii_margin
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_confirm_keeps_same_focus_after_callback_changes_focusables
 PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py::TestUIApplicationSizing::test_scrollview_scoped_reusable_control_activates_with_enter_and_space
+PYTHONPATH=python:src python3 -m pytest python/tests/test_application.py -k virtual_scrollview
 PYTHONPATH=python:src python3 -m pytest python/tests/test_calculator.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_dialogs.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py
@@ -787,6 +799,7 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage
 PYTHONPATH=python:src python3 -m pytest python/tests/test_elements.py::TestImage::test_xterm_term_name_does_not_imply_sixel_support
 PYTHONPATH=python:src python3 -m pytest python/tests/test_example_resource_parity.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_full_test_report.py
+PYTHONPATH=python:src python3 -m pytest python/tests/test_full_test_report.py -k previous_version
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_tester.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_mcp_transports.py
@@ -797,6 +810,38 @@ PYTHONPATH=python:src python3 -m pytest python/tests/test_uiinstance.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_uiwindow.py
 PYTHONPATH=python:src python3 -m pytest python/tests/test_version_consistency.py
 ```
+
+## ScrollView Virtualization Validation
+
+```bash
+python3 tools/generate_agent_chat_replay.py
+python3 tools/agent_chat_scroll_input_parity.py
+python3 tools/scrollview_virtualization_benchmark.py
+cpp/build/examples/agent_chat/agent_chat --logic-test
+dotnet csharp/examples/agent_chat/bin/Release/net10.0/agent_chat.dll --logic-test
+go/examples/agent_chat/agent_chat --logic-test
+rust/examples/agent_chat/target/release/agent_chat --logic-test
+swift/examples/agent_chat/.build/release/agent_chat --logic-test
+java/examples/agent_chat/build/install/agent_chat/bin/agent_chat --logic-test
+```
+
+The Agent Chat replay fixture is `python/examples/agent_chat/scenario.json`.
+Its message sequence, timing, controls, and offline behavior are described in
+`python/examples/agent_chat/scenario_notes.md`. Run the generator after editing
+the fixture to update all seven example ports.
+Cross-platform MCP comparisons pin animated render snapshots to a fixed
+simulation time so gradient frames compare deterministically.
+
+The PTY parity test loads the 50K-row Agent Chat transcript on every built
+language port and checks exact physical-input semantics: one row per separately
+rendered arrow key, four rows per single wheel report in either direction, a
+twelve-row three-report burst over content, a stable top-boundary no-op, and a
+two-second response budget.
+The benchmark reports fixed- and
+variable-height virtual sources at 1K, 10K, 100K, and 1M logical items. It
+separates source setup, sparse height-index creation, visible-range/layout work,
+child binding and measurement, row and frame rendering, terminal diffing, and
+keyboard-event dispatch.
 
 ## C++ Unit Tests
 
@@ -843,6 +888,8 @@ python3 -m pytest python/tests/test_java_toolchain.py
 ./java/gradlew -p java test --tests uimd.ImageTest
 UIMD_FORCE_SIXEL=1 ./java/gradlew -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
 ./java/gradlew -p java test --tests uimd.McpControllerTest
+./java/gradlew -p java test --tests uimd.ControlsTest.generatedFitContentHeightIgnoresTrailingAsciiSketchRows
+./java/gradlew -p java test --tests 'uimd.ControlsTest.virtualScrollView*'
 ./java/gradlew -p java test --tests uimd.TerminalBufferTest.obsoleteRawRectanglesAreErasedBeforeTheCurrentRegionIsRepainted
 ./java/gradlew -p java test --tests uimd.terminal.InputParserTest
 ```
@@ -860,6 +907,8 @@ Windows PowerShell:
 .\java\gradlew.bat -p java test --tests uimd.ImageTest
 $env:UIMD_FORCE_SIXEL = "1"; .\java\gradlew.bat -p java test --tests uimd.ImageTest.sixelModeWritesOneRawAnchorPerVisibleCellRow
 .\java\gradlew.bat -p java test --tests uimd.McpControllerTest
+.\java\gradlew.bat -p java test --tests uimd.ControlsTest.generatedFitContentHeightIgnoresTrailingAsciiSketchRows
+.\java\gradlew.bat -p java test --tests "uimd.ControlsTest.virtualScrollView*"
 .\java\gradlew.bat -p java test --tests uimd.TerminalBufferTest.obsoleteRawRectanglesAreErasedBeforeTheCurrentRegionIsRepainted
 .\java\gradlew.bat -p java test --tests uimd.terminal.InputParserTest
 ```
@@ -868,6 +917,8 @@ $env:UIMD_FORCE_SIXEL = "1"; .\java\gradlew.bat -p java test --tests uimd.ImageT
 
 ```bash
 swift test --package-path swift/src/Uimd
+swift test --package-path swift/src/Uimd --filter UimdRuntimeSmokeTests.testGeneratedFitContentHeightIgnoresTrailingASCIISketchRows
+swift test --package-path swift/src/Uimd --filter VirtualScrollView
 ```
 
 ## Go Runtime Tests And Static Checks
@@ -876,10 +927,12 @@ swift test --package-path swift/src/Uimd
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test ./...
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestGeneratedFitContentHeightIgnoresTrailingASCIISketchRows$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestScrollViewScopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestTerminalBufferRenderDiffSkipsUnchangedTextAndRawPayload$'
+env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd test -run '^TestVirtualScrollView'
 env GOCACHE="${TMPDIR:-/tmp}/uimd-go-build-cache" go -C go/src/uimd vet ./...
 ```
 
@@ -889,10 +942,12 @@ Windows PowerShell:
 go -C go\src\uimd test ./...
 go -C go\src\uimd test -run '^TestCustomElementDoesNotRequireCommitMode$'
 go -C go\src\uimd test -run '^TestDirectTerminalInputReaderFramesSplitAndStandaloneEscape$'
+go -C go\src\uimd test -run '^TestGeneratedFitContentHeightIgnoresTrailingASCIISketchRows$'
 go -C go\src\uimd test -run '^TestKeyboardFocusMovementNotifiesOnlyActualPreviousAndNextElements$'
 go -C go\src\uimd test -run '^TestScrollViewScopedConfirmRetainsLiveInputAndRebasesFocusAfterMutation$'
 go -C go\src\uimd test -run '^TestScrollViewScopedReusableControlActivatesWithEnterAndSpace$'
 go -C go\src\uimd test -run '^TestTerminalBufferRenderDiffSkipsUnchangedTextAndRawPayload$'
+go -C go\src\uimd test -run '^TestVirtualScrollView'
 go -C go\src\uimd vet ./...
 ```
 
@@ -908,12 +963,14 @@ python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.to
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::headless_tcp_accepts_a_later_client_while_the_first_request_is_delayed -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml mcp::tests::modal_button_uses_the_app_owned_frame_hook_before_dialog_behavior -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::generated_scroll_view_is_the_single_canonical_element_and_child_owner -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::generated_fit_content_height_ignores_trailing_ascii_sketch_rows -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::keyboard_focus_movement_notifies_only_actual_previous_and_next_elements -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::modal_close_reactivates_a_live_invoking_scroll_scope_like_cpp -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_modal_opening_uses_one_flat_root_window_stack -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::nested_scroll_combo_box_overlay_has_no_ancestor_local_ghost -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::scoped_confirm_retains_live_input_and_rebases_focus_after_mutation -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml runtime::tests::scroll_view_scoped_reusable_control_activates_with_enter_and_space -- --exact
+python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml virtual_scroll_view
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml terminal::tests::non_tty_input_keeps_the_terminal_lifecycle_available_for_gui_mcp -- --exact
 python3 tools/cargo_with_progress.py test --manifest-path rust/src/uimd/Cargo.toml tests::public_runtime_version_is_the_cargo_package_version -- --exact
 python3 tools/cargo_with_progress.py clippy --manifest-path rust/src/uimd/Cargo.toml --all-targets -- -D warnings
@@ -1399,14 +1456,14 @@ Raw macOS POSIX per-app form:
 
 ## C++/Go MCP Compare Tests
 
-Build the Go example and regression binaries with the commands in the
-`Bulk Rebuild` section before running these comparisons.
-
 Raw macOS/Linux POSIX all-example form:
 
 ```bash
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples go/examples --mcp-fast --compare-app-size 90x35
 ```
+
+Build the Go example and regression binaries with the commands in the
+`Bulk Rebuild` section before running the per-app and regression comparisons.
 
 Raw macOS/Linux POSIX per-app form:
 
@@ -1478,11 +1535,18 @@ Windows cmd.exe headless all-example and regression form:
 
 ## C++/Rust MCP Compare Tests
 
-Build the Rust examples and regressions in release mode before running these
-POSIX comparisons.
+Raw POSIX all-example form:
 
 ```bash
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples rust/examples --mcp-fast --compare-app-size 90x35
+```
+
+Build the Rust examples and regressions in release mode before running the
+per-app and regression comparisons.
+
+Raw POSIX per-app and regression form:
+
+```bash
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed rust/examples/activity_feed/target/release/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/agent_chat/agent_chat rust/examples/agent_chat/target/release/agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator rust/examples/calculator/target/release/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35
@@ -1504,11 +1568,18 @@ POSIX comparisons.
 
 ## C++/Java MCP Compare Tests
 
-Build the Java examples and regressions with `installDist` before running these
-comparisons.
+Raw POSIX all-example form:
 
 ```bash
 ./uimd mcp-test --backend python --headless --all --compare cpp/build/examples java/examples --mcp-fast --compare-app-size 90x35
+```
+
+Build the Java examples and regressions with `installDist` before running the
+per-app and regression comparisons.
+
+Raw POSIX per-app and regression form:
+
+```bash
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/activity_feed/activity_feed java/examples/activity_feed/build/install/activity_feed/bin/activity_feed tests/mcp/activity_feed.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/agent_chat/agent_chat java/examples/agent_chat/build/install/agent_chat/bin/agent_chat tests/mcp/agent_chat.yaml --mcp-fast --compare-app-size 90x35
 ./uimd mcp-test --backend python --headless --compare cpp/build/examples/calculator/calculator java/examples/calculator/build/install/calculator/bin/calculator tests/mcp/calculator.yaml --mcp-fast --compare-app-size 90x35

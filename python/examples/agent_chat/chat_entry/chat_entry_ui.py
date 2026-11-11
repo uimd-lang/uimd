@@ -8,8 +8,8 @@ class ChatEntryUI(UIControl):
     """Generated UI window from markdown definition."""
 
     _mcp_enabled = True
-    _mcp_source_md = '# Agent Chat Entry\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: "Fixed-height simulated agent chat entry for prose and structured transcript blocks."\ntags: [component, simulation]\n```\n\n## Definition\n\n```yaml\nextends: uicontrol\n```\n\n## Members\n\n```yaml\nrole:\n  type: label\n  text: Agent\n  description: "Simulated transcript speaker or activity type."\n\nphase:\n  type: label\n  text: response\n  description: "Deterministic scenario phase."\n\nbody:\n  type: spanlabel\n  text: ""\n  description: "Selectable simulated transcript content."\n\ndetail:\n  type: label\n  text: "simulated · no external action"\n  description: "Simulation-only activity detail."\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: "#00000000"\n@header:\n  background: "#162033"\n  padding: 0, 1, 0, 1\n@role:\n  color: "#a7f3d0"\n@phase:\n  color: "#c4b5fd"\n  text-align: right\n@body_panel:\n  background: "#0b1220"\n  padding: 1, 1, 1, 1\n@body:\n  color: "#d1d5db"\n  word-wrap: false\n  user-select: text\n@footer:\n  background: "#111827"\n  padding: 0, 1, 0, 1\n@detail:\n  color: "#64748b"\n  user-select: text\n```\n\n## User Interface\n\n```ui\n+-header-**---------------------------------------------------------------+\n| role..**........................................ phase................. |\n+-body_panel-**-----------------------------------------------------------+\n| body..**............................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n+-footer-**---------------------------------------------------------------+\n| detail..**............................................................. |\n+-------------------------------------------------------------------------+\n```\n'
-    _mcp_agent_metadata = {'window': {'description': 'Fixed-height simulated agent chat entry for prose and structured transcript blocks.'}, 'elements': {'role': {'role': 'text', 'description': 'Simulated transcript speaker or activity type.', 'expose': True}, 'phase': {'role': 'text', 'description': 'Deterministic scenario phase.', 'expose': True}, 'body': {'role': 'text', 'description': 'Selectable simulated transcript content.', 'expose': True}, 'detail': {'role': 'text', 'description': 'Simulation-only activity detail.', 'expose': True}}}
+    _mcp_source_md = '# Agent Chat Entry\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: "Heron-style assistant text entry."\ntags: [component, simulation]\n```\n\n## Definition\n\n```yaml\nextends: uicontrol\n```\n\n## Members\n\n```yaml\nheading:\n  type: spanlabel\n  text: "Assistant"\n  description: "Assistant role label."\n\nbody:\n  type: spanlabel\n  text: ""\n  description: "Selectable Markdown-style transcript prose."\n\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: "#00000000"\n@body_panel:\n  background: "#00000000"\n  padding: 0, 1, 0, 1\n@heading:\n  color: "#a7f3d0"\n  user-select: text\n@body:\n  color: "#cbd5e1"\n  word-wrap: true\n  user-select: text\n```\n\n## User Interface\n\n```ui\n+-body_panel-**-----------------------------------------------------------+\n| heading..**............................................................ |\n| body..**............................................................... |\n| ....................................................................... |\n# #...................................................................... |\n# #...................................................................... |\n+-------------------------------------------------------------------------+\n```\n'
+    _mcp_agent_metadata = {'window': {'description': 'Heron-style assistant text entry.'}, 'elements': {'heading': {'role': 'text', 'description': 'Assistant role label.', 'expose': True}, 'body': {'role': 'text', 'description': 'Selectable Markdown-style transcript prose.', 'expose': True}}}
     _mcp_app_tools = {}
 
     def __init__(self):
@@ -25,9 +25,7 @@ class ChatEntryUI(UIControl):
             self.mode = "dialog"
 
         self.body = self.create_element("body", "spanlabel", text='')
-        self.detail = self.create_element("detail", "label", text='simulated · no external action')
-        self.phase = self.create_element("phase", "label", text='response')
-        self.role = self.create_element("role", "label", text='Agent')
+        self.heading = self.create_element("heading", "spanlabel", text='Assistant')
 
 
     def _dispatch_element_changed(self, element, value):
@@ -44,25 +42,15 @@ class ChatEntryUI(UIControl):
 
 
 COMPILED_MEMBERS = {
-    "role": {
-        "type": 'label',
-        "text": 'Agent',
-        "description": 'Simulated transcript speaker or activity type.',
-    },
-    "phase": {
-        "type": 'label',
-        "text": 'response',
-        "description": 'Deterministic scenario phase.',
+    "heading": {
+        "type": 'spanlabel',
+        "text": 'Assistant',
+        "description": 'Assistant role label.',
     },
     "body": {
         "type": 'spanlabel',
         "text": '',
-        "description": 'Selectable simulated transcript content.',
-    },
-    "detail": {
-        "type": 'label',
-        "text": 'simulated · no external action',
-        "description": 'Simulation-only activity detail.',
+        "description": 'Selectable Markdown-style transcript prose.',
     },
 }
 
@@ -171,32 +159,17 @@ COMPILED_STYLE = {
         "focus-background": '#2b5f9f',
         "focus-color": '#ffffff',
     },
-    "@header": {
-        "background": '#162033',
+    "@body_panel": {
+        "background": '#00000000',
         "padding": '0, 1, 0, 1',
     },
-    "@role": {
+    "@heading": {
         "color": '#a7f3d0',
-    },
-    "@phase": {
-        "color": '#c4b5fd',
-        "text-align": 'right',
-    },
-    "@body_panel": {
-        "background": '#0b1220',
-        "padding": '1, 1, 1, 1',
-    },
-    "@body": {
-        "color": '#d1d5db',
-        "word-wrap": False,
         "user-select": 'text',
     },
-    "@footer": {
-        "background": '#111827',
-        "padding": '0, 1, 0, 1',
-    },
-    "@detail": {
-        "color": '#64748b',
+    "@body": {
+        "color": '#cbd5e1',
+        "word-wrap": True,
         "user-select": 'text',
     },
 }
@@ -206,80 +179,40 @@ COMPILED_LAYOUT = [
         'row': 0,
         'col': 1,
         'relative_col': 1,
-        'cell_row': 2,
+        'cell_row': 0,
         'cell_col': 0,
         'cell_chars_width': 73,
-        'cell_chars_height': 6,
+        'cell_chars_height': 5,
         'cell_name': 'body_panel',
-        'cell_height': 6,
         'cell_width_mode': 'expanded',
-        'cell_height_mode': 'auto',
+        'cell_height_mode': 'fit-content',
         'width_mode': 'expanded',
         'chars_width': 71,
-        'chars_height': 6,
+        'chars_height': 1,
         'margin_right': 1,
-        'height': 6,
+        'margin_bottom': 4,
+        'height': 1,
+        'type': 'spanlabel',
+        'name': 'heading'
+    },
+    {
+        'row': 1,
+        'col': 1,
+        'relative_row': 1,
+        'relative_col': 1,
+        'cell_row': 0,
+        'cell_col': 0,
+        'cell_chars_width': 73,
+        'cell_chars_height': 5,
+        'cell_name': 'body_panel',
+        'cell_width_mode': 'expanded',
+        'cell_height_mode': 'fit-content',
+        'width_mode': 'expanded',
+        'height_mode': 'fit-content',
+        'chars_width': 71,
+        'chars_height': 4,
+        'margin_right': 1,
         'type': 'spanlabel',
         'name': 'body'
-    },
-    {
-        'row': 0,
-        'col': 1,
-        'relative_col': 1,
-        'cell_row': 9,
-        'cell_col': 0,
-        'cell_chars_width': 73,
-        'cell_chars_height': 1,
-        'cell_name': 'footer',
-        'cell_height': 1,
-        'cell_width_mode': 'expanded',
-        'cell_height_mode': 'auto',
-        'width_mode': 'expanded',
-        'chars_width': 71,
-        'chars_height': 1,
-        'margin_right': 1,
-        'height': 1,
-        'type': 'label',
-        'name': 'detail'
-    },
-    {
-        'row': 0,
-        'col': 1,
-        'relative_col': 1,
-        'cell_row': 0,
-        'cell_col': 0,
-        'cell_chars_width': 73,
-        'cell_chars_height': 1,
-        'cell_name': 'header',
-        'cell_height': 1,
-        'cell_width_mode': 'expanded',
-        'cell_height_mode': 'auto',
-        'width_mode': 'expanded',
-        'chars_width': 48,
-        'chars_height': 1,
-        'margin_right': 24,
-        'height': 1,
-        'type': 'label',
-        'name': 'role'
-    },
-    {
-        'row': 0,
-        'col': 50,
-        'relative_col': 50,
-        'cell_row': 0,
-        'cell_col': 0,
-        'cell_chars_width': 73,
-        'cell_chars_height': 1,
-        'cell_name': 'header',
-        'cell_height': 1,
-        'cell_width_mode': 'expanded',
-        'cell_height_mode': 'auto',
-        'chars_width': 22,
-        'chars_height': 1,
-        'margin_right': 1,
-        'width': 22,
-        'height': 1,
-        'type': 'label',
-        'name': 'phase'
     }
 ]

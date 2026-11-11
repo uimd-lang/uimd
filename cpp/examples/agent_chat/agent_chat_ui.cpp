@@ -217,16 +217,18 @@ ui::Style makeStyle(std::initializer_list<std::pair<const char*, const char*>> p
 std::vector<ui::GeneratedLayoutEntry> buildLayout()
 {
     return {
-        ui::GeneratedLayoutEntry{.name = "start_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 1, 12, 1}, .sourceCell = ui::Rect{2, 0, 78, 1}, .width = dimension("auto", 12), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{12, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 65, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "status", .type = "label", .cellName = "", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{10, 0, 78, 1}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("auto", 78), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{76, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 1, .marginBottom = 0, .elementStyle = makeStyle({{"background", "#0f172a"}, {"color", "#93c5fd"}, {"padding", "0, 1, 0, 1"}})},
-        ui::GeneratedLayoutEntry{.name = "title", .type = "label", .cellName = "header", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{0, 0, 78, 1}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{34, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 43, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#111827"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#f8fafc"}, {"text-align", "center"}})},
-        ui::GeneratedLayoutEntry{.name = "transcript", .type = "transcript", .cellName = "content", .relative = ui::Rect{0, 1, 536870911, 536870911}, .sourceCell = ui::Rect{4, 0, 78, 5}, .width = dimension("expanded", 536870911), .height = dimension("expanded", 536870911), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{76, 5}, .cellCharsSize = ui::Size{78, 5}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#030712"}}), .elementStyle = makeStyle({{"background", "#00000000"}})},
-        ui::GeneratedLayoutEntry{.name = "pause_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 14, 12, 1}, .sourceCell = ui::Rect{2, 0, 78, 1}, .width = dimension("auto", 12), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{12, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 52, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "next_step_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 27, 16, 1}, .sourceCell = ui::Rect{2, 0, 78, 1}, .width = dimension("auto", 16), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{16, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 35, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "simulation_badge", .type = "label", .cellName = "header", .relative = ui::Rect{0, 36, 20, 1}, .sourceCell = ui::Rect{0, 0, 78, 1}, .width = dimension("auto", 20), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{20, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 22, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#111827"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#c4b5fd"}, {"text-align", "right"}})},
-        ui::GeneratedLayoutEntry{.name = "reset_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 44, 12, 1}, .sourceCell = ui::Rect{2, 0, 78, 1}, .width = dimension("auto", 12), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{12, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 22, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "load_stress_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 57, 20, 1}, .sourceCell = ui::Rect{2, 0, 78, 1}, .width = dimension("auto", 20), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{20, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#6d28d9"}, {"color", "#e2e8f0"}})},
-        ui::GeneratedLayoutEntry{.name = "quit_button", .type = "button", .cellName = "header", .relative = ui::Rect{0, 57, 20, 1}, .sourceCell = ui::Rect{0, 0, 78, 1}, .width = dimension("auto", 20), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{20, 1}, .cellCharsSize = ui::Size{78, 1}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#111827"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "#7f1d1d"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "start_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 1, 12, 1}, .sourceCell = ui::Rect{2, 0, 88, 1}, .width = dimension("auto", 12), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{12, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 75, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "status", .type = "label", .cellName = "", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{10, 0, 88, 1}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("auto", 88), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{86, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 1, .marginBottom = 0, .elementStyle = makeStyle({{"background", "#0f172a"}, {"color", "#93c5fd"}, {"padding", "0, 1, 0, 1"}})},
+        ui::GeneratedLayoutEntry{.name = "title", .type = "label", .cellName = "header", .relative = ui::Rect{0, 1, 536870911, 1}, .sourceCell = ui::Rect{0, 0, 88, 1}, .width = dimension("expanded", 536870911), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{34, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 53, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#111827"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#f8fafc"}, {"text-align", "center"}})},
+        ui::GeneratedLayoutEntry{.name = "transcript", .type = "transcript", .cellName = "content", .relative = ui::Rect{0, 1, 536870911, 536870911}, .sourceCell = ui::Rect{4, 0, 88, 5}, .width = dimension("expanded", 536870911), .height = dimension("expanded", 536870911), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("expanded", 0), .charsSize = ui::Size{86, 5}, .cellCharsSize = ui::Size{88, 5}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#030712"}}), .elementStyle = makeStyle({{"background", "#00000000"}})},
+        ui::GeneratedLayoutEntry{.name = "pause_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 14, 12, 1}, .sourceCell = ui::Rect{2, 0, 88, 1}, .width = dimension("auto", 12), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{12, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 62, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "next_step_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 27, 16, 1}, .sourceCell = ui::Rect{2, 0, 88, 1}, .width = dimension("auto", 16), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{16, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 45, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "simulation_badge", .type = "label", .cellName = "header", .relative = ui::Rect{0, 36, 20, 1}, .sourceCell = ui::Rect{0, 0, 88, 1}, .width = dimension("auto", 20), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{20, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 32, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#111827"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "transparent"}, {"color", "#c4b5fd"}, {"text-align", "right"}})},
+        ui::GeneratedLayoutEntry{.name = "reset_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 44, 12, 1}, .sourceCell = ui::Rect{2, 0, 88, 1}, .width = dimension("auto", 12), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{12, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 32, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "load_stress_button", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 57, 18, 1}, .sourceCell = ui::Rect{2, 0, 88, 1}, .width = dimension("auto", 18), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{18, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 13, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#6d28d9"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "quit_button", .type = "button", .cellName = "header", .relative = ui::Rect{0, 57, 30, 1}, .sourceCell = ui::Rect{0, 0, 88, 1}, .width = dimension("auto", 30), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{30, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#111827"}, {"padding", "0, 1, 0, 1"}}), .elementStyle = makeStyle({{"background", "#7f1d1d"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "top", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 76, 3, 1}, .sourceCell = ui::Rect{2, 0, 88, 1}, .width = dimension("auto", 3), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{3, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 9, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
+        ui::GeneratedLayoutEntry{.name = "end", .type = "button", .cellName = "actions", .relative = ui::Rect{0, 80, 7, 1}, .sourceCell = ui::Rect{2, 0, 88, 1}, .width = dimension("auto", 7), .height = dimension("auto", 1), .cellWidth = dimension("expanded", 0), .cellHeight = dimension("auto", 1), .charsSize = ui::Size{7, 1}, .cellCharsSize = ui::Size{88, 1}, .marginRight = 1, .marginBottom = 0, .cellStyle = makeStyle({{"background", "#172033"}, {"padding", "1, 1, 1, 1"}}), .elementStyle = makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}})},
     };
 }
 
@@ -302,6 +304,16 @@ load_stress_button:
   title: "Load 50k"
   description: "Load an approximately fifty-thousand-row deterministic stress transcript."
 
+top:
+  type: button
+  title: Top
+  description: "Scroll the transcript to its first message."
+
+end:
+  type: button
+  title: Bottom
+  description: "Scroll the transcript to its newest message."
+
 transcript:
   type: transcript
   cpp-class: "agent_chat_example::Transcript"
@@ -356,21 +368,21 @@ button:
 ## User Interface
 
 ```ui
-+-header-**--------------------------------------------------------------------+
-| title..**......................... simulation_badge.... quit_button......... |
-+-actions-**-------------------------------------------------------------------+
-| start_button pause_button next_step_button reset_button load_stress_button.. |
-+-content-**-------------------------------------------------------------------+
-| transcript..**.............................................................. |
-| ............................................................................ |
-* *........................................................................... |
-* *........................................................................... |
-| ............................................................................ |
-+------------------------------------------------------------------------------+
-| status..**.................................................................. |
-+------------------------------------------------------------------------------+
++-header-**------------------------------------------------------------------------------+
+| title..**......................... simulation_badge.... quit_button................... |
++-actions-**-----------------------------------------------------------------------------+
+| start_button pause_button next_step_button reset_button load_stress_button top end.... |
++-content-**-----------------------------------------------------------------------------+
+| transcript..**........................................................................ |
+| ...................................................................................... |
+* *..................................................................................... |
+* *..................................................................................... |
+| ...................................................................................... |
++----------------------------------------------------------------------------------------+
+| status..**............................................................................ |
++----------------------------------------------------------------------------------------+
 ```
-)UI_MCP_MD", "Deterministic simulated agent chat for rich transcript and large ScrollView testing.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"title", "Application title.", false}, ui::GeneratedElementMetadata{"simulation_badge", "Clarifies that the transcript performs no real agent or tool work.", false}, ui::GeneratedElementMetadata{"quit_button", "Close the Agent Chat Simulation example.", true}, ui::GeneratedElementMetadata{"start_button", "Run one hundred deterministic simulated messages over three minutes.", true}, ui::GeneratedElementMetadata{"pause_button", "Pause the timed simulation without discarding progress.", true}, ui::GeneratedElementMetadata{"next_step_button", "Apply one deterministic scripted chat step.", true}, ui::GeneratedElementMetadata{"reset_button", "Reset the transcript to its initial message.", true}, ui::GeneratedElementMetadata{"load_stress_button", "Load an approximately fifty-thousand-row deterministic stress transcript.", true}, ui::GeneratedElementMetadata{"transcript", "Scrollable deterministic simulated agent transcript.", true}, ui::GeneratedElementMetadata{"status", "Shows deterministic simulation progress and transcript size.", true}});
+)UI_MCP_MD", "Deterministic simulated agent chat for rich transcript and large ScrollView testing.", std::vector<ui::GeneratedElementMetadata>{ui::GeneratedElementMetadata{"title", "Application title.", false}, ui::GeneratedElementMetadata{"simulation_badge", "Clarifies that the transcript performs no real agent or tool work.", false}, ui::GeneratedElementMetadata{"quit_button", "Close the Agent Chat Simulation example.", true}, ui::GeneratedElementMetadata{"start_button", "Run one hundred deterministic simulated messages over three minutes.", true}, ui::GeneratedElementMetadata{"pause_button", "Pause the timed simulation without discarding progress.", true}, ui::GeneratedElementMetadata{"next_step_button", "Apply one deterministic scripted chat step.", true}, ui::GeneratedElementMetadata{"reset_button", "Reset the transcript to its initial message.", true}, ui::GeneratedElementMetadata{"load_stress_button", "Load an approximately fifty-thousand-row deterministic stress transcript.", true}, ui::GeneratedElementMetadata{"top", "Scroll the transcript to its first message.", true}, ui::GeneratedElementMetadata{"end", "Scroll the transcript to its newest message.", true}, ui::GeneratedElementMetadata{"transcript", "Scrollable deterministic simulated agent transcript.", true}, ui::GeneratedElementMetadata{"status", "Shows deterministic simulation progress and transcript size.", true}});
     setMcpAppTools(std::vector<ui::GeneratedAppToolMetadata>{});
     setGeneratedWindowStyle(makeStyle({{"background", "#030712"}, {"border-color", "transparent"}, {"border-width", "0"}}));
     title = &static_cast<ui::Label&>(addElement<ui::Label>("title", "Agent Chat Simulation"));
@@ -403,6 +415,14 @@ button:
     load_stress_button->setStyle(makeStyle({{"background", "#6d28d9"}, {"color", "#e2e8f0"}}));
     load_stress_button->setFocusStyle(makeStyle({{"background", "#7c3aed"}, {"color", "#ffffff"}}));
     load_stress_button->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
+    top = &static_cast<ui::Button&>(addElement<ui::Button>("top", "Top"));
+    top->setStyle(makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}}));
+    top->setFocusStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    top->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
+    end = &static_cast<ui::Button&>(addElement<ui::Button>("end", "Bottom"));
+    end->setStyle(makeStyle({{"background", "#334155"}, {"color", "#e2e8f0"}}));
+    end->setFocusStyle(makeStyle({{"background", "#2563eb"}, {"color", "#ffffff"}}));
+    end->setDisabledStyle(makeStyle({{"background", "#1f2937"}, {"color", "#64748b"}}));
     transcript = &static_cast<ui::ReusableElement&>(addElement<ui::ReusableElement>("transcript"));
     transcript->setChild(std::make_unique<agent_chat_example::Transcript>());
     transcript->setStyle(makeStyle({{"background", "#00000000"}}));
@@ -435,6 +455,14 @@ void AgentChatUI::onResetButtonClick()
 }
 
 void AgentChatUI::onLoadStressButtonClick()
+{
+}
+
+void AgentChatUI::onTopClick()
+{
+}
+
+void AgentChatUI::onEndClick()
 {
 }
 
@@ -474,6 +502,16 @@ bool AgentChatUI::handleGeneratedButton(std::string_view name)
     else if (name == "load_stress_button")
     {
         onLoadStressButtonClick();
+        return true;
+    }
+    else if (name == "top")
+    {
+        onTopClick();
+        return true;
+    }
+    else if (name == "end")
+    {
+        onEndClick();
         return true;
     }
     return false;
@@ -526,6 +564,14 @@ ui::GeneratedWindowRuntimeOptions AgentChatUI::runtimeOptions()
             (void)handleGeneratedButton(name);
         }
         else if (name == "load_stress_button")
+        {
+            (void)handleGeneratedButton(name);
+        }
+        else if (name == "top")
+        {
+            (void)handleGeneratedButton(name);
+        }
+        else if (name == "end")
         {
             (void)handleGeneratedButton(name);
         }

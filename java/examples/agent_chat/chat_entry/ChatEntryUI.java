@@ -7,7 +7,6 @@ import uimd.GeneratedAppToolMetadata;
 import uimd.GeneratedElementMetadata;
 import uimd.GeneratedLayoutEntry;
 import uimd.GeneratedWindowBase;
-import uimd.Label;
 import uimd.Rect;
 import uimd.Size;
 import uimd.SpanLabel;
@@ -16,10 +15,8 @@ import uimd.TextGradient;
 
 public class ChatEntryUI extends GeneratedWindowBase
 {
-    public Label role;
-    public Label phase;
+    public SpanLabel heading;
     public SpanLabel body;
-    public Label detail;
 
     public ChatEntryUI()
     {
@@ -30,26 +27,17 @@ public class ChatEntryUI extends GeneratedWindowBase
         setMcpMetadata(
             true,
             "ChatEntry",
-            "# Agent Chat Entry\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: \"Fixed-height simulated agent chat entry for prose and structured transcript blocks.\"\ntags: [component, simulation]\n```\n\n## Definition\n\n```yaml\nextends: uicontrol\n```\n\n## Members\n\n```yaml\nrole:\n  type: label\n  text: Agent\n  description: \"Simulated transcript speaker or activity type.\"\n\nphase:\n  type: label\n  text: response\n  description: \"Deterministic scenario phase.\"\n\nbody:\n  type: spanlabel\n  text: \"\"\n  description: \"Selectable simulated transcript content.\"\n\ndetail:\n  type: label\n  text: \"simulated · no external action\"\n  description: \"Simulation-only activity detail.\"\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: \"#00000000\"\n@header:\n  background: \"#162033\"\n  padding: 0, 1, 0, 1\n@role:\n  color: \"#a7f3d0\"\n@phase:\n  color: \"#c4b5fd\"\n  text-align: right\n@body_panel:\n  background: \"#0b1220\"\n  padding: 1, 1, 1, 1\n@body:\n  color: \"#d1d5db\"\n  word-wrap: false\n  user-select: text\n@footer:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@detail:\n  color: \"#64748b\"\n  user-select: text\n```\n\n## User Interface\n\n```ui\n+-header-**---------------------------------------------------------------+\n| role..**........................................ phase................. |\n+-body_panel-**-----------------------------------------------------------+\n| body..**............................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n| ....................................................................... |\n+-footer-**---------------------------------------------------------------+\n| detail..**............................................................. |\n+-------------------------------------------------------------------------+\n```\n",
-            "Fixed-height simulated agent chat entry for prose and structured transcript blocks.",
+            "# Agent Chat Entry\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: component\nstatus: draft\ndescription: \"Heron-style assistant text entry.\"\ntags: [component, simulation]\n```\n\n## Definition\n\n```yaml\nextends: uicontrol\n```\n\n## Members\n\n```yaml\nheading:\n  type: spanlabel\n  text: \"Assistant\"\n  description: \"Assistant role label.\"\n\nbody:\n  type: spanlabel\n  text: \"\"\n  description: \"Selectable Markdown-style transcript prose.\"\n\n```\n\n## Style\n\n```yaml\nthis:\n  border-width: 0\n  background: \"#00000000\"\n@body_panel:\n  background: \"#00000000\"\n  padding: 0, 1, 0, 1\n@heading:\n  color: \"#a7f3d0\"\n  user-select: text\n@body:\n  color: \"#cbd5e1\"\n  word-wrap: true\n  user-select: text\n```\n\n## User Interface\n\n```ui\n+-body_panel-**-----------------------------------------------------------+\n| heading..**............................................................ |\n| body..**............................................................... |\n| ....................................................................... |\n# #...................................................................... |\n# #...................................................................... |\n+-------------------------------------------------------------------------+\n```\n",
+            "Heron-style assistant text entry.",
             List.of(
-            new GeneratedElementMetadata("role", "Simulated transcript speaker or activity type.", true),
-            new GeneratedElementMetadata("phase", "Deterministic scenario phase.", true),
-            new GeneratedElementMetadata("body", "Selectable simulated transcript content.", true),
-            new GeneratedElementMetadata("detail", "Simulation-only activity detail.", true)));
+            new GeneratedElementMetadata("heading", "Assistant role label.", true),
+            new GeneratedElementMetadata("body", "Selectable Markdown-style transcript prose.", true)));
         setMcpAppTools(List.of());
         setGeneratedWindowStyle(Style.fromProperties("background", "#00000000", "border-color", "transparent", "border-width-horizontal", "0", "border-width-vertical", "0"));
-        role = addElement(new Label("role", "Agent"));
-        role.setStyle(Style.fromProperties("background", "transparent", "color", "#a7f3d0"));
-        role.setCursorStyle(Style.fromProperties("background", "#b8d7ff", "color", "#000000"));
-        phase = addElement(new Label("phase", "response"));
-        phase.setStyle(Style.fromProperties("background", "transparent", "color", "#c4b5fd", "text-align", "right"));
-        phase.setCursorStyle(Style.fromProperties("background", "#b8d7ff", "color", "#000000"));
+        heading = addElement(new SpanLabel("heading", "Assistant"));
+        heading.setStyle(Style.fromProperties("color", "#a7f3d0", "user-select", "text"));
         body = addElement(new SpanLabel("body", ""));
-        body.setStyle(Style.fromProperties("color", "#d1d5db", "user-select", "text"));
-        detail = addElement(new Label("detail", "simulated · no external action"));
-        detail.setStyle(Style.fromProperties("background", "transparent", "color", "#64748b", "user-select", "text"));
-        detail.setCursorStyle(Style.fromProperties("background", "#b8d7ff", "color", "#000000"));
+        body.setStyle(Style.fromProperties("color", "#cbd5e1", "user-select", "text"));
     }
 
     private static TextGradient makeTextGradient(
@@ -83,69 +71,37 @@ public class ChatEntryUI extends GeneratedWindowBase
     {
         return List.of(
             new GeneratedLayoutEntry()
+                .setName("heading")
+                .setType("spanlabel")
+                .setCellName("body_panel")
+                .setRelative(new Rect(0, 1, 536870911, 1))
+                .setSourceCell(new Rect(0, 0, 73, 5))
+                .setWidth(AxisDimension.expanded())
+                .setHeight(AxisDimension.auto(1))
+                .setCellWidth(AxisDimension.expanded())
+                .setCellHeight(AxisDimension.fitContent())
+                .setCharsSize(new Size(71, 1))
+                .setCellCharsSize(new Size(73, 5))
+                .setMarginRight(1)
+                .setMarginBottom(4)
+                .setCellStyle(Style.fromProperties("background", "#00000000", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
+                .setElementStyle(Style.fromProperties("color", "#a7f3d0", "user-select", "text")),
+            new GeneratedLayoutEntry()
                 .setName("body")
                 .setType("spanlabel")
                 .setCellName("body_panel")
-                .setRelative(new Rect(0, 1, 536870911, 6))
-                .setSourceCell(new Rect(2, 0, 73, 6))
+                .setRelative(new Rect(1, 1, 536870911, 536870910))
+                .setSourceCell(new Rect(0, 0, 73, 5))
                 .setWidth(AxisDimension.expanded())
-                .setHeight(AxisDimension.auto(6))
+                .setHeight(AxisDimension.fitContent())
                 .setCellWidth(AxisDimension.expanded())
-                .setCellHeight(AxisDimension.auto(6))
-                .setCharsSize(new Size(71, 6))
-                .setCellCharsSize(new Size(73, 6))
+                .setCellHeight(AxisDimension.fitContent())
+                .setCharsSize(new Size(71, 4))
+                .setCellCharsSize(new Size(73, 5))
                 .setMarginRight(1)
                 .setMarginBottom(0)
-                .setCellStyle(Style.fromProperties("background", "#0b1220", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
-                .setElementStyle(Style.fromProperties("color", "#d1d5db", "user-select", "text")),
-            new GeneratedLayoutEntry()
-                .setName("detail")
-                .setType("label")
-                .setCellName("footer")
-                .setRelative(new Rect(0, 1, 536870911, 1))
-                .setSourceCell(new Rect(9, 0, 73, 1))
-                .setWidth(AxisDimension.expanded())
-                .setHeight(AxisDimension.auto(1))
-                .setCellWidth(AxisDimension.expanded())
-                .setCellHeight(AxisDimension.auto(1))
-                .setCharsSize(new Size(71, 1))
-                .setCellCharsSize(new Size(73, 1))
-                .setMarginRight(1)
-                .setMarginBottom(0)
-                .setCellStyle(Style.fromProperties("background", "#111827", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
-                .setElementStyle(Style.fromProperties("background", "transparent", "color", "#64748b", "user-select", "text")),
-            new GeneratedLayoutEntry()
-                .setName("role")
-                .setType("label")
-                .setCellName("header")
-                .setRelative(new Rect(0, 1, 536870911, 1))
-                .setSourceCell(new Rect(0, 0, 73, 1))
-                .setWidth(AxisDimension.expanded())
-                .setHeight(AxisDimension.auto(1))
-                .setCellWidth(AxisDimension.expanded())
-                .setCellHeight(AxisDimension.auto(1))
-                .setCharsSize(new Size(48, 1))
-                .setCellCharsSize(new Size(73, 1))
-                .setMarginRight(24)
-                .setMarginBottom(0)
-                .setCellStyle(Style.fromProperties("background", "#162033", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
-                .setElementStyle(Style.fromProperties("background", "transparent", "color", "#a7f3d0")),
-            new GeneratedLayoutEntry()
-                .setName("phase")
-                .setType("label")
-                .setCellName("header")
-                .setRelative(new Rect(0, 50, 22, 1))
-                .setSourceCell(new Rect(0, 0, 73, 1))
-                .setWidth(AxisDimension.auto(22))
-                .setHeight(AxisDimension.auto(1))
-                .setCellWidth(AxisDimension.expanded())
-                .setCellHeight(AxisDimension.auto(1))
-                .setCharsSize(new Size(22, 1))
-                .setCellCharsSize(new Size(73, 1))
-                .setMarginRight(1)
-                .setMarginBottom(0)
-                .setCellStyle(Style.fromProperties("background", "#162033", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
-                .setElementStyle(Style.fromProperties("background", "transparent", "color", "#c4b5fd", "text-align", "right"))
+                .setCellStyle(Style.fromProperties("background", "#00000000", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
+                .setElementStyle(Style.fromProperties("color", "#cbd5e1", "user-select", "text"))
         );
     }
 

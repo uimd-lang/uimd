@@ -33,8 +33,17 @@ let package = Package(
             name: "agent_chat",
             dependencies: [.product(name: "Uimd", package: "Uimd")],
             path: ".",
-            exclude: ["agent_chat.uimd", "chat_entry", "transcript"],
-            sources: ["agent_chat.swift", "agent_chat_ui.swift", "chat_entry_ui.swift", "transcript_ui.swift"]
+            exclude: ["agent_chat.uimd", "chat_entry", "code_entry", "table_entry", "user_entry", "reasoning_entry", "transcript"],
+            sources: [
+                "agent_chat.swift",
+                "agent_chat_ui.swift",
+                "chat_entry_ui.swift",
+                "code_entry_ui.swift",
+                "table_entry_ui.swift",
+                "user_entry_ui.swift",
+                "reasoning_entry_ui.swift",
+                "transcript_ui.swift",
+            ]
         ),
     ]
 )

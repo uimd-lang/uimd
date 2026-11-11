@@ -1,7 +1,16 @@
 # Changelog
 
-## 0.5.8 - Unreleased
+## 0.5.9 - Unreleased
 
+- Add opt-in ScrollView virtualization across all seven language runtimes,
+  with bounded row materialization, indexed variable heights, stable keys,
+  targeted invalidation, recycling, and viewport anchoring.
+- Expand Agent Chat into a shared timed coding-conversation replay with rich
+  message components and a large-history stress scenario.
+- Align physical wheel routing and movement across language ports and repair
+  fit-content measurement and rich-row rendering parity.
+- Freeze 0.5.8 generated applications for the seven-port compatibility gate,
+  retain the historical 0.5.3 gate, and ignore Finder metadata in build inputs.
 - Add the terminal-only Go target, including native generation, runtime,
   examples, SDK packaging, direct-terminal smoke coverage, and parity tests.
 - Fix C++ runtime focus and ScrollView scope cleanup after generated callbacks

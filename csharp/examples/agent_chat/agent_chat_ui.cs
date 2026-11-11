@@ -11,6 +11,8 @@ public class AgentChatUI : GeneratedWindowBase
     public Button next_step_button = null!;
     public Button reset_button = null!;
     public Button load_stress_button = null!;
+    public Button top = null!;
+    public Button end = null!;
     public ReusableElement transcript = null!;
     public Label status = null!;
 
@@ -85,6 +87,16 @@ load_stress_button:
   title: "Load 50k"
   description: "Load an approximately fifty-thousand-row deterministic stress transcript."
 
+top:
+  type: button
+  title: Top
+  description: "Scroll the transcript to its first message."
+
+end:
+  type: button
+  title: Bottom
+  description: "Scroll the transcript to its newest message."
+
 transcript:
   type: transcript
   cpp-class: "agent_chat_example::Transcript"
@@ -139,19 +151,19 @@ button:
 ## User Interface
 
 ```ui
-+-header-**--------------------------------------------------------------------+
-| title..**......................... simulation_badge.... quit_button......... |
-+-actions-**-------------------------------------------------------------------+
-| start_button pause_button next_step_button reset_button load_stress_button.. |
-+-content-**-------------------------------------------------------------------+
-| transcript..**.............................................................. |
-| ............................................................................ |
-* *........................................................................... |
-* *........................................................................... |
-| ............................................................................ |
-+------------------------------------------------------------------------------+
-| status..**.................................................................. |
-+------------------------------------------------------------------------------+
++-header-**------------------------------------------------------------------------------+
+| title..**......................... simulation_badge.... quit_button................... |
++-actions-**-----------------------------------------------------------------------------+
+| start_button pause_button next_step_button reset_button load_stress_button top end.... |
++-content-**-----------------------------------------------------------------------------+
+| transcript..**........................................................................ |
+| ...................................................................................... |
+* *..................................................................................... |
+* *..................................................................................... |
+| ...................................................................................... |
++----------------------------------------------------------------------------------------+
+| status..**............................................................................ |
++----------------------------------------------------------------------------------------+
 ```
 
 """, "Deterministic simulated agent chat for rich transcript and large ScrollView testing.", new[]
@@ -164,6 +176,8 @@ button:
             new GeneratedElementMetadata { Name = "next_step_button", Description = "Apply one deterministic scripted chat step.", Expose = true },
             new GeneratedElementMetadata { Name = "reset_button", Description = "Reset the transcript to its initial message.", Expose = true },
             new GeneratedElementMetadata { Name = "load_stress_button", Description = "Load an approximately fifty-thousand-row deterministic stress transcript.", Expose = true },
+            new GeneratedElementMetadata { Name = "top", Description = "Scroll the transcript to its first message.", Expose = true },
+            new GeneratedElementMetadata { Name = "end", Description = "Scroll the transcript to its newest message.", Expose = true },
             new GeneratedElementMetadata { Name = "transcript", Description = "Scrollable deterministic simulated agent transcript.", Expose = true },
             new GeneratedElementMetadata { Name = "status", Description = "Shows deterministic simulation progress and transcript size.", Expose = true },
         });
@@ -295,6 +309,38 @@ button:
         Background = new Color("#1f2937"),
         Color = new Color("#64748b")
     });
+        top = AddElement(new Button("top", "Top"));
+        top.SetStyle(new Style
+    {
+        Background = new Color("#334155"),
+        Color = new Color("#e2e8f0")
+    });
+        top.SetFocusStyle(new Style
+    {
+        Background = new Color("#2563eb"),
+        Color = new Color("#ffffff")
+    });
+        top.SetDisabledStyle(new Style
+    {
+        Background = new Color("#1f2937"),
+        Color = new Color("#64748b")
+    });
+        end = AddElement(new Button("end", "Bottom"));
+        end.SetStyle(new Style
+    {
+        Background = new Color("#334155"),
+        Color = new Color("#e2e8f0")
+    });
+        end.SetFocusStyle(new Style
+    {
+        Background = new Color("#2563eb"),
+        Color = new Color("#ffffff")
+    });
+        end.SetDisabledStyle(new Style
+    {
+        Background = new Color("#1f2937"),
+        Color = new Color("#64748b")
+    });
         transcript = AddElement(new ReusableElement("transcript"));
         transcript.SetChild(new TranscriptUI());
         transcript.SetStyle(new Style
@@ -341,14 +387,14 @@ button:
                 Type = "button",
                 CellName = "actions",
                 Relative = new Rect(0, 1, 12, 1),
-                SourceCell = new Rect(2, 0, 78, 1),
+                SourceCell = new Rect(2, 0, 88, 1),
                 Width = AxisDimension.Auto(12),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
                 CharsSize = new Size(12, 1),
-                CellCharsSize = new Size(78, 1),
-                MarginRight = 65,
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 75,
                 MarginBottom = 0,
                 CellStyle = new Style
     {
@@ -370,13 +416,13 @@ button:
                 Type = "label",
                 CellName = "",
                 Relative = new Rect(0, 1, 536870911, 1),
-                SourceCell = new Rect(10, 0, 78, 1),
+                SourceCell = new Rect(10, 0, 88, 1),
                 Width = AxisDimension.Expanded(),
                 Height = AxisDimension.Auto(1),
-                CellWidth = AxisDimension.Auto(78),
+                CellWidth = AxisDimension.Auto(88),
                 CellHeight = AxisDimension.Auto(1),
-                CharsSize = new Size(76, 1),
-                CellCharsSize = new Size(78, 1),
+                CharsSize = new Size(86, 1),
+                CellCharsSize = new Size(88, 1),
                 MarginRight = 1,
                 MarginBottom = 0,
                 CellStyle = new Style(),
@@ -396,14 +442,14 @@ button:
                 Type = "label",
                 CellName = "header",
                 Relative = new Rect(0, 1, 536870911, 1),
-                SourceCell = new Rect(0, 0, 78, 1),
+                SourceCell = new Rect(0, 0, 88, 1),
                 Width = AxisDimension.Expanded(),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
                 CharsSize = new Size(34, 1),
-                CellCharsSize = new Size(78, 1),
-                MarginRight = 43,
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 53,
                 MarginBottom = 0,
                 CellStyle = new Style
     {
@@ -426,13 +472,13 @@ button:
                 Type = "transcript",
                 CellName = "content",
                 Relative = new Rect(0, 1, 536870911, 536870911),
-                SourceCell = new Rect(4, 0, 78, 5),
+                SourceCell = new Rect(4, 0, 88, 5),
                 Width = AxisDimension.Expanded(),
                 Height = AxisDimension.Expanded(),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Expanded(),
-                CharsSize = new Size(76, 5),
-                CellCharsSize = new Size(78, 5),
+                CharsSize = new Size(86, 5),
+                CellCharsSize = new Size(88, 5),
                 MarginRight = 1,
                 MarginBottom = 0,
                 CellStyle = new Style
@@ -450,14 +496,14 @@ button:
                 Type = "button",
                 CellName = "actions",
                 Relative = new Rect(0, 14, 12, 1),
-                SourceCell = new Rect(2, 0, 78, 1),
+                SourceCell = new Rect(2, 0, 88, 1),
                 Width = AxisDimension.Auto(12),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
                 CharsSize = new Size(12, 1),
-                CellCharsSize = new Size(78, 1),
-                MarginRight = 52,
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 62,
                 MarginBottom = 0,
                 CellStyle = new Style
     {
@@ -479,14 +525,14 @@ button:
                 Type = "button",
                 CellName = "actions",
                 Relative = new Rect(0, 27, 16, 1),
-                SourceCell = new Rect(2, 0, 78, 1),
+                SourceCell = new Rect(2, 0, 88, 1),
                 Width = AxisDimension.Auto(16),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
                 CharsSize = new Size(16, 1),
-                CellCharsSize = new Size(78, 1),
-                MarginRight = 35,
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 45,
                 MarginBottom = 0,
                 CellStyle = new Style
     {
@@ -508,14 +554,14 @@ button:
                 Type = "label",
                 CellName = "header",
                 Relative = new Rect(0, 36, 20, 1),
-                SourceCell = new Rect(0, 0, 78, 1),
+                SourceCell = new Rect(0, 0, 88, 1),
                 Width = AxisDimension.Auto(20),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
                 CharsSize = new Size(20, 1),
-                CellCharsSize = new Size(78, 1),
-                MarginRight = 22,
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 32,
                 MarginBottom = 0,
                 CellStyle = new Style
     {
@@ -538,14 +584,14 @@ button:
                 Type = "button",
                 CellName = "actions",
                 Relative = new Rect(0, 44, 12, 1),
-                SourceCell = new Rect(2, 0, 78, 1),
+                SourceCell = new Rect(2, 0, 88, 1),
                 Width = AxisDimension.Auto(12),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
                 CharsSize = new Size(12, 1),
-                CellCharsSize = new Size(78, 1),
-                MarginRight = 22,
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 32,
                 MarginBottom = 0,
                 CellStyle = new Style
     {
@@ -566,15 +612,15 @@ button:
                 Name = "load_stress_button",
                 Type = "button",
                 CellName = "actions",
-                Relative = new Rect(0, 57, 20, 1),
-                SourceCell = new Rect(2, 0, 78, 1),
-                Width = AxisDimension.Auto(20),
+                Relative = new Rect(0, 57, 18, 1),
+                SourceCell = new Rect(2, 0, 88, 1),
+                Width = AxisDimension.Auto(18),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
-                CharsSize = new Size(20, 1),
-                CellCharsSize = new Size(78, 1),
-                MarginRight = 1,
+                CharsSize = new Size(18, 1),
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 13,
                 MarginBottom = 0,
                 CellStyle = new Style
     {
@@ -595,14 +641,14 @@ button:
                 Name = "quit_button",
                 Type = "button",
                 CellName = "header",
-                Relative = new Rect(0, 57, 20, 1),
-                SourceCell = new Rect(0, 0, 78, 1),
-                Width = AxisDimension.Auto(20),
+                Relative = new Rect(0, 57, 30, 1),
+                SourceCell = new Rect(0, 0, 88, 1),
+                Width = AxisDimension.Auto(30),
                 Height = AxisDimension.Auto(1),
                 CellWidth = AxisDimension.Expanded(),
                 CellHeight = AxisDimension.Auto(1),
-                CharsSize = new Size(20, 1),
-                CellCharsSize = new Size(78, 1),
+                CharsSize = new Size(30, 1),
+                CellCharsSize = new Size(88, 1),
                 MarginRight = 1,
                 MarginBottom = 0,
                 CellStyle = new Style
@@ -619,6 +665,64 @@ button:
         Color = new Color("#e2e8f0")
     },
             },
+            new GeneratedLayoutEntry
+            {
+                Name = "top",
+                Type = "button",
+                CellName = "actions",
+                Relative = new Rect(0, 76, 3, 1),
+                SourceCell = new Rect(2, 0, 88, 1),
+                Width = AxisDimension.Auto(3),
+                Height = AxisDimension.Auto(1),
+                CellWidth = AxisDimension.Expanded(),
+                CellHeight = AxisDimension.Auto(1),
+                CharsSize = new Size(3, 1),
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 9,
+                MarginBottom = 0,
+                CellStyle = new Style
+    {
+        Background = new Color("#172033"),
+        PaddingBottom = 1,
+        PaddingLeft = 1,
+        PaddingRight = 1,
+        PaddingTop = 1
+    },
+                ElementStyle = new Style
+    {
+        Background = new Color("#334155"),
+        Color = new Color("#e2e8f0")
+    },
+            },
+            new GeneratedLayoutEntry
+            {
+                Name = "end",
+                Type = "button",
+                CellName = "actions",
+                Relative = new Rect(0, 80, 7, 1),
+                SourceCell = new Rect(2, 0, 88, 1),
+                Width = AxisDimension.Auto(7),
+                Height = AxisDimension.Auto(1),
+                CellWidth = AxisDimension.Expanded(),
+                CellHeight = AxisDimension.Auto(1),
+                CharsSize = new Size(7, 1),
+                CellCharsSize = new Size(88, 1),
+                MarginRight = 1,
+                MarginBottom = 0,
+                CellStyle = new Style
+    {
+        Background = new Color("#172033"),
+        PaddingBottom = 1,
+        PaddingLeft = 1,
+        PaddingRight = 1,
+        PaddingTop = 1
+    },
+                ElementStyle = new Style
+    {
+        Background = new Color("#334155"),
+        Color = new Color("#e2e8f0")
+    },
+            },
         };
     }
 
@@ -628,6 +732,8 @@ button:
     protected virtual void onNextStepButtonClick() { }
     protected virtual void onResetButtonClick() { }
     protected virtual void onLoadStressButtonClick() { }
+    protected virtual void onTopClick() { }
+    protected virtual void onEndClick() { }
     protected override bool shouldClose() { return false; }
 
     public override bool HandleGeneratedButton(string name)
@@ -660,6 +766,16 @@ button:
         else if (name == "load_stress_button")
         {
             onLoadStressButtonClick();
+            return true;
+        }
+        else if (name == "top")
+        {
+            onTopClick();
+            return true;
+        }
+        else if (name == "end")
+        {
+            onEndClick();
             return true;
         }
         return false;

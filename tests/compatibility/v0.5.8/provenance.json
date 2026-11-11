@@ -1,0 +1,17 @@
+{
+  "version": "0.5.8",
+  "source_commit": "7d0dab2aedb48a8df6c78d33eb0185aadeeee897",
+  "native_generator_tree": "eaf4079c7a38237f6d49096dbd512d0e194b7b54",
+  "native_generator_sha256": "9d7726732d56728db3df34584953c8d76ee3aea1ce3a35169d743345fe3426c9",
+  "native_generator_version": "UIMD 0.5.8",
+  "generation_commands": [
+    "./uimd generate tests/compatibility/v0.5.8/source/compatibility.uimd --target python --output-dir tests/compatibility/v0.5.8/python",
+    "./uimd generate tests/compatibility/v0.5.8/source/compatibility.uimd --target cpp --output-dir tests/compatibility/v0.5.8/cpp",
+    "./uimd generate tests/compatibility/v0.5.8/source/compatibility.uimd --target csharp --output-dir tests/compatibility/v0.5.8/csharp",
+    "./uimd generate tests/compatibility/v0.5.8/source/compatibility.uimd --target go --output-dir tests/compatibility/v0.5.8/go",
+    "./uimd generate tests/compatibility/v0.5.8/source/compatibility.uimd --target java --output-dir tests/compatibility/v0.5.8/java",
+    "./uimd generate tests/compatibility/v0.5.8/source/compatibility.uimd --target rust --output-dir tests/compatibility/v0.5.8/rust",
+    "./uimd generate tests/compatibility/v0.5.8/source/compatibility.uimd --target swift --output-dir tests/compatibility/v0.5.8/swift"
+  ],
+  "application_wrappers": "Retained v0.5.3 public-API application/build wrappers, versioned for 0.5.8 before freezing; generated outputs were emitted by the exact baseline native tool."
+}

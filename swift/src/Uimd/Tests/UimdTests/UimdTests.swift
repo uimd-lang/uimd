@@ -102,6 +102,34 @@ final class UimdRuntimeSmokeTests: XCTestCase
         XCTAssertEqual(comboBox.selectedIndex, 6)
     }
 
+    func testGeneratedFitContentHeightIgnoresTrailingASCIISketchRows()
+    {
+        let sketchWidth = 20
+        let sketchHeight = 5
+        let renderedHeight = 2
+        let window = GeneratedWindowBase("Trailing sketch fit content")
+        _ = window.addElement(Label("body", "one\ntwo"))
+        window.setGeneratedLayout([
+            GeneratedLayoutEntry(
+                name: "body",
+                type: "spanlabel",
+                cellName: "",
+                relative: Rect(row: 0, col: 0, width: sketchWidth, height: sketchHeight),
+                sourceCell: Rect(row: 0, col: 0, width: sketchWidth, height: sketchHeight),
+                width: .fixed(sketchWidth),
+                height: .fitContent,
+                cellWidth: .fixed(sketchWidth),
+                cellHeight: .fitContent,
+                charsSize: Size(width: sketchWidth, height: sketchHeight),
+                cellCharsSize: Size(width: sketchWidth, height: sketchHeight),
+                marginRight: 0,
+                marginBottom: 0
+            ),
+        ])
+
+        XCTAssertEqual(window.generatedContentSizeForWidth(sketchWidth).height, renderedHeight)
+    }
+
     func testReusableGeneratedScrollViewFocusUnderlaysAlphaDescendantBackground()
     {
         let parentBackground = Color("#303545")
@@ -811,6 +839,346 @@ final class UimdRuntimeSmokeTests: XCTestCase
             XCTAssertFalse(bottomClipped[row][0].raw.isEmpty)
         }
         XCTAssertFalse(bottomClipped[4][0].rawSkip)
+    }
+
+    func testVirtualScrollViewBoundsOneMillionLogicalRows()
+    {
+        let logicalCount = 1_000_000
+        var materialized = 0
+        var reused = 0
+        let scroll = ScrollView("items")
+        scroll.setVirtualDataSource(VirtualScrollDataSource(
+            itemCount: { logicalCount },
+            itemKey: { AnyHashable($0) },
+            materialize:
+            {
+                index, recycled in
+                materialized += 1
+                if recycled != nil
+                {
+                    reused += 1
+                }
+                let row = recycled ?? Label("virtual-row", "")
+                row.setText("Row \(index)")
+                row.frame = Rect(row: 0, col: 0, width: 24, height: 1)
+                return row
+            },
+            estimatedHeight: { _ in 1 }
+        ))
+
+        let viewport = Size(width: 24, height: 20)
+        let initial = scroll.childViews(size: viewport)
+        XCTAssertFalse(initial.isEmpty)
+        XCTAssertLessThan(materialized, 100)
+        XCTAssertEqual(scroll.virtualDiagnostics().logicalItems, logicalCount)
+
+        XCTAssertTrue(scroll.scrollTo(logicalCount / 2, viewport: viewport))
+        let middle = scroll.childViews(size: viewport)
+        XCTAssertTrue(middle.contains { $0.index >= logicalCount / 2 })
+        XCTAssertGreaterThan(reused, 0)
+        XCTAssertLessThan(scroll.virtualDiagnostics().materializedRows, 100)
+        XCTAssertLessThan(scroll.virtualDiagnostics().lastRowsConsidered, 200)
+    }
+
+    func testVirtualScrollViewTargetedReplaceUpdatesVariableHeight()
+    {
+        let logicalCount = 100
+        var heights = Array(repeating: 1, count: logicalCount)
+        let scroll = ScrollView("items")
+        scroll.setVirtualDataSource(VirtualScrollDataSource(
+            itemCount: { logicalCount },
+            itemKey: { AnyHashable($0) },
+            materialize:
+            {
+                index, recycled in
+                let row = recycled ?? Label("virtual-row", "")
+                row.setText("Row \(index)")
+                row.frame = Rect(row: 0, col: 0, width: 20, height: heights[index])
+                return row
+            },
+            estimatedHeight: { _ in 1 }
+        ))
+
+        _ = scroll.childViews(size: Size(width: 20, height: 10))
+        let previousHeight = scroll.contentHeight(width: 20)
+        heights[0] = 5
+        scroll.virtualItemsReplaced(at: 0)
+        _ = scroll.childViews(size: Size(width: 20, height: 10))
+
+        XCTAssertEqual(scroll.contentHeight(width: 20), previousHeight + 4)
+    }
+
+    func testVirtualScrollViewStableKeyPreservesStateAndRekeyClearsIt()
+    {
+        var key = "stable"
+        var observedSelections: [String] = []
+        let scroll = ScrollView("items")
+        scroll.setVirtualDataSource(VirtualScrollDataSource(
+            itemCount: { 1 },
+            itemKey: { _ in AnyHashable(key) },
+            materialize:
+            {
+                _, recycled in
+                if let existing = recycled as? TextInput
+                {
+                    observedSelections.append(existing.selectedText())
+                    return existing
+                }
+                return TextInput("virtual-row", "selected")
+            },
+            estimatedHeight: { _ in 1 }
+        ))
+        let viewport = Size(width: 8, height: 1)
+        let selected = scroll.childViews(size: viewport).first!.element as! TextInput
+        selected.selectRange(start: 0, end: 3)
+        scroll.virtualItemsReplaced(at: 0)
+        let replaced = scroll.childViews(size: viewport).first!.element as! TextInput
+        XCTAssertTrue(selected === replaced)
+        XCTAssertEqual(observedSelections.last, "sel")
+        XCTAssertEqual(replaced.selectedText(), "sel")
+
+        key = "replacement"
+        scroll.virtualItemsReplaced(at: 0)
+        let rekeyed = scroll.childViews(size: viewport).first!.element as! TextInput
+        XCTAssertEqual(observedSelections.last, "")
+        XCTAssertEqual(rekeyed.selectedText(), "")
+    }
+
+    func testVirtualScrollViewMutationsPreserveTheVisibleAnchor()
+    {
+        let anchorIndex = 20
+        var values = (0..<40).map { "row-\($0)" }
+        let scroll = ScrollView("items")
+        scroll.setVirtualDataSource(VirtualScrollDataSource(
+            itemCount: { values.count },
+            itemKey: { AnyHashable(values[$0]) },
+            materialize:
+            {
+                index, recycled in
+                let row = recycled ?? Label("virtual-row", "")
+                row.setText(values[index])
+                row.frame = Rect(row: 0, col: 0, width: 8, height: 1)
+                return row
+            },
+            estimatedHeight: { _ in 1 }
+        ))
+        let viewport = Size(width: 8, height: 3)
+        XCTAssertTrue(scroll.scrollTo(anchorIndex, viewport: viewport))
+        XCTAssertTrue(scroll.childViews(size: viewport).contains {
+            $0.visible && $0.index == anchorIndex
+        })
+
+        values.insert("inserted", at: 0)
+        scroll.virtualItemsInserted(at: 0)
+        XCTAssertTrue(scroll.childViews(size: viewport).contains {
+            $0.visible && $0.index == anchorIndex + 1
+        })
+
+        values.remove(at: anchorIndex + 1)
+        scroll.virtualItemsRemoved(at: anchorIndex + 1)
+        XCTAssertTrue(scroll.childViews(size: viewport).contains {
+            $0.visible && $0.index == anchorIndex + 1
+        })
+
+        let previousCount = values.count
+        values.removeAll()
+        scroll.virtualItemsRemoved(at: 0, count: previousCount)
+        XCTAssertTrue(scroll.childViews(size: viewport).isEmpty)
+
+        let rowHeight = 2
+        let gapScroll = ScrollView("gap-anchor-virtual", 1)
+        gapScroll.setVirtualDataSource(VirtualScrollDataSource(
+            itemCount: { 4 },
+            itemKey: { AnyHashable($0) },
+            materialize:
+            {
+                index, recycled in
+                let row = recycled ?? Label("gap-anchor-row", "")
+                row.setText("gap-\(index)")
+                row.frame = Rect(row: 0, col: 0, width: 8, height: rowHeight)
+                return row
+            },
+            estimatedHeight: { _ in rowHeight }
+        ))
+        _ = gapScroll.childViews(size: viewport)
+        _ = gapScroll.scrollToTop(viewport)
+        XCTAssertTrue(gapScroll.scrollLines(-rowHeight, viewport: viewport))
+        let beforeWidthChange = gapScroll.childViews(size: viewport).first { $0.visible }
+        XCTAssertEqual(beforeWidthChange?.index, 1)
+        XCTAssertEqual(beforeWidthChange?.frame.row, 1)
+
+        let afterWidthChange = gapScroll.childViews(size: Size(width: 9, height: 3))
+            .first { $0.visible }
+        XCTAssertEqual(afterWidthChange?.index, 1)
+        XCTAssertEqual(afterWidthChange?.frame.row, 1)
+    }
+
+    func testVirtualScrollViewRangeHeightInvalidationPreservesOtherMeasurements()
+    {
+        let heights = [2, 3, 4]
+        let scroll = ScrollView("items")
+        scroll.setVirtualDataSource(VirtualScrollDataSource(
+            itemCount: { heights.count },
+            itemKey: { AnyHashable($0) },
+            materialize:
+            {
+                index, recycled in
+                let row = recycled ?? Label("virtual-row", "")
+                row.setText("Row \(index)")
+                row.frame = Rect(row: 0, col: 0, width: 8, height: heights[index])
+                return row
+            },
+            estimatedHeight: { _ in 1 }
+        ))
+        let viewport = Size(width: 8, height: 2)
+        for index in heights.indices
+        {
+            _ = scroll.scrollTo(index, viewport: viewport)
+            _ = scroll.childViews(size: viewport)
+        }
+        XCTAssertEqual(scroll.contentHeight(width: 8), 9)
+
+        scroll.invalidateVirtualHeights(at: 1, count: 1)
+
+        XCTAssertEqual(scroll.contentHeight(width: 8), 7)
+    }
+
+    func testVirtualScrollViewScopeSurvivesRenderedArrowEvents() throws
+    {
+        let viewport = Size(width: 12, height: 6)
+        let transcript = GeneratedScrollViewBase("Transcript")
+        transcript.setGeneratedFocusable(false)
+        let scroll = transcript.addElement(ScrollView("panel", 1))
+        scroll.setStyle({
+            var style = Style()
+            style.gap = 1
+            style.paddingTop = 1
+            style.paddingRight = 1
+            style.paddingBottom = 1
+            style.paddingLeft = 1
+            return style
+        }())
+        scroll.setVirtualDataSource(VirtualScrollDataSource(
+            itemCount: { 100 },
+            itemKey: { AnyHashable($0) },
+            materialize:
+            {
+                index, recycled in
+                let row = recycled as? ReusableElement ?? ReusableElement("virtual-row")
+                let child = row.child ?? GeneratedWindowBase("Virtual row")
+                child.setGeneratedFocusable(false)
+                let label = child.element(named: "body") ?? child.addElement(Label("body", ""))
+                label.setText("Row \(index)")
+                let rowHeight = 10
+                child.setGeneratedLayout([
+                    GeneratedLayoutEntry(
+                        name: "body",
+                        type: "label",
+                        cellName: "",
+                        relative: Rect(row: 0, col: 0, width: viewport.width, height: rowHeight),
+                        sourceCell: Rect(row: 0, col: 0, width: viewport.width, height: rowHeight),
+                        width: .fixed(viewport.width),
+                        height: .fixed(rowHeight),
+                        cellWidth: .expanded,
+                        cellHeight: .fixed(rowHeight),
+                        charsSize: Size(width: viewport.width, height: rowHeight),
+                        cellCharsSize: Size(width: viewport.width, height: rowHeight),
+                        marginRight: 0,
+                        marginBottom: 0
+                    ),
+                ])
+                row.setChild(child)
+                return row
+            }
+        ))
+        transcript.setGeneratedScrollView(scroll)
+        transcript.setGeneratedLayout([
+            GeneratedLayoutEntry(
+                name: "panel",
+                type: "scrollview",
+                cellName: "",
+                relative: Rect(row: 0, col: 0, width: viewport.width, height: viewport.height),
+                sourceCell: Rect(row: 0, col: 0, width: viewport.width, height: viewport.height),
+                width: .fixed(viewport.width),
+                height: .fixed(viewport.height),
+                cellWidth: .expanded,
+                cellHeight: .expanded,
+                charsSize: viewport,
+                cellCharsSize: viewport,
+                marginRight: 0,
+                marginBottom: 0
+            ),
+        ])
+
+        let root = GeneratedWindowBase("Root")
+        let host = root.addElement(ReusableElement("transcript"))
+        host.setChild(transcript)
+        root.setGeneratedLayout([
+            GeneratedLayoutEntry(
+                name: "transcript",
+                type: "uielementreusable",
+                cellName: "",
+                relative: Rect(row: 0, col: 0, width: viewport.width, height: viewport.height),
+                sourceCell: Rect(row: 0, col: 0, width: viewport.width, height: viewport.height),
+                width: .fixed(viewport.width),
+                height: .fixed(viewport.height),
+                cellWidth: .expanded,
+                cellHeight: .expanded,
+                charsSize: viewport,
+                cellCharsSize: viewport,
+                marginRight: 0,
+                marginBottom: 0
+            ),
+        ])
+        var options = GeneratedWindowRuntimeOptions()
+        options.initialFocusName = "transcript"
+        let runtime = GeneratedRuntimeController(
+            window: root,
+            options: options,
+            args: ["test", "--viewport", "0,0,12,6"]
+        )
+        _ = try runtime.handleRequest([
+            "method": "ui.get_render_snapshot_compact",
+            "params": [:],
+        ])
+        _ = scroll.scrollToTop(viewport)
+        _ = try runtime.handleRequest([
+            "method": "press_key",
+            "params": ["key": "Enter"],
+        ])
+        let beforeMaximum = scroll.maxViewOffset(viewport: viewport)
+        let beforeViewOffset = scroll.viewOffsetValue()
+        let before = beforeMaximum - beforeViewOffset
+
+        _ = try runtime.handleRequest([
+            "method": "press_key",
+            "params": ["key": "Down"],
+        ])
+        let afterFirstMaximum = scroll.maxViewOffset(viewport: viewport)
+        let afterFirstViewOffset = scroll.viewOffsetValue()
+        let afterFirst = afterFirstMaximum - afterFirstViewOffset
+        _ = try runtime.handleRequest([
+            "method": "ui.get_render_snapshot_compact",
+            "params": [:],
+        ])
+        _ = try runtime.handleRequest([
+            "method": "press_key",
+            "params": ["key": "Down"],
+        ])
+        let afterSecondMaximum = scroll.maxViewOffset(viewport: viewport)
+        let afterSecondViewOffset = scroll.viewOffsetValue()
+        let afterSecond = afterSecondMaximum - afterSecondViewOffset
+
+        XCTAssertEqual(
+            afterFirst - before,
+            1,
+            "before=\(beforeMaximum)/\(beforeViewOffset) after=\(afterFirstMaximum)/\(afterFirstViewOffset)"
+        )
+        XCTAssertEqual(
+            afterSecond - afterFirst,
+            1,
+            "first=\(afterFirstMaximum)/\(afterFirstViewOffset) second=\(afterSecondMaximum)/\(afterSecondViewOffset)"
+        )
     }
 
 }

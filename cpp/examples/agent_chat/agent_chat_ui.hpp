@@ -43,6 +43,8 @@ public:
     ui::Button* next_step_button = nullptr;
     ui::Button* reset_button = nullptr;
     ui::Button* load_stress_button = nullptr;
+    ui::Button* top = nullptr;
+    ui::Button* end = nullptr;
     ui::ReusableElement* transcript = nullptr;
     ui::Label* status = nullptr;
 
@@ -53,6 +55,8 @@ protected:
     virtual void onNextStepButtonClick();
     virtual void onResetButtonClick();
     virtual void onLoadStressButtonClick();
+    virtual void onTopClick();
+    virtual void onEndClick();
     virtual bool shouldClose() const;
 
 };

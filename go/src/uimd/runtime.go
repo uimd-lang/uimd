@@ -1924,8 +1924,8 @@ func GeneratedWindowContentSize(window any) Size {
 		return Size{Width: minimumRenderableSize, Height: minimumRenderableSize}
 	}
 	natural := naturalLayoutSize(base.layout, base.windowStyle, base)
-	cellRects := resolvedRuntimeCellRects(base.layout, natural, borderWidthHorizontal(base.windowStyle), borderWidthVertical(base.windowStyle), generatedWindowMode(base.layout), base)
-	return resolvedContentExtent(cellRects, natural)
+	cellRects := resolvedRuntimeCellRects(base.layout, natural, borderWidthHorizontal(base.windowStyle), borderWidthVertical(base.windowStyle), generatedWindowMode(base.layout), false, base)
+	return resolvedContentExtent(cellRects, Size{Width: minimumRenderableSize, Height: minimumRenderableSize})
 }
 
 func GeneratedWindowContentSizeForWidth(window any, width int) Size {
@@ -1936,8 +1936,8 @@ func GeneratedWindowContentSizeForWidth(window any, width int) Size {
 	targetWidth := maxInt(minimumRenderableSize, width)
 	natural := naturalLayoutSize(base.layout, base.windowStyle, base)
 	contentSize := Size{Width: targetWidth, Height: natural.Height}
-	cellRects := resolvedRuntimeCellRects(base.layout, contentSize, borderWidthHorizontal(base.windowStyle), borderWidthVertical(base.windowStyle), generatedWindowMode(base.layout), base)
-	result := resolvedContentExtent(cellRects, contentSize)
+	cellRects := resolvedRuntimeCellRects(base.layout, contentSize, borderWidthHorizontal(base.windowStyle), borderWidthVertical(base.windowStyle), generatedWindowModeNormal, true, base)
+	result := resolvedContentExtent(cellRects, Size{Width: targetWidth, Height: minimumRenderableSize})
 	for _, item := range base.layout {
 		cellRect := resolvedCellRect(item, cellRects)
 		entrySize := renderSizeFor(base.layout, item, cellRect, layoutElementForItem(base, item))
@@ -2037,7 +2037,7 @@ func renderGeneratedWindowContentWithEditElementClipOptions(window *GeneratedWin
 func renderGeneratedWindowLayout(buffer *TerminalBuffer, window *GeneratedWindowBase, contentSize Size, contentRowOffset int, contentColOffset int, mode string, focusedIndex int, focusedElement Element, editMode bool, suppressScopeFocus bool, editElement Element, explicitEditElement bool, renderClipTop *int, renderClipBottom *int, useHostViewportForRootScrollViewIndicators bool, scopeFocusActive bool) {
 	horizontalBorder := borderWidthHorizontal(window.windowStyle)
 	verticalBorder := borderWidthVertical(window.windowStyle)
-	cellRects := resolvedRuntimeCellRects(window.layout, contentSize, horizontalBorder, verticalBorder, mode, window)
+	cellRects := resolvedRuntimeCellRects(window.layout, contentSize, horizontalBorder, verticalBorder, mode, false, window)
 	frames := resolveLayout(window.layout, cellRects, window)
 	for _, item := range window.layout {
 		if !styleHasPaint(item.CellStyle) {
@@ -2701,11 +2701,15 @@ func fitEntryHeight(window *GeneratedWindowBase, item LayoutItem, availableCellW
 		}
 		contentHeight = fitContentHeightFor(element, fallback, maxInt(minimumRenderableSize, width))
 	}
-	return maxInt(minimumRenderableSize, item.Row+contentHeight+item.MarginBottom)
+	bottomMargin := item.MarginBottom
+	if item.CellHeightMode == "fit-content" || item.CellHeight == FitContent {
+		bottomMargin = 0
+	}
+	return maxInt(minimumRenderableSize, item.Row+contentHeight+bottomMargin)
 }
 
 func fitCellHeight(window *GeneratedWindowBase, layout []LayoutItem, cellItem LayoutItem, resolvedCellWidth *int) int {
-	contentHeight := cellItem.CellCharsHeight
+	contentHeight := minimumRenderableSize
 	var availableCellWidth *int
 	if resolvedCellWidth != nil {
 		value := maxInt(minimumRenderableSize, *resolvedCellWidth-paddingLeft(cellItem.CellStyle)-paddingRight(cellItem.CellStyle))
@@ -3030,7 +3034,7 @@ func sortedIntKeys(values map[int]bool) []int {
 	return keys
 }
 
-func resolvedRuntimeCellRects(layout []LayoutItem, size Size, horizontalSeparator int, verticalSeparator int, mode string, owners ...*GeneratedWindowBase) map[string]Rect {
+func resolvedRuntimeCellRects(layout []LayoutItem, size Size, horizontalSeparator int, verticalSeparator int, mode string, growFitHeight bool, owners ...*GeneratedWindowBase) map[string]Rect {
 	var owner *GeneratedWindowBase
 	if len(owners) > 0 {
 		owner = owners[0]
@@ -3043,6 +3047,10 @@ func resolvedRuntimeCellRects(layout []LayoutItem, size Size, horizontalSeparato
 		resolveRuntimeNode(tree, layoutContentRect(tree, Rect{Row: 0, Col: 0, Width: size.Width, Height: size.Height}, mode), result, horizontalSeparator, verticalSeparator, mode)
 		if owner == nil || !recomputeFitContentHeightsPass2(owner, cells, result) {
 			return result
+		}
+		if growFitHeight {
+			fitted := runtimeTreeLayoutSize(buildRuntimeTree(cells, horizontalSeparator, verticalSeparator))
+			size.Height = fitted.Height
 		}
 	}
 	return result
@@ -3798,6 +3806,7 @@ func syncWindowElementFramesTo(window *GeneratedWindowBase, frame Rect, forceFul
 		borderWidthHorizontal(window.windowStyle),
 		borderWidthVertical(window.windowStyle),
 		mode,
+		false,
 		window)
 	frames := resolveLayout(window.layout, cellRects, window)
 	for _, item := range window.layout {
@@ -4402,7 +4411,7 @@ func (state *runtimeState) handleDirectMouse(event directMouseEvent, size Size) 
 			scrollView = scrollViewForElement(target)
 		}
 		if scrollView != nil {
-			return scrollView.ScrollBy(-event.Delta)
+			return scrollView.HandleWheel(event.Delta)
 		}
 		return false
 	}

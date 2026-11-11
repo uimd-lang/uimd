@@ -25,6 +25,8 @@ public class AgentChatUI extends GeneratedWindowBase
     public Button next_step_button;
     public Button reset_button;
     public Button load_stress_button;
+    public Button top;
+    public Button end;
     public ReusableElement transcript;
     public Label status;
 
@@ -37,7 +39,7 @@ public class AgentChatUI extends GeneratedWindowBase
         setMcpMetadata(
             true,
             "AgentChat",
-            "# Agent Chat Simulation\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: window\nstatus: draft\ndescription: \"Deterministic simulated agent chat for rich transcript and large ScrollView testing.\"\ntags: [example, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nuses:\n  - transcript/transcript\n```\n\n## Members\n\n```yaml\ntitle:\n  type: label\n  text: \"Agent Chat Simulation\"\n  description: \"Application title.\"\n  expose: false\n\nsimulation_badge:\n  type: label\n  text: \"SIMULATED · OFFLINE\"\n  description: \"Clarifies that the transcript performs no real agent or tool work.\"\n  expose: false\n\nquit_button:\n  type: button\n  title: Quit\n  description: \"Close the Agent Chat Simulation example.\"\n\nstart_button:\n  type: button\n  title: Start\n  description: \"Run one hundred deterministic simulated messages over three minutes.\"\n\npause_button:\n  type: button\n  title: Pause\n  description: \"Pause the timed simulation without discarding progress.\"\n\nnext_step_button:\n  type: button\n  title: \"Next step\"\n  description: \"Apply one deterministic scripted chat step.\"\n\nreset_button:\n  type: button\n  title: Reset\n  description: \"Reset the transcript to its initial message.\"\n\nload_stress_button:\n  type: button\n  title: \"Load 50k\"\n  description: \"Load an approximately fifty-thousand-row deterministic stress transcript.\"\n\ntranscript:\n  type: transcript\n  cpp-class: \"agent_chat_example::Transcript\"\n  cpp-header: transcript/transcript.hpp\n  description: \"Scrollable deterministic simulated agent transcript.\"\n\nstatus:\n  type: label\n  text: \"Ready · 1 message\"\n  description: \"Shows deterministic simulation progress and transcript size.\"\n```\n\n## Style\n\n```yaml\ninclude: dark\nthis:\n  border-width: 0\n  background: \"#030712\"\n@header:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@title:\n  color: \"#f8fafc\"\n  text-align: center\n@simulation_badge:\n  color: \"#c4b5fd\"\n  text-align: right\n@actions:\n  background: \"#172033\"\n  padding: 1, 1, 1, 1\nbutton:\n  background: \"#334155\"\n  color: \"#e2e8f0\"\n  focus-background: \"#2563eb\"\n@load_stress_button:\n  background: \"#6d28d9\"\n  focus-background: \"#7c3aed\"\n@quit_button:\n  background: \"#7f1d1d\"\n  focus-background: \"#dc2626\"\n@content:\n  background: \"#030712\"\n@transcript:\n  background: \"#00000000\"\n@status:\n  background: \"#0f172a\"\n  color: \"#93c5fd\"\n  padding: 0, 1, 0, 1\n```\n\n## User Interface\n\n```ui\n+-header-**--------------------------------------------------------------------+\n| title..**......................... simulation_badge.... quit_button......... |\n+-actions-**-------------------------------------------------------------------+\n| start_button pause_button next_step_button reset_button load_stress_button.. |\n+-content-**-------------------------------------------------------------------+\n| transcript..**.............................................................. |\n| ............................................................................ |\n* *........................................................................... |\n* *........................................................................... |\n| ............................................................................ |\n+------------------------------------------------------------------------------+\n| status..**.................................................................. |\n+------------------------------------------------------------------------------+\n```\n",
+            "# Agent Chat Simulation\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: window\nstatus: draft\ndescription: \"Deterministic simulated agent chat for rich transcript and large ScrollView testing.\"\ntags: [example, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nuses:\n  - transcript/transcript\n```\n\n## Members\n\n```yaml\ntitle:\n  type: label\n  text: \"Agent Chat Simulation\"\n  description: \"Application title.\"\n  expose: false\n\nsimulation_badge:\n  type: label\n  text: \"SIMULATED · OFFLINE\"\n  description: \"Clarifies that the transcript performs no real agent or tool work.\"\n  expose: false\n\nquit_button:\n  type: button\n  title: Quit\n  description: \"Close the Agent Chat Simulation example.\"\n\nstart_button:\n  type: button\n  title: Start\n  description: \"Run one hundred deterministic simulated messages over three minutes.\"\n\npause_button:\n  type: button\n  title: Pause\n  description: \"Pause the timed simulation without discarding progress.\"\n\nnext_step_button:\n  type: button\n  title: \"Next step\"\n  description: \"Apply one deterministic scripted chat step.\"\n\nreset_button:\n  type: button\n  title: Reset\n  description: \"Reset the transcript to its initial message.\"\n\nload_stress_button:\n  type: button\n  title: \"Load 50k\"\n  description: \"Load an approximately fifty-thousand-row deterministic stress transcript.\"\n\ntop:\n  type: button\n  title: Top\n  description: \"Scroll the transcript to its first message.\"\n\nend:\n  type: button\n  title: Bottom\n  description: \"Scroll the transcript to its newest message.\"\n\ntranscript:\n  type: transcript\n  cpp-class: \"agent_chat_example::Transcript\"\n  cpp-header: transcript/transcript.hpp\n  description: \"Scrollable deterministic simulated agent transcript.\"\n\nstatus:\n  type: label\n  text: \"Ready · 1 message\"\n  description: \"Shows deterministic simulation progress and transcript size.\"\n```\n\n## Style\n\n```yaml\ninclude: dark\nthis:\n  border-width: 0\n  background: \"#030712\"\n@header:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@title:\n  color: \"#f8fafc\"\n  text-align: center\n@simulation_badge:\n  color: \"#c4b5fd\"\n  text-align: right\n@actions:\n  background: \"#172033\"\n  padding: 1, 1, 1, 1\nbutton:\n  background: \"#334155\"\n  color: \"#e2e8f0\"\n  focus-background: \"#2563eb\"\n@load_stress_button:\n  background: \"#6d28d9\"\n  focus-background: \"#7c3aed\"\n@quit_button:\n  background: \"#7f1d1d\"\n  focus-background: \"#dc2626\"\n@content:\n  background: \"#030712\"\n@transcript:\n  background: \"#00000000\"\n@status:\n  background: \"#0f172a\"\n  color: \"#93c5fd\"\n  padding: 0, 1, 0, 1\n```\n\n## User Interface\n\n```ui\n+-header-**------------------------------------------------------------------------------+\n| title..**......................... simulation_badge.... quit_button................... |\n+-actions-**-----------------------------------------------------------------------------+\n| start_button pause_button next_step_button reset_button load_stress_button top end.... |\n+-content-**-----------------------------------------------------------------------------+\n| transcript..**........................................................................ |\n| ...................................................................................... |\n* *..................................................................................... |\n* *..................................................................................... |\n| ...................................................................................... |\n+----------------------------------------------------------------------------------------+\n| status..**............................................................................ |\n+----------------------------------------------------------------------------------------+\n```\n",
             "Deterministic simulated agent chat for rich transcript and large ScrollView testing.",
             List.of(
             new GeneratedElementMetadata("title", "Application title.", false),
@@ -48,6 +50,8 @@ public class AgentChatUI extends GeneratedWindowBase
             new GeneratedElementMetadata("next_step_button", "Apply one deterministic scripted chat step.", true),
             new GeneratedElementMetadata("reset_button", "Reset the transcript to its initial message.", true),
             new GeneratedElementMetadata("load_stress_button", "Load an approximately fifty-thousand-row deterministic stress transcript.", true),
+            new GeneratedElementMetadata("top", "Scroll the transcript to its first message.", true),
+            new GeneratedElementMetadata("end", "Scroll the transcript to its newest message.", true),
             new GeneratedElementMetadata("transcript", "Scrollable deterministic simulated agent transcript.", true),
             new GeneratedElementMetadata("status", "Shows deterministic simulation progress and transcript size.", true)));
         setMcpAppTools(List.of());
@@ -82,6 +86,14 @@ public class AgentChatUI extends GeneratedWindowBase
         load_stress_button.setStyle(Style.fromProperties("background", "#6d28d9", "color", "#e2e8f0"));
         load_stress_button.setFocusStyle(Style.fromProperties("background", "#7c3aed", "color", "#ffffff"));
         load_stress_button.setDisabledStyle(Style.fromProperties("background", "#1f2937", "color", "#64748b"));
+        top = addElement(new Button("top", "Top"));
+        top.setStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0"));
+        top.setFocusStyle(Style.fromProperties("background", "#2563eb", "color", "#ffffff"));
+        top.setDisabledStyle(Style.fromProperties("background", "#1f2937", "color", "#64748b"));
+        end = addElement(new Button("end", "Bottom"));
+        end.setStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0"));
+        end.setFocusStyle(Style.fromProperties("background", "#2563eb", "color", "#ffffff"));
+        end.setDisabledStyle(Style.fromProperties("background", "#1f2937", "color", "#64748b"));
         transcript = addElement(new ReusableElement("transcript", "transcript"));
         transcript.setChild(new TranscriptUI());
         transcript.setStyle(Style.fromProperties("background", "#00000000"));
@@ -128,14 +140,14 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("button")
                 .setCellName("actions")
                 .setRelative(new Rect(0, 1, 12, 1))
-                .setSourceCell(new Rect(2, 0, 78, 1))
+                .setSourceCell(new Rect(2, 0, 88, 1))
                 .setWidth(AxisDimension.auto(12))
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
                 .setCharsSize(new Size(12, 1))
-                .setCellCharsSize(new Size(78, 1))
-                .setMarginRight(65)
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(75)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#172033", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
                 .setElementStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0")),
@@ -144,13 +156,13 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("label")
                 .setCellName("")
                 .setRelative(new Rect(0, 1, 536870911, 1))
-                .setSourceCell(new Rect(10, 0, 78, 1))
+                .setSourceCell(new Rect(10, 0, 88, 1))
                 .setWidth(AxisDimension.expanded())
                 .setHeight(AxisDimension.auto(1))
-                .setCellWidth(AxisDimension.auto(78))
+                .setCellWidth(AxisDimension.auto(88))
                 .setCellHeight(AxisDimension.auto(1))
-                .setCharsSize(new Size(76, 1))
-                .setCellCharsSize(new Size(78, 1))
+                .setCharsSize(new Size(86, 1))
+                .setCellCharsSize(new Size(88, 1))
                 .setMarginRight(1)
                 .setMarginBottom(0)
                 .setCellStyle(new Style())
@@ -160,14 +172,14 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("label")
                 .setCellName("header")
                 .setRelative(new Rect(0, 1, 536870911, 1))
-                .setSourceCell(new Rect(0, 0, 78, 1))
+                .setSourceCell(new Rect(0, 0, 88, 1))
                 .setWidth(AxisDimension.expanded())
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
                 .setCharsSize(new Size(34, 1))
-                .setCellCharsSize(new Size(78, 1))
-                .setMarginRight(43)
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(53)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#111827", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
                 .setElementStyle(Style.fromProperties("background", "transparent", "color", "#f8fafc", "text-align", "center")),
@@ -176,13 +188,13 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("transcript")
                 .setCellName("content")
                 .setRelative(new Rect(0, 1, 536870911, 536870911))
-                .setSourceCell(new Rect(4, 0, 78, 5))
+                .setSourceCell(new Rect(4, 0, 88, 5))
                 .setWidth(AxisDimension.expanded())
                 .setHeight(AxisDimension.expanded())
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.expanded())
-                .setCharsSize(new Size(76, 5))
-                .setCellCharsSize(new Size(78, 5))
+                .setCharsSize(new Size(86, 5))
+                .setCellCharsSize(new Size(88, 5))
                 .setMarginRight(1)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#030712"))
@@ -192,14 +204,14 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("button")
                 .setCellName("actions")
                 .setRelative(new Rect(0, 14, 12, 1))
-                .setSourceCell(new Rect(2, 0, 78, 1))
+                .setSourceCell(new Rect(2, 0, 88, 1))
                 .setWidth(AxisDimension.auto(12))
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
                 .setCharsSize(new Size(12, 1))
-                .setCellCharsSize(new Size(78, 1))
-                .setMarginRight(52)
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(62)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#172033", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
                 .setElementStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0")),
@@ -208,14 +220,14 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("button")
                 .setCellName("actions")
                 .setRelative(new Rect(0, 27, 16, 1))
-                .setSourceCell(new Rect(2, 0, 78, 1))
+                .setSourceCell(new Rect(2, 0, 88, 1))
                 .setWidth(AxisDimension.auto(16))
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
                 .setCharsSize(new Size(16, 1))
-                .setCellCharsSize(new Size(78, 1))
-                .setMarginRight(35)
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(45)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#172033", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
                 .setElementStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0")),
@@ -224,14 +236,14 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("label")
                 .setCellName("header")
                 .setRelative(new Rect(0, 36, 20, 1))
-                .setSourceCell(new Rect(0, 0, 78, 1))
+                .setSourceCell(new Rect(0, 0, 88, 1))
                 .setWidth(AxisDimension.auto(20))
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
                 .setCharsSize(new Size(20, 1))
-                .setCellCharsSize(new Size(78, 1))
-                .setMarginRight(22)
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(32)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#111827", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
                 .setElementStyle(Style.fromProperties("background", "transparent", "color", "#c4b5fd", "text-align", "right")),
@@ -240,14 +252,14 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setType("button")
                 .setCellName("actions")
                 .setRelative(new Rect(0, 44, 12, 1))
-                .setSourceCell(new Rect(2, 0, 78, 1))
+                .setSourceCell(new Rect(2, 0, 88, 1))
                 .setWidth(AxisDimension.auto(12))
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
                 .setCharsSize(new Size(12, 1))
-                .setCellCharsSize(new Size(78, 1))
-                .setMarginRight(22)
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(32)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#172033", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
                 .setElementStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0")),
@@ -255,15 +267,15 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setName("load_stress_button")
                 .setType("button")
                 .setCellName("actions")
-                .setRelative(new Rect(0, 57, 20, 1))
-                .setSourceCell(new Rect(2, 0, 78, 1))
-                .setWidth(AxisDimension.auto(20))
+                .setRelative(new Rect(0, 57, 18, 1))
+                .setSourceCell(new Rect(2, 0, 88, 1))
+                .setWidth(AxisDimension.auto(18))
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
-                .setCharsSize(new Size(20, 1))
-                .setCellCharsSize(new Size(78, 1))
-                .setMarginRight(1)
+                .setCharsSize(new Size(18, 1))
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(13)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#172033", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
                 .setElementStyle(Style.fromProperties("background", "#6d28d9", "color", "#e2e8f0")),
@@ -271,18 +283,50 @@ public class AgentChatUI extends GeneratedWindowBase
                 .setName("quit_button")
                 .setType("button")
                 .setCellName("header")
-                .setRelative(new Rect(0, 57, 20, 1))
-                .setSourceCell(new Rect(0, 0, 78, 1))
-                .setWidth(AxisDimension.auto(20))
+                .setRelative(new Rect(0, 57, 30, 1))
+                .setSourceCell(new Rect(0, 0, 88, 1))
+                .setWidth(AxisDimension.auto(30))
                 .setHeight(AxisDimension.auto(1))
                 .setCellWidth(AxisDimension.expanded())
                 .setCellHeight(AxisDimension.auto(1))
-                .setCharsSize(new Size(20, 1))
-                .setCellCharsSize(new Size(78, 1))
+                .setCharsSize(new Size(30, 1))
+                .setCellCharsSize(new Size(88, 1))
                 .setMarginRight(1)
                 .setMarginBottom(0)
                 .setCellStyle(Style.fromProperties("background", "#111827", "padding-bottom", "0", "padding-left", "1", "padding-right", "1", "padding-top", "0"))
-                .setElementStyle(Style.fromProperties("background", "#7f1d1d", "color", "#e2e8f0"))
+                .setElementStyle(Style.fromProperties("background", "#7f1d1d", "color", "#e2e8f0")),
+            new GeneratedLayoutEntry()
+                .setName("top")
+                .setType("button")
+                .setCellName("actions")
+                .setRelative(new Rect(0, 76, 3, 1))
+                .setSourceCell(new Rect(2, 0, 88, 1))
+                .setWidth(AxisDimension.auto(3))
+                .setHeight(AxisDimension.auto(1))
+                .setCellWidth(AxisDimension.expanded())
+                .setCellHeight(AxisDimension.auto(1))
+                .setCharsSize(new Size(3, 1))
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(9)
+                .setMarginBottom(0)
+                .setCellStyle(Style.fromProperties("background", "#172033", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
+                .setElementStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0")),
+            new GeneratedLayoutEntry()
+                .setName("end")
+                .setType("button")
+                .setCellName("actions")
+                .setRelative(new Rect(0, 80, 7, 1))
+                .setSourceCell(new Rect(2, 0, 88, 1))
+                .setWidth(AxisDimension.auto(7))
+                .setHeight(AxisDimension.auto(1))
+                .setCellWidth(AxisDimension.expanded())
+                .setCellHeight(AxisDimension.auto(1))
+                .setCharsSize(new Size(7, 1))
+                .setCellCharsSize(new Size(88, 1))
+                .setMarginRight(1)
+                .setMarginBottom(0)
+                .setCellStyle(Style.fromProperties("background", "#172033", "padding-bottom", "1", "padding-left", "1", "padding-right", "1", "padding-top", "1"))
+                .setElementStyle(Style.fromProperties("background", "#334155", "color", "#e2e8f0"))
         );
     }
 
@@ -307,6 +351,14 @@ public class AgentChatUI extends GeneratedWindowBase
     }
 
     protected void onLoadStressButtonClick()
+    {
+    }
+
+    protected void onTopClick()
+    {
+    }
+
+    protected void onEndClick()
     {
     }
 
@@ -341,6 +393,16 @@ public class AgentChatUI extends GeneratedWindowBase
         if ("load_stress_button".equals(name))
         {
             onLoadStressButtonClick();
+            return true;
+        }
+        if ("top".equals(name))
+        {
+            onTopClick();
+            return true;
+        }
+        if ("end".equals(name))
+        {
+            onEndClick();
             return true;
         }
         return false;

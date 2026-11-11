@@ -4,6 +4,337 @@
 
 Date: 2026-06-21
 
+- [x] **Commit the validated ScrollView/Agent Chat batch as 0.5.9 (2026-11-11).**
+  Explicitly requested by the user. Preserve the full prepared seven-port
+  change set and frozen 0.5.8 fixtures, run `tools/set_version.py 0.5.9`,
+  rebuild the version-dependent tools/runtimes/examples, verify version
+  consistency and unchanged 0.5.8 application compatibility, then commit on
+  `sdk-work` with an English summary and the model footer. Include related
+  command documentation and all intended new files. After the commit, comment
+  on and close resolved GitHub #16 with the SHA, validation, opt-in virtual
+  source contract, and any remaining performance caveats. Do not push or
+  publish a release. The unrelated open Formular, word-wrap, and MCP schema
+  tasks remain open.
+
+  **Commit validation:** `tools/set_version.py 0.5.9` synchronized all
+  version surfaces; the native CLI reports 0.5.9. Full seven-port regeneration
+  and rebuild passed (`.uimd/test-logs/rebuild-0.5.9-commit-20261111.log`).
+  The unchanged frozen 0.5.8 applications compiled and ran against 0.5.9 in
+  all seven ports (`.uimd/test-logs/compat-0.5.8-against-0.5.9-20261111.log`).
+  Python passed 549/549, CTest 28/28, and native Python/C++ Calculator parity
+  passed 10/10 with every render step at `--compare-app-size 90x35`; matching
+  logs are `python-0.5.9-commit-20261111.log`,
+  `ctest-0.5.9-commit-20261111.log`, and
+  `calculator-0.5.9-commit-20261111.log` under `.uimd/test-logs/`.
+  Both frozen fixture manifests remain unchanged, version consistency and
+  diff hygiene pass, and the rebuilt parity manifest verifies all 1,524
+  source inputs and 109 artifacts. The fresh 40-sample virtualization
+  benchmark covers fixed/variable 1K, 10K, 100K, and 1M logical items with
+  27 live/measured rows and 9-10 rendered rows. Its p95 combined frame time
+  on this host ranges from 16.195 to 19.648 ms; bounded work is verified,
+  while the suggested 16.7 ms frame budget is not a universal guarantee.
+  Benchmark log: `.uimd/test-logs/virtualization-0.5.9-commit-20261111.log`.
+  These checks validate the version update and prepared change set; the
+  previously successful September full runtime-compare matrix was not rerun.
+  The commit remains local to `sdk-work`; no push, tag, or release is part of
+  this request. GitHub #16 receives the resulting SHA and validation in the
+  required post-commit follow-up.
+
+- [x] **Review current UIMD work and commit readiness (2026-11-10).**
+  User requested a status assessment, not implementation or a commit. Inspect
+  the uncommitted ScrollView/Agent Chat changes across Python, C++, C#, Go,
+  Rust, Swift, and Java, reconcile open tasks with recorded full-test evidence,
+  verify artifact/source freshness, source identity, diff hygiene, and the
+  preceding-version compatibility coverage. Report required preparation and
+  remaining caveats without changing runtime behavior or versioning.
+
+  **Assessment:** `sdk-work` and the locally recorded `origin/sdk-work` both
+  point to `7d0dab2`; 105 tracked files are modified and 72 files are untracked,
+  with nothing staged. The native CLI and synchronized version surfaces report
+  0.5.8. The final recorded full test,
+  `.uimd/test-logs/test-all-20260924-222618-043576.log`, ended on 2026-09-25
+  with 29/29 executed phases passing; nine rebuild phases were deliberately
+  skipped with `--no-rebuild` after the separately recorded full rebuild.
+  Current verification found all 109 artifact hashes unchanged and no
+  non-`.DS_Store` input differences across 1,530 recorded source inputs.
+  Strict manifest validation currently fails only because five recorded Finder
+  metadata files changed: `java/.DS_Store`, `rust/src/.DS_Store`,
+  `rust/src/uimd/.DS_Store`, `swift/src/.DS_Store`, and
+  `swift/src/Uimd/.DS_Store`. Agent Chat's seven canonical `.uimd` files are
+  byte-identical across all five copied ports; Java uses the Python sources.
+  `git diff --check` and `python3 tools/set_version.py --check` pass.
+  No runtime changes, version bump, new full-test run, commit, or push were
+  performed during this review. The Java parent's old final-test checkpoint
+  predates the successful September run, while its Formular follow-up is still
+  open. This is a readiness assessment, not a new full structural code audit.
+
+- [x] **Complete preparation before the next requested `sdk-work` commit.**
+  Preserve the validated ScrollView virtualization, physical-input, fit-content,
+  rendering, and Agent Chat changes across all seven ports, including all new
+  files. Current retained compatibility fixtures and the passing 7/7 gate use
+  UIMD 0.5.3; add and exercise unchanged generated applications from the
+  immediately preceding 0.5.8 before claiming the next patch meets the strict
+  compatibility rule. Resolve the metadata-only artifact-manifest rejection
+  without masking real source changes. Reconcile the stale Java final-test
+  checkpoint with the September log while preserving the open Formular bug.
+  Only when a commit is explicitly requested, bump 0.5.8 to 0.5.9 with
+  `python3 tools/set_version.py 0.5.9`, validate the resulting version/build
+  surfaces, and stage the complete intended change set. Existing unrelated
+  `word-wrap`, MCP schema-size, and Formular tasks are not prerequisites for
+  committing the completed ScrollView/Agent Chat batch.
+
+  **Preparation scope (2026-11-11):** user authorized autonomous completion
+  of this preparation, without a commit or version bump. Retain the historical
+  0.5.3 fixture and add a separate, hash-protected 0.5.8 fixture generated by
+  the native tool built from exact commit `7d0dab2`. Make 0.5.8 the default
+  compatibility gate and retain an explicit historical-version selector.
+  Compile/run all seven unchanged applications against the current runtimes,
+  checking the fixture hashes before and after validation.
+
+  **Preparation ownership/parity matrix:**
+  - `tools/previous_version_compatibility.py` owns the shared compatibility
+    runner; Python/C++/C#/Go/Rust/Swift/Java must all use the same frozen
+    source/version selection and existing interaction assertions. Their
+    runtime implementations and generated public APIs require no changes.
+  - `src/uimd/testing/artifact_manifest.py::_source_files` owns source-input
+    selection for every parity platform. Finder `.DS_Store` metadata is not a
+    compiler/runtime input and must be excluded consistently; real source and
+    declared artifact mutations must still invalidate the manifest. Reproduce
+    metadata creation/change/removal in focused manifest tests before fixing.
+    The native tester consumes the shared artifact manifest and does not own
+    a second source-fingerprint implementation.
+  - `prompts/TODO.md` owns Java completion evidence. Reconcile the old paused
+    checkpoint with the final 2026-09-25 log; retain the separate open Formular
+    serialization defect and the documented unexecuted Windows Java gate.
+
+  Required gates: fixture provenance/hash verification, default 0.5.8 and
+  retained 0.5.3 seven-port compatibility runs, focused manifest/runner/report
+  tests, rebuilt canonical parity manifest, unchanged runtime/artifact audit,
+  source identity, version consistency, and `git diff --check`. Scale any
+  further validation to actual changes; do not rerun hours of unchanged
+  runtime comparisons solely to consume time.
+
+  **Completed on 2026-11-11:** the exact archived 0.5.8 native tool
+  produced the new fixture and its original-runtime gate passed 7/7
+  (`.uimd/test-logs/compat-baseline-0.5.8-20261111.log`). The unchanged
+  fixture then passed current-runtime compatibility 7/7
+  (`.uimd/test-logs/compat-current-0.5.8-20261111.log`), and the retained
+  0.5.3 fixture passed 7/7 with no diff or hash changes
+  (`.uimd/test-logs/compat-current-0.5.3-20261111.log`). Both manifests
+  validate before/after; 38 new and 37 historical protected files remain
+  intact. The metadata regression failed before the fix and all five focused
+  manifest tests pass afterward; the complete affected runner/tester/report
+  suites passed 80/80, and the full Python suite passed 549/549
+  (`.uimd/test-logs/python-preparation-20261111.log`). Two initial sandbox
+  socket-permission failures passed unchanged with loopback permission.
+  The canonical `./tools/rebuild_all.sh` completed successfully for all seven
+  ports (`.uimd/test-logs/rebuild-preparation-20261111.log`). Final source and
+  artifact validation passes: 1,524 source inputs, 109 artifacts, zero Finder
+  metadata inputs, and seven byte-identical Agent Chat UIs across all five
+  copied ports, with Java using Python sources directly. The native CLI
+  Python/C++ Calculator comparison passed 10/10 assertions and every render
+  step at `--compare-app-size 90x35`
+  (`.uimd/test-logs/calculator-preparation-20261111.log`); rebuilt CTest passed
+  28/28. Summary: `.uimd/test-logs/preparation-manifest-20261111.json`.
+  The only non-metadata build-input difference before the rebuild was
+  `src/uimd/testing/artifact_manifest.py`; no runtime, generator, public API,
+  or application behavior changed in this preparation. The complete affected
+  Python suite and focused CLI comparison cover that scope; the hours-long
+  unchanged all-example runtime matrix was not repeated. Its September
+  29/29 final-gate evidence remains recorded above.
+
+  Java's parent task is now reconciled with the successful final gate and
+  marked complete for the implemented terminal target on the validated macOS
+  host. Its independent Formular serialization defect remains open below,
+  and the unexecuted Windows Java gate remains explicitly documented. Final
+  `git diff --check` and version consistency checks pass. The working tree is
+  on `sdk-work`, with 109 modified tracked files and 111 untracked files,
+  including the preserved original batch and the new frozen fixture; nothing
+  is staged. No commit, push, or version bump was performed. On the next
+  explicit commit request, perform the required 0.5.8 -> 0.5.9 patch bump and
+  its version/build checks before staging the complete intended change set.
+
+- [x] **Make Agent Chat replay a realistic Heron-style coding conversation on
+  every supported language port.** Inspect the neighboring `../orchestrator/`
+  Heron agent's actual output message types and formatting before editing the
+  example. Build one deterministic, timed English conversation of roughly 100
+  user/agent/tool events about creating and improving an HTML Tetris or Mario
+  game: user follow-ups, animated thinking, progressive text/code output,
+  command/tool calls and results, formatted code and tables. Record the exact
+  content, event sequence, and durations in a canonical shared scenario so
+  Python, C++, C#, Go, Rust, Swift, and Java replay the same behavior. `Start`
+  must also append the replay after `Load 50k`, follow the live bottom, and
+  preserve manual scrolling; add top/bottom buttons beside the current
+  controls in the byte-identical `.uimd` sources. Keep UI layout in `.uimd`,
+  example domain logic in examples, and shared UI behavior in the runtimes.
+  Regenerate/build every affected output, update exact example/test commands,
+  add focused timeline/render/scroll coverage, compare all ports at
+  `--compare-app-size 90x35`, exercise direct terminal scrolling, and validate
+  preceding-version compatibility. Leave changes uncommitted.
+  Parity owner: canonical scenario and timing data under
+  `python/examples/agent_chat`, presentation in the byte-identical
+  `agent_chat/*.uimd` files, virtual rows in each port's Agent Chat transcript,
+  and replay controllers in `python/examples/agent_chat/agent_chat.py`,
+  `cpp/examples/agent_chat/agent_chat.cpp`,
+  `csharp/examples/agent_chat/agent_chat.cs`,
+  `go/examples/agent_chat/agent_chat.go`,
+  `rust/examples/agent_chat/agent_chat.rs`,
+  `swift/examples/agent_chat/agent_chat.swift`, and
+  `java/examples/agent_chat/AgentChat.java`. All seven are affected. Reference presentation:
+  `../orchestrator/crates/heron/view/src/{transcript.rs,uimd.rs}` and
+  `../orchestrator/crates/heron/view/uimd/transcript/*.uimd` (read-only).
+  Parity defect found during focused comparison: Python
+  `src/uimd/runtime/UIScrollView.py` virtual row measurement/materialization
+  and C++ `cpp/src/elements/ScrollView.cpp` / `ReusableElement.cpp` disagree
+  when Agent Chat appends consecutive same-class auto-height controls. At
+  steps 17-19 of `tests/mcp/agent_chat.yaml`, C++ paints an extra `!` row and
+  places the next control two rows below Python. Reproduction snapshots:
+  `tests/mcp/snapshots/20260924-155558-step-17-agent_chat.json` and
+  `tests/mcp/snapshots/20260924-160103-step-19-agent_chat.json`.
+  Audit Python and C++ row height/cache/invalidation/placeholder transitions
+  first, then classify C#/Go/Rust/Swift/Java with the same two-row replay and
+  repair the shared runtime in each affected port. Do not hide the offset in
+  the example, snapshots, or waits.
+
+  **Parity matrix after reproducing the layout defect (2026-09-24):** Python
+  `src/uimd/runtime/UIBase.py::_fit_entry_height` and
+  `UIScrollView.py::_measure_child_height` correctly ignore trailing authored
+  placeholder rows in fit-content cells and resize a generated child at its
+  actual viewport width. C++
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::{fitEntryHeight,
+  generatedWindowContentSizeForWidth}` required the same zero trailing margin
+  and a second width-constrained fit pass that can grow its natural height.
+  C# `csharp/src/Uimd/Runtime/GeneratedWindow.cs`, Go
+  `go/src/uimd/runtime.go`, Rust `rust/src/uimd/src/runtime.rs`, Swift
+  `swift/src/Uimd/Sources/Uimd/Uimd.swift`, and Java
+  `java/src/main/java/uimd/GeneratedWindowRuntime.java` require the same
+  measurement contract; Go's fit pass must also shrink from an overestimated
+  first height. `cpp/tools/mcp_tester/main.cpp` pins implicit compare snapshot
+  time to avoid sampling different phases of the animated heading. Focused
+  regressions: native Agent Chat `--logic-test`, Python
+  `python/tests/test_agent_chat.py`, all C++/port
+  `tests/mcp/agent_chat.yaml` compares at 90x35, and the seven-port real-PTY
+  `tools/agent_chat_scroll_input_parity.py`. Full rebuild/test and retained
+  0.5.3 generated-app compatibility were final gates.
+  Full-suite C++/C# Agent Chat compare exposed a timed-snapshot race at
+  `tests/mcp/agent_chat.yaml` step 51: after `Start` on the 5,556-message
+  corpus, C++ had advanced to 5,560 messages during the slow snapshot while
+  C# still showed 5,558. Snapshot viewer:
+  `python3 tools/mcp_snapshot_viewer.py tests/mcp/snapshots/20260924-173502-322454-step-051-agent_chat.json`.
+  The port controllers have the same scripted data/state order; this is an
+  asynchronous sampling defect in the MCP scenario, not a content/layout
+  mismatch. A focused rerun also proved that even the exact `Running · 5558`
+  assertion can race to 5,559 under concurrent load. Preserve a bounded live
+  `Running` assertion after the 5,556-entry load with independent per-port
+  status values (`compare_fields: []`), then pause immediately. The tester's
+  explicit `get_render_snapshot_compact` always compares returned cells even
+  when `compare_snapshot: false`, so omit that live frame; earlier manual-step
+  frames retain exact C++/port snapshot comparisons.
+
+  **Completed on 2026-09-25:** The canonical offline scenario contains 100
+  explicit messages across 180 seconds, including five English user prompts,
+  visible reasoning, status, simulated tool activity, progressive prose/code,
+  diffs, and tables. All seven controllers replay the same generated timeline,
+  including `Start` after the 5,556-message stress history and manual scroll
+  preservation. The synchronized `.uimd` components are byte-identical across
+  copied ports; Java generates from the Python source. Python's fit-content
+  measurement remains the reference, and C++/C#/Go/Rust/Swift/Java now apply
+  the same width-constrained height contract. The native tester pins implicit
+  compare time, and the eight explicit Agent Chat snapshot steps pin
+  `snapshot_time_ms: 9000` so animated heading colors are sampled at the same
+  phase. The unrelated `word-wrap: false` parity defect remains its separate
+  open task below.
+
+  Validation: `./tools/rebuild_all.sh` regenerated and built all seven ports;
+  retained 0.5.3 generated applications compiled and ran unchanged (7/7);
+  Python 546/546, CTest 28/28, C# 13/13, Rust 171/171, Swift 24/24, Go and
+  Java runtime gates passed; the real-PTY Agent Chat scroll gate passed on all
+  seven ports. Focused Agent Chat C++/Python and C++/each other-port compares
+  passed 68/68 at `--compare-app-size 90x35`. The final
+  `./tools/test_all.sh --no-rebuild --live-report --keep-going` passed 29/29
+  phases, including 1068/1068 Python/C++ example checks, 2048/2048 checks for
+  each C#/Go/Rust/Swift/Java matrix, and all regression parity matrices. Full
+  log: `.uimd/test-logs/test-all-20260924-222618-043576.log`. No commit was
+  requested; changes remain uncommitted.
+
+- [ ] **Align Formular multi-select terminal serialization across every
+  language implementation.** The Java physical ListBox regression exposed a
+  pre-existing example-domain mismatch after selecting a second role:
+  Python, Go, and Java serialize every selected role, while C++, C#, Swift,
+  and Rust serialize only one active/first role. Runtime and MCP selection
+  state already expose the complete selection; audit each hand-written
+  Formular application against the Python reference, preserve the identical
+  `.uimd` source, and add a direct-terminal Save-output parity gate that
+  proves every selected value and callback result without weakening the
+  lower-level physical SGR selection test. This remains an independent open
+  defect after the Java target's full validation; it is not fixed by the
+  commit-preparation work.
+
+- [ ] **Honor `word-wrap: false` in native/ported Label rendering.** During
+  Agent Chat code-block parity, Python `src/uimd/runtime/elements.py::Label`
+  clipped long rows as specified while C++
+  `cpp/src/elements/BasicElements.cpp::renderPlainText` wrapped them; the
+  C++ style/generator path in `cpp/include/ui/core/Style.hpp` and
+  `cpp/tools/uimd/NativeCppGenerator.cpp` has no `word-wrap` field. Audit the
+  corresponding C#/Go/Rust/Swift/Java Style, generator, and Label paths.
+  Preserve old generated source compatibility while implementing the same
+  wrap/clipping semantics and visual-row height in every port. Reproduce with
+  the existing `python/examples/markdown_viewer/blocks/code_block.uimd`, add
+  focused long-line rendering tests, regenerate current outputs, and run the
+  Markdown Viewer compares at `--compare-app-size 90x35`. Agent Chat's authored
+  code block now wraps long lines so the full code remains readable in a
+  narrow terminal; that design is separate from the general no-wrap contract.
+
+- [ ] **Diagnose MCP `get_schema` returning multi-megabyte output for hidden
+  Flatscraper Admin pages.** Reported by the user on 2026-09-15 in sibling app
+  `../flats/flatscraper-admin/admin2`: one subpage contains a table with more
+  than 1000 projects, and after clicking a row edit button the app switches to
+  a project-settings edit subpage, but `get_schema` still returns almost 2 MB.
+  Determine whether UIMD's MCP schema intentionally includes every exposed
+  element in the active window, including hidden/off-page/dynamic ScrollView
+  descendants, or whether it should be limited to visible/current-page
+  elements. Inspect the app structure and Python/C++ MCP schema enumeration
+  before proposing any runtime change.
+
+  **Source-level diagnosis on 2026-09-15:** Current Python and C++ MCP schema
+  enumeration is not a visible-element filter. Python `tool_get_schema()` walks
+  `_iter_exposed_element_items()`, which filters only MCP `expose` metadata,
+  while `_element_snapshot()` reports `visible: True` unconditionally. C++
+  `toolGetSchema()` mirrors this by recursively appending every exposed element
+  from the active window, every `ReusableElement::child()`, and ScrollView
+  reusable children; `elementSnapshot()` also reports `visible: true`
+  unconditionally. Flatscraper Admin's `AdminPageHost` keeps every subpage child
+  alive and only disables/focus-blocks inactive hosts while setting their frame
+  to `0,0,0,0`, so the hidden Projects page and its large row tree remain in the
+  MCP schema after switching to EditProject. Candidate runtime fix: define
+  `get_schema` as current visible/active surface by default and provide an
+  explicit full-tree/debug scope if needed, implemented with identical Python
+  and C++ behavior plus focused MCP regression coverage.
+
+- [x] **Diagnose C++ MCP HTTP `get_schema` timing out and resetting the
+  connection.** Reported by the user on 2026-09-15 while calling the C++
+  version through a direct Node HTTP JSON-RPC `tools/call` request with
+  `{name:"get_schema", arguments:{}}`, which timed out after 15000 ms and then
+  returned `ECONNRESET`. Determine whether the failure is a wrong HTTP/SSE
+  transport endpoint, process startup/lifecycle issue, C++ MCP dispatch bug,
+  or parity defect against Python. Preserve the existing uncommitted
+  Agent Chat/virtualization work; do not change code until the active
+  transport contract and smallest reproduction are identified.
+
+  **Completed diagnosis on 2026-09-15:** C++ `get_schema` is present in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp::McpController::callToolLocked`
+  and exposed through both `get_schema` and `ui.get_schema`. A local C++
+  `calculator` server started with `--mcp-server --headless --mcp-transport
+  http --mcp-host 127.0.0.1 --mcp-port 18765 --viewport 0,0,90,35` returned
+  HTTP 200 immediately for `POST /mcp` with JSON-RPC `tools/call` and
+  `{name:"get_schema", arguments:{}}`. The same server returned HTTP 200 for
+  direct JSON-RPC `method:"ui.get_schema"` and produced the expected
+  `Calculator` window plus 20 exposed elements. Therefore the current evidence
+  does not show a C++ runtime `get_schema` dispatch defect. The user's
+  timeout/reset is most likely caused by the exact Node request shape, a
+  missing `req.end(body)`, an incorrect `Content-Length`, wrong path/port, or a
+  different server process. No source behavior was changed.
+
 - [x] **Resolve GitHub issue
   [#17](https://github.com/uimd-lang/uimd/issues/17): C++ runtime SIGSEGV
   after `ScrollView::clearChildren()` during a button-callback render.**
@@ -81,6 +412,237 @@ Date: 2026-06-21
   Gradle's local lock socket was blocked, but Java was not an affected port for
   this defect and the Java source path was audited.
 
+- [x] **Redesign the Agent Chat transcript as a realistic headerless rich
+  Markdown conversation on every supported port.** Requested by the user on
+  2026-09-03 after manually validating physical scrolling. Replace the dry,
+  repeated card/header presentation in both the normal scenario and `Load
+  50k` data with an OpenCode-like continuous transcript: no per-message header
+  bar, directly visible Markdown-style headings, prose, lists, options,
+  tables, fenced code, command output, diffs, status/result sections, and
+  Unicode. Generate deterministic but varied message heights, including short
+  messages near five rows and long messages near one hundred rows, while
+  retaining stable virtual keys, bounded materialization, fast scrolling,
+  deterministic `Start`/`Pause`/`Next step`/`Reset`, and the existing exact
+  cross-platform physical-input contract. Reuse the canonical Markdown
+  rendering behavior already demonstrated by `markdown_viewer`; do not add
+  example-specific rendering primitives or maintain divergent `.uimd` layouts.
+  Audit Python first, then keep C++, C#, Go, Rust, Swift, and Java structurally
+  and visibly 1:1. Add focused content/height/virtualization assertions,
+  regenerate and build all ports, and run the Agent Chat MCP compare plus the
+  real PTY scroll parity gate at 90x35. Preserve documented public APIs and
+  run the previous-version compatibility gate for any runtime change.
+
+  **Pre-implementation parity matrix (2026-09-03):** Keep the Python
+  `python/examples/agent_chat/{chat_entry,transcript}` implementation as the
+  content/composition reference. The six copied `chat_entry.uimd` and
+  `transcript.uimd` sources for Python, C++, C#, Go, Rust, and Swift are
+  currently byte-identical and must remain so; Java continues to generate from
+  the Python source. Use the already cross-platform `SpanLabel` element for
+  Markdown-style colored headings, lists, code, output, and diff lines, and
+  the existing `MessageTable` element for actual box-rendered tables. Remove
+  the visible generic role/phase header and simulation-detail footer from the
+  layout rather than hiding them in per-port runtime logic. Keep the existing
+  `TranscriptEntry` role/phase/body/detail data shape internally where it
+  avoids unrelated churn, but map it to the same body/code/table presentation
+  in Python `transcript.py`, C++ `transcript.cpp`, C# `agent_chat.cs`, Go
+  `transcript.go`, Rust `agent_chat.rs`, Swift `agent_chat.swift`, and Java
+  `AgentChat.java`. Generate stress heights with the same deterministic
+  integer formula and template cycle in all ports, including rare 100-line
+  entries; do not use process-random generators.
+
+  **Implementation parity update (2026-09-03):** The headerless presentation
+  uses three small reusable components generated from byte-identical sources:
+  `chat_entry` for prose/lists/headings, `code_entry` for code, command output,
+  diffs and diagnostics, and `table_entry` for an actual `MessageTable`. The
+  materializer selects exactly one component per logical entry, preserving the
+  existing transcript data contract and stable virtual keys. During the first
+  Python/C++ compare this exposed a pre-existing shared-runtime parity defect:
+  Python correctly sized a fit-content cell from its rendered content while
+  C++, C#, Go, Rust, Swift, and Java kept the taller ASCII designer sketch as
+  a minimum. Fix the common fit-content cell calculation in
+  `cpp/src/generated/GeneratedWindowRuntime.cpp`,
+  `csharp/src/Uimd/Runtime/GeneratedWindow.cs`, `go/src/uimd/runtime.go`,
+  `rust/src/uimd/src/runtime.rs`, `swift/src/Uimd/Sources/Uimd/Uimd.swift`, and
+  `java/src/main/java/uimd/GeneratedWindowRuntime.java` to match the Python
+  reference in `src/uimd/runtime/UIBase.py`. This is an internal compatible
+  layout correction with no public API change; every port receives the same
+  algorithm and a focused trailing-sketch regression.
+
+  **Completed validation (2026-09-03):** `chat_entry`, `code_entry`,
+  `table_entry`, and `transcript` use byte-identical `.uimd` sources on the
+  six source-owning ports; Java is generated from the same Python sources.
+  The normal scenario and deterministic 5,556-entry stress transcript now
+  present continuous headerless prose/headings/lists, fenced-code content,
+  command output, diffs, diagnostics, a real `MessageTable`, status/results,
+  and Unicode. Stress entries vary from 5--8 rows, include deterministic
+  40-row entries, and include rare 100-row entries. `Start` streams exactly
+  100 messages over 180 seconds while pause, one-step advance, replacement,
+  reset, and `Load 50k` remain deterministic.
+
+  `./tools/rebuild_all.sh` regenerated and built all examples on Python, C++,
+  C#, Go, Rust, Swift, and Java and wrote the final artifact manifest. Full
+  runtime gates passed: Python 543 tests, CTest 28/28, C# 13/13, Go, Rust
+  171 tests plus clippy with `-D warnings`, Swift 24/24, and Java `check`.
+  Focused Agent Chat logic passed on all seven ports. The 90x35 Agent Chat MCP
+  compare passed for Python/C++ (20 assertions), C++/C# (49), C++/Go (49),
+  C++/Rust (49), C++/Swift (20), and C++/Java (49), covering the normal rich
+  transcript, real table/code components, `Load 50k`, scrolling, and reset.
+  The physical PTY parity gate passed 7/7 twice, including the final rebuilt
+  binaries: one row per arrow, four rows per wheel report, twelve rows per
+  three-report burst, stable top boundary, and responsive repeated input.
+  The virtualization benchmark exercised fixed and variable heights from 1K
+  through 1M logical rows while retaining only 27 live/materialized rows and
+  bounded visible work. Finally, the frozen UIMD 0.5.3 compatibility gate
+  passed 7/7, confirming that the common fit-content correction did not break
+  previously generated applications or change the documented public API.
+
+  **Session handoff (2026-09-03):** The user manually inspected the final
+  headerless rich Agent Chat presentation and confirmed that it looks correct.
+  The complete ScrollView virtualization, cross-port physical-input parity,
+  fit-content parity, and rich Agent Chat changes remain uncommitted in the
+  `sdk-work` working tree; the branch was one existing commit ahead of
+  `origin/sdk-work` at the checkpoint. Do not discard or regenerate away these
+  changes. On resume, inspect `git status` and this completed task first. No
+  further implementation or full test rerun is required unless another source
+  change is requested; commit only after a new explicit user instruction.
+
+- [x] **Audit Rust Agent Chat physical mouse-wheel scrolling after `Load 50k`
+  and cross-port scroll-speed parity.** Reported by the user on 2026-09-03:
+  the Rust Agent Chat transcript moves with arrow keys but appears not to move
+  with a real mouse wheel after loading the virtualized 50K-row history.
+  Reproduce the exact 90x35 terminal path with physical SGR wheel input and
+  touchpad-like bursts, while keeping MCP `scroll` as a separate logical
+  control. Audit the canonical Python paths in
+  `src/uimd/runtime/{application.py,UIScrollView.py}` and the corresponding
+  terminal parser, application dispatch, ScrollView routing, direction,
+  per-event line count, repeat/coalescing limit, hit point, and boundary
+  behavior in C++, C#, Go, Rust, Swift, and Java. Measure actual offset and
+  visible-row movement for Up/Down and equal wheel deltas in every port;
+  classify each port before proposing changes. This request currently
+  authorizes diagnosis only, so do not change runtime behavior until the audit
+  identifies the shared owner and the user requests the repair.
+
+  **Completed audit on 2026-09-03:** a real 90x35 PTY reproduction loaded
+  5,556 virtual messages and sent physical SGR button-65 reports over the
+  visible message body. Python, C++, C#, Swift, and Java moved four rows for
+  one report and twelve rows for a three-report touchpad-like burst. Go moved
+  one and three rows. Rust moved zero rows over the message body and emitted
+  no frame; the same Rust reports over the right-side ScrollView indicator did
+  reach the transcript, but moved only one and three rows. This proves that
+  Rust's parser and virtual offset math are live while its content hit route is
+  broken.
+
+  The canonical contract is one row per Up/Down key, four rows per wheel
+  report at this viewport, consecutive wheel deltas summed and clamped to
+  +/-12, hence at most 48 rows per dispatched burst. Python
+  `UIScrollView.handle_key`, C++ `ScrollView::{handleKey,handleWheel}`, C#
+  `ScrollView.{HandleKey,HandleWheel}`, Swift
+  `ScrollView.{handleKey,handleWheel}`, and Java
+  `ScrollView.{handleKey,handleWheel}` implement that contract. Go
+  `runtimeState.handleDirectMouse` bypasses a wheel-step helper and calls
+  `ScrollView.ScrollBy(-event.Delta)`, so physical wheel/touchpad movement is
+  one quarter of the reference. Rust `mcp::perform_mouse_wheel` calls
+  `scroll_element`, which likewise sends the raw wheel delta to
+  `scroll_lines` instead of `handle_wheel`.
+
+  Rust has a second virtual-only routing defect. Its virtual materializer
+  stores rows only in `ScrollViewState.virtual_materialized`, without the
+  ordinary child-parent ownership path used by Python and C++. When
+  `element_at` hits a nested label in a virtual row,
+  `containing_element_scroll_view` cannot walk back to the transcript and
+  `containing_scroll_proxy` cannot discover the row through the normal element
+  tree. Unlike the other terminal runtimes, the Rust wheel path then omits its
+  existing `scroll_view_at_position` fallback. Wheel reports over padding or
+  the indicator avoid the child hit and therefore work.
+
+  Up/Down moved one row in all seven ports when the transcript scope was
+  active. The audit also exposed a Swift post-render regression: separately
+  delivered Down events move once, then are undone after the intervening
+  render; four Down reports delivered in one input batch move four rows. The
+  implementation audit later located the cause in the generated ScrollView
+  indicator/max-offset render path applying viewport padding twice, rather
+  than in the one-row key constant or active-scope ownership.
+  Indicative five-sample wheel event-to-first-output medians on this machine
+  were 7.9 ms C++, 29.1 ms C#, 30.7 ms Rust over its working indicator path,
+  36.2 ms Java, 37.5 ms Go, 60.3 ms Swift, and 121.2 ms Python. Exact wall-clock
+  latency cannot be identical across runtimes, but the semantic step and
+  coalescing contract must be identical and each port must remain within a
+  defined responsiveness budget. The existing rich-row composition task
+  remains the owner of bounded per-frame performance work.
+
+- [x] **Repair the confirmed cross-port physical ScrollView input parity
+  defects found by the 2026-09-03 audit.** Treat these as one related input and
+  virtual-ownership batch, with an independent regression for each symptom:
+  make Rust wheel input over a materialized virtual row reach its containing
+  ScrollView; route Rust and Go physical wheel deltas through the canonical
+  four-row viewport-limited wheel step; and preserve Swift's active virtual
+  ScrollView scope across separately rendered Up/Down events. Preserve inner
+  TextArea/ListBox wheel precedence, the +/-12 consecutive-report coalescing
+  limit, boundary no-ops, stable virtual identity, and existing public APIs.
+  Add a real all-port Agent Chat PTY gate after `Load 50k` that asserts one-row
+  arrow movement, four-row single-wheel movement, twelve-row three-report
+  burst movement, center-content hit routing, repeated-event persistence, and
+  bounded response time. Keep exact wall-clock optimization in the separate
+  rich-row composition task and do not slow faster ports to manufacture equal
+  timings.
+
+  **Pre-implementation parity matrix (2026-09-03):** Python
+  `UIBase._handle_mouse_wheel_event` and `UIScrollView.handle_key` are the
+  semantic reference: an overflowing nested TextArea/ListBox receives the
+  wheel first, otherwise the containing or geometric ScrollView receives the
+  normalized wheel event; Up/Down move one row; one wheel report moves
+  `min(4, max(1, viewport_height / 3))` rows; and consecutive reports are
+  summed and clamped to +/-12. C++ `GeneratedWindowRuntime.cpp` plus
+  `ScrollView::{handleKey,handleWheel}`, C# `GeneratedWindow.cs` plus
+  `ScrollView.{HandleKey,HandleWheel}`, Java `GeneratedWindowRuntime` plus
+  `ScrollView.{handleKey,handleWheel}`, and Python already implement this
+  observable contract and require verification only. Go
+  `runtimeState.handleDirectMouse` must call a new equivalent element-level
+  `ScrollView.HandleWheel` instead of raw `ScrollBy`. Rust
+  `mcp::perform_mouse_wheel` must retain target-first TextArea/ListBox
+  precedence, use an element-level wheel handler for both native and generated
+  ScrollViews, and fall back to `scroll_view_at_position` when a virtual row's
+  internal target has no normal parent chain. Swift
+  `GeneratedRuntimeController` must keep the active ScrollView scope usable
+  across an intervening render. The implementation audit established that the
+  scope and key routing were already correct: generated indicator rendering
+  passed an already padded viewport into `maxViewOffset`, whose own padding
+  calculation clamped the new offset back toward the old position. The repair
+  therefore passes the full generated ScrollView rectangle through the same
+  max-offset calculation used by the other paths. No breaking public API or
+  generated surface change is required; Go gains the additive element-level
+  `HandleWheel` counterpart already present in the other ports.
+
+  **Completed repair and parity validation (2026-09-03):** Go direct terminal
+  mouse dispatch now calls `ScrollView.HandleWheel`, so it uses the canonical
+  viewport-limited four-row step instead of raw one-row deltas. Rust physical
+  wheel dispatch preserves inner TextArea/ListBox precedence, routes native
+  and generated ScrollViews through `handle_wheel`, and uses the existing
+  geometric ScrollView lookup when a materialized virtual row has no ordinary
+  parent chain. Swift generated ScrollView rendering no longer applies
+  viewport padding twice while calculating the maximum offset. Focused Go,
+  Rust, and Swift regressions cover the three independent symptoms.
+
+  The new real-PTY gate `tools/agent_chat_scroll_input_parity.py` loads the
+  50K-row Agent Chat transcript on Python, C++, C#, Go, Rust, Swift, and Java.
+  All 7/7 ports moved exactly one row for each separately rendered arrow key,
+  four rows for one physical SGR wheel report in either direction, and twelve
+  rows for a three-report burst over center content. A physical wheel-up at the
+  top boundary leaves the screen unchanged, and every moving input response is
+  inside the shared two-second budget. The gate is integrated into
+  `tools/test_all.sh`; its standalone command is documented in
+  `docs/example_cli_commands.md`.
+
+  Validation: all generated outputs and examples were rebuilt for all seven
+  ports; Python 543/543, CTest 28/28, Go, C# 12/12, Rust 170/170 plus clippy,
+  Java `check`, and Swift 23/23 passed. Focused Agent Chat MCP compares at
+  90x35 passed for Python/C++ (20 assertions), C++/C# (49), C++/Go (49),
+  C++/Rust (49), C++/Swift (20), and C++/Java (49). The retained 0.5.3
+  applications compiled and ran unchanged against the updated runtimes in all
+  7/7 previous-version compatibility checks. The hours-long all-example
+  compare matrix was not repeated because this batch has dedicated all-port
+  physical-input coverage plus focused Agent Chat compares; broad runtime
+  unit suites and the complete rebuild cover its remaining blast radius.
 
 - [x] **Finish Agent Chat right-edge text rendering and make `Start` a timed
   simulation across every supported port.** Requested by the user on
@@ -143,7 +705,7 @@ Date: 2026-06-21
   profiling or virtualization was included; that work remains in the
   separate open #16 task below.
 
-- [ ] **Optimize large ScrollView histories and resolve GitHub issue
+- [x] **Optimize large ScrollView histories and resolve GitHub issue
   [#16](https://github.com/uimd-lang/uimd/issues/16) across all language
   ports.** Keep this separate from the correctness and timed-simulation repair
   above. The current `Load 50K` path materializes 5,556 reusable messages for
@@ -152,17 +714,121 @@ Date: 2026-06-21
   slow. Do not implement isolated per-language shortcuts or weaken the stress
   workload.
 
-  - [ ] Instrument the identical stress path and measure child construction,
+  - [x] Instrument the identical stress path and measure child construction,
     layout/height resolution, visible-range calculation, rendering, terminal
     diff, and keyboard/event-queue processing separately. Compare operation
     counts as well as timings, audit Rust against C++ structurally, and treat
     unexplained port-only extra work as a parity defect before optimizing.
-  - [ ] Design and implement one shared ScrollView virtualization contract in
+  - [x] Design and implement one shared ScrollView virtualization contract in
     the Python reference and port it 1:1 to C++, C#, Go, Rust, Swift, and Java.
     It must keep focus/edit/selection, dynamic reusable identity, variable
     heights, mouse hit testing, keyboard and wheel scrolling, auto-scroll,
     indicators, MCP snapshots, and post-event cleanup behavior compatible with
     existing applications while limiting per-frame work to the visible range.
+  - [x] Keep native and Python MCP tester semantics identical for an explicit
+    empty `compare_fields: []`. The Python tester correctly disables result
+    comparison for assertion-only, time-varying observations; the native C++
+    tester currently selects and compares the complete result object instead,
+    causing the Swift Agent Chat gate to fail even when the asserted status
+    value is identical. Preserve the existing behavior for omitted and
+    non-empty `compare_fields`.
+
+  **Pre-implementation parity and cost matrix (2026-09-02):** The canonical
+  Python path is `src/uimd/runtime/UIScrollView.py`: `add_child()` retains every
+  row, `_max_view_offset()` measures every child after invalidation,
+  `child_view_entries()` walks every logical child, and `_render_scroll_content()`
+  can stop rendering at the viewport only after the full height pass. At 1,000
+  Agent Chat entries on this machine, constructing retained child windows took
+  2.03-2.53 s; the first 90x35 render took 1.22-1.74 s, including 1,000 height
+  measurements (1.47 s) while only one child needed cell rendering (0.15 s).
+  A cached one-line scroll dispatch took 0.0007 s and its following render
+  0.049 s, confirming that construction/layout traversal, not terminal diff,
+  dominates the initial path. C++ (`cpp/src/elements/ScrollView.cpp`), C#
+  (`csharp/src/Uimd/Runtime/Elements.cs`), Rust
+  (`rust/src/uimd/src/elements.rs` plus
+  `rust/src/uimd/src/runtime.rs::scroll_view_native_child_heights`), Swift
+  (`swift/src/Uimd/Sources/Uimd/Uimd.swift`), and Java
+  (`java/src/main/java/uimd/ScrollView.java`) retain all children and build or
+  consume an O(N) height sequence. Go (`go/src/uimd/elements.go`) recomputes
+  `contentHeight()` by traversing all children and then scans from the first row
+  to reach the viewport. Rust additionally reconstructs a native-height `Vec`
+  at numerous public/runtime entry points; Java intentionally has no height
+  cache and remeasures on each call; Swift builds full `renderedRows`; C#/C++
+  cache heights but still scan retained rows. These are parity defects in cost,
+  not licenses for port-specific shortcuts. The common replacement will be an
+  additive virtual data-source mode with an implicit-baseline indexed height
+  tree, stable logical keys, visible-plus-overscan materialization, safe row
+  recycling, targeted mutation notifications, anchor preservation, and
+  explicit operation-count diagnostics. Existing retained `add_child` APIs and
+  their rendering contract remain unchanged.
+
+  **Completed on 2026-09-03:** all seven runtimes now expose the same additive,
+  opt-in virtual data-source contract while retaining the existing child API
+  unchanged. Python, C++, C#, Go, Rust, Swift, and Java use an implicit-baseline
+  sparse Fenwick height index, stable logical keys, visible plus one-viewport
+  overscan materialization, bounded recycling, two-pass height stabilization,
+  mutation notifications, focus-safe row reset, and logical anchor restoration.
+  The final anchor rule includes the following inter-item gap, fixing the
+  one-row Swift drift without a port-specific exception. The native MCP tester
+  now treats explicit `compare_fields: []` exactly like the Python tester.
+
+  `python3 tools/scrollview_virtualization_benchmark.py` is the reproducible
+  reference phase benchmark at 90x35. Across fixed and variable rows at 1K,
+  10K, 100K, and 1M logical items, it kept 27 rows materialized/measured and
+  rendered 9-10 rows. On this machine the p95 ranges were 0.386-0.506 ms for
+  visible-range/layout refresh, 0.337-0.463 ms for its non-binding/non-measure
+  overhead, 10.111-10.588 ms for frame rendering, 1.763-1.968 ms inside visible
+  row rendering, 5.513-5.801 ms for terminal diff, 15.976-16.441 ms combined,
+  and 0.011-0.016 ms for keyboard dispatch. Setup, sparse index creation, and
+  first visible refresh also stayed effectively constant as logical count grew.
+  The real Python Agent Chat stress path loaded 5,556 messages in 4.87 ms and
+  reported 6 materialized/measured plus 3 rendered rows; its richer visible-row
+  composition remains a separate bounded O(viewport) optimization opportunity.
+
+  A structural Rust/C++ audit found the same sparse-tree operations, lookup,
+  overscan range, stabilization passes, recycle bound, and anchor order; Rust no
+  longer reconstructs an O(N) native-height vector in virtual mode. Focused
+  one-million-row, variable-height, stable-key, mutation, anchor, and targeted
+  invalidation regressions passed in every runtime. The rebuilt Agent Chat MCP
+  scenario passed C++ against Python, C#, Go, Rust, Swift, and Java at 90x35,
+  including `Load 50k`, bidirectional scroll, and reset. The native tester ran
+  the full 35-step integration scenario in approximately 3.1-4.3 seconds for
+  the compiled ports, eliminating the previous order-of-magnitude port drift.
+
+- [x] **Reduce bounded rich-row frame-composition cost after ScrollView
+  virtualization.** The O(N) history work tracked in #16 is removed, but the
+  real Python Agent Chat's warm 90x35 render is still about 46 ms p95 plus 5.5
+  ms terminal diff on this machine. Profile and optimize only shared
+  O(visible-content) rendering work, preserve exact snapshots and all language
+  parity, and do not add another data cache/index or an Agent Chat workaround.
+
+  **2026-09-24 profiling and parity scope:** A 30-frame warm 90x35 Python
+  Agent Chat stress profile spent 1.75 of 2.26 profiled seconds in
+  `src/uimd/runtime/UIBase.py::_render_cell_frame`; its per-cell
+  `_color_key` comparisons accounted for 0.52 seconds, and nested visible
+  frame assembly allocated about 10,000 `TerminalCell` objects per frame.
+  The corresponding C++ `cpp/src/generated/GeneratedWindowRuntime.cpp`, C#
+  `csharp/src/Uimd/Runtime/GeneratedWindow.cs`, Go `go/src/uimd/runtime.go`,
+  Rust `rust/src/uimd/src/runtime.rs`, Swift
+  `swift/src/Uimd/Sources/Uimd/Uimd.swift`, and Java
+  `java/src/main/java/uimd/GeneratedWindowRuntime.java` paths compose cells
+  directly into terminal buffers and do not perform Python's legacy
+  `row_styles` key scan. Preserve their cell-composition behavior, verify
+  Agent Chat render parity, and optimize the Python-only value-comparison
+  overhead without adding state or changing the shared render contract.
+
+  **Completed on 2026-09-24:** Python's style-transition scan now checks
+  object identity and value equality before computing normalized color keys;
+  this preserves the existing key fallback for colors whose values differ.
+  In 80 paired warm 90x35 Agent Chat stress renders, median Python render time
+  fell from 48.59 to 36.56 ms and p95 from 50.87 to 38.68 ms. The previous
+  and updated renderer produced identical initial and `Load 50k` frames.
+  The full supported-port rebuild passed. Focused Python UI/application/Agent
+  Chat tests passed (199), the frozen previous-version Python application ran,
+  and Agent Chat MCP render compares passed against C++ for Python (20
+  assertions), C# (49), Go (49), Rust (49), Swift (20), and Java (49), all at
+  `--compare-app-size 90x35`. The compiled ports retain their direct-buffer
+  renderer; no application, shared state, or public API was changed.
 
 - [x] **Diagnose the C++ Agent Chat transcript that does not respond to
   scrolling.** Reported by the user on 2026-09-01 while manually running the
@@ -1272,7 +1938,7 @@ Date: 2026-06-21
   public API contracts, so their eventual fixes require the parity gate rather
   than isolated C++ patches.
 
-- [ ] **Implement Java as the next complete generated terminal language target.**
+- [x] **Implement Java as the next complete generated terminal language target.**
   Approved by the user on 2026-08-13 after the cross-platform Sixel and
   sustained-wheel fixes were validated, committed as `7a4c570`, and pushed to
   `origin/sdk-work`. Use the canonical target spelling `java` consistently in
@@ -1424,7 +2090,21 @@ Date: 2026-06-21
   all-example suite together with every existing platform. All work remains
   uncommitted on `sdk-work`.
 
-  **Paused final-validation checkpoint (2026-08-14):** the first canonical
+  **Final-validation evidence reconciled on 2026-11-11:** the later canonical
+  `.uimd/test-logs/test-all-20260924-222618-043576.log` supersedes the paused
+  August checkpoint below. Its final result is PASS, 29/29 executed phases,
+  after the separately successful full rebuild (nine expected rebuild skips).
+  Java runtime/Checkstyle, direct-terminal 12/12, MCP transports 5/5, all-example
+  parity 2048/2048, and regression parity 29/29 passed. Every other supported
+  port also passed its recorded final gates. All 109 recorded artifact hashes
+  still matched on 2026-11-11, with only Finder metadata differing from the
+  recorded source inputs before the preparation fix. The terminal target's
+  implementation and macOS validation are complete. Formular multi-select
+  output is retained as a separate open task above. The documented Windows
+  adapter remains unexecuted on this macOS host; do not advertise public
+  Windows Java installation as validated without its real Windows CI gate.
+
+  **Historical paused final-validation checkpoint (2026-08-14):** the first canonical
   `--keep-going` run completed 33/34 phases. Its only failure was the Java
   WidgetGallery clean-close response race recorded and fixed below; every
   later Rust example and Python/C++/Go/Java/Rust regression phase passed. A
@@ -1434,10 +2114,9 @@ Date: 2026-06-21
   phase through `MCP example compare` (1040/1040). Its C# compare reached
   984/984 successful assertions/steps, completing the current MarkdownViewer
   scenario, before the user-requested pause; the runner was then terminated
-  deliberately before continuing the remaining platforms. No test process
-  remains. On resume, run the complete canonical full test again from the
-  beginning; this interrupted run is useful evidence but is not the final
-  completion gate.
+  deliberately before continuing the remaining platforms. That interrupted
+  run was useful intermediate evidence; the successful September gate above
+  is the later final completion evidence.
 
   - [x] **Make direct Java mouse selection of ordinary `ListBox` rows match
     Python/C++ and cover the real SGR input path.** Manual testing on
@@ -1489,17 +2168,6 @@ Date: 2026-06-21
     intervals from both C++ and Java without sending any input. The complete
     Java Gradle `check`/Checkstyle gate, smoke-script compilation,
     SpecialElements compare, and `git diff --check` pass.
-
-  - [ ] **Align Formular multi-select terminal serialization across every
-    language implementation.** The new physical ListBox regression exposed a
-    pre-existing example-domain mismatch after selecting a second role:
-    Python, Go, and Java serialize every selected role, while C++, C#, Swift,
-    and Rust serialize only one active/first role. Runtime and MCP selection
-    state already expose the complete selection; audit each hand-written
-    Formular application against the Python reference, preserve the identical
-    `.uimd` source, and add a direct-terminal Save-output parity gate that
-    proves every selected value and callback result without weakening the
-    lower-level physical SGR selection test.
 
   - [x] **Propagate the resolved Java 17 toolchain to every test-launched Java
     example and regression without requiring a caller-exported `JAVA_HOME`.**
@@ -2926,8 +3594,8 @@ Date: 2026-06-21
     and every render step at `--compare-app-size 90x35`.
   - Example domain logic, the regression corpus, SDK/rebuild/test integration,
     direct-terminal/MCP gates, and the mandatory final audit/remediation cycle
-    are complete. Only the canonical full-test gate remains before the target
-    can be marked complete.
+    are complete. The canonical full-test gate passed in September; see the
+    reconciled final-validation evidence above.
 
   **Implementation order:**
   1. Audit the current Python/C++/C# runtime and native target registration;

@@ -34,10 +34,8 @@ public:
     bool handleGeneratedSelectionChanged(std::string_view name, const std::vector<std::string>& value) override;
 
 
-    ui::Label* role = nullptr;
-    ui::Label* phase = nullptr;
+    ui::Label* heading = nullptr;
     ui::Label* body = nullptr;
-    ui::Label* detail = nullptr;
 
 protected:
     virtual bool shouldClose() const;

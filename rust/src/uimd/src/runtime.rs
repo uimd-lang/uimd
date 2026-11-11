@@ -3,7 +3,7 @@
 use crate::{
     Color, ElementKind, ElementRef, ElementRenderState, LayoutItem, Point, Rect, Size, Style,
     ScrollViewPosition, ScrollViewRef, TerminalBuffer, DEFAULT_VIEWPORT_HEIGHT,
-    DEFAULT_VIEWPORT_WIDTH, EXPANDED, FIT_CONTENT,
+    DEFAULT_VIEWPORT_WIDTH, EXPANDED, FIT_CONTENT, MINIMUM_RENDERABLE_SIZE,
 };
 use crate::core::OptionalColorExt;
 use serde_json::Value;
@@ -1097,7 +1097,22 @@ impl GeneratedWindow
 
     pub(crate) fn scroll_view_children(&self) -> Vec<ElementRef>
     {
-        self.scroll_view_ref().borrow().children.clone()
+        let scroll_view = self.scroll_view_ref();
+        let element = scroll_view.borrow();
+        element.scroll_view().map_or_else(
+            || element.children.clone(),
+            |state|
+            {
+                if state.has_virtual_data_source()
+                {
+                    state.virtual_children()
+                }
+                else
+                {
+                    element.children.clone()
+                }
+            },
+        )
     }
 
     fn scroll_view_native_child_heights(&self, width: i32) -> Vec<i32>
@@ -4973,6 +4988,17 @@ fn render_generated_scroll_window(
         ),
     );
     let focused = state.focused_element(window);
+    let virtual_pinned = focused.as_ref().and_then(|focused|
+    {
+        window
+            .scroll_view_children()
+            .into_iter()
+            .find(|child| element_tree_contains(child, focused))
+    });
+    if let Some(scroll_state) = scroll_view.borrow().scroll_view()
+    {
+        scroll_state.set_virtual_pinned_element(virtual_pinned);
+    }
     let content_window = scroll_view
         .content_window(scroll_viewport)
         .unwrap_or_default();
@@ -6782,7 +6808,15 @@ fn fit_entry_height(window: &GeneratedWindow, item: &LayoutItem, available_cell_
     {
         max(1, if item.chars_height > 0 { item.chars_height } else { item.cell_chars_height })
     };
-    max(1, item.row + content_height + item.margin_bottom)
+    let bottom_margin = if dimension_mode(&item.cell_height_mode, item.cell_height) == "fit-content"
+    {
+        0
+    }
+    else
+    {
+        item.margin_bottom
+    };
+    max(1, item.row + content_height + bottom_margin)
 }
 
 fn fit_cell_width(window: &GeneratedWindow, cell_item: &LayoutItem) -> i32
@@ -6803,7 +6837,7 @@ fn fit_cell_height(window: &GeneratedWindow, cell_item: &LayoutItem, resolved_wi
 {
     let padding = cell_item.cell_style.padding_values();
     let available_width = resolved_width.map(|width| max(1, width - padding[1] - padding[3]));
-    let mut content_height = max(1, cell_item.cell_chars_height);
+    let mut content_height = MINIMUM_RENDERABLE_SIZE;
     for item in &window.layout
     {
         if same_source_cell(item, cell_item)
@@ -7372,7 +7406,14 @@ pub fn generated_window_content_size(window: &GeneratedWindow) -> Size
         vertical_separator,
         window_mode(window),
     );
-    resolved_content_extent(&resolved, natural)
+    resolved_content_extent(
+        &resolved,
+        Size
+        {
+            width: MINIMUM_RENDERABLE_SIZE,
+            height: MINIMUM_RENDERABLE_SIZE,
+        },
+    )
 }
 
 pub fn generated_window_content_size_for_width(
@@ -7386,17 +7427,29 @@ pub fn generated_window_content_size_for_width(
     let mut cells = collect_runtime_cells(window);
     let natural =
         layout_size(runtime_tree(&cells, horizontal_separator, vertical_separator).as_ref());
-    let resolved = resolve_runtime_cells(
+    let mut resolved = resolve_runtime_cells(
         window,
         &mut cells,
         Rect { row: 0, col: 0, width, height: natural.height },
         horizontal_separator,
         vertical_separator,
-        window_mode(window),
+        WindowMode::Normal,
     );
+    let fitted = layout_size(runtime_tree(&cells, horizontal_separator, vertical_separator).as_ref());
+    if fitted.height > natural.height
+    {
+        resolved = resolve_runtime_cells(
+            window,
+            &mut cells,
+            Rect { row: 0, col: 0, width, height: fitted.height },
+            horizontal_separator,
+            vertical_separator,
+            WindowMode::Normal,
+        );
+    }
     let mut result = resolved_content_extent(
         &resolved,
-        Size { width, height: natural.height },
+        Size { width, height: MINIMUM_RENDERABLE_SIZE },
     );
     for item in &window.layout
     {
@@ -10399,6 +10452,39 @@ mod tests
             ..Default::default()
         };
         assert_eq!(fit_content_height_for(Some(&label), &item, Some(1)), 3);
+    }
+
+    #[test]
+    fn generated_fit_content_height_ignores_trailing_ascii_sketch_rows()
+    {
+        const SKETCH_WIDTH: i32 = 20;
+        const SKETCH_HEIGHT: i32 = 5;
+        const RENDERED_HEIGHT: i32 = 2;
+        let mut window = GeneratedWindow::new("trailing sketch fit content");
+        window.add_element(crate::new_span_label("body", "one\ntwo"));
+        window.set_generated_layout(vec![LayoutItem
+        {
+            element_type: "spanlabel".to_string(),
+            cell_chars_width: SKETCH_WIDTH,
+            cell_chars_height: SKETCH_HEIGHT,
+            cell_width: SKETCH_WIDTH,
+            cell_height: FIT_CONTENT,
+            cell_width_mode: "fixed".to_string(),
+            cell_height_mode: "fit-content".to_string(),
+            width: SKETCH_WIDTH,
+            height: FIT_CONTENT,
+            width_mode: "fixed".to_string(),
+            height_mode: "fit-content".to_string(),
+            chars_width: SKETCH_WIDTH,
+            chars_height: SKETCH_HEIGHT,
+            content: "body".to_string(),
+            ..Default::default()
+        }]);
+
+        assert_eq!(
+            generated_window_content_size_for_width(&window, SKETCH_WIDTH).height,
+            RENDERED_HEIGHT,
+        );
     }
 
     #[test]

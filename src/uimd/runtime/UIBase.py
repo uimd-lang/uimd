@@ -3907,8 +3907,16 @@ class UIBase(UIInstance):
                 fg = fg_map[col]
                 bg = bg_map[col]
                 if (
-                    self._color_key(fg) != self._color_key(current_fg)
-                    or self._color_key(bg) != self._color_key(current_bg)
+                    (
+                        fg is not current_fg
+                        and fg != current_fg
+                        and self._color_key(fg) != self._color_key(current_fg)
+                    )
+                    or (
+                        bg is not current_bg
+                        and bg != current_bg
+                        and self._color_key(bg) != self._color_key(current_bg)
+                    )
                 ):
                     row_styles.append({"char_pos": col, "color": fg, "background": bg})
                     current_fg = fg

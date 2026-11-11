@@ -245,6 +245,10 @@ tags: [component, simulation, scrollview]
 extends: uiscrollview
 uses:
   - ../chat_entry/chat_entry
+  - ../code_entry/code_entry
+  - ../table_entry/table_entry
+  - ../user_entry/user_entry
+  - ../reasoning_entry/reasoning_entry
 ```
 
 ## Style

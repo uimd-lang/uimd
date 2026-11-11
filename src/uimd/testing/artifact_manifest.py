@@ -69,6 +69,8 @@ EXCLUDED_DIRECTORY_NAMES = {
     "obj",
     "target",
 }
+# Finder updates this file when browsing a directory; it is never a build input.
+EXCLUDED_FILE_NAMES = {".DS_Store"}
 
 
 class BuildManifestError(RuntimeError):
@@ -103,7 +105,10 @@ def _source_files(root: Path, artifact_paths: set[str]) -> list[Path]:
     for relative_input in SOURCE_INPUTS:
         source = root / relative_input
         if source.is_file():
-            if relative_input.as_posix() not in artifact_paths:
+            if (
+                source.name not in EXCLUDED_FILE_NAMES
+                and relative_input.as_posix() not in artifact_paths
+            ):
                 files.add(source)
             continue
         if not source.is_dir():
@@ -116,6 +121,8 @@ def _source_files(root: Path, artifact_paths: set[str]) -> list[Path]:
                 if not _excluded_directory((current / name).relative_to(root))
             ]
             for name in file_names:
+                if name in EXCLUDED_FILE_NAMES:
+                    continue
                 candidate = current / name
                 relative = candidate.relative_to(root).as_posix()
                 if relative not in artifact_paths:

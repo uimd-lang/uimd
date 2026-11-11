@@ -52,11 +52,15 @@
       assert:
         value: "Ready · 1 message"
     - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
     - tool: scroll
       arguments:
         element_id: transcript
         delta: 10
     - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
     - tool: scroll
       arguments:
         element_id: transcript
@@ -105,6 +109,89 @@
       assert:
         value: "Step applied · 10 messages"
     - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: activate_element
+      arguments:
+        element_id: next_step_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "Step applied · 15 messages"
+    - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
+    - tool: activate_element
+      arguments:
+        element_id: load_stress_button
+    - tool: get_element
+      arguments:
+        element_id: status
+      assert:
+        value: "Stress loaded · 5556 messages · ~50000 rows"
+    - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
+    - tool: scroll
+      arguments:
+        element_id: transcript
+        delta: -10
+    - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
+    - tool: activate_element
+      arguments:
+        element_id: top
+    - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
+    - tool: activate_element
+      arguments:
+        element_id: end
+    - tool: get_render_snapshot_compact
+      arguments:
+        snapshot_time_ms: 9000
+    - tool: activate_element
+      compare_snapshot: false
+      arguments:
+        element_id: start_button
+    - tool: get_element
+      compare_snapshot: false
+      compare_fields: []
+      arguments:
+        element_id: status
+      assert:
+        value:
+          regex: '^Running · 55[0-9]{2} messages$'
+    - tool: activate_element
+      compare_snapshot: false
+      arguments:
+        element_id: pause_button
     - tool: activate_element
       arguments:
         element_id: reset_button

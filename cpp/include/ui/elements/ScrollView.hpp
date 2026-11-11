@@ -1,7 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <map>
+#include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -13,6 +17,8 @@ namespace ui {
 inline constexpr int kDefaultScrollViewGap = 0;
 inline constexpr int kDefaultWheelScrollLines = 4;
 inline constexpr int kWheelScrollViewportFraction = 3;
+inline constexpr int kVirtualScrollOverscanViewports = 1;
+inline constexpr int kVirtualScrollLayoutStabilizationPasses = 2;
 inline constexpr std::string_view kScrollIndicatorAbove = "^";
 inline constexpr std::string_view kScrollIndicatorBelow = "v";
 
@@ -37,9 +43,26 @@ struct ScrollViewPosition {
     bool autoScroll = false;
 };
 
+struct VirtualScrollDataSource {
+    std::function<int()> itemCount;
+    std::function<std::string(int)> itemKey;
+    std::function<std::unique_ptr<Element>(int, std::unique_ptr<Element>)> materialize;
+    std::function<int(int)> estimatedHeight;
+};
+
+struct VirtualScrollDiagnostics {
+    int logicalItems = 0;
+    int materializedRows = 0;
+    int recycledRows = 0;
+    int lastRowsMeasured = 0;
+    int lastRowsConsidered = 0;
+    int lastRowsRendered = 0;
+};
+
 class ScrollView : public Element {
 public:
     explicit ScrollView(std::string name, int gap = kDefaultScrollViewGap);
+    ~ScrollView() override;
 
     template <typename T, typename... Args>
     T& addChild(Args&&... args) {
@@ -56,6 +79,16 @@ public:
     void invalidateHeightCache() const;
     void setDynamicChildrenRenderer(std::function<std::vector<RenderedContent>(int)> renderer);
     void invalidateDynamicChildren() const;
+    void setVirtualDataSource(VirtualScrollDataSource source);
+    void clearVirtualDataSource();
+    void virtualItemsInserted(int index, int count = 1);
+    void virtualItemsRemoved(int index, int count = 1);
+    void virtualItemsReplaced(int index, int count = 1);
+    void invalidateVirtualHeights();
+    void invalidateVirtualHeights(int index, int count);
+    [[nodiscard]] bool hasVirtualDataSource() const;
+    [[nodiscard]] VirtualScrollDiagnostics virtualDiagnostics() const;
+    void setVirtualPinnedElement(const Element* element) const;
 
     void setAutoScroll(bool autoScroll);
     void setDescendantFocusStyle(Style style) {
@@ -116,6 +149,19 @@ protected:
     [[nodiscard]] RenderedContent renderWithStyle(Size size, const Style& style, const Style& childInheritStyle) const;
 
 private:
+    class VirtualHeightIndex;
+
+    struct VirtualMaterializedRow {
+        std::string key;
+        Element* element = nullptr;
+    };
+
+    struct VirtualAnchor {
+        int index = 0;
+        std::int64_t within = 0;
+        int viewportHeight = 1;
+    };
+
     [[nodiscard]] int maxChildrenInViewport(Size viewport) const;
     void ensureHeightCache() const;
     void ensureHeightCache(int width) const;
@@ -123,6 +169,18 @@ private:
     [[nodiscard]] int actualSkip(Size viewport) const;
     [[nodiscard]] RenderedRow blankRow(int width, const Style& style) const;
     void refreshDynamicChildren(int width) const;
+    [[nodiscard]] int virtualCount() const;
+    [[nodiscard]] int virtualEstimateForWidth(int width) const;
+    [[nodiscard]] std::optional<VirtualAnchor> captureVirtualAnchor(
+        std::optional<int> viewportHeight = std::nullopt) const;
+    void restoreVirtualAnchor(std::optional<VirtualAnchor> anchor) const;
+    void rebuildVirtualHeightIndex(std::optional<int> width = std::nullopt) const;
+    void ensureVirtualHeightIndex(Size viewport) const;
+    [[nodiscard]] Element& materializeVirtualChild(int index) const;
+    void recycleVirtualChild(std::unique_ptr<Element> child) const;
+    void refreshVirtualMaterialization(Size viewport) const;
+    void sortVirtualChildren() const;
+    [[nodiscard]] std::optional<int> virtualIndexForElement(const Element* child) const;
 
     int gap_ = kDefaultScrollViewGap;
     bool autoScroll_ = false;
@@ -136,6 +194,13 @@ private:
     mutable std::optional<int> dynamicChildrenWidth_;
     mutable std::optional<int> cachedChildHeightsWidth_;
     mutable std::optional<std::vector<int>> cachedChildHeights_;
+    std::optional<VirtualScrollDataSource> virtualDataSource_;
+    mutable std::unique_ptr<VirtualHeightIndex> virtualHeightIndex_;
+    mutable std::optional<int> virtualHeightWidth_;
+    mutable std::map<int, VirtualMaterializedRow> virtualMaterialized_;
+    mutable std::vector<std::unique_ptr<Element>> virtualRecyclePool_;
+    mutable VirtualScrollDiagnostics virtualDiagnostics_;
+    mutable const Element* virtualPinnedElement_ = nullptr;
     std::optional<Style> descendantFocusStyle_;
 };
 

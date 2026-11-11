@@ -24,9 +24,8 @@ from java_toolchain import java_build_env
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE_VERSION = "0.5.3"
+FIXTURE_VERSION = "0.5.8"
 FIXTURE_ROOT = ROOT / "tests/compatibility" / f"v{FIXTURE_VERSION}"
-MANIFEST_PATH = FIXTURE_ROOT / "manifest.sha256"
 VIEWPORT = "0,0,90,35"
 RESPONSE_TIMEOUT_SECONDS = 15.0
 BUILD_TIMEOUT_SECONDS = 15 * 60.0
@@ -92,7 +91,7 @@ def required_command(name: str, *, fallback: Path | None = None) -> str:
 def fixture_files() -> list[Path]:
     files: list[Path] = []
     for path in FIXTURE_ROOT.rglob("*"):
-        if not path.is_file() or path == MANIFEST_PATH:
+        if not path.is_file() or path == FIXTURE_ROOT / "manifest.sha256":
             continue
         relative = path.relative_to(FIXTURE_ROOT)
         if any(part in EXCLUDED_DIRECTORY_NAMES for part in relative.parts):
@@ -112,10 +111,11 @@ def sha256(path: Path) -> str:
 
 
 def read_manifest() -> dict[str, str]:
-    if not MANIFEST_PATH.is_file():
-        raise FileNotFoundError(f"compatibility manifest is missing: {MANIFEST_PATH}")
+    manifest_path = FIXTURE_ROOT / "manifest.sha256"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"compatibility manifest is missing: {manifest_path}")
     entries: dict[str, str] = {}
-    for line_number, raw_line in enumerate(MANIFEST_PATH.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, raw_line in enumerate(manifest_path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw_line.strip()
         if not line:
             continue
@@ -738,6 +738,16 @@ def java_gate(build_root: Path) -> None:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--fixture-version",
+        default=FIXTURE_VERSION,
+        choices=tuple(
+            path.name.removeprefix("v")
+            for path in sorted((ROOT / "tests/compatibility").glob("v*"))
+            if (path / "manifest.sha256").is_file()
+        ),
+        help="frozen generator version to validate (default: %(default)s)",
+    )
+    parser.add_argument(
         "--only",
         action="append",
         choices=("python", "cpp", "csharp", "go", "java", "rust", "swift"),
@@ -750,7 +760,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global FIXTURE_ROOT
     args = parse_args(list(sys.argv[1:] if argv is None else argv))
+    FIXTURE_ROOT = ROOT / "tests/compatibility" / f"v{args.fixture_version}"
+    print(f"==> frozen UIMD {args.fixture_version} compatibility fixture", flush=True)
     verify_manifest()
     failures: list[tuple[str, BaseException]] = []
     with tempfile.TemporaryDirectory(prefix="uimd-previous-version-compat-") as temporary:

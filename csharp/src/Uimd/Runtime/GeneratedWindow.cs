@@ -1086,7 +1086,9 @@ public static class GeneratedWindowRuntime
             verticalSeparator,
             WindowMode(window),
             resolvedCells);
-        return ResolvedContentExtent(resolvedCells, natural);
+        return ResolvedContentExtent(
+            resolvedCells,
+            new Size(MinimumRenderableSize, MinimumRenderableSize));
     }
 
     public static Size GeneratedWindowContentSizeForWidth(GeneratedWindowBase window, int width)
@@ -1104,9 +1106,23 @@ public static class GeneratedWindowRuntime
             new Rect(0, 0, resolvedWidth, natural.Height),
             horizontalSeparator,
             verticalSeparator,
-            WindowMode(window),
+            GeneratedWindowMode.Normal,
             resolvedCells);
-        Size result = ResolvedContentExtent(resolvedCells, new Size(resolvedWidth, natural.Height));
+        Size fitted = LayoutSize(BuildRuntimeTree(runtimeCells, horizontalSeparator, verticalSeparator));
+        if (fitted.Height > natural.Height)
+        {
+            ResolveRuntimeCellsWithFitPass(
+                window,
+                runtimeCells,
+                new Rect(0, 0, resolvedWidth, fitted.Height),
+                horizontalSeparator,
+                verticalSeparator,
+                GeneratedWindowMode.Normal,
+                resolvedCells);
+        }
+        Size result = ResolvedContentExtent(
+            resolvedCells,
+            new Size(resolvedWidth, MinimumRenderableSize));
         foreach (GeneratedLayoutEntry entry in window.GeneratedLayout)
         {
             ResolvedRuntimeCell? cell = ResolvedCellFor(resolvedCells, entry);
@@ -2996,6 +3012,13 @@ public static class GeneratedWindowRuntime
         List<(Element Element, Rect Frame, int Height)> overlays = new();
         bool childContentAboveViewport = false;
         bool childContentBelowViewport = false;
+        Element? virtualPinnedElement = scrollView.Children.FirstOrDefault(child =>
+            (focusedElement is not null &&
+                (ReferenceEquals(child, focusedElement) || ElementTreeContains(child, focusedElement))) ||
+            (activeScrollViewEditElement is not null &&
+                (ReferenceEquals(child, activeScrollViewEditElement) ||
+                    ElementTreeContains(child, activeScrollViewEditElement))));
+        scrollView.SetVirtualPinnedElement(virtualPinnedElement);
         foreach (ScrollViewChildView childView in scrollView.ChildViews(new Size(frame.Width, frame.Height)))
         {
             Rect childFrame = new(
@@ -5611,7 +5634,7 @@ public static class GeneratedWindowRuntime
 
     private static int FitCellHeight(GeneratedWindowBase window, GeneratedLayoutEntry cellEntry, int? resolvedCellWidth = null)
     {
-        int contentHeight = cellEntry.SourceCell.Height;
+        int contentHeight = MinimumRenderableSize;
         int? availableCellWidth = null;
         if (resolvedCellWidth.HasValue)
         {
@@ -5641,7 +5664,9 @@ public static class GeneratedWindowRuntime
         int contentHeight = entry.Height.Mode == DimensionMode.FitContent
             ? FitContentHeightFor(element, entry.Type, fallback, contentWidth)
             : Math.Max(MinimumRenderableSize, fallback);
-        return Math.Max(MinimumRenderableSize, entry.Relative.Row + contentHeight + entry.MarginBottom);
+        int bottomMargin = entry.CellHeight.Mode == DimensionMode.FitContent
+            ? 0 : entry.MarginBottom;
+        return Math.Max(MinimumRenderableSize, entry.Relative.Row + contentHeight + bottomMargin);
     }
 
     private static int FitContentHeightFor(Element? element, string type, int fallback, int? width = null)

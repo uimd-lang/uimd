@@ -16,6 +16,8 @@ pub struct AgentChatUI
     pub next_step_button: uimd::ButtonRef,
     pub reset_button: uimd::ButtonRef,
     pub load_stress_button: uimd::ButtonRef,
+    pub top: uimd::ButtonRef,
+    pub end: uimd::ButtonRef,
     pub transcript: uimd::ReusableElementRef,
     pub status: uimd::LabelRef,
 }
@@ -30,13 +32,13 @@ impl AgentChatUI
             element_type: "button".to_string(),
             row: 0, col: 1,
             cell_row: 2, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "actions".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
             width: 12, height: 1,
             width_mode: "auto".to_string(), height_mode: "auto".to_string(),
             chars_width: 12, chars_height: 1,
-            margin_right: 65, margin_bottom: 0,
+            margin_right: 75, margin_bottom: 0,
             content: "start_button".to_string(),
             cell_style: uimd::Style {
         background: Some(uimd::Color::new("#172033")),
@@ -56,12 +58,12 @@ impl AgentChatUI
             element_type: "label".to_string(),
             row: 0, col: 1,
             cell_row: 10, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
-            cell_name: "".to_string(), cell_width: 78, cell_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
+            cell_name: "".to_string(), cell_width: 88, cell_height: 1,
             cell_width_mode: "auto".to_string(), cell_height_mode: "auto".to_string(),
             width: uimd::EXPANDED, height: 1,
             width_mode: "expanded".to_string(), height_mode: "auto".to_string(),
-            chars_width: 76, chars_height: 1,
+            chars_width: 86, chars_height: 1,
             margin_right: 1, margin_bottom: 0,
             content: "status".to_string(),
             cell_style: uimd::Style::default(),
@@ -79,13 +81,13 @@ impl AgentChatUI
             element_type: "label".to_string(),
             row: 0, col: 1,
             cell_row: 0, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "header".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
             width: uimd::EXPANDED, height: 1,
             width_mode: "expanded".to_string(), height_mode: "auto".to_string(),
             chars_width: 34, chars_height: 1,
-            margin_right: 43, margin_bottom: 0,
+            margin_right: 53, margin_bottom: 0,
             content: "title".to_string(),
             cell_style: uimd::Style {
         background: Some(uimd::Color::new("#111827")),
@@ -106,12 +108,12 @@ impl AgentChatUI
             element_type: "transcript".to_string(),
             row: 0, col: 1,
             cell_row: 4, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 5,
+            cell_chars_width: 88, cell_chars_height: 5,
             cell_name: "content".to_string(), cell_width: 0, cell_height: 0,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "expanded".to_string(),
             width: uimd::EXPANDED, height: uimd::EXPANDED,
             width_mode: "expanded".to_string(), height_mode: "expanded".to_string(),
-            chars_width: 76, chars_height: 5,
+            chars_width: 86, chars_height: 5,
             margin_right: 1, margin_bottom: 0,
             content: "transcript".to_string(),
             cell_style: uimd::Style {
@@ -127,13 +129,13 @@ impl AgentChatUI
             element_type: "button".to_string(),
             row: 0, col: 14,
             cell_row: 2, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "actions".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
             width: 12, height: 1,
             width_mode: "auto".to_string(), height_mode: "auto".to_string(),
             chars_width: 12, chars_height: 1,
-            margin_right: 52, margin_bottom: 0,
+            margin_right: 62, margin_bottom: 0,
             content: "pause_button".to_string(),
             cell_style: uimd::Style {
         background: Some(uimd::Color::new("#172033")),
@@ -153,13 +155,13 @@ impl AgentChatUI
             element_type: "button".to_string(),
             row: 0, col: 27,
             cell_row: 2, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "actions".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
             width: 16, height: 1,
             width_mode: "auto".to_string(), height_mode: "auto".to_string(),
             chars_width: 16, chars_height: 1,
-            margin_right: 35, margin_bottom: 0,
+            margin_right: 45, margin_bottom: 0,
             content: "next_step_button".to_string(),
             cell_style: uimd::Style {
         background: Some(uimd::Color::new("#172033")),
@@ -179,13 +181,13 @@ impl AgentChatUI
             element_type: "label".to_string(),
             row: 0, col: 36,
             cell_row: 0, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "header".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
             width: 20, height: 1,
             width_mode: "auto".to_string(), height_mode: "auto".to_string(),
             chars_width: 20, chars_height: 1,
-            margin_right: 22, margin_bottom: 0,
+            margin_right: 32, margin_bottom: 0,
             content: "simulation_badge".to_string(),
             cell_style: uimd::Style {
         background: Some(uimd::Color::new("#111827")),
@@ -206,13 +208,13 @@ impl AgentChatUI
             element_type: "button".to_string(),
             row: 0, col: 44,
             cell_row: 2, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "actions".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
             width: 12, height: 1,
             width_mode: "auto".to_string(), height_mode: "auto".to_string(),
             chars_width: 12, chars_height: 1,
-            margin_right: 22, margin_bottom: 0,
+            margin_right: 32, margin_bottom: 0,
             content: "reset_button".to_string(),
             cell_style: uimd::Style {
         background: Some(uimd::Color::new("#172033")),
@@ -232,13 +234,13 @@ impl AgentChatUI
             element_type: "button".to_string(),
             row: 0, col: 57,
             cell_row: 2, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "actions".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
-            width: 20, height: 1,
+            width: 18, height: 1,
             width_mode: "auto".to_string(), height_mode: "auto".to_string(),
-            chars_width: 20, chars_height: 1,
-            margin_right: 1, margin_bottom: 0,
+            chars_width: 18, chars_height: 1,
+            margin_right: 13, margin_bottom: 0,
             content: "load_stress_button".to_string(),
             cell_style: uimd::Style {
         background: Some(uimd::Color::new("#172033")),
@@ -258,12 +260,12 @@ impl AgentChatUI
             element_type: "button".to_string(),
             row: 0, col: 57,
             cell_row: 0, cell_col: 0,
-            cell_chars_width: 78, cell_chars_height: 1,
+            cell_chars_width: 88, cell_chars_height: 1,
             cell_name: "header".to_string(), cell_width: 0, cell_height: 1,
             cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
-            width: 20, height: 1,
+            width: 30, height: 1,
             width_mode: "auto".to_string(), height_mode: "auto".to_string(),
-            chars_width: 20, chars_height: 1,
+            chars_width: 30, chars_height: 1,
             margin_right: 1, margin_bottom: 0,
             content: "quit_button".to_string(),
             cell_style: uimd::Style {
@@ -276,6 +278,58 @@ impl AgentChatUI
     },
             element_style: uimd::Style {
         background: Some(uimd::Color::new("#7f1d1d")),
+        color: Some(uimd::Color::new("#e2e8f0")),
+        ..Default::default()
+    },
+        },
+        uimd::LayoutItem {
+            element_type: "button".to_string(),
+            row: 0, col: 76,
+            cell_row: 2, cell_col: 0,
+            cell_chars_width: 88, cell_chars_height: 1,
+            cell_name: "actions".to_string(), cell_width: 0, cell_height: 1,
+            cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
+            width: 3, height: 1,
+            width_mode: "auto".to_string(), height_mode: "auto".to_string(),
+            chars_width: 3, chars_height: 1,
+            margin_right: 9, margin_bottom: 0,
+            content: "top".to_string(),
+            cell_style: uimd::Style {
+        background: Some(uimd::Color::new("#172033")),
+        padding_bottom: Some(1),
+        padding_left: Some(1),
+        padding_right: Some(1),
+        padding_top: Some(1),
+        ..Default::default()
+    },
+            element_style: uimd::Style {
+        background: Some(uimd::Color::new("#334155")),
+        color: Some(uimd::Color::new("#e2e8f0")),
+        ..Default::default()
+    },
+        },
+        uimd::LayoutItem {
+            element_type: "button".to_string(),
+            row: 0, col: 80,
+            cell_row: 2, cell_col: 0,
+            cell_chars_width: 88, cell_chars_height: 1,
+            cell_name: "actions".to_string(), cell_width: 0, cell_height: 1,
+            cell_width_mode: "expanded".to_string(), cell_height_mode: "auto".to_string(),
+            width: 7, height: 1,
+            width_mode: "auto".to_string(), height_mode: "auto".to_string(),
+            chars_width: 7, chars_height: 1,
+            margin_right: 1, margin_bottom: 0,
+            content: "end".to_string(),
+            cell_style: uimd::Style {
+        background: Some(uimd::Color::new("#172033")),
+        padding_bottom: Some(1),
+        padding_left: Some(1),
+        padding_right: Some(1),
+        padding_top: Some(1),
+        ..Default::default()
+    },
+            element_style: uimd::Style {
+        background: Some(uimd::Color::new("#334155")),
         color: Some(uimd::Color::new("#e2e8f0")),
         ..Default::default()
     },
@@ -351,8 +405,8 @@ impl AgentChatUI
         padding_top: Some(0),
         ..Default::default()
     });
-        base.set_mcp_metadata(true, "AgentChat", "# Agent Chat Simulation\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: window\nstatus: draft\ndescription: \"Deterministic simulated agent chat for rich transcript and large ScrollView testing.\"\ntags: [example, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nuses:\n  - transcript/transcript\n```\n\n## Members\n\n```yaml\ntitle:\n  type: label\n  text: \"Agent Chat Simulation\"\n  description: \"Application title.\"\n  expose: false\n\nsimulation_badge:\n  type: label\n  text: \"SIMULATED · OFFLINE\"\n  description: \"Clarifies that the transcript performs no real agent or tool work.\"\n  expose: false\n\nquit_button:\n  type: button\n  title: Quit\n  description: \"Close the Agent Chat Simulation example.\"\n\nstart_button:\n  type: button\n  title: Start\n  description: \"Run one hundred deterministic simulated messages over three minutes.\"\n\npause_button:\n  type: button\n  title: Pause\n  description: \"Pause the timed simulation without discarding progress.\"\n\nnext_step_button:\n  type: button\n  title: \"Next step\"\n  description: \"Apply one deterministic scripted chat step.\"\n\nreset_button:\n  type: button\n  title: Reset\n  description: \"Reset the transcript to its initial message.\"\n\nload_stress_button:\n  type: button\n  title: \"Load 50k\"\n  description: \"Load an approximately fifty-thousand-row deterministic stress transcript.\"\n\ntranscript:\n  type: transcript\n  cpp-class: \"agent_chat_example::Transcript\"\n  cpp-header: transcript/transcript.hpp\n  description: \"Scrollable deterministic simulated agent transcript.\"\n\nstatus:\n  type: label\n  text: \"Ready · 1 message\"\n  description: \"Shows deterministic simulation progress and transcript size.\"\n```\n\n## Style\n\n```yaml\ninclude: dark\nthis:\n  border-width: 0\n  background: \"#030712\"\n@header:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@title:\n  color: \"#f8fafc\"\n  text-align: center\n@simulation_badge:\n  color: \"#c4b5fd\"\n  text-align: right\n@actions:\n  background: \"#172033\"\n  padding: 1, 1, 1, 1\nbutton:\n  background: \"#334155\"\n  color: \"#e2e8f0\"\n  focus-background: \"#2563eb\"\n@load_stress_button:\n  background: \"#6d28d9\"\n  focus-background: \"#7c3aed\"\n@quit_button:\n  background: \"#7f1d1d\"\n  focus-background: \"#dc2626\"\n@content:\n  background: \"#030712\"\n@transcript:\n  background: \"#00000000\"\n@status:\n  background: \"#0f172a\"\n  color: \"#93c5fd\"\n  padding: 0, 1, 0, 1\n```\n\n## User Interface\n\n```ui\n+-header-**--------------------------------------------------------------------+\n| title..**......................... simulation_badge.... quit_button......... |\n+-actions-**-------------------------------------------------------------------+\n| start_button pause_button next_step_button reset_button load_stress_button.. |\n+-content-**-------------------------------------------------------------------+\n| transcript..**.............................................................. |\n| ............................................................................ |\n* *........................................................................... |\n* *........................................................................... |\n| ............................................................................ |\n+------------------------------------------------------------------------------+\n| status..**.................................................................. |\n+------------------------------------------------------------------------------+\n```\n", "Deterministic simulated agent chat for rich transcript and large ScrollView testing.");
-        base.set_mcp_element_metadata(vec![uimd::GeneratedElementMetadata::new("title", "Application title.", false), uimd::GeneratedElementMetadata::new("simulation_badge", "Clarifies that the transcript performs no real agent or tool work.", false), uimd::GeneratedElementMetadata::new("quit_button", "Close the Agent Chat Simulation example.", true), uimd::GeneratedElementMetadata::new("start_button", "Run one hundred deterministic simulated messages over three minutes.", true), uimd::GeneratedElementMetadata::new("pause_button", "Pause the timed simulation without discarding progress.", true), uimd::GeneratedElementMetadata::new("next_step_button", "Apply one deterministic scripted chat step.", true), uimd::GeneratedElementMetadata::new("reset_button", "Reset the transcript to its initial message.", true), uimd::GeneratedElementMetadata::new("load_stress_button", "Load an approximately fifty-thousand-row deterministic stress transcript.", true), uimd::GeneratedElementMetadata::new("transcript", "Scrollable deterministic simulated agent transcript.", true), uimd::GeneratedElementMetadata::new("status", "Shows deterministic simulation progress and transcript size.", true)]);
+        base.set_mcp_metadata(true, "AgentChat", "# Agent Chat Simulation\n\n## Metadata\n\n```yaml\nformat: uimd\nformat-version: 1\nkind: window\nstatus: draft\ndescription: \"Deterministic simulated agent chat for rich transcript and large ScrollView testing.\"\ntags: [example, simulation, scrollview]\n```\n\n## Definition\n\n```yaml\nuses:\n  - transcript/transcript\n```\n\n## Members\n\n```yaml\ntitle:\n  type: label\n  text: \"Agent Chat Simulation\"\n  description: \"Application title.\"\n  expose: false\n\nsimulation_badge:\n  type: label\n  text: \"SIMULATED · OFFLINE\"\n  description: \"Clarifies that the transcript performs no real agent or tool work.\"\n  expose: false\n\nquit_button:\n  type: button\n  title: Quit\n  description: \"Close the Agent Chat Simulation example.\"\n\nstart_button:\n  type: button\n  title: Start\n  description: \"Run one hundred deterministic simulated messages over three minutes.\"\n\npause_button:\n  type: button\n  title: Pause\n  description: \"Pause the timed simulation without discarding progress.\"\n\nnext_step_button:\n  type: button\n  title: \"Next step\"\n  description: \"Apply one deterministic scripted chat step.\"\n\nreset_button:\n  type: button\n  title: Reset\n  description: \"Reset the transcript to its initial message.\"\n\nload_stress_button:\n  type: button\n  title: \"Load 50k\"\n  description: \"Load an approximately fifty-thousand-row deterministic stress transcript.\"\n\ntop:\n  type: button\n  title: Top\n  description: \"Scroll the transcript to its first message.\"\n\nend:\n  type: button\n  title: Bottom\n  description: \"Scroll the transcript to its newest message.\"\n\ntranscript:\n  type: transcript\n  cpp-class: \"agent_chat_example::Transcript\"\n  cpp-header: transcript/transcript.hpp\n  description: \"Scrollable deterministic simulated agent transcript.\"\n\nstatus:\n  type: label\n  text: \"Ready · 1 message\"\n  description: \"Shows deterministic simulation progress and transcript size.\"\n```\n\n## Style\n\n```yaml\ninclude: dark\nthis:\n  border-width: 0\n  background: \"#030712\"\n@header:\n  background: \"#111827\"\n  padding: 0, 1, 0, 1\n@title:\n  color: \"#f8fafc\"\n  text-align: center\n@simulation_badge:\n  color: \"#c4b5fd\"\n  text-align: right\n@actions:\n  background: \"#172033\"\n  padding: 1, 1, 1, 1\nbutton:\n  background: \"#334155\"\n  color: \"#e2e8f0\"\n  focus-background: \"#2563eb\"\n@load_stress_button:\n  background: \"#6d28d9\"\n  focus-background: \"#7c3aed\"\n@quit_button:\n  background: \"#7f1d1d\"\n  focus-background: \"#dc2626\"\n@content:\n  background: \"#030712\"\n@transcript:\n  background: \"#00000000\"\n@status:\n  background: \"#0f172a\"\n  color: \"#93c5fd\"\n  padding: 0, 1, 0, 1\n```\n\n## User Interface\n\n```ui\n+-header-**------------------------------------------------------------------------------+\n| title..**......................... simulation_badge.... quit_button................... |\n+-actions-**-----------------------------------------------------------------------------+\n| start_button pause_button next_step_button reset_button load_stress_button top end.... |\n+-content-**-----------------------------------------------------------------------------+\n| transcript..**........................................................................ |\n| ...................................................................................... |\n* *..................................................................................... |\n* *..................................................................................... |\n| ...................................................................................... |\n+----------------------------------------------------------------------------------------+\n| status..**............................................................................ |\n+----------------------------------------------------------------------------------------+\n```\n", "Deterministic simulated agent chat for rich transcript and large ScrollView testing.");
+        base.set_mcp_element_metadata(vec![uimd::GeneratedElementMetadata::new("title", "Application title.", false), uimd::GeneratedElementMetadata::new("simulation_badge", "Clarifies that the transcript performs no real agent or tool work.", false), uimd::GeneratedElementMetadata::new("quit_button", "Close the Agent Chat Simulation example.", true), uimd::GeneratedElementMetadata::new("start_button", "Run one hundred deterministic simulated messages over three minutes.", true), uimd::GeneratedElementMetadata::new("pause_button", "Pause the timed simulation without discarding progress.", true), uimd::GeneratedElementMetadata::new("next_step_button", "Apply one deterministic scripted chat step.", true), uimd::GeneratedElementMetadata::new("reset_button", "Reset the transcript to its initial message.", true), uimd::GeneratedElementMetadata::new("load_stress_button", "Load an approximately fifty-thousand-row deterministic stress transcript.", true), uimd::GeneratedElementMetadata::new("top", "Scroll the transcript to its first message.", true), uimd::GeneratedElementMetadata::new("end", "Scroll the transcript to its newest message.", true), uimd::GeneratedElementMetadata::new("transcript", "Scrollable deterministic simulated agent transcript.", true), uimd::GeneratedElementMetadata::new("status", "Shows deterministic simulation progress and transcript size.", true)]);
         base.set_mcp_app_tools(vec![]);
         let title = uimd::new_label("title", "Agent Chat Simulation");
         base.add_element(title.clone());
@@ -482,6 +536,40 @@ impl AgentChatUI
         color: Some(uimd::Color::new("#64748b")),
         ..Default::default()
     });
+        let top = uimd::new_button("top", "Top");
+        base.add_element(top.clone());
+        top.borrow_mut().set_style(uimd::Style {
+        background: Some(uimd::Color::new("#334155")),
+        color: Some(uimd::Color::new("#e2e8f0")),
+        ..Default::default()
+    });
+        top.borrow_mut().set_focus_style(uimd::Style {
+        background: Some(uimd::Color::new("#2563eb")),
+        color: Some(uimd::Color::new("#ffffff")),
+        ..Default::default()
+    });
+        top.borrow_mut().set_disabled_style(uimd::Style {
+        background: Some(uimd::Color::new("#1f2937")),
+        color: Some(uimd::Color::new("#64748b")),
+        ..Default::default()
+    });
+        let end = uimd::new_button("end", "Bottom");
+        base.add_element(end.clone());
+        end.borrow_mut().set_style(uimd::Style {
+        background: Some(uimd::Color::new("#334155")),
+        color: Some(uimd::Color::new("#e2e8f0")),
+        ..Default::default()
+    });
+        end.borrow_mut().set_focus_style(uimd::Style {
+        background: Some(uimd::Color::new("#2563eb")),
+        color: Some(uimd::Color::new("#ffffff")),
+        ..Default::default()
+    });
+        end.borrow_mut().set_disabled_style(uimd::Style {
+        background: Some(uimd::Color::new("#1f2937")),
+        color: Some(uimd::Color::new("#64748b")),
+        ..Default::default()
+    });
         let transcript = uimd::new_reusable_element("transcript", "transcript");
         base.add_element(transcript.clone());
         transcript.borrow_mut().set_child_window(uimd_dependency_transcript::TranscriptUI::new().base);
@@ -529,6 +617,8 @@ impl AgentChatUI
             next_step_button,
             reset_button,
             load_stress_button,
+            top,
+            end,
             transcript,
             status,
         }
@@ -555,6 +645,8 @@ pub trait AgentChatUIEvents
     fn on_next_step_button_click(&mut self, _ui: &mut AgentChatUI) {}
     fn on_reset_button_click(&mut self, _ui: &mut AgentChatUI) {}
     fn on_load_stress_button_click(&mut self, _ui: &mut AgentChatUI) {}
+    fn on_top_click(&mut self, _ui: &mut AgentChatUI) {}
+    fn on_end_click(&mut self, _ui: &mut AgentChatUI) {}
     fn handle_dynamic_button(&mut self, _ui: &mut AgentChatUI, _name: &str) -> bool { false }
     fn handle_dynamic_text_changed(&mut self, _ui: &mut AgentChatUI, _name: &str, _value: &str) -> bool { false }
     fn handle_dynamic_text_confirmed(&mut self, _ui: &mut AgentChatUI, _name: &str, _value: &str) -> bool { false }
@@ -591,6 +683,8 @@ impl<H: AgentChatUIEvents> uimd::GeneratedApplication for AgentChatUIRuntime<'_,
         if name == "next_step_button" { self.handler.on_next_step_button_click(self.ui); return true; }
         if name == "reset_button" { self.handler.on_reset_button_click(self.ui); return true; }
         if name == "load_stress_button" { self.handler.on_load_stress_button_click(self.ui); return true; }
+        if name == "top" { self.handler.on_top_click(self.ui); return true; }
+        if name == "end" { self.handler.on_end_click(self.ui); return true; }
         self.handler.handle_dynamic_button(self.ui, name)
 }
 

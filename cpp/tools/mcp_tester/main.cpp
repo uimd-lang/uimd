@@ -75,6 +75,7 @@ constexpr const char* kAllExamplesConfig = "tests/mcp/all_examples.yaml";
 constexpr const char* kDefaultSnapshotDir = "tests/mcp/snapshots";
 constexpr const char* kSnapshotCompareTool = "get_render_snapshot";
 constexpr const char* kSnapshotCompactCompareTool = "get_render_snapshot_compact";
+constexpr double kCompareSnapshotTimeMs = 9000.0;
 constexpr const char* kPauseButtonTitle = "Pause";
 constexpr const char* kPlayButtonTitle = "Play";
 constexpr const char* kInitialFocusName = "pause";
@@ -1911,12 +1912,6 @@ std::string currentTimeStamp()
     return out.str();
 }
 
-double currentEpochMillis()
-{
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-    return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
-}
-
 struct LogLine
 {
     std::string text;
@@ -3111,7 +3106,7 @@ private:
         Json arguments = node.count("arguments") ? node.at("arguments") : Json::Object{};
         if (arguments.get("snapshot_time_ms") == nullptr)
         {
-            arguments["snapshot_time_ms"] = currentEpochMillis();
+            arguments["snapshot_time_ms"] = kCompareSnapshotTimeMs;
         }
 
         std::vector<std::string> names;
@@ -3143,6 +3138,10 @@ private:
             for (const Json& field : compareFields.array())
             {
                 fields.push_back(field.stringValue());
+            }
+            if (!assertion.isNull() && fields.empty())
+            {
+                return;
             }
         }
         else if (!assertion.isNull())
@@ -3203,7 +3202,7 @@ private:
             return;
         }
         std::map<std::string, Json> results;
-        const double snapshotTimeMs = currentEpochMillis();
+        const double snapshotTimeMs = kCompareSnapshotTimeMs;
         for (const std::string& name : targetNames)
         {
             results[name] = targets_.at(name)->callTool(

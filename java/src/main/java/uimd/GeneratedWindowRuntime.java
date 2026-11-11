@@ -377,7 +377,9 @@ public final class GeneratedWindowRuntime
             horizontalSeparator,
             verticalSeparator,
             windowMode(window));
-        return resolvedContentExtent(resolvedCells, natural);
+        return resolvedContentExtent(
+            resolvedCells,
+            new Size(MINIMUM_RENDERABLE_SIZE, MINIMUM_RENDERABLE_SIZE));
     }
 
     public static Size generatedWindowContentSizeForWidth(GeneratedWindowBase window, int width)
@@ -397,10 +399,24 @@ public final class GeneratedWindowRuntime
             new Rect(0, 0, resolvedWidth, natural.height()),
             horizontalSeparator,
             verticalSeparator,
-            windowMode(window));
+            GeneratedWindowMode.NORMAL);
+        Size fitted = layoutSize(buildRuntimeTreeFromCells(
+            runtimeCells,
+            horizontalSeparator,
+            verticalSeparator));
+        if (fitted.height() > natural.height())
+        {
+            resolvedCells = resolveRuntimeCellsWithFitPass(
+                window,
+                runtimeCells,
+                new Rect(0, 0, resolvedWidth, fitted.height()),
+                horizontalSeparator,
+                verticalSeparator,
+                GeneratedWindowMode.NORMAL);
+        }
         Size result = resolvedContentExtent(
             resolvedCells,
-            new Size(resolvedWidth, natural.height()));
+            new Size(resolvedWidth, MINIMUM_RENDERABLE_SIZE));
         int resultWidth = result.width();
         int resultHeight = result.height();
         for (GeneratedLayoutEntry entry : window.generatedLayout())
@@ -4174,6 +4190,20 @@ public final class GeneratedWindowRuntime
             && col >= 0 && col < buffer.width()
                 ? buffer.cell(row, col).background()
                 : null;
+        if (element instanceof ScrollView scrollView)
+        {
+            Element pinned = null;
+            if (focused != null && focused != scrollView && elementTreeContains(scrollView, focused))
+            {
+                pinned = focused;
+            }
+            else if (activeScrollViewEditElement != null
+                && elementTreeContains(scrollView, activeScrollViewEditElement))
+            {
+                pinned = activeScrollViewEditElement;
+            }
+            scrollView.setVirtualPinnedElement(pinned);
+        }
         ScopedElementParentBackground parentBackground = new ScopedElementParentBackground(
             paintedBackground);
         List<List<TerminalCell>> content;
@@ -4435,9 +4465,11 @@ public final class GeneratedWindowRuntime
         int contentHeight = entry.height().mode() == DimensionMode.FIT_CONTENT
             ? fitContentHeightFor(element, entry.type(), fallback, contentWidth)
             : Math.max(MINIMUM_RENDERABLE_SIZE, fallback);
+        int bottomMargin = entry.cellHeight().mode() == DimensionMode.FIT_CONTENT
+            ? 0 : entry.marginBottom();
         return Math.max(
             MINIMUM_RENDERABLE_SIZE,
-            entry.relative().row() + contentHeight + entry.marginBottom());
+            entry.relative().row() + contentHeight + bottomMargin);
     }
 
     private static int fitCellHeight(
@@ -4445,7 +4477,7 @@ public final class GeneratedWindowRuntime
         GeneratedLayoutEntry cellEntry,
         Integer resolvedCellWidth)
     {
-        int contentHeight = cellEntry.sourceCell().height();
+        int contentHeight = MINIMUM_RENDERABLE_SIZE;
         Integer availableCellWidth = resolvedCellWidth == null
             ? null
             : Math.max(

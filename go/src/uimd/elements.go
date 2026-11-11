@@ -46,6 +46,8 @@ const (
 	defaultImageVerticalAlign     = "middle"
 	scrollIndicatorUp             = "^"
 	scrollIndicatorDown           = "v"
+	defaultWheelScrollLines       = 4
+	wheelScrollViewportFraction   = 3
 	CommitModeStandard            = "standard"
 	CommitModeLeave               = "leave"
 )
@@ -2905,10 +2907,165 @@ type ScrollView struct {
 	descendantFocusStyle *Style
 	lastSize             Size
 	visibleSize          Size
+	virtualDataSource    *VirtualScrollDataSource
+	virtualHeightIndex   *virtualHeightIndex
+	virtualHeightWidth   int
+	virtualMaterialized  map[int]virtualMaterializedRow
+	virtualRecyclePool   []Element
+	virtualPinnedElement Element
+	virtualDiagnostics   VirtualScrollDiagnostics
+}
+
+const (
+	virtualScrollOverscanViewports       = 1
+	virtualScrollLayoutStabilizationPass = 2
+)
+
+type VirtualScrollDataSource struct {
+	ItemCount       func() int
+	ItemKey         func(int) string
+	Materialize     func(int, Element) Element
+	EstimatedHeight func(int) int
+}
+
+type VirtualScrollDiagnostics struct {
+	LogicalItems       int
+	MaterializedRows   int
+	RecycledRows       int
+	LastRowsMeasured   int
+	LastRowsConsidered int
+	LastRowsRendered   int
+}
+
+type virtualMaterializedRow struct {
+	key     string
+	element Element
+}
+
+type virtualScrollAnchor struct {
+	index          int
+	within         int64
+	viewportHeight int
+}
+
+type virtualHeightIndex struct {
+	count           int
+	estimatedHeight int
+	gap             int
+	tree            map[int]int64
+}
+
+func newVirtualHeightIndex(count int, estimatedHeight int, gap int) *virtualHeightIndex {
+	return &virtualHeightIndex{
+		count:           maxInt(0, count),
+		estimatedHeight: maxInt(minimumRenderableSize, estimatedHeight),
+		gap:             maxInt(0, gap),
+		tree:            map[int]int64{},
+	}
+}
+
+func (index *virtualHeightIndex) unitHeight() int {
+	return index.estimatedHeight + index.gap
+}
+
+func (index *virtualHeightIndex) deltaPrefix(end int) int64 {
+	total := int64(0)
+	for item := clampInt(end, 0, index.count); item > 0; item -= item & -item {
+		total += index.tree[item]
+	}
+	return total
+}
+
+func (index *virtualHeightIndex) extentBefore(item int) int64 {
+	end := clampInt(item, 0, index.count)
+	return int64(end*index.unitHeight()) + index.deltaPrefix(end)
+}
+
+func (index *virtualHeightIndex) contentHeight() int64 {
+	if index.count <= 0 {
+		return 0
+	}
+	return maxInt64(0, index.extentBefore(index.count)-int64(index.gap))
+}
+
+func (index *virtualHeightIndex) itemHeight(item int) int {
+	if item < 0 || item >= index.count {
+		panic("virtual ScrollView item index out of range")
+	}
+	delta := index.deltaPrefix(item+1) - index.deltaPrefix(item)
+	return maxInt(minimumRenderableSize, index.estimatedHeight+int(delta))
+}
+
+func (index *virtualHeightIndex) setItemHeight(item int, height int) bool {
+	height = maxInt(minimumRenderableSize, height)
+	previousDelta := int64(index.itemHeight(item) - index.estimatedHeight)
+	nextDelta := int64(height - index.estimatedHeight)
+	change := nextDelta - previousDelta
+	for treeIndex := item + 1; change != 0 && treeIndex <= index.count; treeIndex += treeIndex & -treeIndex {
+		value := index.tree[treeIndex] + change
+		if value == 0 {
+			delete(index.tree, treeIndex)
+		} else {
+			index.tree[treeIndex] = value
+		}
+	}
+	return change != 0
+}
+
+func (index *virtualHeightIndex) resetItemHeight(item int) bool {
+	return index.setItemHeight(item, index.estimatedHeight)
+}
+
+func (index *virtualHeightIndex) indexAtOffset(offset int64) int {
+	if index.count <= 0 {
+		return 0
+	}
+	target := clampInt64(offset, 0, index.contentHeight())
+	item := 0
+	prefix := int64(0)
+	bit := 1
+	for bit <= index.count/2 {
+		bit <<= 1
+	}
+	for bit > 0 {
+		candidate := item + bit
+		if candidate <= index.count {
+			nodeWidth := candidate & -candidate
+			nodeExtent := int64(nodeWidth*index.unitHeight()) + index.tree[candidate]
+			if prefix+nodeExtent <= target {
+				item = candidate
+				prefix += nodeExtent
+			}
+		}
+		bit >>= 1
+	}
+	return minInt(item, index.count-1)
+}
+
+func maxInt64(left int64, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func minInt64(left int64, right int64) int64 {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func clampInt64(value int64, low int64, high int64) int64 {
+	return minInt64(maxInt64(value, low), high)
 }
 
 func NewScrollView(name string, gap int) *ScrollView {
-	return &ScrollView{elementBase: newElementBase(name, "", true), Gap: gap}
+	return &ScrollView{
+		elementBase:         newElementBase(name, "", true),
+		Gap:                 gap,
+		virtualMaterialized: map[int]virtualMaterializedRow{},
+	}
 }
 
 func (element *ScrollView) ElementType() string {
@@ -2916,6 +3073,9 @@ func (element *ScrollView) ElementType() string {
 }
 
 func (element *ScrollView) AddChild(child Element) Element {
+	if element.virtualDataSource != nil {
+		element.ClearVirtualDataSource()
+	}
 	element.Children = append(element.Children, child)
 	if element.AutoScroll {
 		element.ScrollToBottom()
@@ -2924,8 +3084,163 @@ func (element *ScrollView) AddChild(child Element) Element {
 }
 
 func (element *ScrollView) ClearChildren() {
+	if element.virtualDataSource != nil {
+		element.ClearVirtualDataSource()
+		return
+	}
 	element.Children = nil
 	element.ViewOffset = 0
+}
+
+func (element *ScrollView) SetVirtualDataSource(source VirtualScrollDataSource) {
+	if source.ItemCount == nil || source.ItemKey == nil || source.Materialize == nil {
+		panic("virtual ScrollView requires ItemCount, ItemKey, and Materialize callbacks")
+	}
+	if source.ItemCount() < 0 {
+		panic("virtual ScrollView item count must not be negative")
+	}
+	element.Children = nil
+	element.virtualMaterialized = map[int]virtualMaterializedRow{}
+	element.virtualRecyclePool = nil
+	element.virtualDataSource = &source
+	element.virtualHeightIndex = nil
+	element.virtualHeightWidth = 0
+	element.virtualPinnedElement = nil
+	element.ViewOffset = 0
+}
+
+func (element *ScrollView) ClearVirtualDataSource() {
+	if element.virtualDataSource == nil {
+		return
+	}
+	element.Children = nil
+	element.virtualMaterialized = map[int]virtualMaterializedRow{}
+	element.virtualRecyclePool = nil
+	element.virtualDataSource = nil
+	element.virtualHeightIndex = nil
+	element.virtualHeightWidth = 0
+	element.virtualPinnedElement = nil
+	element.ViewOffset = 0
+}
+
+func (element *ScrollView) VirtualItemsInserted(index int, count int) {
+	if element.virtualDataSource == nil || count <= 0 {
+		return
+	}
+	index = maxInt(0, index)
+	anchor := element.captureVirtualAnchor(0)
+	shifted := map[int]virtualMaterializedRow{}
+	for oldIndex, row := range element.virtualMaterialized {
+		if oldIndex >= index {
+			oldIndex += count
+		}
+		shifted[oldIndex] = row
+	}
+	element.virtualMaterialized = shifted
+	element.syncVirtualChildren()
+	element.rebuildVirtualHeightIndex(0)
+	if anchor != nil && index <= anchor.index {
+		anchor.index += count
+	}
+	element.restoreVirtualAnchor(anchor)
+}
+
+func (element *ScrollView) VirtualItemsRemoved(index int, count int) {
+	if element.virtualDataSource == nil || count <= 0 {
+		return
+	}
+	first := maxInt(0, index)
+	end := first + count
+	anchor := element.captureVirtualAnchor(0)
+	shifted := map[int]virtualMaterializedRow{}
+	for oldIndex, row := range element.virtualMaterialized {
+		if oldIndex >= first && oldIndex < end {
+			element.recycleVirtualChild(row.element)
+			if row.element == element.virtualPinnedElement {
+				element.virtualPinnedElement = nil
+			}
+			continue
+		}
+		if oldIndex >= end {
+			oldIndex -= count
+		}
+		shifted[oldIndex] = row
+	}
+	element.virtualMaterialized = shifted
+	element.syncVirtualChildren()
+	element.rebuildVirtualHeightIndex(0)
+	if anchor != nil {
+		if anchor.index >= end {
+			anchor.index -= count
+		} else if anchor.index >= first {
+			anchor.index = minInt(first, maxInt(0, element.virtualCount()-1))
+			anchor.within = 0
+		}
+	}
+	element.restoreVirtualAnchor(anchor)
+}
+
+func (element *ScrollView) VirtualItemsReplaced(index int, count int) {
+	if element.virtualDataSource == nil || count <= 0 {
+		return
+	}
+	first := maxInt(0, index)
+	end := minInt(element.virtualCount(), first+count)
+	anchor := element.captureVirtualAnchor(0)
+	for item := first; item < end; item++ {
+		if row, ok := element.virtualMaterialized[item]; ok {
+			key := element.virtualDataSource.ItemKey(item)
+			if row.key == key {
+				refreshed := element.virtualDataSource.Materialize(item, row.element)
+				if refreshed == nil {
+					panic("virtual ScrollView materializer must return a child")
+				}
+				if refreshed != row.element {
+					element.recycleVirtualChild(row.element)
+				}
+				element.virtualMaterialized[item] = virtualMaterializedRow{key: key, element: refreshed}
+			} else {
+				delete(element.virtualMaterialized, item)
+				element.recycleVirtualChild(row.element)
+			}
+		}
+		if element.virtualHeightIndex != nil && item < element.virtualHeightIndex.count {
+			element.virtualHeightIndex.resetItemHeight(item)
+		}
+	}
+	element.syncVirtualChildren()
+	element.restoreVirtualAnchor(anchor)
+}
+
+func (element *ScrollView) InvalidateVirtualHeights() {
+	anchor := element.captureVirtualAnchor(0)
+	element.rebuildVirtualHeightIndex(0)
+	element.restoreVirtualAnchor(anchor)
+}
+
+func (element *ScrollView) InvalidateVirtualHeightRange(index int, count int) {
+	if element.virtualHeightIndex == nil || count <= 0 {
+		return
+	}
+	anchor := element.captureVirtualAnchor(0)
+	first := clampInt(index, 0, element.virtualHeightIndex.count)
+	end := clampInt(first+count, first, element.virtualHeightIndex.count)
+	for item := first; item < end; item++ {
+		element.virtualHeightIndex.resetItemHeight(item)
+	}
+	element.restoreVirtualAnchor(anchor)
+}
+
+func (element *ScrollView) HasVirtualDataSource() bool {
+	return element.virtualDataSource != nil
+}
+
+func (element *ScrollView) VirtualDiagnostics() VirtualScrollDiagnostics {
+	diagnostics := element.virtualDiagnostics
+	diagnostics.LogicalItems = element.virtualCount()
+	diagnostics.MaterializedRows = len(element.virtualMaterialized)
+	diagnostics.RecycledRows = len(element.virtualRecyclePool)
+	return diagnostics
 }
 
 func (element *ScrollView) SetAutoScroll(enabled bool) {
@@ -2961,15 +3276,57 @@ func (element *ScrollView) ScrollBy(delta int) bool {
 	return element.ViewOffset != before
 }
 
+func (element *ScrollView) wheelScrollLines() int {
+	viewportLimited := maxInt(minimumRenderableSize, element.viewportHeight()/wheelScrollViewportFraction)
+	return minInt(defaultWheelScrollLines, viewportLimited)
+}
+
+func (element *ScrollView) HandleWheel(delta int) bool {
+	if delta == 0 {
+		return false
+	}
+	return element.ScrollBy(-delta * element.wheelScrollLines())
+}
+
+func (element *ScrollView) ScrollTo(index int) bool {
+	if element.virtualDataSource == nil {
+		return element.ScrollBy(index - element.ViewOffset)
+	}
+	width := element.lastSize.Width
+	if width <= 0 {
+		width = element.frame.Width
+	}
+	element.ensureVirtualHeightIndex(maxInt(minimumRenderableSize, width))
+	if element.virtualHeightIndex == nil || element.virtualHeightIndex.count == 0 {
+		changed := element.ViewOffset != 0
+		element.ViewOffset = 0
+		return changed
+	}
+	target := clampInt(index, 0, element.virtualHeightIndex.count-1)
+	viewportHeight := maxInt(minimumRenderableSize, element.viewportHeight())
+	maximum := maxInt64(0, element.virtualHeightIndex.contentHeight()-int64(viewportHeight))
+	next := minInt64(maximum, element.virtualHeightIndex.extentBefore(target))
+	previous := element.ViewOffset
+	element.ViewOffset = int(minInt64(int64(math.MaxInt), next))
+	element.AutoScroll = int64(element.ViewOffset) == maximum
+	return element.ViewOffset != previous
+}
+
 func (element *ScrollView) HandleKey(key string) bool {
 	scrollY := true
 	if element.style.ScrollY != nil {
 		scrollY = *element.style.ScrollY
 	}
 	if key == "Alt+Up" || key == "Ctrl+Up" {
+		if key == "Alt+Up" {
+			return element.ScrollBy(-element.wheelScrollLines())
+		}
 		return element.ScrollBy(-maxInt(minimumRenderableSize, element.viewportHeight()))
 	}
 	if key == "Alt+Down" || key == "Ctrl+Down" {
+		if key == "Alt+Down" {
+			return element.ScrollBy(element.wheelScrollLines())
+		}
 		return element.ScrollBy(maxInt(minimumRenderableSize, element.viewportHeight()))
 	}
 	if scrollY {
@@ -2992,6 +3349,17 @@ func (element *ScrollView) HandleKey(key string) bool {
 }
 
 func (element *ScrollView) contentHeight() int {
+	if element.virtualDataSource != nil {
+		width := element.lastSize.Width
+		if width <= 0 {
+			width = element.frame.Width
+		}
+		element.ensureVirtualHeightIndex(maxInt(minimumRenderableSize, width))
+		if element.virtualHeightIndex == nil {
+			return 0
+		}
+		return int(minInt64(int64(math.MaxInt), element.virtualHeightIndex.contentHeight()))
+	}
 	if len(element.Children) == 0 {
 		return 0
 	}
@@ -3019,9 +3387,283 @@ func scrollViewChildHeight(child Element, width int) int {
 	return maxInt(minimumRenderableSize, child.ElementFrame().Height)
 }
 
+func (element *ScrollView) virtualCount() int {
+	if element.virtualDataSource == nil {
+		return 0
+	}
+	count := element.virtualDataSource.ItemCount()
+	if count < 0 {
+		panic("virtual ScrollView item count must not be negative")
+	}
+	return count
+}
+
+func (element *ScrollView) virtualEstimateForWidth(width int) int {
+	if element.virtualDataSource == nil {
+		panic("virtual ScrollView estimate requested without a data source")
+	}
+	if element.virtualDataSource.EstimatedHeight != nil {
+		estimate := element.virtualDataSource.EstimatedHeight(maxInt(minimumRenderableSize, width))
+		if estimate <= 0 {
+			panic("virtual ScrollView estimated height must be positive")
+		}
+		return estimate
+	}
+	if element.virtualCount() <= 0 {
+		panic("empty virtual ScrollView has no representative row height")
+	}
+	return scrollViewChildHeight(element.materializeVirtualChild(0), maxInt(minimumRenderableSize, width))
+}
+
+func (element *ScrollView) captureVirtualAnchor(viewportHeight int) *virtualScrollAnchor {
+	if element.virtualHeightIndex == nil || element.virtualHeightIndex.count <= 0 {
+		return nil
+	}
+	if viewportHeight <= 0 {
+		viewportHeight = maxInt(minimumRenderableSize, element.viewportHeight())
+	}
+	maximum := maxInt64(0, element.virtualHeightIndex.contentHeight()-int64(viewportHeight))
+	actual := clampInt64(int64(element.ViewOffset), 0, maximum)
+	index := element.virtualHeightIndex.indexAtOffset(actual)
+	return &virtualScrollAnchor{
+		index:          index,
+		within:         actual - element.virtualHeightIndex.extentBefore(index),
+		viewportHeight: viewportHeight,
+	}
+}
+
+func (element *ScrollView) restoreVirtualAnchor(anchor *virtualScrollAnchor) {
+	if element.virtualHeightIndex == nil || element.virtualHeightIndex.count <= 0 {
+		element.ViewOffset = 0
+		return
+	}
+	viewportHeight := maxInt(minimumRenderableSize, element.viewportHeight())
+	if anchor != nil {
+		viewportHeight = maxInt(minimumRenderableSize, anchor.viewportHeight)
+	}
+	maximum := maxInt64(
+		0,
+		element.virtualHeightIndex.contentHeight()-int64(viewportHeight),
+	)
+	if element.AutoScroll {
+		element.ViewOffset = int(minInt64(int64(math.MaxInt), maximum))
+		return
+	}
+	if anchor == nil {
+		element.ViewOffset = 0
+		return
+	}
+	index := clampInt(anchor.index, 0, element.virtualHeightIndex.count-1)
+	anchorSpan := int64(element.virtualHeightIndex.itemHeight(index))
+	if index+1 < element.virtualHeightIndex.count {
+		anchorSpan += int64(element.virtualHeightIndex.gap)
+	}
+	within := clampInt64(anchor.within, 0, anchorSpan-1)
+	actual := clampInt64(element.virtualHeightIndex.extentBefore(index)+within, 0, maximum)
+	element.ViewOffset = int(minInt64(int64(math.MaxInt), actual))
+}
+
+func (element *ScrollView) rebuildVirtualHeightIndex(width int) {
+	if element.virtualDataSource == nil {
+		element.virtualHeightIndex = nil
+		element.virtualHeightWidth = 0
+		return
+	}
+	if width <= 0 {
+		width = element.virtualHeightWidth
+	}
+	if width <= 0 {
+		element.virtualHeightIndex = nil
+		return
+	}
+	width = maxInt(minimumRenderableSize, width)
+	count := element.virtualCount()
+	element.virtualHeightWidth = width
+	if count <= 0 {
+		element.virtualHeightIndex = nil
+		return
+	}
+	element.virtualHeightIndex = newVirtualHeightIndex(count, element.virtualEstimateForWidth(width), element.Gap)
+	for item, row := range element.virtualMaterialized {
+		if item < count {
+			element.virtualHeightIndex.setItemHeight(item, scrollViewChildHeight(row.element, width))
+		}
+	}
+}
+
+func (element *ScrollView) ensureVirtualHeightIndex(width int) {
+	if element.virtualDataSource == nil {
+		return
+	}
+	width = maxInt(minimumRenderableSize, width)
+	count := element.virtualCount()
+	if element.virtualHeightIndex == nil ||
+		element.virtualHeightWidth != width ||
+		element.virtualHeightIndex.count != count ||
+		element.virtualHeightIndex.gap != element.Gap {
+		anchor := element.captureVirtualAnchor(element.viewportHeight())
+		element.rebuildVirtualHeightIndex(width)
+		element.restoreVirtualAnchor(anchor)
+	}
+}
+
+func (element *ScrollView) materializeVirtualChild(index int) Element {
+	if element.virtualDataSource == nil {
+		panic("virtual ScrollView materialization requested without a data source")
+	}
+	key := element.virtualDataSource.ItemKey(index)
+	if current, ok := element.virtualMaterialized[index]; ok && current.key == key && current.element != nil {
+		return current.element
+	} else if ok {
+		element.recycleVirtualChild(current.element)
+		delete(element.virtualMaterialized, index)
+	}
+	var recycled Element
+	if len(element.virtualRecyclePool) > 0 {
+		last := len(element.virtualRecyclePool) - 1
+		recycled = element.virtualRecyclePool[last]
+		element.virtualRecyclePool = element.virtualRecyclePool[:last]
+		resetVirtualChildForReuse(recycled)
+	}
+	child := element.virtualDataSource.Materialize(index, recycled)
+	if child == nil {
+		panic("virtual ScrollView materializer must return a child")
+	}
+	element.virtualMaterialized[index] = virtualMaterializedRow{key: key, element: child}
+	return child
+}
+
+func (element *ScrollView) recycleVirtualChild(child Element) {
+	if child != nil {
+		resetVirtualChildForReuse(child)
+		element.virtualRecyclePool = append(element.virtualRecyclePool, child)
+	}
+}
+
+func resetVirtualChildForReuse(child Element) {
+	if child == nil {
+		return
+	}
+	if textInput, ok := child.(*TextInput); ok {
+		textInput.ClearSelection()
+	}
+	if reusable, ok := child.(*ReusableElement); ok && reusable.Child != nil {
+		for _, nested := range reusable.Child.elements {
+			resetVirtualChildForReuse(nested)
+		}
+	}
+	if scrollView, ok := child.(*ScrollView); ok {
+		for _, nested := range scrollView.Children {
+			resetVirtualChildForReuse(nested)
+		}
+	}
+}
+
+func (element *ScrollView) sortedVirtualIndexes() []int {
+	indexes := make([]int, 0, len(element.virtualMaterialized))
+	for index := range element.virtualMaterialized {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	return indexes
+}
+
+func (element *ScrollView) syncVirtualChildren() {
+	element.Children = element.Children[:0]
+	for _, index := range element.sortedVirtualIndexes() {
+		element.Children = append(element.Children, element.virtualMaterialized[index].element)
+	}
+}
+
+func (element *ScrollView) refreshVirtualMaterialization(width int, height int) {
+	element.ensureVirtualHeightIndex(width)
+	element.virtualDiagnostics.LastRowsMeasured = 0
+	element.virtualDiagnostics.LastRowsConsidered = 0
+	count := element.virtualCount()
+	if count <= 0 || element.virtualHeightIndex == nil {
+		for _, row := range element.virtualMaterialized {
+			element.recycleVirtualChild(row.element)
+		}
+		element.virtualMaterialized = map[int]virtualMaterializedRow{}
+		element.Children = nil
+		return
+	}
+	height = maxInt(minimumRenderableSize, height)
+	maximum := maxInt64(0, element.virtualHeightIndex.contentHeight()-int64(height))
+	element.ViewOffset = int(clampInt64(int64(element.ViewOffset), 0, maximum))
+	anchorIndex := element.virtualHeightIndex.indexAtOffset(int64(element.ViewOffset))
+	anchorWithin := int64(element.ViewOffset) - element.virtualHeightIndex.extentBefore(anchorIndex)
+	required := map[int]bool{}
+
+	for pass := 0; pass < virtualScrollLayoutStabilizationPass; pass++ {
+		overscan := int64(height * virtualScrollOverscanViewports)
+		rangeStart := maxInt64(0, int64(element.ViewOffset)-overscan)
+		rangeEnd := minInt64(element.virtualHeightIndex.contentHeight(), int64(element.ViewOffset+height)+overscan)
+		first := element.virtualHeightIndex.indexAtOffset(rangeStart)
+		if pass == 0 {
+			coarseLast := element.virtualHeightIndex.indexAtOffset(rangeEnd)
+			for oldIndex, row := range element.virtualMaterialized {
+				keep := oldIndex >= first && oldIndex <= coarseLast
+				pinned := row.element == element.virtualPinnedElement
+				if keep || pinned {
+					continue
+				}
+				delete(element.virtualMaterialized, oldIndex)
+				element.recycleVirtualChild(row.element)
+			}
+		}
+
+		item := first
+		rowOffset := element.virtualHeightIndex.extentBefore(first)
+		considered := false
+		for item < count && (rowOffset < rangeEnd || !considered) {
+			considered = true
+			element.virtualDiagnostics.LastRowsConsidered++
+			child := element.materializeVirtualChild(item)
+			measured := scrollViewChildHeight(child, width)
+			element.virtualDiagnostics.LastRowsMeasured++
+			element.virtualHeightIndex.setItemHeight(item, measured)
+			required[item] = true
+			rowOffset += int64(element.virtualHeightIndex.itemHeight(item) + element.virtualHeightIndex.gap)
+			item++
+		}
+
+		nextMaximum := maxInt64(0, element.virtualHeightIndex.contentHeight()-int64(height))
+		if element.AutoScroll {
+			element.ViewOffset = int(minInt64(int64(math.MaxInt), nextMaximum))
+		} else {
+			refined := element.virtualHeightIndex.extentBefore(anchorIndex) + anchorWithin
+			element.ViewOffset = int(clampInt64(refined, 0, nextMaximum))
+		}
+	}
+
+	if element.virtualPinnedElement != nil {
+		for index, row := range element.virtualMaterialized {
+			if row.element == element.virtualPinnedElement {
+				required[index] = true
+				break
+			}
+		}
+	}
+	for index, row := range element.virtualMaterialized {
+		if required[index] {
+			continue
+		}
+		delete(element.virtualMaterialized, index)
+		element.recycleVirtualChild(row.element)
+	}
+	if len(element.virtualRecyclePool) > len(required) {
+		element.virtualRecyclePool = element.virtualRecyclePool[len(element.virtualRecyclePool)-len(required):]
+	}
+	element.syncVirtualChildren()
+}
+
 func (element *ScrollView) Render(size Size, state ElementRenderState) [][]TerminalCell {
 	element.lastSize = size
 	style := element.EffectiveStyle(state.Focused, state.EditMode)
+	if element.virtualDataSource != nil {
+		return element.renderVirtual(size, state, style)
+	}
 	rows := RenderPlainText("", size.Width, size.Height, style)
 	contentHeight := element.contentHeight()
 	viewportHeight := maxInt(minimumRenderableSize, element.viewportHeight())
@@ -3078,6 +3720,114 @@ func (element *ScrollView) Render(size Size, state ElementRenderState) [][]Termi
 		cursor += childHeight + element.Gap
 		if cursor-element.ViewOffset >= viewportHeight {
 			break
+		}
+	}
+	for _, overflow := range deferredOverflow {
+		for row, renderedRow := range overflow.rows {
+			targetRow := overflow.startRow + row - element.ViewOffset
+			if targetRow < 0 {
+				continue
+			}
+			if targetRow >= viewportHeight {
+				break
+			}
+			overlayBase := Color{}
+			if len(renderedRow) > 0 {
+				overlayBase = renderedRow[0].Background
+			}
+			for col := 0; col < minInt(len(rows[targetRow]), len(renderedRow)); col++ {
+				if shouldSkipOverflowCell(renderedRow[col], overlayBase) {
+					continue
+				}
+				rows[targetRow][col] = renderedRow[col]
+			}
+		}
+	}
+	if !state.SuppressScrollIndicators && size.Width > 0 && viewportHeight > 0 {
+		if element.ViewOffset > 0 {
+			applyScrollIndicatorToRow(rows[0], scrollIndicatorUp)
+		}
+		if element.ViewOffset+viewportHeight < contentHeight {
+			applyScrollIndicatorToRow(rows[viewportHeight-1], scrollIndicatorDown)
+		}
+	}
+	return rows
+}
+
+func (element *ScrollView) renderVirtual(size Size, state ElementRenderState, style Style) [][]TerminalCell {
+	rows := RenderPlainText("", size.Width, size.Height, style)
+	viewportHeight := maxInt(minimumRenderableSize, element.viewportHeight())
+	visibleViewportTop := 0
+	visibleViewportBottom := viewportHeight
+	if state.ClipTop != nil {
+		visibleViewportTop = maxInt(visibleViewportTop, maxInt(0, *state.ClipTop))
+	}
+	if state.ClipBottom != nil {
+		visibleViewportBottom = minInt(visibleViewportBottom, minInt(viewportHeight, *state.ClipBottom))
+	}
+	element.virtualPinnedElement = nil
+	for _, row := range element.virtualMaterialized {
+		if row.element == state.FocusedElement ||
+			row.element == state.EditElement ||
+			childHasFocusedDescendant(row.element, state.FocusedElement) ||
+			childHasFocusedDescendant(row.element, state.EditElement) {
+			element.virtualPinnedElement = row.element
+			break
+		}
+	}
+	element.refreshVirtualMaterialization(size.Width, viewportHeight)
+	contentHeight := element.contentHeight()
+	element.ViewOffset = clampInt(element.ViewOffset, 0, maxInt(0, contentHeight-viewportHeight))
+	element.virtualDiagnostics.LastRowsRendered = 0
+	var deferredOverflow []scrollViewOverflowRender
+	for _, index := range element.sortedVirtualIndexes() {
+		virtualRow := element.virtualMaterialized[index]
+		child := virtualRow.element
+		childHeight := element.virtualHeightIndex.itemHeight(index)
+		childStart := int(element.virtualHeightIndex.extentBefore(index))
+		childEnd := childStart + childHeight
+		visibleContentTop := element.ViewOffset + visibleViewportTop
+		visibleContentBottom := element.ViewOffset + visibleViewportBottom
+		if childEnd <= visibleContentTop || childStart >= visibleContentBottom {
+			continue
+		}
+		element.virtualDiagnostics.LastRowsRendered++
+		childState := ElementRenderState{
+			FocusedElement:       state.FocusedElement,
+			EditElement:          state.EditElement,
+			SuppressFocusVisuals: state.SuppressFocusVisuals,
+		}
+		if child == state.FocusedElement {
+			childState.Focused = true
+			childState.EditMode = state.EditMode && state.EditElement == child
+		} else if childHasFocusedDescendant(child, state.FocusedElement) {
+			childState.Focused = true
+			childState.ChildEditMode = state.EditMode || state.ChildEditMode
+		}
+		childVisibleTop := maxInt(0, visibleContentTop-childStart)
+		childVisibleBottom := minInt(childHeight, visibleContentBottom-childStart)
+		if childVisibleTop > 0 || childVisibleBottom < childHeight {
+			childState.ClipTop = &childVisibleTop
+			childState.ClipBottom = &childVisibleBottom
+		}
+		rendered := child.Render(Size{Width: size.Width, Height: childHeight}, childState)
+		inheritScrollViewChildStyle(rendered, style)
+		visibleRows := minInt(childHeight, len(rendered))
+		for row := 0; row < visibleRows; row++ {
+			targetRow := childStart + row - element.ViewOffset
+			if targetRow < 0 {
+				continue
+			}
+			if targetRow >= viewportHeight {
+				break
+			}
+			rows[targetRow] = rendered[row]
+		}
+		if len(rendered) > childHeight {
+			deferredOverflow = append(deferredOverflow, scrollViewOverflowRender{
+				startRow: childStart + childHeight,
+				rows:     rendered[childHeight:],
+			})
 		}
 	}
 	for _, overflow := range deferredOverflow {

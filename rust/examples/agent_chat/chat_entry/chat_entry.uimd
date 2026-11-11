@@ -7,7 +7,7 @@ format: uimd
 format-version: 1
 kind: component
 status: draft
-description: "Fixed-height simulated agent chat entry for prose and structured transcript blocks."
+description: "Heron-style assistant text entry."
 tags: [component, simulation]
 ```
 
@@ -20,25 +20,16 @@ extends: uicontrol
 ## Members
 
 ```yaml
-role:
-  type: label
-  text: Agent
-  description: "Simulated transcript speaker or activity type."
-
-phase:
-  type: label
-  text: response
-  description: "Deterministic scenario phase."
+heading:
+  type: spanlabel
+  text: "Assistant"
+  description: "Assistant role label."
 
 body:
   type: spanlabel
   text: ""
-  description: "Selectable simulated transcript content."
+  description: "Selectable Markdown-style transcript prose."
 
-detail:
-  type: label
-  text: "simulated · no external action"
-  description: "Simulation-only activity detail."
 ```
 
 ## Style
@@ -47,42 +38,26 @@ detail:
 this:
   border-width: 0
   background: "#00000000"
-@header:
-  background: "#162033"
-  padding: 0, 1, 0, 1
-@role:
-  color: "#a7f3d0"
-@phase:
-  color: "#c4b5fd"
-  text-align: right
 @body_panel:
-  background: "#0b1220"
-  padding: 1, 1, 1, 1
-@body:
-  color: "#d1d5db"
-  word-wrap: false
-  user-select: text
-@footer:
-  background: "#111827"
+  background: "#00000000"
   padding: 0, 1, 0, 1
-@detail:
-  color: "#64748b"
+@heading:
+  color: "#a7f3d0"
+  user-select: text
+@body:
+  color: "#cbd5e1"
+  word-wrap: true
   user-select: text
 ```
 
 ## User Interface
 
 ```ui
-+-header-**---------------------------------------------------------------+
-| role..**........................................ phase................. |
 +-body_panel-**-----------------------------------------------------------+
+| heading..**............................................................ |
 | body..**............................................................... |
 | ....................................................................... |
-| ....................................................................... |
-| ....................................................................... |
-| ....................................................................... |
-| ....................................................................... |
-+-footer-**---------------------------------------------------------------+
-| detail..**............................................................. |
+# #...................................................................... |
+# #...................................................................... |
 +-------------------------------------------------------------------------+
 ```

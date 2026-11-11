@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -680,6 +681,32 @@ final class ControlsTest
     }
 
     @Test
+    void generatedFitContentHeightIgnoresTrailingAsciiSketchRows()
+    {
+        int sketchWidth = 20;
+        int sketchHeight = 5;
+        int renderedHeight = 2;
+        GeneratedWindowBase window = new GeneratedWindowBase("Trailing sketch fit content");
+        window.addElement(new Label("body", "one\ntwo"));
+        window.setGeneratedLayout(List.of(
+            new GeneratedLayoutEntry()
+                .setName("body")
+                .setType("spanlabel")
+                .setRelative(new Rect(0, 0, sketchWidth, sketchHeight))
+                .setSourceCell(new Rect(0, 0, sketchWidth, sketchHeight))
+                .setWidth(AxisDimension.fixed(sketchWidth))
+                .setHeight(AxisDimension.fitContent())
+                .setCellWidth(AxisDimension.fixed(sketchWidth))
+                .setCellHeight(AxisDimension.fitContent())
+                .setCharsSize(new Size(sketchWidth, sketchHeight))
+                .setCellCharsSize(new Size(sketchWidth, sketchHeight))));
+
+        assertEquals(
+            renderedHeight,
+            GeneratedWindowRuntime.generatedWindowContentSizeForWidth(window, sketchWidth).height());
+    }
+
+    @Test
     void reusableFocusBackgroundMatchesCanonicalTransparentAndOpaqueLayerCounts()
     {
         Color parentBackground = new Color("#172033");
@@ -1002,6 +1029,218 @@ final class ControlsTest
         assertEquals("┌────────┬─────────┐", RenderHelpers.renderedText(rendered).get(0));
         assertEquals("│ Name   │   Score │", RenderHelpers.renderedText(rendered).get(1));
         assertEquals("│ Ada    │      42 │", RenderHelpers.renderedText(rendered).get(3));
+    }
+
+    @Test
+    void virtualScrollViewBoundsOneMillionLogicalRows()
+    {
+        int logicalCount = 1_000_000;
+        int[] materialized = {0};
+        int[] reused = {0};
+        ScrollView scrollView = new ScrollView("items");
+        scrollView.setVirtualDataSource(new VirtualScrollDataSource(
+            () -> logicalCount,
+            Integer::valueOf,
+            (index, recycled) ->
+            {
+                ++materialized[0];
+                if (recycled != null)
+                {
+                    ++reused[0];
+                }
+                Label row = recycled instanceof Label label
+                    ? label
+                    : new Label("virtual-row", "");
+                row.setText("Row " + index);
+                row.setFrame(new Rect(0, 0, 24, 1));
+                return row;
+            },
+            width -> 1));
+
+        Size viewport = new Size(24, 20);
+        assertFalse(scrollView.childViews(viewport).isEmpty());
+        assertTrue(materialized[0] < 100);
+        assertEquals(logicalCount, scrollView.virtualDiagnostics().logicalItems());
+
+        assertTrue(scrollView.scrollTo(logicalCount / 2, viewport));
+        List<ScrollViewChildView> middle = scrollView.childViews(viewport);
+        assertTrue(middle.stream().anyMatch(view -> view.index() >= logicalCount / 2));
+        assertTrue(reused[0] > 0);
+        assertTrue(scrollView.virtualDiagnostics().materializedRows() < 100);
+        assertTrue(scrollView.virtualDiagnostics().lastRowsConsidered() < 200);
+    }
+
+    @Test
+    void virtualScrollViewTargetedReplaceUpdatesVariableHeight()
+    {
+        int logicalCount = 100;
+        int[] heights = new int[logicalCount];
+        java.util.Arrays.fill(heights, 1);
+        ScrollView scrollView = new ScrollView("items");
+        scrollView.setVirtualDataSource(new VirtualScrollDataSource(
+            () -> logicalCount,
+            Integer::valueOf,
+            (index, recycled) ->
+            {
+                Label row = recycled instanceof Label label
+                    ? label
+                    : new Label("virtual-row", "");
+                row.setText("Row " + index);
+                row.setFrame(new Rect(0, 0, 20, heights[index]));
+                return row;
+            },
+            width -> 1));
+
+        Size viewport = new Size(20, 10);
+        scrollView.childViews(viewport);
+        int previousHeight = scrollView.contentHeight(20);
+        heights[0] = 5;
+        scrollView.virtualItemsReplaced(0);
+        scrollView.childViews(viewport);
+
+        assertEquals(previousHeight + 4, scrollView.contentHeight(20));
+    }
+
+    @Test
+    void virtualScrollViewStableKeyPreservesStateAndRekeyClearsIt()
+    {
+        String[] key = {"stable"};
+        List<String> observedSelections = new ArrayList<>();
+        ScrollView scrollView = new ScrollView("items");
+        scrollView.setVirtualDataSource(new VirtualScrollDataSource(
+            () -> 1,
+            index -> key[0],
+            (index, recycled) ->
+            {
+                if (recycled instanceof TextInput existing)
+                {
+                    observedSelections.add(existing.selectedText());
+                    return existing;
+                }
+                return new TextInput("virtual-row", "selected", 0);
+            },
+            width -> 1));
+        Size viewport = new Size(8, 1);
+        TextInput selected = (TextInput)scrollView.childViews(viewport).get(0).element();
+        selected.selectRange(0, 3);
+        scrollView.virtualItemsReplaced(0);
+        TextInput replaced = (TextInput)scrollView.childViews(viewport).get(0).element();
+        assertSame(selected, replaced);
+        assertEquals("sel", observedSelections.get(observedSelections.size() - 1));
+        assertEquals("sel", replaced.selectedText());
+
+        key[0] = "replacement";
+        scrollView.virtualItemsReplaced(0);
+        TextInput rekeyed = (TextInput)scrollView.childViews(viewport).get(0).element();
+        assertEquals("", observedSelections.get(observedSelections.size() - 1));
+        assertEquals("", rekeyed.selectedText());
+    }
+
+    @Test
+    void virtualScrollViewMutationsPreserveTheVisibleAnchor()
+    {
+        int anchorIndex = 20;
+        List<String> values = new ArrayList<>();
+        for (int index = 0; index < 40; ++index)
+        {
+            values.add("row-" + index);
+        }
+        ScrollView scrollView = new ScrollView("items");
+        scrollView.setVirtualDataSource(new VirtualScrollDataSource(
+            values::size,
+            values::get,
+            (index, recycled) ->
+            {
+                Label row = recycled instanceof Label label
+                    ? label
+                    : new Label("virtual-row", "");
+                row.setText(values.get(index));
+                row.setFrame(new Rect(0, 0, 8, 1));
+                return row;
+            },
+            width -> 1));
+        Size viewport = new Size(8, 3);
+        assertTrue(scrollView.scrollTo(anchorIndex, viewport));
+        assertTrue(scrollView.childViews(viewport).stream()
+            .anyMatch(view -> view.visible() && view.index() == anchorIndex));
+
+        values.add(0, "inserted");
+        scrollView.virtualItemsInserted(0);
+        assertTrue(scrollView.childViews(viewport).stream()
+            .anyMatch(view -> view.visible() && view.index() == anchorIndex + 1));
+
+        values.remove(anchorIndex + 1);
+        scrollView.virtualItemsRemoved(anchorIndex + 1);
+        assertTrue(scrollView.childViews(viewport).stream()
+            .anyMatch(view -> view.visible() && view.index() == anchorIndex + 1));
+
+        int previousCount = values.size();
+        values.clear();
+        scrollView.virtualItemsRemoved(0, previousCount);
+        assertTrue(scrollView.childViews(viewport).isEmpty());
+
+        int rowHeight = 2;
+        ScrollView gapScrollView = new ScrollView("gap-anchor-virtual", 1);
+        gapScrollView.setVirtualDataSource(new VirtualScrollDataSource(
+            () -> 4,
+            Integer::valueOf,
+            (index, recycled) ->
+            {
+                Label row = recycled instanceof Label label
+                    ? label
+                    : new Label("gap-anchor-row", "");
+                row.setText("gap-" + index);
+                row.setFrame(new Rect(0, 0, 8, rowHeight));
+                return row;
+            },
+            width -> rowHeight));
+        gapScrollView.childViews(viewport);
+        gapScrollView.scrollToTop(viewport);
+        assertTrue(gapScrollView.scrollLines(-rowHeight, viewport));
+        ScrollViewChildView beforeWidthChange = gapScrollView.childViews(viewport).stream()
+            .filter(ScrollViewChildView::visible)
+            .findFirst()
+            .orElseThrow();
+        assertEquals(1, beforeWidthChange.index());
+        assertEquals(1, beforeWidthChange.frame().row());
+
+        ScrollViewChildView afterWidthChange = gapScrollView.childViews(new Size(9, 3)).stream()
+            .filter(ScrollViewChildView::visible)
+            .findFirst()
+            .orElseThrow();
+        assertEquals(1, afterWidthChange.index());
+        assertEquals(1, afterWidthChange.frame().row());
+    }
+
+    @Test
+    void virtualScrollViewRangeHeightInvalidationPreservesOtherMeasurements()
+    {
+        int[] heights = {2, 3, 4};
+        ScrollView scrollView = new ScrollView("items");
+        scrollView.setVirtualDataSource(new VirtualScrollDataSource(
+            () -> heights.length,
+            Integer::valueOf,
+            (index, recycled) ->
+            {
+                Label row = recycled instanceof Label label
+                    ? label
+                    : new Label("virtual-row", "");
+                row.setText("Row " + index);
+                row.setFrame(new Rect(0, 0, 8, heights[index]));
+                return row;
+            },
+            width -> 1));
+        Size viewport = new Size(8, 2);
+        for (int index = 0; index < heights.length; ++index)
+        {
+            scrollView.scrollTo(index, viewport);
+            scrollView.childViews(viewport);
+        }
+        assertEquals(9, scrollView.contentHeight(8));
+
+        scrollView.invalidateVirtualHeights(1, 1);
+
+        assertEquals(7, scrollView.contentHeight(8));
     }
 
     private static Color renderedReusableFocusBackground(

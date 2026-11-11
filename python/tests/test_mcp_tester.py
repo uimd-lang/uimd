@@ -605,6 +605,58 @@ class TestMcpTesterConfig(unittest.TestCase):
 
             validate_artifact_paths(root, [artifact])
 
+    def test_parity_manifest_ignores_finder_metadata_changes(self):
+        for mutation in ("created", "changed", "removed"):
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as temporary_root,
+            ):
+                root = Path(temporary_root)
+                source = root / "src/runtime.py"
+                artifact = root / "cpp/build/examples/demo/demo"
+                source.parent.mkdir(parents=True)
+                artifact.parent.mkdir(parents=True)
+                source.write_text("runtime source\n", encoding="utf-8")
+                artifact.write_text("binary\n", encoding="utf-8")
+                metadata_paths = [
+                    root / directory / ".DS_Store"
+                    for directory in (
+                        "python/examples",
+                        "cpp/src",
+                        "csharp/src",
+                        "go/src",
+                        "rust/src/uimd",
+                        "swift/src/Uimd",
+                        "java",
+                    )
+                ]
+                for metadata in metadata_paths:
+                    metadata.parent.mkdir(parents=True, exist_ok=True)
+                    if mutation != "created":
+                        metadata.write_bytes(b"original Finder metadata")
+                write_manifest(
+                    root,
+                    [{
+                        "kind": "example",
+                        "platform": "cpp",
+                        "name": "demo",
+                        "root": "cpp/build/examples",
+                        "path": "cpp/build/examples/demo/demo",
+                    }],
+                    platforms=["cpp"],
+                )
+
+                for metadata in metadata_paths:
+                    if mutation == "removed":
+                        metadata.unlink()
+                    else:
+                        metadata.write_bytes(b"updated Finder metadata")
+
+                validate_artifact_paths(root, [artifact])
+                source.write_text("changed runtime source\n", encoding="utf-8")
+                with self.assertRaisesRegex(BuildManifestError, "source inputs changed"):
+                    validate_artifact_paths(root, [artifact])
+
     def test_parity_manifest_rejects_source_changes_after_rebuild(self):
         with tempfile.TemporaryDirectory() as temporary_root:
             root = Path(temporary_root)

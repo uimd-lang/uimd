@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ui_cpp_runtime VERSION 0.5.8 LANGUAGES CXX)
+project(ui_cpp_runtime VERSION 0.5.9 LANGUAGES CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -287,6 +287,10 @@ if(UIMD_BUILD_EXAMPLES)
         examples/agent_chat/transcript/transcript.cpp
         examples/agent_chat/transcript/transcript_ui.cpp
         examples/agent_chat/chat_entry/chat_entry_ui.cpp
+        examples/agent_chat/code_entry/code_entry_ui.cpp
+        examples/agent_chat/table_entry/table_entry_ui.cpp
+        examples/agent_chat/user_entry/user_entry_ui.cpp
+        examples/agent_chat/reasoning_entry/reasoning_entry_ui.cpp
     )
     add_ui_cpp_example(task_board)
     target_sources(task_board PRIVATE
